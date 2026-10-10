@@ -24,15 +24,12 @@ import Security
 /// signature satisfies the designated requirement built from it, and whether
 /// the user is an administrator.
 enum SelfCheck {
-    /// The Info.plist key the signing step stamps with the Team ID. An ad-hoc
-    /// developer build has no such key.
-    static let teamIDKey = "K3smTeamID"
     /// The admin group's gid on macOS.
     private static let adminGID: gid_t = 80
 
     /// The stamped Team ID, if this build carries a valid one.
     static func teamID(in bundle: Bundle = .main) -> TeamID? {
-        (bundle.object(forInfoDictionaryKey: teamIDKey) as? String).flatMap(TeamID.init)
+        (bundle.object(forInfoDictionaryKey: TeamID.infoPlistKey) as? String).flatMap(TeamID.init)
     }
 
     /// The payload version: the bundle's own short version, which the build

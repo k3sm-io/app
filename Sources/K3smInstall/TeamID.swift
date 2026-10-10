@@ -17,6 +17,10 @@ limitations under the License.
 /// TeamID is an Apple Developer Team ID: exactly ten uppercase ASCII letters
 /// or digits. It is the one value the designated requirement is built from.
 public struct TeamID: Hashable, Sendable, CustomStringConvertible {
+    /// The Info.plist key the release signing step stamps with the Team ID.
+    /// An ad-hoc developer build has no such key.
+    public static let infoPlistKey = "K3smTeamID"
+
     public let value: String
 
     /// Accepts a Team ID, or returns nil for anything that is not one.
