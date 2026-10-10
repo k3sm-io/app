@@ -15,29 +15,9 @@ limitations under the License.
 */
 
 import AppKit
-import K3smStatus  // the decoder and visibility rule the real app will drive
-import os
 
-// A minimal app stub: an accessory process (no Dock icon) that owns one
-// NSStatusItem. Polling, the window, the menu and the actions are not built yet.
-
-/// The unified-log subsystem every message from the app uses.
-let log = Logger(subsystem: "io.k3sm.app", category: "app")
-
-@MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var statusItem: NSStatusItem?
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = "k3sm"
-        let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-        item.menu = menu
-        statusItem = item
-        log.notice("k3sm app started")
-    }
-}
+// The entry point: an accessory process (no Dock icon) until its window
+// opens. Everything else lives in AppDelegate.
 
 let app = NSApplication.shared
 let delegate = AppDelegate()

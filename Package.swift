@@ -28,7 +28,7 @@ let package = Package(
     targets: [
         .target(name: "K3smStatus"),
         .target(name: "K3smInstall", dependencies: ["K3smStatus"]),
-        .executableTarget(name: "K3smApp", dependencies: ["K3smStatus"]),
+        .executableTarget(name: "K3smApp", dependencies: ["K3smStatus", "K3smInstall"]),
         .testTarget(
             name: "K3smStatusTests",
             dependencies: ["K3smStatus"],
