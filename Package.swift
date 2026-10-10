@@ -22,15 +22,18 @@ let package = Package(
     platforms: [.macOS("26.0")],
     products: [
         .library(name: "K3smStatus", targets: ["K3smStatus"]),
+        .library(name: "K3smInstall", targets: ["K3smInstall"]),
         .executable(name: "K3smApp", targets: ["K3smApp"]),
     ],
     targets: [
         .target(name: "K3smStatus"),
+        .target(name: "K3smInstall", dependencies: ["K3smStatus"]),
         .executableTarget(name: "K3smApp", dependencies: ["K3smStatus"]),
         .testTarget(
             name: "K3smStatusTests",
             dependencies: ["K3smStatus"],
             resources: [.copy("Fixtures")]
         ),
+        .testTarget(name: "K3smInstallTests", dependencies: ["K3smInstall", "K3smStatus"]),
     ]
 )
