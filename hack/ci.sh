@@ -15,6 +15,7 @@
 #   7. every .swift file carries the Apache-2.0 header
 #   8. every file under .github/workflows/ is dormant (fully commented out)
 #   9. the vendored status fixtures match a sibling k3sm checkout, when one exists
+#  10. the dependency supply-chain check: its self-test, then the live tree
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -183,5 +184,9 @@ if [ -d "$golden" ]; then
 else
 	echo "    skipped: no k3sm checkout at $k3sm_dir (set K3SM_DIR)"
 fi
+
+echo "==> dependency supply-chain (hack/verify-deps.sh)"
+bash hack/verify-deps.sh --self-test
+bash hack/verify-deps.sh
 
 echo "app ci: green"
