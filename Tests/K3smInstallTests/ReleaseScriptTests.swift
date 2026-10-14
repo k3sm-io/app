@@ -48,7 +48,15 @@ struct ReleaseScriptTests {
     @Test("the signing script refuses a binary not built for its team")
     func signingChecksCompiledPin() throws {
         let script = try Self.read("hack/release/sign-and-notarize.sh")
-        #expect(script.contains("\(TeamIDPin.marker)$team"))
+        #expect(script.contains(#""$HERE/../check-team-pin.sh" "$app/Contents/MacOS/k3sm-app" "$team""#))
+        let build = try Self.read("hack/build-app.sh")
+        #expect(build.contains(#"bash "$ROOT/hack/check-team-pin.sh" "$APP/Contents/MacOS/$EXE" "$TEAM_ID""#))
+    }
+
+    @Test("the pin checker looks for the marker the app compiles")
+    func checkerMarker() throws {
+        let checker = try Self.read("hack/check-team-pin.sh")
+        #expect(checker.contains("marker='\(TeamIDPin.marker)'"))
     }
 
     @Test("build-app.sh writes the stamp the app compiles")

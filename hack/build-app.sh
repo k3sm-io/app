@@ -186,8 +186,8 @@ codesign --verify --strict --deep --verbose=2 "$APP"
 lipo -archs "$APP/Contents/MacOS/$EXE" | grep -qx arm64 \
 	|| { echo "build-app: executable is not arm64-only" >&2; exit 1; }
 if [ -n "$TEAM_ID" ]; then
-	LC_ALL=C grep -aqF "k3sm-team-id-pin:$TEAM_ID" "$APP/Contents/MacOS/$EXE" \
-		|| { echo "build-app: the executable does not carry the Team ID pin for $TEAM_ID" >&2; exit 1; }
+	bash "$ROOT/hack/check-team-pin.sh" "$APP/Contents/MacOS/$EXE" "$TEAM_ID" > /dev/null \
+		|| { echo "build-app: the executable is not pinned to exactly $TEAM_ID" >&2; exit 1; }
 	echo "    team pin: $TEAM_ID"
 else
 	echo "    team pin: none (a developer build; privileged actions stay disabled)"
