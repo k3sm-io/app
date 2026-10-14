@@ -34,9 +34,27 @@ struct ReleaseScriptTests {
         #expect(script.contains("requirement=\"\(shell)\""))
     }
 
-    @Test("the signing script stamps the key the app reads")
-    func teamIDKey() throws {
-        let script = try String(contentsOf: Self.root.appending(path: "hack/release/sign-and-notarize.sh"), encoding: .utf8)
-        #expect(script.contains("plutil -replace \(TeamID.infoPlistKey) -string \"$team\""))
+    static func read(_ path: String) throws -> String {
+        try String(contentsOf: root.appending(path: path), encoding: .utf8)
+    }
+
+    @Test("the signing script no longer stamps a Team ID into Info.plist")
+    func noPlistTrust() throws {
+        let script = try Self.read("hack/release/sign-and-notarize.sh")
+        #expect(!script.contains("K3smTeamID"))
+        #expect(!script.contains("plutil -replace"))
+    }
+
+    @Test("the signing script refuses a binary not built for its team")
+    func signingChecksCompiledPin() throws {
+        let script = try Self.read("hack/release/sign-and-notarize.sh")
+        #expect(script.contains("\(TeamIDPin.marker)$team"))
+    }
+
+    @Test("build-app.sh writes the stamp the app compiles")
+    func buildWritesStamp() throws {
+        let script = try Self.read("hack/build-app.sh")
+        #expect(script.contains(#"static let value = \""# + TeamIDPin.marker + #"$TEAM_ID\""#))
+        #expect(script.contains("Sources/K3smInstall/TeamIDStamp.swift"))
     }
 }
