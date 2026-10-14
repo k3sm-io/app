@@ -27,7 +27,7 @@ marker='k3sm-team-id-pin:'
 # Every occurrence of the marker with the printable bytes that follow it. A
 # compiled Swift string literal ends at a NUL, so a stamp's suffix is exactly
 # its Team ID unless something longer was compiled in.
-found="$(LC_ALL=C /usr/bin/grep -ao "$marker[[:print:]]*" "$bin" || true)"
+found="$(LC_ALL=C /usr/bin/grep -ao "${marker}[[:print:]]*" "$bin" || true)"
 bare=0
 stamps=0
 value=

@@ -66,8 +66,10 @@ for name in \
 	"the k3sm release is the +k3sm. build metadata, never the Kubernetes version" \
 	"decide" \
 	"every flag passed is one the CLI declares"; do
-	grep -qF "Test \"$name\"" "$tmp/test.log" && grep -F "Test \"$name\"" "$tmp/test.log" | grep -q "passed" \
-		|| { echo "FAIL: test \"$name\" did not run and pass (CLI source: $K3SM_DIR)"; exit 1; }
+	if ! grep -F "Test \"$name\"" "$tmp/test.log" | grep -q "passed"; then
+		echo "FAIL: test \"$name\" did not run and pass (CLI source: $K3SM_DIR)"
+		exit 1
+	fi
 	echo "    passed: $name"
 done
 
