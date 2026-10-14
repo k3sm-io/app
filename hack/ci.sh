@@ -43,7 +43,9 @@ echo "==> swift build"
 swift build
 
 echo "==> swift test"
-swift test "${TEST_FLAGS[@]}"
+# ${arr[@]+"${arr[@]}"} expands to nothing for an empty array; macOS bash 3.2
+# treats a bare "${arr[@]}" on an empty array as unbound under set -u.
+swift test ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"}
 
 echo "==> hack/build-app.sh (temp dir)"
 tmp="$(mktemp -d)"
