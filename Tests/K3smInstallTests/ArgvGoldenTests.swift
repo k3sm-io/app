@@ -117,13 +117,18 @@ struct ArgvGoldenTests {
                 let kinds = ["fs.StringVar(", "fs.BoolVar(", "fs.IntVar(", "fs.String(", "fs.Bool(", "fs.Int("]
                 guard kinds.contains(where: { line.contains($0) }) else { continue }
                 let parts = line.split(separator: "\"", omittingEmptySubsequences: false)
-                if parts.count >= 2 { names.insert(String(parts[1])) }
+                if parts.count >= 2, !parts[1].isEmpty { names.insert(String(parts[1])) }
             }
             return names
         }
         let installFlags = declared("install")
         let uninstallFlags = declared("uninstall")
+        // A scrape that finds nothing means the CLI source changed shape, not
+        // that every flag is fine: fail loudly instead of passing vacuously.
+        try #require(!installFlags.isEmpty, "found no k3sm install flags in cmd/k3sm/install.go; the scrape is stale")
+        try #require(!uninstallFlags.isEmpty, "found no k3sm uninstall flags in cmd/k3sm/install.go; the scrape is stale")
         #expect(installFlags.contains("from-staging"))
+        #expect(uninstallFlags.contains("purge"))
         for c in Self.cases {
             let flags = c.argv.filter { $0.hasPrefix("--") }.map { String($0.dropFirst(2)) }
             let known = c.argv.first == "install" ? installFlags : uninstallFlags
