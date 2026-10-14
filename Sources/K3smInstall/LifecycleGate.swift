@@ -27,13 +27,16 @@ public enum LifecyclePrecondition {
     }
 
     public static func check(_ verb: LifecycleVerb, expected: LifecycleState, live: LifecycleState) -> Verdict {
+        guard let required = verb.requiredState else {
+            return .refused("\(verb.title) is not a lifecycle verb. Nothing was changed.")
+        }
         if live == .unreadable {
             return .refused("k3sm could not read the status of this Mac just now, so it did not \(verb.rawValue) k3sm.")
         }
         guard live == expected else {
             return .refused("k3sm is \(live.word) now, not \(expected.word) as it was when you chose \(verb.title). Nothing was changed.")
         }
-        guard live == verb.requiredState else {
+        guard live == required else {
             return .refused("k3sm is \(live.word), so there is nothing to \(verb.rawValue). Nothing was changed.")
         }
         return .proceed
@@ -49,9 +52,12 @@ public struct LifecycleConfirmation: Equatable, Sendable {
     public let message: String
     /// The multi-node warning, shown with emphasis; nil when none applies.
     public let warning: String?
+    /// Whether Cancel, not the verb, is the default button.
+    public let cancelIsDefault: Bool
 
     public init(verb: LifecycleVerb, report: StatusReport) {
         self.verb = verb
+        cancelIsDefault = verb == .lanOn
         switch verb {
         case .stop:
             title = "Stop k3sm on this Mac?"
@@ -67,6 +73,14 @@ public struct LifecycleConfirmation: Equatable, Sendable {
         case .restart:
             title = "Restart k3sm on this Mac?"
             message = "k3sm restarts its daemons. Pods keep running."
+            warning = nil
+        case .lanOn:
+            title = LANConfirmationText.title
+            message = LANConfirmationText.reachable(report.network) + "\n\n" + LANConfirmationText.notCovered(report.network)
+            warning = nil
+        case .lanOff:
+            title = "Stop allowing connections from other devices?"
+            message = "Workload listeners answer only on this Mac and your cluster mesh."
             warning = nil
         }
     }
@@ -133,6 +147,7 @@ public struct LifecycleDriver: Sendable {
     }
 
     public func perform(_ verb: LifecycleVerb, expected: LifecycleState) async -> Result {
+        guard !verb.isLAN else { return .refused("\(verb.title) is not a lifecycle verb. Nothing was changed.") }
         let first = await readStatus()
         if case .refused(let why) = LifecyclePrecondition.check(verb, expected: expected, live: LifecycleState(report: first)) {
             return .refused(why)

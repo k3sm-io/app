@@ -34,6 +34,29 @@ public enum PrivilegedOutcome: Equatable, Sendable {
 /// appears in the script or in any argv.
 public protocol PrivilegedRunner: Sendable {
     func runAsRoot(_ script: RootScript, input: Data?) async -> PrivilegedOutcome
+    /// Runs the step like `runAsRoot` and also returns what the step wrote
+    /// to standard error when it failed, raw. Callers show it only through
+    /// `StatusDisplay.errorText`.
+    func runAsRootReportingError(_ script: RootScript, input: Data?) async -> PrivilegedRun
+}
+
+/// PrivilegedRun is a finished root step and, when it failed, its raw error
+/// output (nil when there was none or the runner cannot read it).
+public struct PrivilegedRun: Equatable, Sendable {
+    public let outcome: PrivilegedOutcome
+    public let errorOutput: String?
+
+    public init(outcome: PrivilegedOutcome, errorOutput: String? = nil) {
+        self.outcome = outcome
+        self.errorOutput = errorOutput
+    }
+}
+
+extension PrivilegedRunner {
+    /// A runner that cannot read the error output reports none.
+    public func runAsRootReportingError(_ script: RootScript, input: Data?) async -> PrivilegedRun {
+        PrivilegedRun(outcome: await runAsRoot(script, input: input))
+    }
 }
 
 /// PrivilegedAvailability is whether the window enables privileged actions,

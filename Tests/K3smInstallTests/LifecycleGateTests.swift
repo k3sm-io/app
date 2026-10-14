@@ -125,7 +125,7 @@ struct StopWarningTests {
         #expect(text.contains("…"))
     }
 
-    @Test("every confirmation names its verb", arguments: LifecycleVerb.allCases)
+    @Test("every confirmation names its verb", arguments: LifecycleVerb.lifecycleVerbs)
     func namesVerb(_ verb: LifecycleVerb) {
         let c = LifecycleConfirmation(verb: verb, report: Reports.running)
         #expect(c.title.lowercased().hasPrefix(verb.rawValue))

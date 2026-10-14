@@ -32,11 +32,14 @@ struct LifecycleScriptTests {
         .stop: ["stop", "--actor", "user", "--reason", "from the k3sm app"],
         .start: ["start", "--actor", "user", "--reason", "from the k3sm app"],
         .restart: ["restart", "--actor", "user", "--reason", "from the k3sm app"],
+        .lanOn: ["network", "lan", "on"],
+        .lanOff: ["network", "lan", "off"],
     ]
 
     @Test("the verb set is closed: stop, start, restart")
     func verbs() {
-        #expect(LifecycleVerb.allCases.map(\.rawValue) == ["stop", "start", "restart"])
+        #expect(LifecycleVerb.lifecycleVerbs.map(\.rawValue) == ["stop", "start", "restart"])
+        #expect(LifecycleVerb.allCases.filter { !$0.isLAN } == LifecycleVerb.lifecycleVerbs)
     }
 
     @Test("the argument list", arguments: LifecycleVerb.allCases)
@@ -102,7 +105,9 @@ struct LifecycleScriptTests {
     func onlyTheVerbDiffers(_ verb: LifecycleVerb) {
         let stop = LifecycleScriptBuilder.render(.stop, teamID: Self.team).text
         let other = LifecycleScriptBuilder.render(verb, teamID: Self.team).text
-        #expect(other == stop.replacingOccurrences(of: "exec \"$k3sm\" 'stop'", with: "exec \"$k3sm\" '\(verb.rawValue)'"))
+        let argv = LifecycleScriptBuilder.arguments(for: verb).map(ShellQuote.quote).joined(separator: " ")
+        #expect(other == stop.replacingOccurrences(
+            of: "exec \"$k3sm\" 'stop' '--actor' 'user' '--reason' 'from the k3sm app'", with: "exec \"$k3sm\" " + argv))
     }
 
     @Test("the checked paths are / and every ancestor of the CLI")
@@ -110,7 +115,7 @@ struct LifecycleScriptTests {
         #expect(LifecycleScriptBuilder.checkedPaths(cliPath: K3smCLI.path) == ["/", "/Library", "/Library/k3sm", "/Library/k3sm/k3sm"])
     }
 
-    @Test("the prompt names the verb", arguments: LifecycleVerb.allCases)
+    @Test("the prompt names the verb", arguments: LifecycleVerb.lifecycleVerbs)
     func prompt(_ verb: LifecycleVerb) {
         let script = LifecycleScriptBuilder.render(verb, teamID: Self.team)
         #expect(script.prompt == "k3sm wants to \(verb.rawValue) k3sm on this Mac.")
@@ -179,7 +184,7 @@ struct LifecycleScriptTests {
         try #require(!flags.isEmpty, "found no lifecycle flags; the scrape is stale")
         // The actor the app passes is one the CLI accepts.
         #expect(lifecycle.contains("install.ActorUser"))
-        for verb in LifecycleVerb.allCases {
+        for verb in LifecycleVerb.lifecycleVerbs {
             #expect(main.contains("case \"\(verb.rawValue)\":"), "k3sm has no \(verb.rawValue) verb")
             #expect(lifecycle.contains("lifecycleFlags(\"\(verb.rawValue)\""), "\(verb.rawValue) does not parse the shared flags")
             for f in LifecycleScriptBuilder.arguments(for: verb).filter({ $0.hasPrefix("--") }) {

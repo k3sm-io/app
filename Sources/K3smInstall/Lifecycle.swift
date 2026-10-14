@@ -16,13 +16,35 @@ limitations under the License.
 
 import K3smStatus
 
-/// LifecycleVerb is the closed set of lifecycle actions the app runs as
-/// root: `k3sm stop`, `k3sm start` and `k3sm restart`. Nothing else, and no
-/// string from the user or the CLI, ever reaches the lifecycle root script.
+/// LifecycleVerb is the closed set of actions the app runs as root through
+/// the installed CLI: `k3sm stop`, `k3sm start` and `k3sm restart`, and the
+/// two LAN access verbs, `k3sm network lan on` and `k3sm network lan off`.
+/// Nothing else, and no string from the user or the CLI, ever reaches the
+/// root script: each verb's argv is a compile-time constant
+/// (`LifecycleScriptBuilder.arguments(for:)`).
 public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
     case stop
     case start
     case restart
+    case lanOn = "lan-on"
+    case lanOff = "lan-off"
+
+    /// The three lifecycle verbs, which act on the node daemon's state.
+    public static let lifecycleVerbs: [LifecycleVerb] = [.stop, .start, .restart]
+    /// The two LAN access verbs, which change where workload listeners answer.
+    public static let lanVerbs: [LifecycleVerb] = [.lanOn, .lanOff]
+
+    /// Whether this is one of the LAN access verbs.
+    public var isLAN: Bool { self == .lanOn || self == .lanOff }
+
+    /// The CLI command the verb runs, as a user would type it after `k3sm`.
+    public var command: String {
+        switch self {
+        case .stop, .start, .restart: return rawValue
+        case .lanOn: return "network lan on"
+        case .lanOff: return "network lan off"
+        }
+    }
 
     /// The administrator prompt, which names the verb. Fixed text per verb.
     public var prompt: String {
@@ -30,6 +52,8 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
         case .stop: return "k3sm wants to stop k3sm on this Mac."
         case .start: return "k3sm wants to start k3sm on this Mac."
         case .restart: return "k3sm wants to restart k3sm on this Mac."
+        case .lanOn: return "k3sm wants to allow connections from other devices to the services k3sm runs on this Mac."
+        case .lanOff: return "k3sm wants to stop allowing connections from other devices to the services k3sm runs on this Mac."
         }
     }
 
@@ -39,13 +63,20 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
         case .stop: return "Stop k3sm"
         case .start: return "Start k3sm"
         case .restart: return "Restart k3sm"
+        case .lanOn: return "Allow Connections"
+        case .lanOff: return "Stop Allowing Connections"
         }
     }
 
     /// The state the verb starts from. Stop and restart act on a running
-    /// node; start acts on a stopped one.
-    public var requiredState: LifecycleState {
-        self == .start ? .stopped : .running
+    /// node; start acts on a stopped one. The LAN verbs act in either state
+    /// (a stopped node applies the setting when it starts), so they have none.
+    public var requiredState: LifecycleState? {
+        switch self {
+        case .stop, .restart: return .running
+        case .start: return .stopped
+        case .lanOn, .lanOff: return nil
+        }
     }
 }
 
@@ -62,6 +93,9 @@ public enum LifecycleExit {
     /// A stop that left something behind exits `stopLeftoverBase` plus one
     /// bit per class (see `LifecycleOutcome.leftovers`).
     public static let stopLeftoverBase: Int32 = 32
+    /// `k3sm network lan on|off` failed and could not restore the previous
+    /// setting either.
+    public static let lanRestoreFailed: Int32 = 4
     /// `/Library/k3sm/k3sm` or an ancestor was a symlink, missing, not owned
     /// by root, writable by group or others, or carried an ACL (an ACL can
     /// grant write where the mode bits do not); or the binary is not a
@@ -85,7 +119,13 @@ public enum LifecycleScriptBuilder {
     /// The argv after the CLI path, the one definition of the command line.
     /// The golden tests pin it against `cmd/k3sm/lifecycle.go`.
     public static func arguments(for verb: LifecycleVerb) -> [String] {
-        [verb.rawValue, "--actor", "user", "--reason", reason]
+        switch verb {
+        case .stop: return ["stop", "--actor", "user", "--reason", reason]
+        case .start: return ["start", "--actor", "user", "--reason", reason]
+        case .restart: return ["restart", "--actor", "user", "--reason", reason]
+        case .lanOn: return ["network", "lan", "on"]
+        case .lanOff: return ["network", "lan", "off"]
+        }
     }
 
     /// Every path the script checks before running the CLI: `/`, each
@@ -175,6 +215,8 @@ public enum LifecycleOutcome {
             case .stop: return "k3sm is stopped. It stays stopped, across restarts too, until you start it."
             case .start: return "k3sm is starting."
             case .restart: return "k3sm restarted. Pods kept running."
+            case .lanOn: return "Devices on the networks this Mac is on can now connect to its k3sm services."
+            case .lanOff: return "Only this Mac and your cluster mesh can connect to its k3sm services now."
             }
         case .cancelled:
             return "Cancelled. Nothing was changed."
@@ -189,7 +231,11 @@ public enum LifecycleOutcome {
             case LifecycleExit.needsRoot:
                 return "k3sm did not run as root, so nothing was done."
             case LifecycleExit.usage:
-                return "The installed k3sm did not accept `k3sm \(verb.rawValue)`. Update k3sm, or run `sudo k3sm \(verb.rawValue)` in Terminal."
+                return "The installed k3sm did not accept `k3sm \(verb.command)`. Update k3sm, or run `sudo k3sm \(verb.command)` in Terminal."
+            case LifecycleExit.lanRestoreFailed where verb.isLAN:
+                return "The change failed, and k3sm could not put the previous setting back either. Run `sudo k3sm network lan status` in Terminal."
+            case LifecycleExit.failed where verb.isLAN:
+                return "k3sm could not change the setting and kept the previous one."
             default:
                 if verb == .stop, let left = leftovers(exitStatus: status) {
                     return "k3sm stopped part of the way and left behind " + left.joined(separator: ", ")
@@ -198,7 +244,7 @@ public enum LifecycleOutcome {
                 if verb == .restart, status == LifecycleExit.failed {
                     return "k3sm refused or failed to restart (exit 1). If it is stopped, use Start instead. The logs say why."
                 }
-                return "k3sm \(verb.rawValue) failed with exit status \(status). The logs say why."
+                return "k3sm \(verb.command) failed with exit status \(status). The logs say why."
             }
         }
     }
