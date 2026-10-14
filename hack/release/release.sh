@@ -1078,16 +1078,19 @@ publish.sh --upload"
 }
 
 # ---- main -------------------------------------------------------------------------
-if [ "$#" -eq 1 ] && [ "$1" = --self-test ]; then
+case "${1:-}" in
+--self-test)
+	[ "$#" -eq 1 ] || { echo "release: --self-test takes no other arguments" >&2; exit 2; }
 	self_test
 	exit $?
-fi
-if [ "${1:-}" = --rehearsal ]; then
+	;;
+--rehearsal)
 	shift
 	parse_rehearsal "$@"
 	run_rehearsal
 	exit 0
-fi
+	;;
+esac
 check_attended
 parse_full "$@"
 run_full
