@@ -141,7 +141,9 @@ while IFS= read -r -d '' f; do
 	start=1
 	# Package.swift must keep the tools-version comment on line 1.
 	if head -n 1 "$f" | grep -q '^// swift-tools-version'; then start=2; fi
-	if ! tail -n "+$start" "$f" | head -n "$n" | cmp -s - "$header"; then
+	# sed reads the whole file, so no stage of this pipe dies of SIGPIPE under
+	# pipefail (tail | head did, for any file larger than the pipe buffer).
+	if ! sed -n "${start},$((start + n - 1))p" "$f" | cmp -s - "$header"; then
 		echo "    missing header: $f"; missing=1
 	fi
 done < <(find . -name '*.swift' -not -path './.build/*' -not -path './.git/*' -print0)
