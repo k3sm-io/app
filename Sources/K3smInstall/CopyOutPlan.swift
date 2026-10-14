@@ -46,6 +46,18 @@ public enum CopyOutAction: Hashable, Sendable {
     public static let purgeUnavailableReason: String? =
         "Deleting k3sm's data runs in Terminal for now: sudo k3sm uninstall --purge --yes. The app uninstalls and keeps the data."
 
+    /// The uninstall the window may run: `.uninstall(purge:)` for the
+    /// choice, or nil for a purge while `reason` says the app cannot purge.
+    /// The window builds its uninstall action only through this, so a purge
+    /// is unreachable from it until the CLI can be told whose kubeconfig to
+    /// clean.
+    public static func uninstall(
+        requestingPurge purge: Bool, purgeUnavailableReason reason: String? = purgeUnavailableReason
+    ) -> CopyOutAction? {
+        if purge, reason != nil { return nil }
+        return .uninstall(purge: purge)
+    }
+
     /// The sentence the administrator prompt shows. Fixed text per action:
     /// nothing typed by the user or read from the CLI appears in it.
     public var prompt: String {
@@ -65,11 +77,12 @@ public enum CopyOutAction: Hashable, Sendable {
     }
 }
 
-/// ConsoleUser is the account the app runs as, passed to `k3sm install
-/// --user` so the admin kubeconfig lands in that user's home. The root step
-/// runs under `env -i`, so the CLI never sees SUDO_USER and must be told.
-/// The grammar is the macOS short-name shape; root is refused, as the CLI
-/// refuses it.
+/// ConsoleUser is the account running the app (the passwd entry of the
+/// process's real uid, `getuid()`), not whoever owns the console session.
+/// It is passed to `k3sm install --user`, so the admin kubeconfig is written
+/// to that account's `~/.kube/config`. The root step runs under `env -i`, so
+/// the CLI never sees SUDO_USER and must be told. The grammar is the macOS
+/// short-name shape; root is refused, as the CLI refuses it.
 public struct ConsoleUser: Hashable, Sendable, CustomStringConvertible {
     public let name: String
 
@@ -116,7 +129,8 @@ public struct CopyOutPlan: Hashable, Sendable {
     public let payloadVersion: SemanticVersion
     /// The team whose Developer ID signature the copy must carry.
     public let teamID: TeamID
-    /// The user whose home receives the admin kubeconfig (`--user`).
+    /// The account running the app, whose home receives the admin
+    /// kubeconfig (`--user`).
     public let user: ConsoleUser
     public let action: CopyOutAction
 

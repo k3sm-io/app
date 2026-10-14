@@ -145,7 +145,9 @@ final class AppModel: ObservableObject {
     }
 
     var canUpdate: Bool { canRunPrivileged && updateAction != nil }
-    var canUninstall: Bool { canRunPrivileged && (!purge || CopyOutAction.purgeUnavailableReason == nil) }
+    /// The uninstall the window would run; nil for a purge the app cannot do.
+    var uninstallAction: CopyOutAction? { CopyOutAction.uninstall(requestingPurge: purge) }
+    var canUninstall: Bool { canRunPrivileged && uninstallAction != nil }
 
     /// Re-reads which screen applies, the full report, the installed version
     /// and, on a worker, its join target. The full report runs only here,
@@ -196,8 +198,8 @@ final class AppModel: ObservableObject {
     /// Runs the uninstall, keeping the data unless purge is chosen and the
     /// app can purge.
     func submitUninstall() {
-        guard canUninstall else { return }
-        start(.uninstall(purge: purge), input: nil)
+        guard canUninstall, let action = uninstallAction else { return }
+        start(action, input: nil)
     }
 
     private func start(_ action: CopyOutAction, input: Data?) {

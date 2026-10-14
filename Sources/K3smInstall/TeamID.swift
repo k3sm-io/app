@@ -14,8 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-/// TeamID is an Apple Developer Team ID: exactly ten uppercase ASCII letters
-/// or digits. It is the one value the designated requirement is built from.
+/// TeamID is an Apple Developer Team ID: exactly ten characters, each an
+/// uppercase ASCII letter (A-Z) or a digit (0-9). It is the one value the
+/// designated requirement is built from.
 public struct TeamID: Hashable, Sendable, CustomStringConvertible {
     public let value: String
 

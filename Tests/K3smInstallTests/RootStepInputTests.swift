@@ -85,3 +85,39 @@ struct AgentJoinTargetTests {
         #expect(throws: AgentJoinTarget.ReadError.noProgramArguments) { try AgentJoinTarget.read(plist: noArgs) }
     }
 }
+
+@Suite("uninstall request")
+struct UninstallRequestTests {
+    static let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+
+    @Test("purge is unavailable today")
+    func purgeUnavailable() {
+        #expect(CopyOutAction.purgeUnavailableReason != nil)
+    }
+
+    @Test("no purge action while purgeUnavailableReason is set")
+    func refusesPurge() {
+        #expect(CopyOutAction.uninstall(requestingPurge: true) == nil)
+        #expect(CopyOutAction.uninstall(requestingPurge: true, purgeUnavailableReason: "not yet") == nil)
+        #expect(CopyOutAction.uninstall(requestingPurge: false) == .uninstall(purge: false))
+    }
+
+    @Test("purge becomes buildable only once the reason is cleared")
+    func purgeOnceAvailable() {
+        #expect(CopyOutAction.uninstall(requestingPurge: true, purgeUnavailableReason: nil) == .uninstall(purge: true))
+    }
+
+    @Test("the app never constructs an uninstall action directly")
+    func appGoesThroughTheRequest() throws {
+        let dir = Self.root.appending(path: "Sources/K3smApp")
+        let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        var sawRequest = false
+        for url in files where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            #expect(!text.contains(".uninstall(purge"), "\(url.lastPathComponent) builds .uninstall(purge:) directly")
+            if text.contains("CopyOutAction.uninstall(requestingPurge:") { sawRequest = true }
+        }
+        #expect(sawRequest)
+    }
+}

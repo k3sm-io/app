@@ -33,8 +33,10 @@ enum SelfCheck {
         TeamIDPin.teamID
     }
 
-    /// The account this app runs as, from its passwd entry, for `k3sm
-    /// install --user`; nil when it is root or not a plain name.
+    /// The account running the app (the passwd entry of `getuid()`, not the
+    /// console session's owner), for `k3sm install --user`: the admin
+    /// kubeconfig goes to that account. Nil when it is root or not a plain
+    /// name.
     static func consoleUser() -> ConsoleUser? {
         guard let entry = getpwuid(getuid()) else { return nil }
         return ConsoleUser(String(cString: entry.pointee.pw_name))
