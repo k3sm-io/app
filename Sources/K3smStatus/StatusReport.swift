@@ -154,8 +154,8 @@ public struct StatusReport: Decodable, Equatable, Sendable {
     public let joinTarget: String?
     /// This Mac's LAN access switch. An absent field reads as on with no
     /// setting recorded (`LANAccess.absentField`); a field that is not an
-    /// object is unknown. Only the full report carries it: the daemons probe
-    /// never does, so the app reads the switch from full reports only.
+    /// object is unknown. Both the full report and the daemons probe carry it;
+    /// only the full report carries the daemon's applied state.
     public let network: LANAccess
 
     public init(

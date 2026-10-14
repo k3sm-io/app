@@ -91,6 +91,59 @@ struct LANAccessDecodeTests {
         #expect(network.applied == nil)
     }
 
+    @Test("an unreadable record decodes as off, recorded, with the record state")
+    func unreadableRecord() throws {
+        let network = try StatusReport.decode(fixture("status_json_network-unreadable.json")).network
+        #expect(network.setting == .off)
+        #expect(network.recorded)
+        #expect(network.recordState == .unreadable)
+        #expect(network.covers == ["nodeports", "loadbalancers", "ingress"])
+        #expect(network.alwaysOn == ["apiserver", "join", "mesh"])
+        #expect(try StatusReport.decode(fixture("status_json_network-recorded.json")).network.recordState == .ok)
+        #expect(try StatusReport.decode(fixture("status_json_network-absent.json")).network.recordState == .ok)
+    }
+
+    @Test("an unknown or mistyped recordState is unknown, never ok", arguments: [
+        #"{"lan":"off","recorded":true,"recordState":"corrupt"}"#,
+        #"{"lan":"off","recorded":true,"recordState":""}"#,
+        #"{"lan":"off","recorded":true,"recordState":"Unreadable"}"#,
+        #"{"lan":"off","recorded":true,"recordState":true}"#,
+        #"{"lan":"off","recorded":true,"recordState":null}"#,
+        #"{"lan":"off","recorded":true,"recordState":["unreadable"]}"#,
+    ])
+    func unknownRecordState(_ field: String) throws {
+        let network = try Self.report(network: field).network
+        #expect(network.recordState == .unknown)
+        #expect(network.recordState != .ok)
+    }
+
+    @Test("appliedReadable false decodes, and an absent or mistyped value is not said")
+    func appliedReadable() throws {
+        let network = try StatusReport.decode(fixture("status_json_network-applied-unreadable.json")).network
+        #expect(network.appliedReadable == false)
+        #expect(network.applied == nil)
+        #expect(network.recordState == .ok)
+        #expect(try StatusReport.decode(fixture("status_json_network-recorded.json")).network.appliedReadable == nil)
+        #expect(try Self.report(network: #"{"lan":"off","recorded":true,"appliedReadable":"no"}"#).network.appliedReadable == nil)
+    }
+
+    @Test("the daemons probe goldens carry the network object", arguments: [
+        ("status_daemons_json_network-absent.json", LANSetting.on, false, LANRecordState.ok),
+        ("status_daemons_json_network-recorded.json", .off, true, .ok),
+        ("status_daemons_json_network-unreadable.json", .off, true, .unreadable),
+        ("status_daemons_json_network-applied-unreadable.json", .off, true, .ok),
+    ])
+    func daemonsProbe(_ file: String, _ setting: LANSetting, _ recorded: Bool, _ state: LANRecordState) throws {
+        let report = try StatusReport.decode(fixture(file))
+        #expect(report.hasLANSwitch)
+        #expect(report.network.setting == setting)
+        #expect(report.network.recorded == recorded)
+        #expect(report.network.recordState == state)
+        #expect(report.network.applied == nil)
+        #expect(report.network.fieldPresent)
+        #expect(report.network.covers == ["nodeports", "loadbalancers", "ingress"])
+    }
+
     @Test("a role with no switch has none", arguments: [
         ("server", "not-installed", false),
         ("witness", "running", false),
