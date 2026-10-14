@@ -152,10 +152,16 @@ public struct StatusReport: Decodable, Equatable, Sendable {
     /// On a worker, the `host:port` of the server it joined; nil when absent
     /// or not a string. Shown data only: it passes `ServerAddress` before use.
     public let joinTarget: String?
+    /// This Mac's LAN access switch. An absent field reads as on with no
+    /// setting recorded (`LANAccess.absentField`); a field that is not an
+    /// object is unknown. Only the full report carries it: the daemons probe
+    /// never does, so the app reads the switch from full reports only.
+    public let network: LANAccess
 
     public init(
         schemaVersion: Int, verdict: Verdict, role: String, summary: String, rows: [StatusRow],
-        stoppedBy: StoppedBy? = nil, workers: [StatusWorker]? = nil, joinTarget: String? = nil
+        stoppedBy: StoppedBy? = nil, workers: [StatusWorker]? = nil, joinTarget: String? = nil,
+        network: LANAccess = .absentField
     ) {
         self.schemaVersion = schemaVersion
         self.verdict = verdict
@@ -165,10 +171,11 @@ public struct StatusReport: Decodable, Equatable, Sendable {
         self.stoppedBy = stoppedBy
         self.workers = workers
         self.joinTarget = joinTarget
+        self.network = network
     }
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, verdict, role, summary, rows, daemons, stoppedBy, workers, joinTarget
+        case schemaVersion, verdict, role, summary, rows, daemons, stoppedBy, workers, joinTarget, network
     }
 
     /// The wire shape of one worker; a node without a string name makes the
@@ -204,6 +211,11 @@ public struct StatusReport: Decodable, Equatable, Sendable {
         workers = ((try? c.decodeIfPresent([WireWorker].self, forKey: .workers)) ?? nil)?
             .map { StatusWorker(name: $0.name, role: $0.role, version: $0.version) }
         joinTarget = (try? c.decodeIfPresent(String.self, forKey: .joinTarget)) ?? nil
+        if c.contains(.network) {
+            network = (try? c.decode(LANAccess.self, forKey: .network)) ?? .unreadableField
+        } else {
+            network = .absentField
+        }
     }
 
     /// Returns the row with the given name, if the report carries one.

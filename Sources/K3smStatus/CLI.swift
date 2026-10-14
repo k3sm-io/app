@@ -95,6 +95,34 @@ public enum StatusDisplay {
         return String(flat.prefix(maxLength - 1)) + "…"
     }
 
+    /// The most characters of a CLI error message the app shows.
+    public static let maxErrorLength = 300
+
+    /// Returns a CLI error message safe to show: control and format
+    /// characters (bidirectional overrides included) are removed, runs of
+    /// whitespace become one space, and anything past `maxErrorLength`
+    /// characters becomes an ellipsis.
+    public static func errorText(_ text: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        var pendingSpace = false
+        for scalar in text.unicodeScalars {
+            let category = scalar.properties.generalCategory
+            if scalar.properties.isWhitespace || category == .control || category == .lineSeparator || category == .paragraphSeparator {
+                pendingSpace = !scalars.isEmpty
+                continue
+            }
+            if category == .format { continue }
+            if pendingSpace {
+                scalars.append(" ")
+                pendingSpace = false
+            }
+            scalars.append(scalar)
+        }
+        let flat = String(scalars)
+        guard flat.count > maxErrorLength else { return flat }
+        return String(flat.prefix(maxErrorLength - 1)) + "…"
+    }
+
     /// Returns at most `maxRows` rows with every field clipped.
     public static func rows(of report: StatusReport) -> [StatusRow] {
         report.rows.prefix(maxRows).map {
