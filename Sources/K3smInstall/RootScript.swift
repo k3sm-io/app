@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import K3smStatus
+
 /// CopyOutExit names the exit statuses the root step chooses itself. Any
 /// other non-zero status is the failing command's own (codesign, ditto, or
 /// the staged `k3sm`), and its message is in the log.
@@ -41,14 +43,26 @@ public struct RootScript: Hashable, Sendable {
     public let prompt: String
     /// Whether the script reads the join token from stdin.
     public let readsInput: Bool
+    /// Whether the command holds the copy-out lock. Every copy-out does; a
+    /// lifecycle verb (`LifecycleScriptBuilder`) stages nothing and takes no
+    /// lock.
+    public let usesStagingLock: Bool
+
+    public init(text: String, prompt: String, readsInput: Bool, usesStagingLock: Bool = true) {
+        self.text = text
+        self.prompt = prompt
+        self.readsInput = readsInput
+        self.usesStagingLock = usesStagingLock
+    }
 
     /// The one command line the privileged runner executes: a scrubbed
-    /// environment, the copy-out lock (failing at once if held), and the
-    /// script as a single `sh -c` word, with stdin from `inputPath`
-    /// (`/dev/null` when the script reads nothing).
+    /// environment, the copy-out lock (failing at once if held) when the
+    /// script uses it, and the script as a single `sh -c` word, with stdin
+    /// from `inputPath` (`/dev/null` when the script reads nothing).
     public func command(inputPath: String) -> String {
-        "/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin"
-            + " /usr/bin/lockf -k -t 0 \(ShellQuote.quote(CopyOutPlan.lockPath))"
+        let lock = usesStagingLock ? " /usr/bin/lockf -k -t 0 \(ShellQuote.quote(CopyOutPlan.lockPath))" : ""
+        return "/usr/bin/env -i PATH=\(K3smCLI.systemPath)"
+            + lock
             + " /bin/sh -c \(ShellQuote.quote(text))"
             + " < \(ShellQuote.quote(inputPath))"
     }
