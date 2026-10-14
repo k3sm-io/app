@@ -32,8 +32,9 @@ script:
 2. refuses the copy if it holds a symlink, a special file, a setuid or setgid
    file, or anything writable by group or others;
 3. verifies the copy's signature against the k3sm Developer ID;
-4. runs `k3sm install` from the verified copy, which installs into
-   `/Library/k3sm`;
+4. runs `k3sm install --from-staging` from the verified copy, which installs
+   into `/Library/k3sm` and writes the admin kubeconfig to the account running
+   the app;
 5. removes the staging directory however the run ends.
 
 Its output goes to `/Library/Logs/k3sm/copy-out.log`, which the window shows
@@ -50,6 +51,13 @@ With no `/Library/k3sm` on the Mac, the window asks one question:
   stdin and written only to a root-owned file that is deleted when the step
   ends; it never appears in a command line. Tokens expire in minutes, so a
   failed join asks for a fresh one.
+
+After the administrator prompt, the window streams the step's log as it runs
+and, when the step ends, switches to the status of the new install.
+
+Installing, updating and uninstalling need an administrator account and a
+release build of the app. A build from source pins no Developer ID team, so
+it shows status but keeps these actions disabled and says why.
 
 The app registers itself as a login item for each user on their first launch.
 It appears under System Settings > General > Login Items, where it can be
@@ -71,20 +79,38 @@ environment it builds itself.
 
 ## Updating
 
-When the app carries a newer k3sm than the one installed, it offers to update.
-Updates follow the documented rollout order: worker Macs first, the
-control-plane Mac last. On a worker the update is always available. On a server
-with joined workers it is available only once every worker runs the new
-version or later, and until then the app names the workers still to update.
-An older build replaces a newer one only if you choose an explicit downgrade.
+When the app carries a newer k3sm than the one installed, the window offers
+**Update k3sm**. Updates follow the documented rollout order: worker Macs
+first, the control-plane Mac last.
+
+- On a worker the update is always available. The window names the
+  control-plane Mac the worker joins, and the update keeps it joined there.
+- On the control-plane Mac the window first lists the checks to make before
+  updating (take a snapshot with `sudo k3sm snapshot save`, leave free space
+  for the datastore migration, and note that a datastore engine change is one
+  way). The app cannot read the workers' versions yet, so the update waits
+  until you confirm that every worker already runs the new version. Checking
+  the workers' versions for you arrives with a change to `k3sm status`.
+
+The app does not downgrade. When it carries an older k3sm than the one
+installed, or the installed version cannot be read, it offers no update; a
+downgrade runs in a terminal.
 
 New versions of the app arrive as a new disk image (or, later, through
 `brew upgrade --cask`). The app has no built-in downloader.
 
 ## Uninstalling
 
-The window's uninstall action runs `k3sm uninstall` through the same verified
-copy-out, with an option to also delete k3sm's data.
+The window's **Uninstall k3sm** action asks for confirmation, then runs
+`k3sm uninstall` through the same verified copy-out. It stops k3sm and removes
+it, and keeps the cluster's data.
+
+Removing k3sm's data is not available from the app yet. The option is shown,
+disabled, with the command that does it in a terminal:
+
+```sh
+sudo k3sm uninstall --purge --yes
+```
 
 Dragging `k3sm.app` to the Trash removes only the app. k3sm keeps running,
 because the cluster does not depend on its front end. To remove k3sm itself,
@@ -100,6 +126,7 @@ third-party dependencies.
 swift build
 swift test
 hack/build-app.sh out/                          # ad-hoc signed out/k3sm.app, no payload
+hack/build-app.sh --team-id <ID> out/           # compiles the Developer ID Team ID the app pins
 hack/build-app.sh --version 0.2.0 \
     --payload <staged-tree> out/                # with a k3sm staged tree as its payload
 hack/release/make-dmg.sh out/k3sm.app out/k3sm.dmg
