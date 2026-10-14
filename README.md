@@ -75,7 +75,49 @@ turned off.
 
 The app reads state only from `k3sm status -o json`, the machine interface the
 k3sm CLI documents. It runs `/Library/k3sm/k3sm` by absolute path with an
-environment it builds itself.
+environment it builds itself. A newer CLI may print status words this app does
+not know; they are shown as printed and never stop the app from reading the
+rest.
+
+## The menu
+
+The status item's menu shows the verdict and summary, then the status rows
+(the full report is read each time the menu opens), and these actions:
+
+- **Stop k3sm** stops k3sm on this Mac completely, pods included, and keeps it
+  stopped across restarts until you start it (`sudo k3sm stop`). Before it
+  asks, the app reads the status again. On a server with joined nodes it names
+  them and warns that stopping halts the cluster's control plane for them. When
+  it cannot tell whether any node has joined, it says so and warns anyway.
+- **Restart k3sm** restarts the k3sm daemons; pods keep running.
+- **Open Status in Terminal** runs `k3sm status` in a Terminal window.
+- **Open Logs** opens the node daemon's and netd's logs in Console.
+- **Write a Bug Report** opens a Terminal window that collects the k3sm and
+  macOS versions, the status JSON, the daemons' launchd state and the tail of
+  each k3sm log into one file, with tokens, keys and passwords redacted, and
+  opens that file for you to read. Nothing is uploaded, and it reads no
+  kubeconfig, token, Secret, environment or pod manifest. Share the file
+  yourself if you want to.
+- **Open k3sm** and **Quit k3sm**.
+
+After a stop the status item disappears, because k3sm is no longer running.
+At your next login the app posts a notification, "k3sm is stopped (by you)",
+with a **Start** button. **Start k3sm** is also in the window whenever k3sm is
+stopped.
+
+Stop, Start and Restart each ask first, naming the action, and then show the
+standard administrator prompt, every time. If the status changed since you
+chose the action (k3sm stopped or started in the meantime), nothing is run.
+The root step runs only `/Library/k3sm/k3sm stop`, `start` or `restart`, and
+only after checking that the binary and every folder above it are owned by
+root, not writable by anyone else and not symlinks, and that the binary is
+signed by the k3sm Developer ID. It never uses the app's own copy of k3sm.
+
+These actions need a k3sm release that has `k3sm stop` (any release after
+0.1.7). With an older k3sm, or one that fails those checks, the menu leaves
+them off and the window says why; `sudo k3sm stop` and `sudo k3sm start` work
+in Terminal either way. Like installing, they need an administrator account
+and a release build of the app.
 
 ## Updating
 
