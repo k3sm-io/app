@@ -16,16 +16,35 @@ limitations under the License.
 
 import K3smStatus
 
+/// UpdateRole is which node an update reinstalls, read from `k3sm status`.
+/// The CLI re-derives a worker's `--agent --server` from its flags on every
+/// install, so a worker update names the control plane it already joins.
+public enum UpdateRole: Hashable, Sendable {
+    /// The control-plane Mac. Its recorded server arguments carry over.
+    case server
+    /// A worker that joins `joinServer` (from its installed agent plist).
+    case agent(joinServer: ServerAddress)
+}
+
 /// CopyOutAction is what the root step runs once the staged copy verifies.
 public enum CopyOutAction: Hashable, Sendable {
     /// Install a server on this Mac (first run, "Start a cluster").
     case startServer
     /// Install a worker that joins `server`; the join token arrives on stdin.
     case join(ServerAddress)
-    /// Re-run the install over an existing one (the in-place upgrade).
-    case update
+    /// Re-run the install over an existing one (the in-place upgrade), in the
+    /// role this Mac already has.
+    case update(UpdateRole)
     /// Remove k3sm; `purge` also deletes its data.
     case uninstall(purge: Bool)
+
+    /// Why the app does not offer a purge, or nil when it does. `k3sm
+    /// uninstall --purge` learns whose kubeconfig to clean only from sudo's
+    /// SUDO_USER and SUDO_UID, which the administrator prompt does not set and
+    /// the scrubbed environment would strip; the CLI has no flag that names
+    /// the user instead. Until it does, a purge runs in Terminal.
+    public static let purgeUnavailableReason: String? =
+        "Deleting k3sm's data runs in Terminal for now: sudo k3sm uninstall --purge --yes. The app uninstalls and keeps the data."
 
     /// The sentence the administrator prompt shows. Fixed text per action:
     /// nothing typed by the user or read from the CLI appears in it.
@@ -44,6 +63,29 @@ public enum CopyOutAction: Hashable, Sendable {
         if case .join = self { return true }
         return false
     }
+}
+
+/// ConsoleUser is the account the app runs as, passed to `k3sm install
+/// --user` so the admin kubeconfig lands in that user's home. The root step
+/// runs under `env -i`, so the CLI never sees SUDO_USER and must be told.
+/// The grammar is the macOS short-name shape; root is refused, as the CLI
+/// refuses it.
+public struct ConsoleUser: Hashable, Sendable, CustomStringConvertible {
+    public let name: String
+
+    /// Accepts a short user name, or returns nil for root or anything that is
+    /// not a plain name.
+    public init?(_ name: String) {
+        let bytes = Array(name.utf8)
+        let alnum: (UInt8) -> Bool = { (0x30...0x39).contains($0) || (0x41...0x5A).contains($0) || (0x61...0x7A).contains($0) }
+        guard (1...255).contains(bytes.count), name != "root",
+              alnum(bytes[0]) || bytes[0] == UInt8(ascii: "_"),
+              bytes.allSatisfy({ alnum($0) || $0 == UInt8(ascii: "_") || $0 == UInt8(ascii: ".") || $0 == UInt8(ascii: "-") })
+        else { return nil }
+        self.name = name
+    }
+
+    public var description: String { name }
 }
 
 /// CopyOutPlan is the root step as data: which app bundle to copy, where root
@@ -74,6 +116,8 @@ public struct CopyOutPlan: Hashable, Sendable {
     public let payloadVersion: SemanticVersion
     /// The team whose Developer ID signature the copy must carry.
     public let teamID: TeamID
+    /// The user whose home receives the admin kubeconfig (`--user`).
+    public let user: ConsoleUser
     public let action: CopyOutAction
 
     /// PlanError says why a plan was refused before any script was rendered.
@@ -87,7 +131,9 @@ public struct CopyOutPlan: Hashable, Sendable {
     /// Creates a plan. The bundle path must be absolute, canonical (no empty,
     /// `.` or `..` component) and end in `.app`; control characters are
     /// refused outright even though the script would quote them.
-    public init(bundlePath: String, payloadVersion: SemanticVersion, teamID: TeamID, action: CopyOutAction) throws(PlanError) {
+    public init(
+        bundlePath: String, payloadVersion: SemanticVersion, teamID: TeamID, user: ConsoleUser, action: CopyOutAction
+    ) throws(PlanError) {
         guard bundlePath.hasPrefix("/") else { throw .bundlePathNotAbsolute }
         guard !bundlePath.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else {
             throw .bundlePathHasControlCharacter
@@ -100,6 +146,7 @@ public struct CopyOutPlan: Hashable, Sendable {
         self.bundlePath = bundlePath
         self.payloadVersion = payloadVersion
         self.teamID = teamID
+        self.user = user
         self.action = action
     }
 

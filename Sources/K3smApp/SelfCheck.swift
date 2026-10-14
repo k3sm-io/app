@@ -33,6 +33,13 @@ enum SelfCheck {
         TeamIDPin.teamID
     }
 
+    /// The account this app runs as, from its passwd entry, for `k3sm
+    /// install --user`; nil when it is root or not a plain name.
+    static func consoleUser() -> ConsoleUser? {
+        guard let entry = getpwuid(getuid()) else { return nil }
+        return ConsoleUser(String(cString: entry.pointee.pw_name))
+    }
+
     /// The payload version: the bundle's own short version, which the build
     /// stamps with the same release version as the payload.
     static func payloadVersion(in bundle: Bundle = .main) -> SemanticVersion? {

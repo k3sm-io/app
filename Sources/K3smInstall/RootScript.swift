@@ -121,15 +121,60 @@ public enum RootScriptBuilder {
         return RootScript(text: text + "\n", prompt: plan.action.prompt, readsInput: plan.action.readsToken)
     }
 
+    /// The argv the staged CLI runs with, after its own path. It is the one
+    /// definition of the command line: the script renders it, and the golden
+    /// tests pin it against the k3sm CLI's flags.
+    ///
+    /// - every install passes `--user`, because `env -i` strips SUDO_USER and
+    ///   the CLI refuses an install that names no human;
+    /// - a worker update passes `--agent --server <host>`, because the CLI
+    ///   re-derives the role and the join target from its flags each run;
+    /// - a plain uninstall takes no flag (`--yes` confirms only `--purge`).
+    public static func arguments(for plan: CopyOutPlan) -> [CLIArgument] {
+        let install: [CLIArgument] = [
+            .literal("install"), .literal("--from-staging"), .stagingDirectory,
+            .literal("--user"), .literal(plan.user.name),
+        ]
+        switch plan.action {
+        case .startServer, .update(.server):
+            return install
+        case .join(let server):
+            return install + [
+                .literal("--agent"), .literal("--server"), .literal(server.argument),
+                .literal("--token-file"), .tokenFile,
+            ]
+        case .update(.agent(let server)):
+            return install + [.literal("--agent"), .literal("--server"), .literal(server.argument)]
+        case .uninstall(purge: false):
+            return [.literal("uninstall")]
+        case .uninstall(purge: true):
+            return [.literal("uninstall"), .literal("--purge"), .literal("--yes")]
+        }
+    }
+
+    /// The shell line that runs the staged CLI: `"$k3sm"` and every argument
+    /// as one quoted word.
+    static func invocation(_ plan: CopyOutPlan, q: (String) -> String) -> String {
+        let words = arguments(for: plan).map { arg -> String in
+            switch arg {
+            case .literal(let s): return q(s)
+            case .stagingDirectory: return "\"$stage\""
+            case .tokenFile: return "\"$stage\"/\(q(CopyOutPlan.tokenFileName))"
+            }
+        }
+        return (["\"$k3sm\""] + words).joined(separator: " ")
+    }
+
     private static func actionLines(_ plan: CopyOutPlan, q: (String) -> String) -> String {
         let token = "\"$stage\"/\(q(CopyOutPlan.tokenFileName))"
+        let run = invocation(plan, q: q)
         switch plan.action {
         case .startServer:
             return #"""
                 echo 'copy-out: running k3sm install'
-                "$k3sm" install --from-staging "$stage"
+                \#(run)
                 """#
-        case .join(let server):
+        case .join:
             return #"""
                 ( umask 077 && /bin/cat > \#(token) )
                 if [ ! -s \#(token) ]; then
@@ -137,18 +182,36 @@ public enum RootScriptBuilder {
                 	exit \#(CopyOutExit.missingToken)
                 fi
                 echo 'copy-out: running k3sm install --agent'
-                "$k3sm" install --from-staging "$stage" --agent --server \#(q(server.argument)) --token-file \#(token)
+                \#(run)
                 """#
         case .update:
             return #"""
                 echo 'copy-out: running k3sm install (update)'
-                "$k3sm" install --from-staging "$stage"
+                \#(run)
                 """#
-        case .uninstall(let purge):
+        case .uninstall:
             return #"""
                 echo 'copy-out: running k3sm uninstall'
-                "$k3sm" uninstall --yes\#(purge ? " --purge" : "")
+                \#(run)
                 """#
+        }
+    }
+}
+
+/// CLIArgument is one word of the staged CLI's argv: fixed text, or a path
+/// only the root script knows (the mktemp-named staging directory, and the
+/// token file inside it).
+public enum CLIArgument: Hashable, Sendable {
+    case literal(String)
+    case stagingDirectory
+    case tokenFile
+
+    /// The word with the staging directory filled in.
+    public func resolved(stage: String) -> String {
+        switch self {
+        case .literal(let s): return s
+        case .stagingDirectory: return stage
+        case .tokenFile: return stage + "/" + CopyOutPlan.tokenFileName
         }
     }
 }

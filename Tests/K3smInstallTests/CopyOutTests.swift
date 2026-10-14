@@ -23,9 +23,10 @@ import K3smStatus
 struct CopyOutTests {
     static let team = TeamID("ABCDE12345")!
     static let version = SemanticVersion("0.2.0")!
+    static let user = ConsoleUser("alice")!
 
     static func plan(_ action: CopyOutAction, bundle: String = "/Applications/k3sm.app") throws -> CopyOutPlan {
-        try CopyOutPlan(bundlePath: bundle, payloadVersion: version, teamID: team, action: action)
+        try CopyOutPlan(bundlePath: bundle, payloadVersion: version, teamID: team, user: user, action: action)
     }
 
     struct PathCase: Sendable, CustomTestStringConvertible {
@@ -71,7 +72,8 @@ struct CopyOutTests {
     static let actions: [CopyOutAction] = [
         .startServer,
         .join(try! ServerAddress(parsing: "studio.local")),
-        .update,
+        .update(.server),
+        .update(.agent(joinServer: try! ServerAddress(parsing: "studio.local"))),
         .uninstall(purge: false),
         .uninstall(purge: true),
     ]
@@ -103,17 +105,17 @@ struct CopyOutTests {
     @Test("the action lines")
     func actionLines() throws {
         let start = RootScriptBuilder.render(try Self.plan(.startServer)).text
-        #expect(start.contains(#""$k3sm" install --from-staging "$stage""#))
+        #expect(start.contains(#""$k3sm" 'install' '--from-staging' "$stage" '--user' 'alice'"#))
         #expect(!start.contains("--agent"))
 
         let join = RootScriptBuilder.render(try Self.plan(.join(try ServerAddress(parsing: "[fd00::1]:9345"))))
         #expect(join.readsInput)
         #expect(join.text.contains(#"( umask 077 && /bin/cat > "$stage"/'join-token' )"#))
-        #expect(join.text.contains(#""$k3sm" install --from-staging "$stage" --agent --server 'fd00::1' --token-file "$stage"/'join-token'"#))
+        #expect(join.text.contains(#"'--agent' '--server' 'fd00::1' '--token-file' "$stage"/'join-token'"#))
 
         #expect(!RootScriptBuilder.render(try Self.plan(.startServer)).readsInput)
-        #expect(RootScriptBuilder.render(try Self.plan(.uninstall(purge: false))).text.contains("\"$k3sm\" uninstall --yes\n"))
-        #expect(RootScriptBuilder.render(try Self.plan(.uninstall(purge: true))).text.contains("\"$k3sm\" uninstall --yes --purge\n"))
+        #expect(RootScriptBuilder.render(try Self.plan(.uninstall(purge: false))).text.contains("\"$k3sm\" 'uninstall'\n"))
+        #expect(RootScriptBuilder.render(try Self.plan(.uninstall(purge: true))).text.contains("\"$k3sm\" 'uninstall' '--purge' '--yes'\n"))
     }
 
     @Test("a hostile bundle path is interpolated only as one quoted word")
@@ -127,7 +129,7 @@ struct CopyOutTests {
 
     @Test("the requirement is passed as one quoted word")
     func requirementWord() throws {
-        let p = try Self.plan(.update)
+        let p = try Self.plan(.update(.server))
         let text = RootScriptBuilder.render(p).text
         #expect(text.contains("--deep " + ShellQuote.quote("-R=" + p.designatedRequirement) + " "))
     }

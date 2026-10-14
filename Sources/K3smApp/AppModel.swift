@@ -55,6 +55,7 @@ final class AppModel: ObservableObject {
 
     let payloadVersion: SemanticVersion?
     private let teamID: TeamID?
+    private let user: ConsoleUser?
     private let runner: any PrivilegedRunner
     private let environment: [String: String]
 
@@ -62,8 +63,13 @@ final class AppModel: ObservableObject {
         self.runner = runner
         self.environment = environment
         self.teamID = SelfCheck.teamID()
+        self.user = SelfCheck.consoleUser()
         self.payloadVersion = SelfCheck.payloadVersion()
-        self.availability = SelfCheck.availability()
+        var availability = SelfCheck.availability()
+        if availability == .enabled, user == nil {
+            availability = .disabled(reason: "k3sm could not read a non-root account name for this user, so it cannot install k3sm.")
+        }
+        self.availability = availability
         // An unfinished or failed earlier run is the first thing the window
         // shows on relaunch.
         let previous = Self.readLog()
@@ -112,7 +118,7 @@ final class AppModel: ObservableObject {
 
     /// Runs the first-run choice through the privileged runner.
     func submitFirstRun() {
-        guard canSubmit, let teamID, let payloadVersion else { return }
+        guard canSubmit, let teamID, let user, let payloadVersion else { return }
         let action: CopyOutAction
         var input: Data?
         switch choice {
@@ -128,7 +134,8 @@ final class AppModel: ObservableObject {
         }
         let plan: CopyOutPlan
         do {
-            plan = try CopyOutPlan(bundlePath: Bundle.main.bundlePath, payloadVersion: payloadVersion, teamID: teamID, action: action)
+            plan = try CopyOutPlan(
+                bundlePath: Bundle.main.bundlePath, payloadVersion: payloadVersion, teamID: teamID, user: user, action: action)
         } catch {
             outcomeMessage = "k3sm cannot run from \(Bundle.main.bundlePath). Move it to the Applications folder."
             return
