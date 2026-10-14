@@ -88,7 +88,8 @@ struct FirstRunView: View {
     }
 }
 
-/// StatusView shows the full report, clipped, and the version comparison.
+/// StatusView shows the full report, clipped, the version comparison, and
+/// the Update and Uninstall actions.
 struct StatusView: View {
     @ObservedObject var model: AppModel
 
@@ -96,6 +97,9 @@ struct StatusView: View {
         VStack(alignment: .leading, spacing: 12) {
             if let report = model.report {
                 Text(verbatim: StatusDisplay.clip(headline(report))).font(.title2)
+                if let stopped = report.stoppedBy {
+                    Text(verbatim: StatusDisplay.clip(stopped.line)).foregroundStyle(.secondary)
+                }
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
                     ForEach(Array(StatusDisplay.rows(of: report).enumerated()), id: \.offset) { _, row in
                         GridRow {
@@ -113,6 +117,13 @@ struct StatusView: View {
                 .foregroundStyle(.secondary)
             Button("Refresh") { Task { await model.refresh() } }
                 .disabled(model.running)
+            Divider()
+            UpdateSection(model: model)
+            Divider()
+            UninstallSection(model: model)
+            if case .disabled(let reason) = model.availability {
+                Text(verbatim: reason).foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -128,6 +139,84 @@ struct StatusView: View {
         case .newer: return "Installed: \(current) · this app carries \(payload), a newer release"
         case .same: return "Installed: \(current) · up to date with this app"
         case .older: return "Installed: \(current) · this app carries an older release, \(payload)"
+        }
+    }
+}
+
+/// UpdateSection offers "Update k3sm" when the payload is newer, following
+/// the rollout order: a worker any time, the control plane last, behind an
+/// explicit confirmation while the status report carries no worker versions.
+struct UpdateSection: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let decision = model.updateDecision, let payload = model.payloadVersion {
+                switch decision.verdict {
+                case .upToDate:
+                    Text("k3sm is up to date with this app.").foregroundStyle(.secondary)
+                case .needsDowngradeConsent:
+                    Text("This app does not carry a newer k3sm than the one installed, or the installed version could not be read. The app does not downgrade.")
+                        .foregroundStyle(.secondary)
+                case .waitForWorkers:
+                    Text(verbatim: "Update these workers first: " + decision.workersToUpdate.map(StatusDisplay.clip).joined(separator: ", "))
+                case .confirmWorkersUpdated, .offer:
+                    if model.role == .server {
+                        serverNotes(payload: payload)
+                    }
+                    agentTarget
+                    Button("Update k3sm to " + payload.description) { model.submitUpdate() }
+                        .disabled(!model.canUpdate)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func serverNotes(payload: SemanticVersion) -> some View {
+        Text("This Mac runs the control plane, so it updates last.").bold()
+        ForEach(UpdatePolicy.serverChecks, id: \.self) { Text(verbatim: "• " + $0).font(.callout) }
+        Text("k3sm cannot read the workers' versions yet. Update every worker first, then confirm.")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        Toggle("Every worker runs k3sm " + payload.description + " or newer", isOn: $model.workersConfirmed)
+    }
+
+    @ViewBuilder
+    private var agentTarget: some View {
+        if model.role == .agent {
+            switch model.joinTarget {
+            case .success(let server):
+                Text(verbatim: "This worker joins " + server.description + ".").font(.callout)
+            case .failure, nil:
+                Text("The control-plane address this worker joins could not be read from its LaunchDaemon, so update it in Terminal.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// UninstallSection removes k3sm through the same verified root step. The
+/// data stays unless purge is chosen, and purge is offered only once the CLI
+/// can be told whose kubeconfig to clean.
+struct UninstallSection: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Also delete k3sm's data", isOn: $model.purge)
+                .disabled(CopyOutAction.purgeUnavailableReason != nil)
+            if let reason = CopyOutAction.purgeUnavailableReason {
+                Text(verbatim: reason).font(.callout).foregroundStyle(.secondary)
+            }
+            Button("Uninstall k3sm…") { model.confirmingUninstall = true }
+                .disabled(!model.canUninstall)
+                .confirmationDialog(
+                    model.purge ? "Uninstall k3sm and delete its data?" : "Uninstall k3sm and keep its data?",
+                    isPresented: $model.confirmingUninstall
+                ) {
+                    Button("Uninstall", role: .destructive) { model.submitUninstall() }
+                }
         }
     }
 }
