@@ -85,12 +85,20 @@ first, the control-plane Mac last.
 
 - On a worker the update is always available. The window names the
   control-plane Mac the worker joins, and the update keeps it joined there.
+  The control-plane address comes from `joinTarget` in `k3sm status -o json`
+  (the host only; the CLI adds the join port). A CLI that does not report it
+  falls back to the worker's installed LaunchDaemon. Either way the address
+  must pass the same strict check as one typed into the join form.
 - On the control-plane Mac the window first lists the checks to make before
   updating (take a snapshot with `sudo k3sm snapshot save`, leave free space
   for the datastore migration, and note that a datastore engine change is one
-  way). The app cannot read the workers' versions yet, so the update waits
-  until you confirm that every worker already runs the new version. Checking
-  the workers' versions for you arrives with a change to `k3sm status`.
+  way). The app reads the workers and their versions from the `workers` list
+  in `k3sm status -o json`. The update is offered once every worker reports
+  a k3sm version at or above the new one. While any worker is behind, the
+  window names the workers to update first and offers nothing. When the list
+  is missing, or a worker reports no version, the app cannot vouch for it: the
+  update waits until you confirm that every worker already runs the new
+  version.
 
 The app does not downgrade. When it carries an older k3sm than the one
 installed, or the installed version cannot be read, it offers no update; a
@@ -105,8 +113,11 @@ The window's **Uninstall k3sm** action asks for confirmation, then runs
 `k3sm uninstall` through the same verified copy-out. It stops k3sm and removes
 it, and keeps the cluster's data.
 
-Removing k3sm's data is not available from the app yet. The option is shown,
-disabled, with the command that does it in a terminal:
+Tick **Also delete k3sm's data** to remove the cluster's data as well. The
+confirmation names the choice, and the root step runs
+`k3sm uninstall --purge --yes --user <your account>`. The account name tells
+the CLI whose `~/.kube/config` to clean, since the administrator prompt does
+not pass sudo's environment. The same command works in a terminal:
 
 ```sh
 sudo k3sm uninstall --purge --yes
