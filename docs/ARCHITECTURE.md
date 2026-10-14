@@ -19,6 +19,7 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 | piece | serves | what it does |
 |---|---|---|
 | `StatusReport`, `Verdict`, `StatusRow` | R1 | decodes `k3sm status -o json` and the `status daemons` probe (schemaVersion 1) |
+| `StoppedBy` | R1 | the additive `stoppedBy` object (who stopped k3sm, why, when, which phase); a missing or malformed value decodes as nil and never fails the report |
 | `NodeRole` | R4 | the closed two-case table from role to daemon label |
 | `Reading`, `VisibilityTracker` | R6, R7 | classifies one CLI run; show after one running read, hide after two misses |
 | `K3smCLI` | R4, R6 | the absolute CLI path, fixed argument lists, the built environment |
@@ -30,13 +31,16 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 
 | piece | serves | what it does |
 |---|---|---|
-| `CopyOutPlan`, `CopyOutAction` | A2, A8 | the staging root, the mktemp template `<version>.XXXXXXXX`, the lock and log paths, the action |
-| `TeamID`, `DesignatedRequirement` | A8, A15 | the Developer ID Application requirement built from a validated Team ID; `TeamID.infoPlistKey` |
-| `RootScriptBuilder`, `RootScript` | A8, A14, A15 | renders the root script: log, sweep, no-xattr copy, unsafe-entry refusal, chown, codesign verify, staged CLI, trap cleanup; every value shell-quoted |
+| `CopyOutPlan`, `CopyOutAction`, `UpdateRole` | A2, A8 | the staging root, the mktemp template `<version>.XXXXXXXX`, the lock and log paths, the user, the action; an update carries the role (a worker with its join target) |
+| `ConsoleUser` | A8 | the app's own account, passed as `install --user` because `env -i` strips SUDO_USER; root and non-name strings refused |
+| `TeamID`, `DesignatedRequirement` | A8, A15 | the Developer ID Application requirement built from a validated Team ID |
+| `TeamIDPin`, `TeamIDStamp` | A8, A15 | the Team ID compiled into the binary, the only Team ID the app trusts; the committed stamp is empty (a developer build) and `build-app.sh --team-id` compiles a copy with the ID; never read from Info.plist |
+| `RootScriptBuilder`, `RootScript`, `CLIArgument` | A8, A14, A15 | renders the root script: log, sweep, no-xattr copy, unsafe-entry refusal, chown, codesign verify, staged CLI, trap cleanup; every value shell-quoted. `arguments(for:)` is the one definition of the staged CLI's argv, pinned by golden tests |
+| `AgentJoinTarget` | A9, A14 | reads a worker's `--server` from its installed `io.k3sm.agent` plist (status JSON does not carry it), through the strict `ServerAddress` grammar |
 | `ShellQuote`, `AppleScriptText` | A14 | the two quoting functions every interpolation goes through |
 | `CopyOutOutcome`, `CopyOutExit`, `OutcomeSummary` | A14, A15 | reads the log's final status line; names the script's own exit statuses; one sentence for the window |
 | `ServerAddress` | A14 | strict ASCII host[:port] grammar; the CLI argument is the bare host |
-| `UpdatePolicy` | A9 | worker always; server only when every worker is at or above the payload; names the workers behind |
+| `UpdatePolicy` | A9 | worker always; server only when every worker is at or above the payload, naming the workers behind; with worker versions unknown, server only after the user confirms; the datastore checks shown before a server update |
 | `PrivilegedRunner`, `PrivilegedAvailability` | A5, A15, R8 | the one-method path to root; enables privileged actions only with a Team ID, a valid self-signature and an admin user |
 
 ## K3smApp
@@ -46,19 +50,50 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 | `AppDelegate` | A15 | wiring; login-item launch shows only the status item; reopen shows the window; activity assertion against App Nap; pauses polling off the active console session |
 | `StatusPoller`, `CLIProcess` | R6 | serial probe runs with a SIGKILL deadline and a scrubbed environment |
 | `StatusItemController` | R7 | inserts and removes the `NSStatusItem`; logs `status item: visible` only when on screen; respects a user removal |
-| `MainWindowController`, `Views`, `AppModel` | A15, A16 | SwiftUI in an `NSWindow`; first run (start or join) and status; `.regular` while open, `.accessory` after; tails the copy-out log |
+| `MainWindowController`, `Views`, `AppModel` | A9, A15, A16 | SwiftUI in an `NSWindow`; first run (start or join), status with `stoppedBy`, Update (by `UpdatePolicy`) and Uninstall (purge shown, disabled with its reason); `.regular` while open, `.accessory` after; tails the copy-out log |
 | `LoginItem` | A15 | `SMAppService.mainApp`, registered once per user from `/Applications`; `.requiresApproval` links to Login Items |
-| `SelfCheck` | A15, R4, R8 | stamped Team ID, `SecStaticCode` self-verification, admin check, the passwd-based CLI environment |
+| `SelfCheck` | A15, R4, R8 | the compiled Team ID, `SecStaticCode` self-verification, admin check, the console user and the passwd-based CLI environment |
 | `AppleScriptRunner` | A14 | the concrete `PrivilegedRunner`: `do shell script ... with administrator privileges` on its own thread, stdin through a 0600 FIFO; never run by tests or ci |
 
 ## hack/
 
 | script | serves | what it does |
 |---|---|---|
-| `build-app.sh` | R10, A10 | arm64 release build, ad-hoc signed; `--payload` copies and checks a staged tree and writes `payload.sha256`; `--version` stamps Info.plist |
+| `build-app.sh` | R10, A10 | arm64 release build, ad-hoc signed; `--payload` copies and checks a staged tree and writes `payload.sha256`; `--version` stamps Info.plist; `--team-id` compiles the Team ID pin from a source copy under `.build/pinned-src` |
 | `release/make-dmg.sh` | A11 | the UDZO disk image with an `/Applications` symlink |
-| `release/sign-and-notarize.sh` | A5, A11, A18 | attended Developer ID signing, notarization and stapling of the app and the image; refuses agent, loop and non-terminal runs |
+| `release/sign-and-notarize.sh` | A5, A11, A18 | attended Developer ID signing, notarization and stapling of the app and the image; refuses agent, loop and non-terminal runs, and an app not built with `--team-id` for its team |
+| `acceptance/B458.sh` | | `swift test` (argv goldens, Team ID pin, update policy, `stoppedBy`), the developer and `--team-id` bundles built and verified with `codesign --verify --strict --deep` |
 | `ci.sh` | | the gate: build, tests, bundle builds, shellcheck, payload and refusal checks, headers, workflow dormancy, fixture drift |
+
+## The root step's command lines
+
+`RootScriptBuilder.arguments(for:)` is pinned against `k3sm` `cmd/k3sm/install.go`:
+
+| action | argv after the staged `k3sm` |
+|---|---|
+| start a cluster | `install --from-staging <dir> --user <user>` |
+| join | `install --from-staging <dir> --user <user> --agent --server <host> --token-file <dir>/join-token` |
+| update a server | `install --from-staging <dir> --user <user>` |
+| update a worker | `install --from-staging <dir> --user <user> --agent --server <host>` |
+| uninstall | `uninstall` |
+| purge | `uninstall --purge --yes` (not offered: see below) |
+
+The copy-out holds `/Library/k3sm.staging.lock` (the outer lock) with
+`lockf`; `k3sm install` takes `/Library/k3sm.lock` (the inner one) itself and
+accepts the held outer lock once its staging-directory checks pass.
+
+## Gaps in the k3sm contract
+
+- `k3sm uninstall --purge` reads whose kubeconfig to clean only from sudo's
+  SUDO_USER and SUDO_UID, and has no flag for it. The root step runs under
+  `env -i` from the administrator prompt, so the app does not offer a purge
+  yet; the window shows the Terminal command instead.
+- `k3sm status -o json` carries no worker versions (`peers` is always empty),
+  so a server update waits for the user's confirmation that every worker is
+  updated rather than checking it.
+- `k3sm status -o json` carries no join target, and `install --agent` needs
+  `--server` on every run, so a worker update reads it from the installed
+  agent plist.
 
 ## What the later builds fill in
 
@@ -66,25 +101,12 @@ The app build:
 
 - the status item menu (actions, release notes, docs links), the k3sm template
   icon, and the full report on menu open;
-- Update and Uninstall in the window, driven by `UpdatePolicy` and
-  `CopyOutAction.update` and `.uninstall`, with the server datastore checks
-  shown before a server update (A9);
-- worker versions for `UpdatePolicy`, which today's status JSON does not
-  carry, from a field the k3sm status contract adds;
+- an explicit downgrade from the window, over `install --allow-downgrade`;
 - the lab confirmation that a login-item launch is detected and that the
   status item's on-screen log line holds on each macOS version.
 
 The release build (in k3sm and the release pipeline):
 
-- `k3sm install --from-staging <dir>` and `--token-file` in the copy-out, and
-  the shared lock A8 asks for: `k3sm install` takes its own flock on
-  `/Library/k3sm.lock`, so the copy-out cannot hold that same lock across the
-  install it runs and uses `/Library/k3sm.staging.lock` until `--from-staging`
-  can inherit it;
-- a resolution of the staging path: `k3sm install` already uses
-  `/Library/k3sm.staging` as the sibling directory it builds the new install
-  root in and swaps into place, which collides with A8's copy-out root of the
-  same name;
 - the payload manifest format shared with `stage.sh` (A10), the signed payload
   tree, and the A19 fallback (manifest hash instead of a Team ID) if it is
   ever needed;
