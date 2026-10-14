@@ -2,7 +2,7 @@
 # Copyright The k3sm Authors.
 # SPDX-License-Identifier: Apache-2.0
 #
-# build-app.sh [--version <x.y.z>] [--team-id <ID>] [--payload <staged-tree>] <outdir>
+# build-app.sh [--version <x.y.z>] [--team-id <ID> | --rehearsal] [--payload <staged-tree>] <outdir>
 #
 # Builds "k3sm.app" for arm64 and ad-hoc signs it.
 #
@@ -16,6 +16,10 @@
 #                            the build pins no team and the app disables every
 #                            privileged action, saying why. The Team ID is
 #                            never written to Info.plist.
+#   --rehearsal              sets the bundle id io.k3sm.app.rehearsal, for the
+#                            unsigned release rehearsal
+#                            (hack/release/release.sh --rehearsal); refused
+#                            with --team-id, so a rehearsal app pins no team
 #   --payload <staged-tree>  copies a k3sm staged tree (the stage.sh output)
 #                            into Contents/Resources/payload and writes its
 #                            SHA-256 manifest beside it as payload.sha256
@@ -32,7 +36,7 @@
 set -euo pipefail
 
 usage() {
-	echo "usage: hack/build-app.sh [--version <x.y.z>] [--team-id <ID>] [--payload <staged-tree>] <outdir>" >&2
+	echo "usage: hack/build-app.sh [--version <x.y.z>] [--team-id <ID> | --rehearsal] [--payload <staged-tree>] <outdir>" >&2
 	exit 2
 }
 
@@ -40,6 +44,7 @@ VERSION=0.0.0
 TEAM_ID=
 PAYLOAD=
 OUTARG=
+BUNDLE_ID=
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 	--version)
@@ -51,6 +56,10 @@ while [ "$#" -gt 0 ]; do
 		[ "$#" -ge 2 ] || usage
 		TEAM_ID="$2"
 		shift 2
+		;;
+	--rehearsal)
+		BUNDLE_ID=io.k3sm.app.rehearsal
+		shift
 		;;
 	--payload)
 		[ "$#" -ge 2 ] || usage
@@ -74,6 +83,11 @@ fi
 
 if [ -n "$TEAM_ID" ] && ! printf '%s\n' "$TEAM_ID" | grep -Eqx '[A-Z0-9]{10}'; then
 	echo "build-app: refused: --team-id must be ten uppercase letters or digits, got: $TEAM_ID" >&2
+	exit 2
+fi
+
+if [ -n "$TEAM_ID" ] && [ -n "$BUNDLE_ID" ]; then
+	echo "build-app: refused: --rehearsal pins no Team ID; drop --team-id" >&2
 	exit 2
 fi
 
@@ -157,6 +171,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
+[ -z "$BUNDLE_ID" ] || plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$APP/Contents/Info.plist"
 cp "$BIN_DIR/$PRODUCT" "$APP/Contents/MacOS/$EXE"
 chmod 0755 "$APP/Contents/MacOS/$EXE"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
