@@ -74,7 +74,7 @@ public struct LANToggle: Equatable, Sendable {
         let stale = readAt.map { now.timeIntervalSince($0) > maxAge || now < $0 } ?? true
         var reason: String?
         if let trustRefusal {
-            reason = "The app will not run the installed k3sm: " + StatusDisplay.clip(trustRefusal) + "."
+            reason = "The app will not run the installed k3sm: " + StatusDisplay.errorText(trustRefusal) + "."
         } else if report == nil || lastReadFailed {
             reason = "k3sm could not read the status of this Mac, so the setting is unknown."
         } else if stale {
@@ -113,6 +113,8 @@ public struct LANToggle: Equatable, Sendable {
 /// access on: what becomes reachable, and what the switch does not cover.
 public enum LANConfirmationText {
     public static let title = "Allow connections from other devices?"
+    /// The most items either list names; the rest are counted.
+    public static let maxItems = 8
 
     /// The families the switch moves, in words.
     static func families(_ covers: [String]) -> String {
@@ -121,7 +123,7 @@ public enum LANConfirmationText {
             case "nodeports": return "NodePort"
             case "loadbalancers": return "LoadBalancer"
             case "ingress": return "ingress"
-            default: return StatusDisplay.clip(word)
+            default: return StatusDisplay.errorText(word)
             }
         }
         return list(words)
@@ -133,11 +135,16 @@ public enum LANConfirmationText {
         case "apiserver": return "the API server (this Mac and the cluster mesh only)"
         case "join": return "the worker join port (every request needs a join token)"
         case "mesh": return "the wireguard mesh port (it answers only cluster peers)"
-        default: return StatusDisplay.clip(word)
+        default: return StatusDisplay.errorText(word)
         }
     }
 
-    static func list(_ words: [String]) -> String {
+    /// Joins at most `maxItems` words; a longer list ends "and N more".
+    static func list(_ all: [String]) -> String {
+        if all.count > maxItems {
+            return all.prefix(maxItems).joined(separator: ", ") + " and \(all.count - maxItems) more"
+        }
+        let words = all
         switch words.count {
         case 0: return ""
         case 1: return words[0]
@@ -247,6 +254,10 @@ public struct LANDriver: Sendable {
         self.runner = runner
     }
 
+    /// The refusal when the listeners changed while the question was open.
+    public static let changedWhileAsking =
+        "What this setting covers changed while the question was open, so the answer no longer matches it. Nothing was changed. Try again to see the new list."
+
     public func perform(_ verb: LifecycleVerb, expected: LANSetting) async -> Result {
         let first = await readStatus()
         if case .refused(let why) = LANPrecondition.check(verb, expected: expected, live: first) {
@@ -260,6 +271,11 @@ public struct LANDriver: Sendable {
             let second = await readStatus()
             if case .refused(let why) = LANPrecondition.check(verb, expected: expected, live: second) {
                 return .refused(why)
+            }
+            // The question named what becomes reachable and what is not
+            // covered; consent to a different set is not consent.
+            if let second, second.network.covers != first.network.covers || second.network.alwaysOn != first.network.alwaysOn {
+                return .refused(Self.changedWhileAsking)
             }
         }
         let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(verb, teamID: teamID), input: nil)

@@ -91,6 +91,9 @@ for name in \
 	"a recorded value the daemon does not serve, and a refused change, are noted" \
 	"turning on names what becomes reachable and what the switch does not cover" \
 	"an unknown alwaysOn is said, never guessed" \
+	"an unknown covers or alwaysOn word is shown without control or format characters" \
+	"a long covers or alwaysOn list is capped" \
+	"a covers or alwaysOn change between the question and the prompt refuses" \
 	"Cancel is the default only for turning on" \
 	"on: live read, confirm, re-read, the lan-on script, then a confirming read" \
 	"off runs without a question" \

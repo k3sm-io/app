@@ -277,6 +277,28 @@ struct LANConfirmationTests {
         #expect(!c.message.contains("API server"))
     }
 
+    @Test("an unknown covers or alwaysOn word is shown without control or format characters")
+    func hostileWords() {
+        let report = LANReports.make(LANAccess(setting: .off, recorded: true, covers: ["node\u{202E}ports2\u{1B}[2J"],
+                                               alwaysOn: ["\u{2066}dns\u{2069}\n53"]))
+        let c = LifecycleConfirmation(verb: .lanOn, report: report)
+        #expect(c.message.contains("The nodeports2 [2J listeners"))
+        #expect(c.message.contains("does not change dns 53."))
+        #expect(!c.message.unicodeScalars.contains { $0.properties.generalCategory == .format || ($0.properties.generalCategory == .control && $0 != "\n") })
+        let untrusted = LANToggleTests.evaluate(LANReports.off, trust: "/Library/k3sm\u{202E}kcol is a symlink")
+        #expect(untrusted.disabledReason == "The app will not run the installed k3sm: /Library/k3smkcol is a symlink.")
+    }
+
+    @Test("a long covers or alwaysOn list is capped")
+    func capped() {
+        let words = (1...30).map { "family\($0)" }
+        let c = LifecycleConfirmation(verb: .lanOn, report: LANReports.make(LANAccess(setting: .off, recorded: true, covers: words, alwaysOn: words)))
+        #expect(c.message.contains("family1, family2, family3, family4, family5, family6, family7, family8 and 22 more listeners"))
+        #expect(c.message.contains("family8 and 22 more."))
+        #expect(!c.message.contains("family9"))
+        #expect(c.message.count < 600)
+    }
+
     @Test("an unknown alwaysOn is said, never guessed")
     func unknownAlwaysOn() {
         let c = LifecycleConfirmation(verb: .lanOn, report: LANReports.make(.absentField))
@@ -349,6 +371,21 @@ struct LANDriverTests {
             return
         }
         #expect(why.contains(contains), "\(why)")
+        #expect(runner.scripts.isEmpty)
+    }
+
+    @Test("a covers or alwaysOn change between the question and the prompt refuses", arguments: [
+        LANAccess(setting: .off, recorded: true, covers: ["nodeports"], alwaysOn: LANReports.serverAlwaysOn),
+        LANAccess(setting: .off, recorded: true, covers: LANReports.serverCovers, alwaysOn: ["mesh"]),
+        LANAccess(setting: .off, recorded: true, covers: LANReports.serverCovers, alwaysOn: nil),
+    ])
+    func staleConsent(_ changed: LANAccess) async {
+        let runner = LANRunner()
+        let asked = Questions()
+        let result = await Self.driver(StatusSequence([LANReports.off, LANReports.make(changed)]), runner: runner, answer: true, asked: asked)
+            .perform(.lanOn, expected: .off)
+        #expect(result == .refused(LANDriver.changedWhileAsking))
+        #expect(asked.all.count == 1)
         #expect(runner.scripts.isEmpty)
     }
 
