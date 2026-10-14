@@ -40,6 +40,10 @@ public enum UpdateVerdict: Equatable, Sendable {
     /// This Mac is a server and some workers are below the payload version;
     /// they update first.
     case waitForWorkers
+    /// This Mac is a server and the status report does not carry the
+    /// workers' versions, so the app cannot check the order itself: the user
+    /// confirms that every worker is updated before the server update runs.
+    case confirmWorkersUpdated
 }
 
 /// UpdateDecision is the verdict plus the workers still to update, sorted by
@@ -53,14 +57,26 @@ public struct UpdateDecision: Equatable, Sendable {
 /// control-plane Mac last. A worker may update at any time. A server with
 /// joined workers updates only once every worker reports a version at or
 /// above the payload's, which bounds the skew to one release with the
-/// workers ahead.
+/// workers ahead. When the worker versions are unknown (`workers == nil`, as
+/// with today's `k3sm status`), a server update waits for the user's explicit
+/// confirmation instead.
 public enum UpdatePolicy {
+    /// The datastore checks the window shows before a server update (A9,
+    /// from the k3sm upgrade guide). The CLI enforces them; a refused start
+    /// is shown verbatim in the log.
+    public static let serverChecks: [String] = [
+        "Take a snapshot first, off this Mac: sudo k3sm snapshot save --out <file>.",
+        "Leave free space on the data volume for the datastore migration and its automatic backup.",
+        "A release that changes the datastore engine migrates it one way; going back means restoring that snapshot.",
+    ]
+
     public static func decide(
         role: NodeRole,
         payload: SemanticVersion,
         installed: SemanticVersion?,
-        workers: [NodeVersion],
-        allowDowngrade: Bool
+        workers: [NodeVersion]?,
+        allowDowngrade: Bool,
+        workersConfirmed: Bool = false
     ) -> UpdateDecision {
         if let installed {
             switch PayloadRelation(payload: payload, installed: installed) {
@@ -77,6 +93,9 @@ public enum UpdatePolicy {
 
         guard role == .server else {
             return UpdateDecision(verdict: .offer, workersToUpdate: [])
+        }
+        guard let workers else {
+            return UpdateDecision(verdict: workersConfirmed ? .offer : .confirmWorkersUpdated, workersToUpdate: [])
         }
         // An unreadable worker version counts as behind: the server never
         // updates past a worker it cannot vouch for.

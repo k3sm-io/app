@@ -26,8 +26,9 @@ struct UpdatePolicyTests {
         let role: NodeRole
         let payload: String
         let installed: String?
-        let workers: [(String, String?)]
+        let workers: [(String, String?)]?
         var allowDowngrade = false
+        var confirmed = false
         let want: UpdateVerdict
         var wantBehind: [String] = []
         var testDescription: String { name }
@@ -53,6 +54,19 @@ struct UpdatePolicyTests {
              workers: [("w1", nil), ("w2", "0.2.0")], want: .waitForWorkers, wantBehind: ["w1"]),
         Case(name: "server downgrade with consent still checks workers", role: .server, payload: "0.1.6", installed: "0.1.7",
              workers: [("w1", "0.1.5")], allowDowngrade: true, want: .waitForWorkers, wantBehind: ["w1"]),
+        // Today's status JSON carries no worker versions (nil): a server waits
+        // for the user's confirmation, a worker does not.
+        Case(name: "server, worker versions unknown", role: .server, payload: "0.2.0", installed: "0.1.7",
+             workers: nil, want: .confirmWorkersUpdated),
+        Case(name: "server, worker versions unknown, confirmed", role: .server, payload: "0.2.0", installed: "0.1.7",
+             workers: nil, confirmed: true, want: .offer),
+        Case(name: "worker, versions unknown", role: .agent, payload: "0.2.0", installed: "0.1.7", workers: nil, want: .offer),
+        Case(name: "confirmation does not override a known lagging worker", role: .server, payload: "0.2.0", installed: "0.1.7",
+             workers: [("w1", "0.1.7")], confirmed: true, want: .waitForWorkers, wantBehind: ["w1"]),
+        Case(name: "confirmation does not override up to date", role: .server, payload: "0.2.0", installed: "0.2.0",
+             workers: nil, confirmed: true, want: .upToDate),
+        Case(name: "confirmation does not license a downgrade", role: .server, payload: "0.1.6", installed: "0.1.7",
+             workers: nil, confirmed: true, want: .needsDowngradeConsent),
     ]
 
     @Test("decide", arguments: cases)
@@ -61,10 +75,19 @@ struct UpdatePolicyTests {
             role: c.role,
             payload: try #require(SemanticVersion(c.payload)),
             installed: c.installed.flatMap(SemanticVersion.init),
-            workers: c.workers.map { NodeVersion(name: $0.0, version: $0.1.flatMap(SemanticVersion.init)) },
-            allowDowngrade: c.allowDowngrade
+            workers: c.workers.map { $0.map { NodeVersion(name: $0.0, version: $0.1.flatMap(SemanticVersion.init)) } },
+            allowDowngrade: c.allowDowngrade,
+            workersConfirmed: c.confirmed
         )
         #expect(decision.verdict == c.want)
         #expect(decision.workersToUpdate == c.wantBehind)
+    }
+
+    @Test("the server checks name the snapshot, the free space and the one-way engine change")
+    func serverChecks() {
+        let text = UpdatePolicy.serverChecks.joined(separator: " ")
+        #expect(text.contains("k3sm snapshot save"))
+        #expect(text.contains("free space"))
+        #expect(text.contains("one way"))
     }
 }
