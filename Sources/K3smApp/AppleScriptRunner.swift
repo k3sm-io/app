@@ -31,8 +31,15 @@ struct AppleScriptPrivilegedRunner: PrivilegedRunner {
     static let maxInput = 4096
 
     func runAsRoot(_ script: RootScript, input: Data?) async -> PrivilegedOutcome {
+        await runAsRootReportingError(script, input: input).outcome
+    }
+
+    /// Runs the step and keeps `do shell script`'s error message, which is
+    /// the script's standard error when it exits non-zero. The text is raw;
+    /// the caller cleans it before showing it.
+    func runAsRootReportingError(_ script: RootScript, input: Data?) async -> PrivilegedRun {
         if let input, input.count > Self.maxInput {
-            return .couldNotStart
+            return PrivilegedRun(outcome: .couldNotStart)
         }
         return await withCheckedContinuation { continuation in
             Thread.detachNewThread {
@@ -41,10 +48,10 @@ struct AppleScriptPrivilegedRunner: PrivilegedRunner {
         }
     }
 
-    private static func runBlocking(_ script: RootScript, input: Data?) -> PrivilegedOutcome {
+    private static func runBlocking(_ script: RootScript, input: Data?) -> PrivilegedRun {
         var fifo: InputFIFO?
         if let input {
-            guard let made = try? InputFIFO(feeding: input) else { return .couldNotStart }
+            guard let made = try? InputFIFO(feeding: input) else { return PrivilegedRun(outcome: .couldNotStart) }
             fifo = made
         }
         defer { fifo?.finish() }
@@ -52,13 +59,14 @@ struct AppleScriptPrivilegedRunner: PrivilegedRunner {
         let source = "do shell script \(AppleScriptText.literal(command))"
             + " with prompt \(AppleScriptText.literal(script.prompt))"
             + " with administrator privileges"
-        guard let compiled = NSAppleScript(source: source) else { return .couldNotStart }
+        guard let compiled = NSAppleScript(source: source) else { return PrivilegedRun(outcome: .couldNotStart) }
         var error: NSDictionary?
         compiled.executeAndReturnError(&error)
-        guard let error else { return .succeeded }
+        guard let error else { return PrivilegedRun(outcome: .succeeded) }
         let number = (error[NSAppleScript.errorNumber] as? NSNumber)?.int32Value ?? -1
         // -128 is userCanceledErr: the prompt was dismissed.
-        return number == -128 ? .cancelled : .failed(exitStatus: number)
+        if number == -128 { return PrivilegedRun(outcome: .cancelled) }
+        return PrivilegedRun(outcome: .failed(exitStatus: number), errorOutput: error[NSAppleScript.errorMessage] as? String)
     }
 }
 

@@ -67,6 +67,14 @@ final class AppModel: ObservableObject {
     @Published var confirmingUninstall = false
     /// Whether Stop, Start and Restart are offered; nil until first checked.
     @Published private(set) var lifecycleSupport: LifecycleSupport?
+    /// The last full report that decoded, the LAN setting's only source (the
+    /// daemons probe carries no `network` field), and when it was read.
+    @Published private(set) var lanReport: StatusReport?
+    @Published private(set) var lanReadAt: Date?
+    /// Whether the most recent full read failed.
+    @Published private(set) var lanReadFailed = false
+    /// Why the installed CLI failed its trust check on the last run, if it did.
+    @Published private(set) var lanTrustRefusal: String?
 
     let payloadVersion: SemanticVersion?
     private let teamID: TeamID?
@@ -173,9 +181,7 @@ final class AppModel: ObservableObject {
             joinTarget = nil
             return
         }
-        if case .exited(_, let stdout) = await runCLI(K3smCLI.reportArguments) {
-            report = try? StatusReport.decode(stdout)
-        }
+        report = await fullRead()
         if case .exited(0, let stdout) = await runCLI(K3smCLI.versionArguments) {
             installedVersion = SemanticVersion.fromVersionCommand(String(decoding: stdout, as: UTF8.self))
         }
@@ -208,8 +214,87 @@ final class AppModel: ObservableObject {
 
     /// Reads the full report now, or nil when it cannot be read.
     func readFullReport() async -> StatusReport? {
-        guard case .exited(_, let stdout) = await runCLI(K3smCLI.reportArguments) else { return nil }
-        return try? StatusReport.decode(stdout)
+        await fullRead()
+    }
+
+    /// Runs the full report through the trust-checked CLI and records it as
+    /// the LAN setting's source: a decoded report and its time, or a failed
+    /// read, or the trust refusal.
+    private func fullRead() async -> StatusReport? {
+        let outcome = await runCLI(K3smCLI.reportArguments)
+        var decoded: StatusReport?
+        switch outcome {
+        case .refused(let why):
+            lanTrustRefusal = why
+        case .exited(_, let stdout):
+            lanTrustRefusal = nil
+            decoded = try? StatusReport.decode(stdout)
+        default:
+            lanTrustRefusal = nil
+        }
+        if let decoded {
+            lanReport = decoded
+            lanReadAt = Date()
+            lanReadFailed = false
+        } else {
+            lanReadFailed = true
+        }
+        return decoded
+    }
+
+    /// The "Allow connections from other devices" checkbox as of `now`.
+    func lanToggle(now: Date = Date()) -> LANToggle {
+        var blocked: String?
+        if running {
+            blocked = "Another change is running."
+        } else if teamID == nil {
+            blocked = "This build of k3sm is not Developer ID signed, so it cannot change this setting. Use `sudo k3sm network lan on` or `off` in Terminal."
+        } else if case .disabled(let reason) = availability {
+            blocked = reason
+        }
+        return LANToggle.evaluate(
+            report: lanReport, readAt: lanReadAt, now: now, lastReadFailed: lanReadFailed,
+            trustRefusal: lanTrustRefusal, blocked: blocked)
+    }
+
+    /// Flips the LAN setting from the menu or the window. The verb comes
+    /// from the value the user saw (`LANToggle.clickVerb`); the driver reads
+    /// the status live, asks before turning it on, runs the verb's root
+    /// script, and reads the status again. The checkbox then shows the value
+    /// that read confirms, never the one the click asked for.
+    func performLAN(_ verb: LifecycleVerb) {
+        guard verb.isLAN, !running else { return }
+        let toggle = lanToggle()
+        guard toggle.enabled, toggle.clickVerb == verb, let teamID else {
+            Self.alert(title: "k3sm cannot change this setting now", text: toggle.disabledReason ?? "Nothing was changed.")
+            return
+        }
+        let expected: LANSetting = verb == .lanOn ? .off : .on
+        Task {
+            running = true
+            outcomeMessage = nil
+            let driver = LANDriver(
+                teamID: teamID,
+                readStatus: { await self.readFullReport() },
+                confirm: { Self.confirm($0) },
+                runner: runner)
+            let result = await driver.perform(verb, expected: expected)
+            running = false
+            switch result {
+            case .declined:
+                break
+            case .refused(let why):
+                outcomeMessage = why
+                Self.alert(title: "Nothing was changed", text: why)
+            case .ran(let outcome, let text, let confirmed):
+                outcomeMessage = text
+                let target: LANSetting = verb == .lanOn ? .on : .off
+                if outcome != .cancelled, outcome != .succeeded || confirmed != target {
+                    Self.alert(title: LANToggle.title, text: text)
+                }
+            }
+            log.notice("LAN access verb finished")
+        }
     }
 
     /// Runs one lifecycle verb from the menu, the window or the login
@@ -264,8 +349,14 @@ final class AppModel: ObservableObject {
         alert.messageText = c.title
         alert.informativeText = c.warning.map { $0 + "\n\n" + c.message } ?? c.message
         alert.alertStyle = c.warning == nil ? .informational : .critical
-        alert.addButton(withTitle: c.verb.title)
-        alert.addButton(withTitle: "Cancel")
+        let proceed = alert.addButton(withTitle: c.verb.title)
+        let cancel = alert.addButton(withTitle: "Cancel")
+        if c.cancelIsDefault {
+            // Return answers Cancel; the verb needs a deliberate click.
+            proceed.keyEquivalent = ""
+            cancel.keyEquivalent = "\r"
+            alert.window.initialFirstResponder = cancel
+        }
         return alert.runModal() == .alertFirstButtonReturn
     }
 

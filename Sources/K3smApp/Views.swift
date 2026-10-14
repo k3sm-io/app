@@ -119,6 +119,7 @@ struct StatusView: View {
                 .disabled(model.running)
             Divider()
             LifecycleSection(model: model)
+            LANSection(model: model)
             Divider()
             UpdateSection(model: model)
             Divider()
@@ -171,6 +172,45 @@ struct LifecycleSection: View {
                 Text(verbatim: note)
                     .font(.callout)
                     .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// LANSection is the "Allow connections from other devices" checkbox. It
+/// shows the recorded setting from the last full status read, tri-state: an
+/// unknown value draws as a dash and cannot be clicked. A click runs the verb
+/// opposite to the value shown; the checkbox moves only when the status read
+/// after the change confirms it.
+struct LANSection: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        let toggle = model.lanToggle()
+        if toggle.visible {
+            VStack(alignment: .leading, spacing: 4) {
+                if toggle.value == .unknown {
+                    HStack(spacing: 6) {
+                        Image(systemName: "minus.square")
+                        Text(LANToggle.title)
+                        Text("(unknown)").foregroundStyle(.secondary)
+                    }
+                } else {
+                    Toggle(LANToggle.title, isOn: Binding(
+                        get: { toggle.value == .on },
+                        set: { _ in
+                            if let verb = toggle.clickVerb { model.performLAN(verb) }
+                        }))
+                        .toggleStyle(.checkbox)
+                        .disabled(!toggle.enabled)
+                }
+                Text(LANToggle.subtitle).font(.callout).foregroundStyle(.secondary)
+                if let reason = toggle.disabledReason {
+                    Text(verbatim: reason).font(.callout).foregroundStyle(.secondary)
+                }
+                ForEach(toggle.notes, id: \.self) { note in
+                    Text(verbatim: note).font(.callout)
+                }
             }
         }
     }

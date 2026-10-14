@@ -25,11 +25,13 @@ import K3smStatus
 /// and respects a user who removes the item (Command-drag or Menu Bar
 /// settings) until the next launch.
 ///
-/// The menu carries the verdict and summary, the status rows, Stop (with the
-/// multi-node warning) and Restart, Open Status, Open Logs, Write a Bug
+/// The menu carries the verdict and summary, the status rows, the "Allow
+/// connections from other devices" checkbox, Stop (with the multi-node
+/// warning) and Restart, Open Status, Open Logs, Write a Bug
 /// Report, Open k3sm and Quit. Stop and Restart go through `AppModel.perform`
 /// and are enabled only when the installed CLI has them; otherwise a note
-/// item opens the window, which says why.
+/// item opens the window, which says why. While LAN access is on, the
+/// status item's icon carries a small dot.
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private static let autosaveName = "io.k3sm.app.status"
@@ -46,6 +48,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var stopItem = NSMenuItem()
     private var restartItem = NSMenuItem()
     private var noteItem = NSMenuItem()
+    private var lanItem = NSMenuItem()
+    private var lanNoteItems: [NSMenuItem] = []
+    private let lanEnd = NSMenuItem.separator()
+    private var lanObservation: AnyCancellable?
+    /// Whether a background full read for the LAN setting is in flight.
+    private var lanReading = false
+    private var degraded = false
     private let model: AppModel
     private let openWindow: @MainActor () -> Void
     private var supportObservation: AnyCancellable?
@@ -64,6 +73,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         headerItem.isEnabled = false
         menu.addItem(headerItem)
         menu.addItem(rowsEnd)
+        lanItem = add(LANToggle.title, #selector(lanAction))
+        lanItem.subtitle = LANToggle.subtitle
+        menu.addItem(lanEnd)
         stopItem = add(LifecycleVerb.stop.title + "…", #selector(stopAction))
         restartItem = add(LifecycleVerb.restart.title + "…", #selector(restartAction))
         noteItem = add("Stop and Restart are not available: open k3sm for why", #selector(openWindowAction))
@@ -79,6 +91,57 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             MainActor.assumeIsolated { self?.updateLifecycleItems(support) }
         }
         updateLifecycleItems(nil)
+        lanObservation = model.objectWillChange.sink { [weak self] _ in
+            // objectWillChange fires before the value changes: read it after.
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.updateLANItems() } }
+        }
+        updateLANItems()
+    }
+
+    /// How often a visible status item re-reads the full report, so the LAN
+    /// indicator follows a change made in Terminal.
+    private static let lanRefreshAge: TimeInterval = 60
+
+    /// Shows the LAN checkbox (tri-state), its notes or the reason it is
+    /// disabled, and the indicator on the icon.
+    private func updateLANItems() {
+        let toggle = model.lanToggle()
+        lanItem.isHidden = !toggle.visible
+        lanEnd.isHidden = !toggle.visible
+        switch toggle.value {
+        case .on: lanItem.state = .on
+        case .off: lanItem.state = .off
+        case .unknown: lanItem.state = .mixed
+        }
+        lanItem.isEnabled = toggle.enabled
+        for note in lanNoteItems {
+            menu.removeItem(note)
+        }
+        let lines = toggle.visible ? (toggle.disabledReason.map { [$0] } ?? []) + toggle.notes : []
+        lanNoteItems = lines.map { line in
+            let item = NSMenuItem(title: StatusDisplay.clip(line), action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            item.indentationLevel = 1
+            return item
+        }
+        let at = menu.index(of: lanItem) + 1
+        for (offset, note) in lanNoteItems.enumerated() {
+            menu.insertItem(note, at: at + offset)
+        }
+        item?.button?.image = Self.icon(degraded: degraded, lan: toggle.showsIndicator)
+    }
+
+    /// Reads the full report in the background when the last one is old.
+    private func refreshLANIfOld() {
+        guard tracker.visible, !lanReading, !model.running else { return }
+        if let at = model.lanReadAt, Date().timeIntervalSince(at) < Self.lanRefreshAge, !model.lanReadFailed {
+            return
+        }
+        lanReading = true
+        Task {
+            _ = await model.readFullReport()
+            lanReading = false
+        }
     }
 
     private func add(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
@@ -96,7 +159,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         if let report {
             show(report)
-            item?.button?.image = Self.icon(degraded: report.verdict == .degraded)
+            degraded = report.verdict == .degraded
+            item?.button?.image = Self.icon(degraded: degraded, lan: model.lanToggle().showsIndicator)
         }
         if change.visibilityChanged {
             if tracker.visible {
@@ -106,6 +170,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 remove()
             }
         }
+        refreshLANIfOld()
     }
 
     /// Shows the verdict and summary, and the status rows, of a report.
@@ -159,6 +224,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// refuses if the live state no longer matches.
     private var shownState: LifecycleState { LifecycleState(report: report) }
 
+    /// Flips the setting the menu showed. The verb comes from that value; an
+    /// unknown value runs nothing.
+    @objc private func lanAction() {
+        guard let verb = model.lanToggle().clickVerb else { return }
+        model.performLAN(verb)
+    }
+
     @objc private func stopAction() {
         model.perform(.stop, expected: shownState)
     }
@@ -193,7 +265,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // A removal the user made in an earlier session lasts until the next
         // launch only, so the first insertion of a session shows the item.
         item.isVisible = true
-        item.button?.image = Self.icon(degraded: false)
+        item.button?.image = Self.icon(degraded: degraded, lan: model.lanToggle().showsIndicator)
         item.menu = menu
         self.item = item
         visibilityObservation = item.observe(\.isVisible, options: [.new]) { [weak self] item, _ in
@@ -230,10 +302,25 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         log.notice("status item: visible")
     }
 
-    private static func icon(degraded: Bool) -> NSImage? {
+    /// The status item's icon. With `lan`, a small dot sits at its lower
+    /// right: other devices can connect to this Mac's workloads.
+    private static func icon(degraded: Bool, lan: Bool) -> NSImage? {
         let name = degraded ? "exclamationmark.triangle" : "shippingbox"
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: degraded ? "k3sm degraded" : "k3sm")
-        image?.isTemplate = true
+        let label = (degraded ? "k3sm degraded" : "k3sm") + (lan ? ", connections from other devices allowed" : "")
+        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: label) else { return nil }
+        guard lan else {
+            base.isTemplate = true
+            return base
+        }
+        let size = NSSize(width: base.size.width + 4, height: base.size.height)
+        let image = NSImage(size: size, flipped: false) { _ in
+            base.draw(in: NSRect(x: 0, y: 0, width: base.size.width, height: base.size.height))
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: NSRect(x: size.width - 6, y: 0, width: 6, height: 6)).fill()
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = label
         return image
     }
 }
