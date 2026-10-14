@@ -63,7 +63,8 @@ public enum LifecycleExit {
     /// bit per class (see `LifecycleOutcome.leftovers`).
     public static let stopLeftoverBase: Int32 = 32
     /// `/Library/k3sm/k3sm` or an ancestor was a symlink, missing, not owned
-    /// by root, or writable by group or others; or the binary is not a
+    /// by root, writable by group or others, or carried an ACL (an ACL can
+    /// grant write where the mode bits do not); or the binary is not a
     /// regular file. Nothing ran.
     public static let refusedBinary: Int32 = 100
     /// The installed binary failed the Developer ID requirement. Nothing ran.
@@ -74,7 +75,7 @@ public enum LifecycleExit {
 /// It shares nothing with the copy-out (`RootScriptBuilder`): it stages
 /// nothing, takes no staging lock, and runs only the installed CLI, after
 /// re-checking that the CLI and every directory above it are root-owned, not
-/// group or other writable and not symlinks, and that the CLI satisfies the
+/// group or other writable, not symlinks and carry no ACL, and that the CLI satisfies the
 /// Developer ID requirement built from the compiled Team ID. A developer
 /// build has no Team ID, so it can render no lifecycle script at all.
 public enum LifecycleScriptBuilder {
@@ -120,11 +121,19 @@ public enum LifecycleScriptBuilder {
             	echo "k3sm app: refused: $1" >&2
             	exit \#(LifecycleExit.refusedBinary)
             }
+            nl='
+            '
+            acl_check() {
+            	listing=$(/bin/ls -led "$1") || refuse "$1 could not be checked"
+            	case "${listing%% *}" in *+) refuse "$1 carries an ACL" ;; esac
+            	case "$listing" in *"$nl"*) refuse "$1 carries an ACL" ;; esac
+            }
             for p in \#(paths); do
             	if [ -L "$p" ]; then refuse "$p is a symlink"; fi
             	if [ ! -e "$p" ]; then refuse "$p does not exist"; fi
-            	bad=$(/usr/bin/find "$p" -maxdepth 0 \( ! -user 0 -o -perm +0022 \) -print) || refuse "$p could not be checked"
+            	bad=$(/usr/bin/find "$p" -maxdepth 0 \( ! -user 0 -o -perm -0020 -o -perm -0002 \) -print) || refuse "$p could not be checked"
             	if [ -n "$bad" ]; then refuse "$p is not owned by root, or is writable by group or others"; fi
+            	acl_check "$p"
             done
             if [ ! -f "$k3sm" ]; then refuse "$k3sm is not a regular file"; fi
             if ! /usr/bin/codesign --verify --strict \#(q(requirement)) "$k3sm"; then

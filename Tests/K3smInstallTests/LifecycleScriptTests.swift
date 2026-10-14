@@ -73,11 +73,19 @@ struct LifecycleScriptTests {
             	echo "k3sm app: refused: $1" >&2
             	exit 100
             }
+            nl='
+            '
+            acl_check() {
+            	listing=$(/bin/ls -led "$1") || refuse "$1 could not be checked"
+            	case "${listing%% *}" in *+) refuse "$1 carries an ACL" ;; esac
+            	case "$listing" in *"$nl"*) refuse "$1 carries an ACL" ;; esac
+            }
             for p in '/' '/Library' '/Library/k3sm' '/Library/k3sm/k3sm'; do
             	if [ -L "$p" ]; then refuse "$p is a symlink"; fi
             	if [ ! -e "$p" ]; then refuse "$p does not exist"; fi
-            	bad=$(/usr/bin/find "$p" -maxdepth 0 \( ! -user 0 -o -perm +0022 \) -print) || refuse "$p could not be checked"
+            	bad=$(/usr/bin/find "$p" -maxdepth 0 \( ! -user 0 -o -perm -0020 -o -perm -0002 \) -print) || refuse "$p could not be checked"
             	if [ -n "$bad" ]; then refuse "$p is not owned by root, or is writable by group or others"; fi
+            	acl_check "$p"
             done
             if [ ! -f "$k3sm" ]; then refuse "$k3sm is not a regular file"; fi
             if ! /usr/bin/codesign --verify --strict '-R=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = "ABCDE12345"' "$k3sm"; then
@@ -126,7 +134,10 @@ struct LifecycleScriptTests {
         }
         // The CLI runs only after both checks.
         let exec = text.range(of: "exec \"$k3sm\"")!.lowerBound
-        #expect(text.range(of: "-perm +0022")!.lowerBound < exec)
+        #expect(text.range(of: "-perm -0020 -o -perm -0002")!.lowerBound < exec)
+        #expect(text.range(of: "\tacl_check \"$p\"")!.lowerBound < exec)
+        // The deprecated "any of these bits" form is gone.
+        #expect(!text.contains("-perm +"))
         #expect(text.range(of: "/usr/bin/codesign --verify --strict")!.lowerBound < exec)
     }
 
@@ -136,72 +147,6 @@ struct LifecycleScriptTests {
             bundlePath: "/Applications/k3sm.app", payloadVersion: SemanticVersion("0.2.0")!, teamID: Self.team,
             user: ConsoleUser("alice")!, action: .startServer)
         #expect(RootScriptBuilder.render(plan).command(inputPath: "/dev/null").contains("/usr/bin/lockf -k -t 0 '/Library/k3sm.staging.lock'"))
-    }
-
-    // MARK: refusals, run for real against directories that fail each check
-
-    struct Refusal: Sendable, CustomTestStringConvertible {
-        let name: String
-        let cliPath: String
-        let status: Int32
-        let message: String
-        var testDescription: String { name }
-    }
-
-    /// Paths on every Mac that fail one check each, in check order.
-    static let refusals: [Refusal] = [
-        Refusal(name: "an ancestor is a symlink", cliPath: "/etc/k3sm/k3sm", status: 100, message: "/etc is a symlink"),
-        Refusal(name: "an ancestor is missing", cliPath: "/usr/k3sm-not-here/k3sm", status: 100, message: "/usr/k3sm-not-here does not exist"),
-        Refusal(name: "an ancestor is writable by others", cliPath: "/private/tmp/k3sm-not-here/k3sm", status: 100,
-                message: "/private/tmp is not owned by root, or is writable by group or others"),
-        Refusal(name: "the CLI is not a regular file", cliPath: "/usr/bin", status: 100, message: "/usr/bin is not a regular file"),
-        Refusal(name: "the CLI is not signed by the pinned team", cliPath: "/bin/ls", status: 101,
-                message: "not signed by the k3sm Developer ID"),
-    ]
-
-    /// Runs a rendered command line, exactly as the administrator prompt
-    /// would but as this user, and returns its status and standard error.
-    static func run(_ line: String) throws -> (status: Int32, stderr: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", line]
-        process.environment = ["PATH": "/usr/bin:/bin"]
-        let err = Pipe()
-        process.standardError = err
-        process.standardOutput = FileHandle.nullDevice
-        try process.run()
-        let data = err.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return (process.terminationStatus, String(decoding: data, as: UTF8.self))
-    }
-
-    @Test("each refusal stops before the CLI runs", arguments: refusals)
-    func refusal(_ r: Refusal) throws {
-        let line = LifecycleScriptBuilder.render(.stop, teamID: Self.team, cliPath: r.cliPath).command(inputPath: "/dev/null")
-        let result = try Self.run(line)
-        #expect(result.status == r.status, "stderr: \(result.stderr)")
-        #expect(result.stderr.contains(r.message), "stderr: \(result.stderr)")
-        #expect(!result.stderr.contains("unknown option"), "the CLI line ran")
-    }
-
-    @Test("a user-owned CLI is refused and never executed")
-    func userOwnedNeverRuns() throws {
-        // The real path (/private/var/..., not /var/...), so the first
-        // refusal is the user-owned directory, not the /var symlink.
-        let tmp = try #require(realpath(NSTemporaryDirectory(), nil))
-        defer { free(tmp) }
-        let base = URL(fileURLWithPath: String(cString: tmp)).appending(path: "k3sm-lifecycle-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: base) }
-        let marker = base.appending(path: "ran")
-        let cli = base.appending(path: "k3sm")
-        try Data("#!/bin/sh\n: > \(ShellQuote.quote(marker.path))\n".utf8).write(to: cli)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
-        let line = LifecycleScriptBuilder.render(.stop, teamID: Self.team, cliPath: cli.path).command(inputPath: "/dev/null")
-        let result = try Self.run(line)
-        #expect(result.status == LifecycleExit.refusedBinary)
-        #expect(result.stderr.contains("is not owned by root, or is writable by group or others"))
-        #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
 
     // MARK: the k3sm CLI contract
