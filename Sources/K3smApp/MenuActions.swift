@@ -39,16 +39,33 @@ enum MenuActions {
         log.notice("menu: opened logs")
     }
 
-    /// Opens `k3sm status` in Terminal.
+    /// The installed CLI's trust, checked now (never a cached verdict).
+    private static func trustNow() async -> InstalledCLITrust {
+        let team = SelfCheck.teamID()
+        return await Task.detached { SelfCheck.installedCLITrust(team: team) }.value
+    }
+
+    /// Opens `k3sm status` in Terminal, only for a CLI that passes its trust
+    /// check just now.
     static func openStatus() {
-        openCommand(StatusCommand.commandText, named: StatusCommand.commandName)
+        Task {
+            if case .refused(let why) = await trustNow() {
+                AppModel.alert(title: "k3sm will not run the installed k3sm", text: "It failed the app's check: \(why).")
+                return
+            }
+            openCommand(StatusCommand.commandText, named: StatusCommand.commandName)
+        }
     }
 
     /// Writes a bug report: Terminal runs the collector, which writes the
-    /// report beside itself and opens it for review. Nothing is uploaded.
+    /// report beside itself and opens it for review. Nothing is uploaded. A
+    /// CLI that fails its trust check is left out of the report, not run.
     static func writeBugReport() {
-        openCommand(BugReport.commandText, named: BugReport.commandName)
-        log.notice("menu: bug report collector opened")
+        Task {
+            let trusted = await trustNow() == .trusted
+            openCommand(BugReport.commandText(cliTrusted: trusted), named: BugReport.commandName)
+            log.notice("menu: bug report collector opened")
+        }
     }
 
     private static func openCommand(_ text: String, named name: String) {

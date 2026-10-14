@@ -56,12 +56,23 @@ public enum BugReport {
         K3smLogs.paths(for: nil)
     }
 
-    /// The `.command` text. It is the same on every Mac and for every user:
-    /// nothing is interpolated from the app, the CLI or the user.
-    public static var commandText: String {
+    /// The `.command` text, for an installed CLI that passed its trust check.
+    public static var commandText: String { commandText(cliTrusted: true) }
+
+    /// The line a collector for an untrusted CLI writes instead of running it.
+    public static let skippedCLI = "(not run: the installed k3sm failed the app's ownership or signature check)"
+
+    /// The `.command` text. The app checks the installed CLI's trust just
+    /// before writing it; for a CLI that failed, the two CLI calls become a
+    /// fixed line and the CLI is never run. Either variant is the same on
+    /// every Mac and for every user: nothing is interpolated from the app,
+    /// the CLI or the user.
+    public static func commandText(cliTrusted: Bool) -> String {
         let q = ShellQuote.quote
         let sed = redactions.map { "-e " + q($0) }.joined(separator: " ")
-        let cli = "/usr/bin/env -i PATH=\(K3smCLI.systemPath) HOME=/var/empty \"$k3sm\""
+        let run = "/usr/bin/env -i PATH=\(K3smCLI.systemPath) HOME=/var/empty \"$k3sm\""
+        let version = cliTrusted ? run + " version" : "echo " + q(skippedCLI)
+        let status = cliTrusted ? run + " status -o json" : "echo " + q(skippedCLI)
         return #"""
             #!/bin/sh
             # k3sm bug report. Collects a fixed list of facts about k3sm on this
@@ -79,9 +90,9 @@ public enum BugReport {
             	section 'macOS'
             	/usr/bin/sw_vers
             	section 'k3sm version'
-            	\#(cli) version
+            	\#(version)
             	section 'k3sm status -o json'
-            	\#(cli) status -o json
+            	\#(status)
             	section 'launchd'
             	for label in \#(labels.map(q).joined(separator: " ")); do
             		printf -- '-- %s\n' "$label"

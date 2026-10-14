@@ -98,6 +98,18 @@ struct BugReportTests {
         #expect(try Self.redact(input + "\n") == want + "\n")
     }
 
+    @Test("a CLI that failed its trust check is left out, never run")
+    func untrustedCLI() throws {
+        let text = BugReport.commandText(cliTrusted: false)
+        #expect(try shell(["-n", "-c", text]).status == 0)
+        #expect(!text.contains("\"$k3sm\" version"))
+        #expect(!text.contains("\"$k3sm\" status"))
+        #expect(text.components(separatedBy: "echo " + ShellQuote.quote(BugReport.skippedCLI)).count == 3)
+        // Everything else is the same collector.
+        #expect(text.contains("/usr/bin/tail -n 400"))
+        #expect(BugReport.commandText == BugReport.commandText(cliTrusted: true))
+    }
+
     @Test("the report and its script are named, never typed")
     func names() {
         #expect(BugReport.reportName == "k3sm-bug-report.txt")
