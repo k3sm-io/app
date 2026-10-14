@@ -15,6 +15,8 @@ limitations under the License.
 */
 
 import AppKit
+import Combine
+import K3smInstall
 import K3smStatus
 
 /// StatusItemController owns the NSStatusItem and applies the visibility rule:
@@ -22,8 +24,14 @@ import K3smStatus
 /// `status item: visible` only once the item's button window is on screen,
 /// and respects a user who removes the item (Command-drag or Menu Bar
 /// settings) until the next launch.
+///
+/// The menu carries the verdict and summary, the status rows, Stop (with the
+/// multi-node warning) and Restart, Open Status, Open Logs, Write a Bug
+/// Report, Open k3sm and Quit. Stop and Restart go through `AppModel.perform`
+/// and are enabled only when the installed CLI has them; otherwise a note
+/// item opens the window, which says why.
 @MainActor
-final class StatusItemController: NSObject {
+final class StatusItemController: NSObject, NSMenuDelegate {
     private static let autosaveName = "io.k3sm.app.status"
 
     private var tracker = VisibilityTracker()
@@ -33,22 +41,51 @@ final class StatusItemController: NSObject {
     private var removingItem = false
     private let menu = NSMenu()
     private let headerItem = NSMenuItem(title: "k3sm", action: nil, keyEquivalent: "")
+    private var rowItems: [NSMenuItem] = []
+    private let rowsEnd = NSMenuItem.separator()
+    private var stopItem = NSMenuItem()
+    private var restartItem = NSMenuItem()
+    private var noteItem = NSMenuItem()
+    private let model: AppModel
     private let openWindow: @MainActor () -> Void
+    private var supportObservation: AnyCancellable?
+    /// The last report the poller or a menu open read.
+    private var report: StatusReport?
 
     /// Whether the rule currently wants the item shown.
     var wantsVisible: Bool { tracker.visible }
 
-    init(openWindow: @escaping @MainActor () -> Void) {
+    init(model: AppModel, openWindow: @escaping @MainActor () -> Void) {
+        self.model = model
         self.openWindow = openWindow
         super.init()
+        menu.autoenablesItems = false
+        menu.delegate = self
         headerItem.isEnabled = false
         menu.addItem(headerItem)
+        menu.addItem(rowsEnd)
+        stopItem = add(LifecycleVerb.stop.title + "…", #selector(stopAction))
+        restartItem = add(LifecycleVerb.restart.title + "…", #selector(restartAction))
+        noteItem = add("Stop and Restart are not available: open k3sm for why", #selector(openWindowAction))
         menu.addItem(.separator())
-        let open = NSMenuItem(title: "Open k3sm", action: #selector(openWindowAction), keyEquivalent: "o")
-        open.target = self
-        menu.addItem(open)
+        _ = add("Open Status in Terminal", #selector(openStatusAction))
+        _ = add("Open Logs", #selector(openLogsAction))
+        _ = add("Write a Bug Report…", #selector(bugReportAction))
+        menu.addItem(.separator())
+        _ = add("Open k3sm", #selector(openWindowAction), key: "o")
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit k3sm", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        supportObservation = model.$lifecycleSupport.sink { [weak self] support in
+            MainActor.assumeIsolated { self?.updateLifecycleItems(support) }
+        }
+        updateLifecycleItems(nil)
+    }
+
+    private func add(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.target = self
+        menu.addItem(item)
+        return item
     }
 
     /// Feeds one poll result through the visibility rule.
@@ -58,18 +95,95 @@ final class StatusItemController: NSObject {
             log.notice("k3sm status unavailable")
         }
         if let report {
-            let summary = report.summary.isEmpty ? report.verdict.word : "\(report.verdict.word) · \(report.summary)"
-            headerItem.title = StatusDisplay.clip("k3sm " + summary)
+            show(report)
             item?.button?.image = Self.icon(degraded: report.verdict == .degraded)
         }
         if change.visibilityChanged {
             if tracker.visible {
                 insert()
+                Task { await model.refreshLifecycleSupport() }
             } else {
                 remove()
             }
         }
     }
+
+    /// Shows the verdict and summary, and the status rows, of a report.
+    private func show(_ report: StatusReport) {
+        self.report = report
+        let summary = report.summary.isEmpty ? report.verdict.word : "\(report.verdict.word) · \(report.summary)"
+        headerItem.title = StatusDisplay.clip("k3sm " + summary)
+        for row in rowItems {
+            menu.removeItem(row)
+        }
+        rowItems = StatusDisplay.rows(of: report).map { row in
+            let item = NSMenuItem(title: StatusDisplay.clip("\(row.name): \(row.state) · \(row.detail)"), action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            item.indentationLevel = 1
+            return item
+        }
+        let at = menu.index(of: rowsEnd)
+        for (offset, row) in rowItems.enumerated() {
+            menu.insertItem(row, at: at + offset)
+        }
+    }
+
+    private func updateLifecycleItems(_ support: LifecycleSupport?) {
+        let available = support == .available && !model.running
+        stopItem.isEnabled = available
+        restartItem.isEnabled = available
+        if case .unavailable = support {
+            noteItem.isHidden = false
+        } else {
+            noteItem.isHidden = true
+        }
+    }
+
+    // MARK: NSMenuDelegate
+
+    /// On open: re-check lifecycle support and read the full report, so the
+    /// rows are the whole status, not only the launchd probe.
+    func menuWillOpen(_ menu: NSMenu) {
+        updateLifecycleItems(model.lifecycleSupport)
+        Task {
+            await model.refreshLifecycleSupport()
+            if let full = await model.readFullReport() {
+                show(full)
+            }
+        }
+    }
+
+    // MARK: actions
+
+    /// The state the menu showed: the user acts on that, and the driver
+    /// refuses if the live state no longer matches.
+    private var shownState: LifecycleState { LifecycleState(report: report) }
+
+    @objc private func stopAction() {
+        model.perform(.stop, expected: shownState)
+    }
+
+    @objc private func restartAction() {
+        model.perform(.restart, expected: shownState)
+    }
+
+    @objc private func openStatusAction() {
+        MenuActions.openStatus()
+    }
+
+    @objc private func openLogsAction() {
+        MenuActions.openLogs(role: report.flatMap(NodeRole.detect(in:)))
+    }
+
+    @objc private func bugReportAction() {
+        MenuActions.writeBugReport()
+    }
+
+    @objc private func openWindowAction() {
+        openWindow()
+    }
+
+    // MARK: visibility
 
     private func insert() {
         guard item == nil, !removedByUser else { return }
@@ -114,10 +228,6 @@ final class StatusItemController: NSObject {
             return
         }
         log.notice("status item: visible")
-    }
-
-    @objc private func openWindowAction() {
-        openWindow()
     }
 
     private static func icon(degraded: Bool) -> NSImage? {

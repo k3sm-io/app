@@ -65,6 +65,8 @@ final class AppModel: ObservableObject {
     /// in view state: the Command Line Tools toolchain has no SwiftUI macro
     /// plugin, so the window uses no `@State`.
     @Published var confirmingUninstall = false
+    /// Whether Stop, Start and Restart are offered; nil until first checked.
+    @Published private(set) var lifecycleSupport: LifecycleSupport?
 
     let payloadVersion: SemanticVersion?
     private let teamID: TeamID?
@@ -151,6 +153,15 @@ final class AppModel: ObservableObject {
     var uninstallAction: CopyOutAction { .uninstall(purge: purge) }
     var canUninstall: Bool { canRunPrivileged }
 
+    /// The lifecycle state the window shows, from the last full report.
+    var lifecycleState: LifecycleState { LifecycleState(report: report) }
+
+    /// Whether a lifecycle verb may start now. It needs no payload: it runs
+    /// the installed CLI, never the app's copy.
+    var canRunLifecycle: Bool {
+        !running && availability == .enabled && teamID != nil && lifecycleSupport == .available
+    }
+
     /// Re-reads which screen applies, the full report, the installed version
     /// and, on a worker, its join target. The full report runs only here,
     /// when the window is shown.
@@ -171,6 +182,96 @@ final class AppModel: ObservableObject {
         joinTarget = role == .agent
             ? AgentJoinTarget.resolve(statusJoinTarget: report?.joinTarget, plist: Self.readPlist)
             : nil
+        await refreshLifecycleSupport()
+    }
+
+    /// Re-detects whether the installed CLI has `k3sm stop`. The CLI is run
+    /// (for its version) only after it passes the same root-owned and
+    /// signature checks the lifecycle script makes; a developer build has no
+    /// Team ID to check against and offers no lifecycle verb.
+    func refreshLifecycleSupport() async {
+        guard let teamID else {
+            lifecycleSupport = .unavailable(note: LifecycleSupport.developerBuildNote)
+            return
+        }
+        let trust = await Task.detached { SelfCheck.installedCLITrust(team: teamID) }.value
+        var version: SemanticVersion?
+        if trust == .trusted, case .exited(0, let stdout) = await runCLI(K3smCLI.versionArguments) {
+            version = SemanticVersion.fromVersionCommand(String(decoding: stdout, as: UTF8.self))
+        }
+        lifecycleSupport = LifecycleSupport.evaluate(trust: trust, version: version)
+    }
+
+    /// Reads the full report now, or nil when it cannot be read.
+    func readFullReport() async -> StatusReport? {
+        guard case .exited(_, let stdout) = await runCLI(K3smCLI.reportArguments) else { return nil }
+        return try? StatusReport.decode(stdout)
+    }
+
+    /// Runs one lifecycle verb from the menu, the window or the login
+    /// notification. `expected` is the state the user acted on. The driver
+    /// re-reads the status, asks (naming the verb, with the Stop warning),
+    /// re-reads again, and only then shows the administrator prompt.
+    func perform(_ verb: LifecycleVerb, expected: LifecycleState) {
+        guard !running else { return }
+        Task {
+            if lifecycleSupport == nil {
+                await refreshLifecycleSupport()
+            }
+            guard canRunLifecycle, let teamID else {
+                if case .unavailable(let note) = lifecycleSupport {
+                    Self.alert(title: "k3sm cannot \(verb.rawValue) k3sm from the app", text: note)
+                } else if case .disabled(let reason) = availability {
+                    Self.alert(title: "k3sm cannot \(verb.rawValue) k3sm from the app", text: reason)
+                }
+                return
+            }
+            running = true
+            outcomeMessage = nil
+            let driver = LifecycleDriver(
+                teamID: teamID,
+                readStatus: { await self.readFullReport() },
+                confirm: { Self.confirm($0) },
+                runner: runner)
+            let result = await driver.perform(verb, expected: expected)
+            running = false
+            switch result {
+            case .declined:
+                break
+            case .refused(let why):
+                outcomeMessage = why
+                Self.alert(title: "Nothing was changed", text: why)
+            case .ran(let outcome, let text):
+                outcomeMessage = text
+                if outcome != .succeeded, outcome != .cancelled {
+                    Self.alert(title: verb.title, text: text)
+                }
+            }
+            log.notice("lifecycle verb finished")
+            await refresh()
+        }
+    }
+
+    /// Asks before a lifecycle verb, naming it; the Stop warning is shown
+    /// as critical.
+    private static func confirm(_ c: LifecycleConfirmation) -> Bool {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = c.title
+        alert.informativeText = c.warning.map { $0 + "\n\n" + c.message } ?? c.message
+        alert.alertStyle = c.warning == nil ? .informational : .critical
+        alert.addButton(withTitle: c.verb.title)
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    /// Shows one sentence in an alert.
+    static func alert(title: String, text: String) {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = text
+        alert.runModal()
     }
 
     /// Runs the first-run choice through the privileged runner.

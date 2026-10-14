@@ -118,6 +118,8 @@ struct StatusView: View {
             Button("Refresh") { Task { await model.refresh() } }
                 .disabled(model.running)
             Divider()
+            LifecycleSection(model: model)
+            Divider()
             UpdateSection(model: model)
             Divider()
             UninstallSection(model: model)
@@ -139,6 +141,37 @@ struct StatusView: View {
         case .newer: return "Installed: \(current) · this app carries \(payload), a newer release"
         case .same: return "Installed: \(current) · up to date with this app"
         case .older: return "Installed: \(current) · this app carries an older release, \(payload)"
+        }
+    }
+}
+
+/// LifecycleSection offers Stop and Restart while k3sm runs and Start while
+/// it is stopped, each through the same confirmation and administrator
+/// prompt as the menu. With an installed CLI too old for `k3sm stop`, or one
+/// the app will not run as root, it shows the note instead.
+struct LifecycleSection: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            switch model.lifecycleState {
+            case .running:
+                HStack {
+                    Button(LifecycleVerb.stop.title + "…") { model.perform(.stop, expected: .running) }
+                    Button(LifecycleVerb.restart.title + "…") { model.perform(.restart, expected: .running) }
+                }
+                .disabled(!model.canRunLifecycle)
+            case .stopped:
+                Button(LifecycleVerb.start.title + "…") { model.perform(.start, expected: .stopped) }
+                    .disabled(!model.canRunLifecycle)
+            case .notInstalled, .unreadable:
+                EmptyView()
+            }
+            if case .unavailable(let note) = model.lifecycleSupport {
+                Text(verbatim: note)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

@@ -27,6 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowController: MainWindowController?
     private var statusItem: StatusItemController?
     private var poller: StatusPoller?
+    private var notifier: StoppedNotifier?
+    /// Whether the first poll of a login-item launch is still to be checked
+    /// for the stopped notice.
+    private var noticePending = false
     private var activity: NSObjectProtocol?
     private var sessionObservers: [NSObjectProtocol] = []
 
@@ -35,11 +39,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let environment = SelfCheck.cliEnvironment()
         let model = AppModel(runner: AppleScriptPrivilegedRunner(), environment: environment)
         let windowController = MainWindowController(model: model)
-        let statusItem = StatusItemController { [weak windowController] in windowController?.show() }
+        let statusItem = StatusItemController(model: model) { [weak windowController] in windowController?.show() }
+        let notifier = StoppedNotifier(
+            onStart: { [weak model] in model?.perform(.start, expected: .stopped) },
+            onOpen: { [weak windowController] in windowController?.show() })
+        notifier.install()
+        noticePending = loginLaunch
         let poller = StatusPoller(environment: environment) { [weak statusItem, weak self] reading, report in
             statusItem?.observe(reading, report: report)
             self?.poller?.itemVisible = statusItem?.wantsVisible ?? false
+            self?.checkStoppedNotice(report)
         }
+        self.notifier = notifier
         self.model = model
         self.windowController = windowController
         self.statusItem = statusItem
@@ -74,6 +85,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let activity {
             ProcessInfo.processInfo.endActivity(activity)
         }
+    }
+
+    /// After a login-item launch, the first poll decides whether k3sm is
+    /// stopped with a recorded stop; if so, the notice is posted once.
+    private func checkStoppedNotice(_ report: StatusReport?) {
+        guard noticePending else { return }
+        noticePending = false
+        notifier?.postIfDue(loginLaunch: true, report: report)
     }
 
     /// Pauses polling while this user's session is not the active console
