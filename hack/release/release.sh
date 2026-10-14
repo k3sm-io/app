@@ -62,9 +62,12 @@
 # lab use. It runs the k3sm checkout's hack/release/stage.sh (ad-hoc, no
 # Developer ID), builds the app ad-hoc with the bundle id
 # io.k3sm.app.rehearsal and no Team ID (hack/build-app.sh --rehearsal), builds
-# the image with make-dmg.sh, and runs the same payload and mount checks, with
-# the unsigned app's checks (ad-hoc signature valid, no Team ID stamp) in place
-# of the signed ones. The output is
+# the image with make-dmg.sh, and runs the same payload and mount checks. In
+# place of the signed checks it requires an ad-hoc signature that verifies:
+# codesign -dv reports Signature=adhoc, no Authority and no Team ID, and the
+# executable holds no Team ID stamp. Every child it starts runs under env -i
+# with only PATH, HOME, TMPDIR, DEVELOPER_DIR and the Go toolchain locations.
+# The output is
 #   <out-dir>/k3sm_<version>_darwin_arm64-unsigned.dmg
 # where <out-dir> defaults to a fresh rehearsal-<version>-<UTC time> directory
 # in the nearest k3sm-io.scratch directory beside an ancestor of this repo.
@@ -140,7 +143,9 @@ image_name_problems() {
 
 # payload_problems <dir> <manifest>: zero when <dir> holds exactly the files
 # <manifest> lists, with its SHA-256 each, plus PAYLOAD-SHA256 byte-identical to
-# <manifest>; no other file (.DS_Store included), no symlink, no special file.
+# <manifest>; no other file (.DS_Store included), no symlink, no special file,
+# no setuid or setgid file and no group- or other-writable entry (the rule
+# hack/build-app.sh applies). A last manifest line without a newline counts.
 # Prints every problem.
 payload_problems() {
 	local dir="$1" manifest="$2" rc=0 odd lines want got line sum rel
@@ -148,6 +153,8 @@ payload_problems() {
 	if [ -L "$dir" ] || [ ! -d "$dir" ]; then echo "    no payload directory at $dir"; return 1; fi
 	odd="$(cd "$dir" && find . ! -type f ! -type d | sed 's|^\./||')"
 	[ -z "$odd" ] || { echo "    $dir holds symlinks or special files:"; printf '%s\n' "$odd" | sed 's/^/      /'; rc=1; }
+	odd="$(cd "$dir" && find . -perm +6022 | sed 's|^\./||')"
+	[ -z "$odd" ] || { echo "    $dir holds setuid or setgid files or group/other-writable entries:"; printf '%s\n' "$odd" | sed 's/^/      /'; rc=1; }
 	cmp -s "$dir/PAYLOAD-SHA256" "$manifest" || { echo "    $dir/PAYLOAD-SHA256 differs from $manifest"; rc=1; }
 	lines="$(sed -e '/^#/d' -e '/^$/d' "$manifest")"
 	if [ -n "$(printf '%s\n' "$lines" | sed -E '/^[0-9a-f]{64}  [^/].*$/d; /^$/d')" ]; then
@@ -160,7 +167,7 @@ payload_problems() {
 		diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | sed -n 's/^\([<>]\)/      \1/p'
 		rc=1
 	fi
-	while IFS= read -r line; do
+	while IFS= read -r line || [ -n "$line" ]; do
 		case "$line" in '#'* | '') continue ;; esac
 		sum="${line%%  *}"
 		rel="${line#*  }"
@@ -230,13 +237,24 @@ team_stamps() {
 	{ LC_ALL=C grep -ao "${TEAM_PIN_MARKER}[[:print:]][[:print:]]*" "$1" || true; } | sed '/^$/d' | wc -l | tr -d ' '
 }
 
-# rehearsal_app_problems <app>: the ad-hoc signature verifies and the app is
-# pinned to no Team ID.
+# rehearsal_app_problems <app>: the app's signature is ad-hoc and verifies:
+# `codesign -dv` reports Signature=adhoc, no Authority and no Team ID
+# (TeamIdentifier absent or "not set", which is how codesign prints an ad-hoc
+# signature), and the executable holds no compiled Team ID stamp.
 rehearsal_app_problems() {
-	local app="$1" rc=0 exe n
+	local app="$1" rc=0 exe n info
 	exe="$app/Contents/MacOS/k3sm-app"
 	codesign --verify --strict --deep "$app" >/dev/null 2>&1 ||
 		{ echo "    codesign --verify --strict --deep rejects the rehearsal k3sm.app"; rc=1; }
+	info="$(codesign -dv "$app" 2>&1 || true)"
+	grep -qx 'Signature=adhoc' <<<"$info" ||
+		{ echo "    codesign -dv does not report Signature=adhoc for the rehearsal k3sm.app"; rc=1; }
+	if grep -q '^Authority=' <<<"$info"; then
+		echo "    the rehearsal k3sm.app is signed by a certificate authority, not ad-hoc"; rc=1
+	fi
+	if grep '^TeamIdentifier=' <<<"$info" | grep -vqx 'TeamIdentifier=not set'; then
+		echo "    the rehearsal k3sm.app's signature names a Team ID: $(grep '^TeamIdentifier=' <<<"$info" | head -1)"; rc=1
+	fi
 	if [ ! -f "$exe" ]; then
 		echo "    k3sm.app has no Contents/MacOS/k3sm-app"; rc=1
 	else
@@ -251,28 +269,36 @@ IMAGE_MNT="" IMAGE_ATTACHED=0
 detach_image() {
 	[ -n "$IMAGE_MNT" ] || return 0
 	if [ "$IMAGE_ATTACHED" = 1 ]; then
-		hdiutil detach "$IMAGE_MNT" >/dev/null 2>&1 || hdiutil detach -force "$IMAGE_MNT" >/dev/null 2>&1 ||
-			echo "release: could not detach $IMAGE_MNT" >&2
+		if ! hdiutil detach "$IMAGE_MNT" >/dev/null 2>&1 && ! hdiutil detach -force "$IMAGE_MNT" >/dev/null 2>&1; then
+			echo "release: could not detach the image at $IMAGE_MNT; run: hdiutil detach -force $IMAGE_MNT" >&2
+			IMAGE_MNT="" IMAGE_ATTACHED=0
+			return 1
+		fi
 	fi
 	rmdir "$IMAGE_MNT" 2>/dev/null || true
 	IMAGE_MNT="" IMAGE_ATTACHED=0
 }
 
-# mounted_image_problems <image> <tag> <bundle-id> <manifest> <signed|rehearsal>
-# [team]: attach the image read-only at a private mount point and check its
-# root, the app and its payload, then the signed or the rehearsal app checks.
+# mounted_image_problems <image> <tag> <bundle-id> <manifest> <app-check>
+# [args...]: attach the image read-only at a private mount point and check its
+# root, the app and its payload, then run `<app-check> <mounted app> [args...]`
+# (signed_app_problems for a release, rehearsal_app_problems for a rehearsal,
+# so this function holds no path of its own to either). A failed detach fails
+# the check.
 # Run it only in a command substitution: its EXIT, HUP, INT and TERM traps
 # detach the image and must not replace the caller's.
 mounted_image_problems() {
-	local img="$1" tag="$2" bundle="$3" manifest="$4" mode="$5" team="${6:-}" rc=0 root entries
+	local img="$1" tag="$2" bundle="$3" manifest="$4" check="$5" rc=0 root entries
+	shift 5
 	IMAGE_MNT="$(mktemp -d)"
 	chmod 700 "$IMAGE_MNT"
-	trap detach_image EXIT
+	trap 'detach_image || exit 1' EXIT
 	trap 'detach_image; exit 129' HUP
 	trap 'detach_image; exit 130' INT TERM
 	if ! hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$IMAGE_MNT" "$img" >/dev/null 2>&1; then
 		echo "    hdiutil cannot attach $img read-only"
-		detach_image
+		detach_image || true
+		trap - EXIT HUP INT TERM
 		return 1
 	fi
 	IMAGE_ATTACHED=1
@@ -290,12 +316,8 @@ mounted_image_problems() {
 		echo "    Applications in the image is not a symlink to /Applications"; rc=1
 	fi
 	app_problems "$root/k3sm.app" "$tag" "$bundle" "$manifest" || rc=1
-	case "$mode" in
-	signed) signed_app_problems "$root/k3sm.app" "$team" || rc=1 ;;
-	rehearsal) rehearsal_app_problems "$root/k3sm.app" || rc=1 ;;
-	*) echo "    unknown image mode $mode"; rc=1 ;;
-	esac
-	detach_image
+	"$check" "$root/k3sm.app" "$@" || rc=1
+	detach_image || { echo "    hdiutil could not detach the image; it is still mounted"; rc=1; }
 	trap - EXIT HUP INT TERM
 	return "$rc"
 }
@@ -381,7 +403,7 @@ run_full() {
 		printf '%s\n' "$problems" >&2
 		refuse image-unverified "the signed image fails its checks; nothing was uploaded."
 	fi
-	if ! problems="$(mounted_image_problems "$img" "$VERSION" "$BUNDLE_ID" "$STAGE/PAYLOAD-SHA256" signed "$TEAM_ID")"; then
+	if ! problems="$(mounted_image_problems "$img" "$VERSION" "$BUNDLE_ID" "$STAGE/PAYLOAD-SHA256" signed_app_problems "$TEAM_ID")"; then
 		printf '%s\n' "$problems" >&2
 		refuse image-unverified "the image's contents fail their checks; nothing was uploaded."
 	fi
@@ -447,6 +469,21 @@ default_out_dir() {
 	return 1
 }
 
+# The only variables a rehearsal child (stage.sh, build-app.sh, make-dmg.sh
+# and everything they run) receives. No signing identity, Team ID, notary
+# profile, keychain, CODESIGN or GO override, and no CLAUDECODE or K3SM_AUTO
+# either, so the children see nothing that could select a Developer ID.
+SCRUB_KEEP="PATH HOME TMPDIR DEVELOPER_DIR GOPATH GOCACHE GOMODCACHE GOROOT GOTOOLCHAIN"
+
+# scrubbed <command...>: run it under env -i with only SCRUB_KEEP.
+scrubbed() {
+	local keep=() v
+	for v in $SCRUB_KEEP; do
+		[ -z "${!v+x}" ] || keep+=("$v=${!v}")
+	done
+	env -i ${keep[@]+"${keep[@]}"} "$@"
+}
+
 # run_rehearsal: stage ad-hoc, build the rehearsal app, make the unsigned
 # image, check it. No publish.sh, no gh, no sign-and-notarize.sh, no identity.
 run_rehearsal() {
@@ -464,13 +501,13 @@ run_rehearsal() {
 	[ "$STUB_PAYLOAD" = 0 ] || stage_args=(--stub-payload)
 
 	echo "==> 1/5 stage.sh (ad-hoc, unsigned) into $tree"
-	"$stage_sh" "$tree" --ldflags "$LDFLAGS" ${stage_args[@]+"${stage_args[@]}"} || die "stage.sh failed"
+	scrubbed "$stage_sh" "$tree" --ldflags "$LDFLAGS" ${stage_args[@]+"${stage_args[@]}"} || die "stage.sh failed"
 
 	echo "==> 2/5 the staged tree"
 	check_tree "$tree" "$VERSION"
 
 	echo "==> 3/5 build the rehearsal k3sm.app $core (ad-hoc, no Team ID)"
-	bash "$BUILD_APP" --rehearsal --version "$core" --payload "$tree" "$build" || die "hack/build-app.sh failed"
+	scrubbed bash "$BUILD_APP" --rehearsal --version "$core" --payload "$tree" "$build" || die "hack/build-app.sh failed"
 	check_app "$build/k3sm.app" "$VERSION" "$REHEARSAL_BUNDLE_ID" "$tree/PAYLOAD-SHA256"
 	if ! problems="$(rehearsal_app_problems "$build/k3sm.app")"; then
 		printf '%s\n' "$problems" >&2
@@ -478,7 +515,7 @@ run_rehearsal() {
 	fi
 
 	echo "==> 4/5 make-dmg.sh (unsigned)"
-	bash "$MAKE_DMG" "$build/k3sm.app" "$img" || die "make-dmg.sh failed"
+	scrubbed bash "$MAKE_DMG" "$build/k3sm.app" "$img" || die "make-dmg.sh failed"
 
 	echo "==> 5/5 check the image"
 	if ! problems="$(image_name_problems "$img" "$VERSION" -unsigned)"; then
@@ -486,7 +523,7 @@ run_rehearsal() {
 		refuse image-name "the rehearsal image is misnamed."
 	fi
 	[ -f "$img" ] && [ ! -L "$img" ] || die "make-dmg.sh left no image at $img"
-	if ! problems="$(mounted_image_problems "$img" "$VERSION" "$REHEARSAL_BUNDLE_ID" "$tree/PAYLOAD-SHA256" rehearsal)"; then
+	if ! problems="$(mounted_image_problems "$img" "$VERSION" "$REHEARSAL_BUNDLE_ID" "$tree/PAYLOAD-SHA256" rehearsal_app_problems)"; then
 		printf '%s\n' "$problems" >&2
 		refuse image-unverified "the rehearsal image's contents fail their checks."
 	fi
@@ -524,6 +561,8 @@ parse_rehearsal() {
 # it names are used only from inside those strings (SC2034, SC2329).
 # shellcheck disable=SC2016,SC2034,SC2329
 self_test() {
+	local own_functions
+	own_functions="$(declare -F | awk '{print $3}')"
 	local T log fails=0 passes=0 out rc tag=v1.2.3 team=ABCDE12345 id="Developer ID Application: Example (ABCDE12345)"
 	T="$(mktemp -d)"
 	SELFTEST_TMP="$T"
@@ -544,6 +583,7 @@ self_test() {
 	# in CASE_RC.
 	CASE_RC=0
 	run_case() {
+		sync_ctl
 		set +e
 		(
 			set -e
@@ -553,6 +593,15 @@ self_test() {
 		set -e
 	}
 
+	# The fakes read their FAKE_* controls from a file as well as the
+	# environment, because the rehearsal starts its children under env -i. The
+	# child fakes record the names in their environment, less those FAKE_*.
+	local CTL="$T/fake.ctl"
+	sync_ctl() {
+		local v
+		: >"$CTL"
+		for v in $(compgen -v FAKE_); do printf "export %s='%s'\n" "$v" "${!v}" >>"$CTL"; done
+	}
 	# ---- fakes: every tool and script logs its argv to $FAKE_TOOL_LOG ----
 	local F="$T/fakes" K="$T/k3sm" A="$T/appscripts"
 	mkdir -p "$F" "$K/hack/release" "$A"
@@ -564,6 +613,10 @@ self_test() {
 #!/usr/bin/env bash
 printf '%s\n' "codesign $*" >>"$FAKE_TOOL_LOG"
 [ "$1" = --verify ] && [ "${FAKE_CODESIGN_VERIFY_OK:-}" = 1 ] && exit 0
+if [ "$1" = -dv ]; then
+	printf '%b\n' "${FAKE_CODESIGN_DV:-Executable=${!#}\nIdentifier=io.k3sm.app.rehearsal\nSignature=adhoc\nTeamIdentifier=not set}" >&2
+	exit 0
+fi
 exit 97
 EOF
 	cat >"$F/xcrun" <<'EOF'
@@ -595,6 +648,7 @@ attach)
 	cp -R "$src/." "$mnt/" || exit 1
 	exit 0 ;;
 detach)
+	[ -z "${FAKE_DETACH_FAIL:-}" ] || exit 16
 	mnt="${!#}"
 	[ -d "$mnt" ] || exit 1
 	find "$mnt" -mindepth 1 -delete
@@ -614,6 +668,9 @@ printf 'fixture\n' >"$d/share/notes.txt"
 chmod 0755 "$d" "$d/share" "$d/k3sm"
 chmod 0644 "$d/share/notes.txt"
 { echo "# fixture manifest"; (cd "$d" && shasum -a 256 k3sm share/notes.txt); } >"$d.PAYLOAD-SHA256"
+if [ -n "${FAKE_MANIFEST_NO_NL:-}" ]; then
+	printf '%s' "$(cat "$d.PAYLOAD-SHA256")" >"$d.PAYLOAD-SHA256"
+fi
 cp "$d.PAYLOAD-SHA256" "$d/PAYLOAD-SHA256"
 EOF
 	# publish.sh: --through-verify stages a tree and seals it; --upload succeeds.
@@ -640,6 +697,7 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "stage.sh \$*" >>"\$FAKE_TOOL_LOG"
+printf 'stage.sh %s\n' "\$(env | sed 's/=.*//' | grep -v '^FAKE_' | LC_ALL=C sort | tr '\n' ' ')" >>"$T/child-env"
 v="\$(printf '%s\n' "\$*" | sed -n 's/.*pkg\/version.Version=\([^ ]*\).*/\1/p')"
 "$F/mk-tree" "\$1" "\$v"
 EOF
@@ -650,6 +708,7 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "build-app.sh $*" >>"$FAKE_TOOL_LOG"
+printf 'build-app.sh %s\n' "$(env | sed 's/=.*//' | grep -v '^FAKE_' | LC_ALL=C sort | tr '\n' ' ')" >>"$FAKE_CHILD_ENV"
 version="" team="" payload="" out="" bundle=io.k3sm.app
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -685,6 +744,8 @@ edit) printf 'tampered\n' >>"$p/share/notes.txt" ;;
 extra) printf 'extra\n' >"$p/share/extra.txt" ;;
 missing) rm "$p/share/notes.txt" ;;
 dsstore) printf 'x' >"$p/.DS_Store" ;;
+setuid) chmod 4755 "$p/k3sm" ;;
+group-writable) chmod 0664 "$p/share/notes.txt" ;;
 esac
 EOF
 	# sign-and-notarize.sh and make-dmg.sh: write a FIXTURE image of the app
@@ -710,9 +771,17 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "make-dmg.sh \$*" >>"\$FAKE_TOOL_LOG"
+printf 'make-dmg.sh %s\n' "\$(env | sed 's/=.*//' | grep -v '^FAKE_' | LC_ALL=C sort | tr '\n' ' ')" >>"$T/child-env"
 "$F/mk-image" "\$1" "\$2"
 EOF
+	local f
+	for f in "$F/"* "$K/hack/release/"*.sh "$A/"*.sh; do
+		awk -v c="$CTL" 'NR == 1 { print; print "[ ! -f \"" c "\" ] || . \"" c "\""; next } { print }' "$f" >"$f.tmp"
+		mv "$f.tmp" "$f"
+	done
 	chmod +x "$F/"* "$K/hack/release/"*.sh "$A/"*.sh
+	export FAKE_CHILD_ENV="$T/child-env"
+	sync_ctl
 	local FPATH="$F:$PATH"
 	printf 'notes\n' >"$T/notes.md"
 
@@ -734,6 +803,7 @@ EOF
 	echo "the attended refusal (full mode)"
 	# Run in a new session with no controlling terminal and stdin not a tty.
 	no_tty() { perl -MPOSIX -e 'my $p = fork; if ($p) { waitpid($p, 0); exit($? >> 8) } POSIX::setsid(); exec @ARGV' "$@" </dev/null >"$T/out" 2>&1; }
+	sync_ctl
 	local full_args=(--version "$tag" --stage-dir "$T/refused/stage" --cp-build "$T/cp" --ldflags x
 		--identity "$id" --team-id "$team" --notes-file "$T/notes.md" --k3sm-dir "$K")
 	: >"$log"
@@ -801,7 +871,7 @@ publish.sh --upload"
 		eval '[ "$CASE_RC" = 0 ] && logged "^build-app.sh --version 1.2.3 " && logged "k3sm_1.2.3-rc.1_darwin_arm64.dmg" && logged "^publish.sh --upload .* --repo example/k3sm\$"'
 
 	local t
-	for t in edit extra missing dsstore; do
+	for t in edit extra missing dsstore setuid group-writable; do
 		full_case "tamper-$t"
 		export FAKE_APP_TAMPER="$t"
 		run_case in_fakes run_full
@@ -868,6 +938,23 @@ publish.sh --upload"
 	unset FAKE_APP_STAMP
 	check "an app pinned to another Team ID refuses before upload" \
 		eval '[ "$CASE_RC" = 3 ] && out_has "not pinned to exactly the Team ID $team" && not_logged "^publish.sh --upload"'
+	full_case no-newline
+	export FAKE_MANIFEST_NO_NL=1 FAKE_APP_TAMPER=edit
+	run_case in_fakes run_full
+	unset FAKE_MANIFEST_NO_NL FAKE_APP_TAMPER
+	check "a manifest without a final newline whose last file was edited refuses" \
+		eval '[ "$CASE_RC" = 3 ] && out_has "share/notes.txt: sha256 differs" && not_logged "^sign-and-notarize" && not_logged "^publish.sh --upload"'
+	full_case no-newline-ok
+	export FAKE_MANIFEST_NO_NL=1
+	run_case in_fakes run_full
+	unset FAKE_MANIFEST_NO_NL
+	check "a manifest without a final newline and an intact payload passes" eval '[ "$CASE_RC" = 0 ]'
+	full_case detach
+	export FAKE_DETACH_FAIL=1
+	run_case in_fakes run_full
+	unset FAKE_DETACH_FAIL
+	check "a failed detach is a failure with a clear message, before upload" \
+		eval '[ "$CASE_RC" = 3 ] && out_has "could not detach the image" && out_has "REFUSE: image-unverified" && not_logged "^publish.sh --upload"'
 	full_case exists
 	mkdir -p "$T/run-exists/stage.app-build"
 	run_case in_fakes run_full
@@ -881,6 +968,7 @@ publish.sh --upload"
 		LDFLAGS="-X k3sm.io/k3sm/pkg/version.Version=${VERSION#v}"
 		mkdir -p "$T/reh-$1"
 		: >"$log"
+		: >"$T/child-env"
 	}
 	# identity_signs <log>: codesign calls that sign with anything but ad-hoc.
 	identity_signs() { grep -E '^codesign .*(--sign|-s) ' "$1" | grep -Ev -- '(--sign|-s) - ' || true; }
@@ -902,10 +990,60 @@ publish.sh --upload"
 		eval 'logged "^make-dmg.sh .*/k3sm.app $rimg\$" && logged "^hdiutil attach -readonly"'
 	check "the rehearsal app carries io.k3sm.app.rehearsal" \
 		eval '[ "$(plutil -extract CFBundleIdentifier raw -o - "$T/reh-ok/out/app-build/k3sm.app/Contents/Info.plist")" = io.k3sm.app.rehearsal ]'
-	local body
-	body="$(declare -f run_rehearsal)"
-	check "the rehearsal's code has no path to publish.sh, gh, sign-and-notarize or a signed check" \
-		eval '! grep -Eq "publish|[^a-z]gh |SIGN_NOTARIZE|IDENTITY|TEAM_ID|signed_|notarytool|codesign" <<<"$body"'
+	# Every function the rehearsal path reaches: the closure, over this
+	# script's own functions, of the names each body mentions, from its two
+	# entry points. mounted_image_problems runs the app check its caller
+	# names, so the rehearsal's own call names it and it is in the closure.
+	local queue="parse_rehearsal run_rehearsal" reached=" " fn g body banned=""
+	while [ -n "$queue" ]; do
+		fn="${queue%% *}"
+		[ "$fn" = "$queue" ] && queue="" || queue="${queue#* }"
+		case "$reached" in *" $fn "*) continue ;; esac
+		reached="$reached$fn "
+		body="$(declare -f "$fn")"
+		for g in $own_functions; do
+			case "$reached" in *" $g "*) continue ;; esac
+			if grep -Eq "(^|[^A-Za-z0-9_])$g([^A-Za-z0-9_]|$)" <<<"$body"; then queue="${queue:+$queue }$g"; fi
+		done
+		# Signing, notarizing, uploading or any signed-release path.
+		if grep -Eq 'publish|(^|[^A-Za-z0-9_])gh |SIGN_NOTARIZE|IDENTITY|TEAM_ID|signed_|notarytool|stapler|spctl|security |--sign|codesign -s|codesign --force' <<<"$body"; then
+			banned="$banned $fn"
+		fi
+	done
+	check "the rehearsal's reach includes every checker and helper on its path" \
+		eval 'for g in run_rehearsal parse_rehearsal check_app app_problems payload_problems mounted_image_problems rehearsal_app_problems detach_image scrubbed check_tree tree_version image_name_problems team_stamps; do case "$reached" in *" $g "*) ;; *) echo "not reached: $g" >"$T/out"; false ;; esac; done'
+	check "no function the rehearsal reaches signs, notarizes, uploads or runs a signed check" \
+		eval '[ -z "$banned" ] || { echo "banned:$banned" >"$T/out"; false; }'
+	check "the reach excludes the signed checks and the full release" \
+		eval 'case "$reached" in *" signed_app_problems "* | *" signed_image_problems "* | *" run_full "*) false ;; esac'
+	check "the rehearsal's children ran under env -i with only the kept variables" \
+		eval '[ "$(grep -c . "$T/child-env")" = 3 ] && ! sed "s/^[^ ]* //" "$T/child-env" | tr " " "\n" | sed "/^$/d" | grep -Evx "PATH|HOME|TMPDIR|DEVELOPER_DIR|GO[A-Z]*|PWD|SHLVL|_|OLDPWD" >"$T/out"'
+
+	rehearsal_case scrub
+	export CODESIGN_IDENTITY="$id" K3SM_TEAM_ID="$team" NOTARY_PROFILE=k3sm-notary KEYCHAIN=login.keychain CODESIGN=/bin/echo K3SM_AUTO=1
+	run_case in_fakes run_rehearsal
+	unset CODESIGN_IDENTITY K3SM_TEAM_ID NOTARY_PROFILE KEYCHAIN CODESIGN K3SM_AUTO
+	check "identity, team, notary, keychain and codesign variables never reach a rehearsal child" \
+		eval '[ "$CASE_RC" = 0 ] && [ "$(grep -c . "$T/child-env")" = 3 ] && ! grep -Eq "IDENTITY|TEAM|NOTARY|KEYCHAIN|CODESIGN|K3SM_AUTO|CLAUDECODE|FAKE_" "$T/child-env"'
+
+	rehearsal_case devid
+	export FAKE_CODESIGN_DV='Executable=x\nIdentifier=io.k3sm.app.rehearsal\nSignature size=9000\nAuthority=Developer ID Application: Example (ABCDE12345)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTeamIdentifier=ABCDE12345'
+	run_case in_fakes run_rehearsal
+	unset FAKE_CODESIGN_DV
+	check "a Developer ID signature on the rehearsal app refuses" \
+		eval '[ "$CASE_RC" = 3 ] && out_has "does not report Signature=adhoc" && out_has "signed by a certificate authority" && out_has "names a Team ID: TeamIdentifier=ABCDE12345" && not_logged "^make-dmg"'
+	rehearsal_case teamonly
+	export FAKE_CODESIGN_DV='Signature=adhoc\nTeamIdentifier=ABCDE12345'
+	run_case in_fakes run_rehearsal
+	unset FAKE_CODESIGN_DV
+	check "an ad-hoc signature naming a Team ID refuses" \
+		eval '[ "$CASE_RC" = 3 ] && out_has "names a Team ID" && not_logged "^make-dmg"'
+	rehearsal_case nl
+	export FAKE_MANIFEST_NO_NL=1 FAKE_APP_TAMPER=edit
+	run_case in_fakes run_rehearsal
+	unset FAKE_MANIFEST_NO_NL FAKE_APP_TAMPER
+	check "a rehearsal manifest without a final newline still checks its last file" \
+		eval '[ "$CASE_RC" = 3 ] && out_has "share/notes.txt: sha256 differs" && not_logged "^make-dmg"'
 
 	rehearsal_case bundle
 	export FAKE_APP_BUNDLE_ID=io.k3sm.app

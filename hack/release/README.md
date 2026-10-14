@@ -58,7 +58,12 @@ hack/release/release.sh --rehearsal --version vX.Y.Z \
 It runs the k3sm checkout's `hack/release/stage.sh` (ad-hoc signed, stamped
 with the version), builds the app with `hack/build-app.sh --rehearsal` (bundle
 id `io.k3sm.app.rehearsal`, no Team ID), builds the image with `make-dmg.sh`,
-and runs the same payload and mount checks. The output is
+and runs the same payload and mount checks. In place of the signed checks
+it requires an ad-hoc signature (`codesign -dv` reports `Signature=adhoc`, no
+`Authority` and no Team ID) and no compiled Team ID stamp. Every script it
+starts runs under `env -i` with only `PATH`, `HOME`, `TMPDIR`,
+`DEVELOPER_DIR` and the Go toolchain locations, so no identity, Team ID,
+notary or keychain setting reaches them. The output is
 `k3sm_<version>_darwin_arm64-unsigned.dmg` in a fresh directory under the
 workspace's `k3sm-io.scratch` (or `--out-dir`).
 
