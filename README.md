@@ -110,8 +110,8 @@ standard administrator prompt, every time. If the status changed since you
 chose the action (k3sm stopped or started in the meantime), nothing is run.
 The root step runs only `/Library/k3sm/k3sm stop`, `start` or `restart`, and
 only after checking that the binary and every folder above it are owned by
-root, not writable by anyone else and not symlinks, and that the binary is
-signed by the k3sm Developer ID. It never uses the app's own copy of k3sm.
+root, not writable by anyone else, not symlinks and free of ACLs, and that
+the binary is signed by the k3sm Developer ID. It never uses the app's own copy of k3sm.
 
 These actions need a k3sm release that has `k3sm stop` (any release after
 0.1.7). With an older k3sm, or one that fails those checks, the menu leaves

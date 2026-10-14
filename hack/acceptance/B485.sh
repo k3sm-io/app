@@ -17,6 +17,8 @@
 #   2. the unknown-enum fixture is the app's own (not a vendored status_
 #      golden) and its words really are unknown to the k3sm source
 #   3. the menu's log and bug report actions never start a shell or a process
+#   4. the window's model runs the installed CLI only through the
+#      trust-checked runner, which checks again before every run
 #
 # K3SM_DIR names the k3sm checkout whose cmd/k3sm/lifecycle.go and main.go the
 # verbs and flags are checked against (default: the sibling ../k3sm). The gate
@@ -63,6 +65,7 @@ for suite in \
 	"lifecycle driver" \
 	"lifecycle outcome" \
 	"installed CLI trust" \
+	"trust-checked CLI runs" \
 	"lifecycle feature detection" \
 	"lifecycle state" \
 	"stopped notice" \
@@ -83,6 +86,10 @@ for name in \
 	"the lifecycle script never reuses the copy-out" \
 	"each refusal stops before the CLI runs" \
 	"a user-owned CLI is refused and never executed" \
+	"an ACL refuses, with or without the mode's + marker" \
+	"a trust verdict going bad after the first check stops the next CLI run" \
+	"the driver's re-read goes through the check: trust lost mid-flow runs nothing as root" \
+	"a CLI that failed its trust check is left out, never run" \
 	"every lifecycle verb and flag passed is one the CLI declares" \
 	"stop: live read, confirm with the warning, re-read, then the stop script" \
 	"a state changed while the question was open refuses before the prompt" \
@@ -121,6 +128,12 @@ if grep -nE 'Process\(|/bin/sh|NSAppleScript|do shell script' Sources/K3smApp/Me
 	echo "FAIL: MenuActions starts a process or a shell; logs open through NSWorkspace and the reports through a .command"
 	exit 1
 fi
+echo "    ok"
+
+echo "==> the window's CLI runs are trust-checked"
+n="$(grep -c 'CLIProcess.run(' Sources/K3smApp/AppModel.swift || true)"
+[ "$n" = 1 ] || { echo "FAIL: AppModel calls CLIProcess.run $n times; want exactly one, inside the TrustedCLI"; exit 1; }
+grep -q 'TrustedCLI(' Sources/K3smApp/AppModel.swift || { echo "FAIL: AppModel does not build a TrustedCLI"; exit 1; }
 echo "    ok"
 
 echo "B485: green"
