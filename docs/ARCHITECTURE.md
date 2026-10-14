@@ -25,11 +25,12 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 | `Reading`, `VisibilityTracker` | R6, R7 | classifies one CLI run; show after one running read, hide after two misses |
 | `K3smCLI` | R4, R6 | the absolute CLI path, fixed argument lists (status, version, and the kubectl calls behind the console: pod list, logs, events, manifest), the built environment |
 | `PollSchedule` | R6 | 5 s visible, 15 s hidden, 4 s kill deadline |
-| `StatusDisplay` | R5 | flattens control characters, clips fields, caps rows |
+| `StatusDisplay` | R5 | flattens control characters, clips fields, caps rows; `errorText` removes control and format characters from CLI error text and truncates it |
 | `SemanticVersion`, `PayloadRelation` | A8, A9 | semver precedence; payload newer, same or older than installed |
 | `Workloads`, `Pod`, `PodHealth`, `WorkloadKind` | console | decodes `kubectl get pods -A -o json` (the API's `PodList` or kubectl's `List` of pods) into the rows a workloads view shows: how each pod runs, its health word and severity, owner, ports, requests |
 | `LifecycleState` | L6, L9 | running, stopped, not installed or unreadable, from one report; an unknown verdict, state or role word never fails it |
 | `StoppedNotice` | L6 | the login-time title, "k3sm is stopped (by you)" or "(auto on <network>)", only for a login launch with a recorded stop; unknown actor and phase words get the plain form |
+| `LANAccess`, `LANSetting`, `LANApplied` | LAN access | the additive `network` object: an absent field is on with nothing recorded, an unrecognized value or a field that is not an object is unknown (never off), the daemon's applied report and error when present; `hasLANSwitch` is false for a role with no switch |
 | `K3smLogs` | L6 | the fixed log paths the menu opens: the node daemon's for the role, netd's, the copy-out log |
 | `ResourceName`, `Quantity` | console | the only way a pod or namespace name reaches a kubectl command line (RFC 1123 subdomain, nothing else); cores and bytes from resource quantities |
 
@@ -47,13 +48,14 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 | `CopyOutOutcome`, `CopyOutExit`, `OutcomeSummary` | A14, A15 | reads the log's final status line; names the script's own exit statuses; one sentence for the window |
 | `ServerAddress` | A14 | strict ASCII host[:port] grammar; the CLI argument is the bare host |
 | `UpdatePolicy` | A9 | worker always; server only when every worker in the status `workers` list is at or above the payload, naming the workers behind; with the list absent or a worker's version missing, server only after the user confirms; the datastore checks shown before a server update |
-| `LifecycleVerb`, `LifecycleScriptBuilder`, `LifecycleExit` | L9 | the closed verb set (stop, start, restart) and its separate root script: no staging and no lock; `env -i`, `cd /`; refuses unless `/Library/k3sm/k3sm` and every directory above it are root-owned, not group or other writable, not symlinks and carry no ACL, and the binary passes `codesign --verify -R` against the compiled Team ID; then runs the verb as a literal. `arguments(for:)` is the one definition of its argv |
+| `LifecycleVerb`, `LifecycleScriptBuilder`, `LifecycleExit` | L9 | the closed verb set (stop, start, restart, and the two LAN access verbs) and its separate root script: no staging and no lock; `env -i`, `cd /`; refuses unless `/Library/k3sm/k3sm` and every directory above it are root-owned, not group or other writable, not symlinks and carry no ACL, and the binary passes `codesign --verify -R` against the compiled Team ID; then runs the verb as a literal. `arguments(for:)` is the one definition of its argv |
 | `LifecyclePrecondition`, `LifecycleConfirmation`, `StopWarning` | L5, L9 | a live state that differs from the one the user acted on refuses; the confirmation names the verb; Stop warns on a server with joined nodes, and when the `workers` list is unknown |
 | `LifecycleDriver` | L6, L9 | one verb from click to outcome: live read, confirmation, a second live read, then a fresh administrator prompt |
 | `LifecycleOutcome` | L1, L9 | one sentence per outcome; a partial stop's exit code names what was left behind |
 | `InstalledCLITrust`, `LifecycleSupport`, `TrustedCLI` | L6, L9 | the app's own ownership, ACL and signature check of the installed CLI, made again immediately before every unprivileged run from the window, the lifecycle flow and the menu's Terminal actions (never a cached verdict); feature detection of `k3sm stop` by version, run only through that check |
+| `LANToggle`, `LANConfirmationText`, `LANPrecondition`, `LANDriver`, `LANOutcome` | LAN access | the tri-state checkbox (disabled with the reason on a failed, stale or untrusted read or an unknown value; notes for a missing record, a recorded and applied mismatch, a refused change; the indicator while on); the question before turning access on, from the report's `covers` and `alwaysOn`, Cancel the default; one LAN verb from click to outcome: live read, the question (on only), a second live read, the administrator prompt, then a read that confirms the value |
 | `BugReport`, `StatusCommand`, `CommandFile` | L6 | the static Terminal `.command` files behind Write a Bug Report and Open Status, written into a fresh 0700 directory; the collector reads an allowlist through a redaction pass |
-| `PrivilegedRunner`, `PrivilegedAvailability` | A5, A15, R8 | the one-method path to root; enables privileged actions only with a Team ID, a valid self-signature and an admin user |
+| `PrivilegedRunner`, `PrivilegedRun`, `PrivilegedAvailability` | A5, A15, R8 | the path to root (a runner may also return the step's error output, which the app shows only through `errorText`); enables privileged actions only with a Team ID, a valid self-signature and an admin user |
 
 ## K3smApp
 
@@ -61,10 +63,10 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 |---|---|---|
 | `AppDelegate` | A15 | wiring; login-item launch shows only the status item; reopen shows the window; activity assertion against App Nap; pauses polling off the active console session |
 | `StatusPoller`, `CLIProcess` | R6 | serial probe runs with a SIGKILL deadline and a scrubbed environment |
-| `StatusItemController` | R7, L6 | inserts and removes the `NSStatusItem`; logs `status item: visible` only when on screen; respects a user removal; the menu: verdict, summary and status rows (the full report on open), Stop, Restart, Open Status, Open Logs, Write a Bug Report, Open k3sm, Quit |
+| `StatusItemController` | R7, L6 | inserts and removes the `NSStatusItem`; logs `status item: visible` only when on screen; respects a user removal; the menu: verdict, summary and status rows (the full report on open), the LAN access checkbox (tri-state, its notes, the dot on the icon while on, a full re-read once a minute while shown), Stop, Restart, Open Status, Open Logs, Write a Bug Report, Open k3sm, Quit |
 | `MenuActions` | L6 | logs through `NSWorkspace` on fixed paths; the status and bug report `.command` files opened in Terminal; never a shell from the app |
 | `StoppedNotifier` | L6 | the login-time stopped notification and its Start action |
-| `MainWindowController`, `Views`, `AppModel` | A9, A15, A16, L6 | SwiftUI in an `NSWindow`; first run (start or join), status with `stoppedBy`, Stop, Restart and Start (or the note when the installed k3sm lacks them), Update (by `UpdatePolicy`) and Uninstall (with the purge checkbox); `.regular` while open, `.accessory` after; tails the copy-out log |
+| `MainWindowController`, `Views`, `AppModel` | A9, A15, A16, L6 | SwiftUI in an `NSWindow`; first run (start or join), status with `stoppedBy`, Stop, Restart and Start (or the note when the installed k3sm lacks them), the LAN access checkbox, Update (by `UpdatePolicy`) and Uninstall (with the purge checkbox); `.regular` while open, `.accessory` after; tails the copy-out log |
 | `LoginItem` | A15 | `SMAppService.mainApp`, registered once per user from `/Applications`; `.requiresApproval` links to Login Items |
 | `SelfCheck` | A15, R4, R8, L9 | the compiled Team ID, `SecStaticCode` self-verification, admin check, the console user, the passwd-based CLI environment, and `lstat` plus `SecStaticCode` of the installed CLI |
 | `AppleScriptRunner` | A14 | the concrete `PrivilegedRunner`: `do shell script ... with administrator privileges` on its own thread, stdin through a 0600 FIFO; never run by tests or ci |
@@ -101,9 +103,16 @@ lock. `LifecycleScriptBuilder.arguments(for:)` is pinned against `k3sm`
 | stop | `stop --actor user --reason 'from the k3sm app'` |
 | start | `start --actor user --reason 'from the k3sm app'` |
 | restart | `restart --actor user --reason 'from the k3sm app'` |
+| allow connections from other devices | `network lan on` |
+| stop allowing them | `network lan off` |
+
+The two LAN access argv are compile-time constants, pinned against `k3sm`
+`cmd/k3sm/network.go`; nothing decoded from the status reaches them.
 
 The lifecycle script's own refusals exit 100 (an unsafe path) and 101 (the
-signature), above the CLI's codes (0 to 3, and 33 to 95 for a partial stop).
+signature), above the CLI's codes (0 to 3, and 33 to 95 for a partial stop;
+`network lan` adds 4, a failed change whose previous setting could not be
+restored).
 
 The copy-out holds `/Library/k3sm.staging.lock` (the outer lock) with
 `lockf`; `k3sm install` takes `/Library/k3sm.lock` (the inner one) itself and
@@ -133,6 +142,18 @@ accepts the held outer lock once its staging-directory checks pass.
 - `k3sm stop` counts a server's joined workers itself but prints the count
   only as text. The app's Stop warning reads the `workers` list of a live
   `k3sm status -o json` instead, and warns when that list is absent.
+
+- The daemons probe (`k3sm status daemons -o json`) carries no `network`
+  field, so the LAN access checkbox and the status item's dot come from the
+  full report only: on menu open, in the window, after a change, and once a
+  minute while the status item is shown.
+- The CLI leaves `network` out both on a k3sm from before the switch and when
+  the record cannot be read; the app cannot tell the two apart and reads
+  either as on with nothing recorded, while the daemon serves an unreadable
+  record as off.
+- `network.applied` is present only when the caller can read it (root). The
+  app runs the status as the user, so a recorded and applied mismatch or a
+  refused change shows only if k3sm makes that report readable.
 
 ## What the later builds fill in
 

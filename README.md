@@ -90,6 +90,8 @@ The status item's menu shows the verdict and summary, then the status rows
   them and warns that stopping halts the cluster's control plane for them. When
   it cannot tell whether any node has joined, it says so and warns anyway.
 - **Restart k3sm** restarts the k3sm daemons; pods keep running.
+- **Allow connections from other devices** is a checkbox for the LAN access
+  setting (see below).
 - **Open Status in Terminal** runs `k3sm status` in a Terminal window.
 - **Open Logs** opens the node daemon's and netd's logs in Console.
 - **Write a Bug Report** opens a Terminal window that collects the k3sm and
@@ -118,6 +120,39 @@ These actions need a k3sm release that has `k3sm stop` (any release after
 them off and the window says why; `sudo k3sm stop` and `sudo k3sm start` work
 in Terminal either way. Like installing, they need an administrator account
 and a release build of the app.
+
+## Connections from other devices
+
+The menu and the window carry a checkbox, **Allow connections from other
+devices**, with the note "Off: only this Mac and your cluster mesh". It is the
+setting `k3sm network lan` records: with it on, the NodePort, LoadBalancer and
+(on a server) ingress listeners of your workloads answer on every network
+this Mac is on, so any device there can reach them. With it off they answer
+only on this Mac and over the cluster mesh. While it is on, the status item's
+icon carries a small dot.
+
+The checkbox shows the recorded setting from the last full `k3sm status -o
+json` read, and has three states: on, off and unknown. It cannot be clicked
+when the status could not be read, when that read is out of date, when the
+installed k3sm failed the app's trust checks, or when k3sm reports a value the
+app does not know; the reason is shown under it. A k3sm from before this
+setting existed reports none, and serves every network, so the checkbox
+shows on with a note that nothing is recorded. When k3sm says the daemon
+still serves a different value, or that its last change was refused, the
+window and the menu say so. A Mac with no server or worker installed shows
+no checkbox.
+
+Turning it on first asks, naming what becomes reachable and what the setting
+does not change (the API server, the worker join port and the mesh port, as
+k3sm reports them); Cancel is the default. Turning it off asks nothing. Either
+way the app then reads the status again, shows the standard administrator
+prompt, and runs `/Library/k3sm/k3sm network lan on` or `off` through the same
+checked root step as Stop and Start. The checkbox changes only when the status
+read after the change confirms it. If the change fails, the window shows
+k3sm's own message, cleaned of control characters and shortened.
+
+In Terminal the same setting is `sudo k3sm network lan on`, `off` and
+`k3sm network lan status`.
 
 ## Updating
 
