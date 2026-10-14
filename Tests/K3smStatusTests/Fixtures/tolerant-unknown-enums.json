@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "verdict": "hibernating",
+  "role": "witness",
+  "summary": "a CLI newer than this app, with words the app does not know",
+  "rows": [
+    {
+      "name": "server",
+      "state": "paused",
+      "severity": "advisory",
+      "detail": "paused by a future verb",
+      "wide": {
+        "label": "io.k3sm.server"
+      }
+    },
+    {
+      "name": "netd",
+      "state": "draining",
+      "severity": "notice",
+      "detail": "pid 1292"
+    },
+    {
+      "name": "quantum-link",
+      "state": "entangled",
+      "severity": "ok",
+      "detail": "a row this app has never heard of"
+    }
+  ],
+  "stoppedBy": {
+    "actor": "scheduler",
+    "reason": "nightly window",
+    "at": "2027-01-01T00:00:00Z",
+    "phase": "mothballed",
+    "ticket": 42
+  },
+  "workers": [
+    {
+      "name": "node-c",
+      "role": "witness",
+      "version": "v1.38.0+k3sm.0.9.0",
+      "zone": "lab"
+    }
+  ],
+  "joinTarget": "studio.local:9345",
+  "futureField": {
+    "nested": ["anything"]
+  },
+  "next": []
+}
