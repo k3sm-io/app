@@ -11,7 +11,8 @@
 #   4. shellcheck over every hack/**/*.sh
 #   5. hack/build-app.sh --payload with a fake payload: the refusals, the
 #      manifest, the version stamp; then make-dmg.sh on the result
-#   6. sign-and-notarize.sh refuses to run unattended
+#   6. sign-and-notarize.sh refuses to run unattended; release.sh --self-test
+#      (the release driver's refusals, checks and rehearsal, all with fakes)
 #   7. every .swift file carries the Apache-2.0 header
 #   8. every file under .github/workflows/ is dormant (fully commented out)
 #   9. the vendored status fixtures match a sibling k3sm checkout, when one exists
@@ -93,6 +94,7 @@ for case in symlink setuid group-writable other-writable-dir no-k3sm; do
 done
 expect_refused "version-not-xyz" --version 1.2
 expect_refused "version-injection" --version '1.2.3;id'
+expect_refused "rehearsal-with-team-id" --rehearsal --team-id ABCDE12345
 
 fx="$tmp/payload"
 make_payload "$fx"
@@ -109,6 +111,13 @@ got="$(cat "$papp/Contents/Resources/payload.sha256")"
 [ "$want" = "$got" ] || { echo "FAIL: payload manifest"; echo "want:"; echo "$want"; echo "got:"; echo "$got"; exit 1; }
 codesign --verify --strict --deep "$papp" || { echo "FAIL: the payload bundle does not verify"; exit 1; }
 echo "    ok (manifest, version stamp, signature)"
+bash hack/build-app.sh --rehearsal --version 1.2.3 --payload "$fx" "$tmp/rehearsal-out" > "$tmp/rehearsal-build.log" 2>&1 \
+	|| { echo "FAIL: build-app --rehearsal"; cat "$tmp/rehearsal-build.log"; exit 1; }
+[ "$(plutil -extract CFBundleIdentifier raw "$tmp/rehearsal-out/k3sm.app/Contents/Info.plist")" = io.k3sm.app.rehearsal ] \
+	|| { echo "FAIL: --rehearsal did not set the bundle id io.k3sm.app.rehearsal"; exit 1; }
+[ "$(plutil -extract CFBundleIdentifier raw "$papp/Contents/Info.plist")" = io.k3sm.app ] \
+	|| { echo "FAIL: a release build's bundle id is not io.k3sm.app"; exit 1; }
+echo "    ok (--rehearsal bundle id)"
 
 echo "==> hack/release/make-dmg.sh"
 bash hack/release/make-dmg.sh "$papp" "$tmp/k3sm.dmg" > /dev/null
@@ -132,6 +141,11 @@ expect_sign_refusal() {
 expect_sign_refusal "CLAUDECODE set" env CLAUDECODE=1
 expect_sign_refusal "K3SM_AUTO set" env -u CLAUDECODE K3SM_AUTO=1
 expect_sign_refusal "stdin not a terminal" env -u CLAUDECODE -u K3SM_AUTO
+
+echo "==> hack/release/release.sh --self-test"
+bash hack/release/release.sh --self-test > "$tmp/release-selftest.log" 2>&1 \
+	|| { echo "FAIL: release.sh --self-test"; cat "$tmp/release-selftest.log"; exit 1; }
+tail -n 1 "$tmp/release-selftest.log" | sed 's/^/    /'
 
 echo "==> license headers (.swift)"
 header="hack/boilerplate/boilerplate.swift.txt"

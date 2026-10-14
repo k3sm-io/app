@@ -1,32 +1,93 @@
 # Release scripts
 
-These scripts turn a built `k3sm.app` into the notarized disk image users
-download. The signing identity and the notary credential are held by a
-person, so the signing step always runs attended.
+These scripts turn a signed k3sm tree into the notarized disk image users
+download, and publish it with the k3sm release. The signing identity and the
+notary credential are held by a person, so a release always runs attended.
 
-## Order
+## The release: `release.sh`
 
-1. Sign the staged k3sm tree inside out with the Developer ID Application
-   identity, the hardened runtime and a secure timestamp, and verify it.
-2. `hack/build-app.sh --version <x.y.z> --payload <signed-tree> <outdir>`
-   builds the app around that tree and writes the payload's SHA-256 manifest.
-   Check that the manifest matches the one published with the curl tarball.
-3. `hack/release/sign-and-notarize.sh <outdir>/k3sm.app <out.dmg> <identity> <team-id>`
-   checks the payload signatures, signs the app inside out, notarizes and
-   staples it, then builds the disk image with `make-dmg.sh`, signs it,
-   notarizes it and staples it, and prints its SHA-256.
-4. Upload the image and its hash to the draft release, promote the release,
-   then open the Homebrew cask pull request.
+`hack/release/release.sh` is the one entry for a full release. Run it
+yourself, in a terminal, from a clean k3sm checkout at the release tag:
 
-`make-dmg.sh <k3sm.app> <out.dmg>` also works on an unsigned or ad-hoc
-signed app, for local testing.
+```sh
+hack/release/release.sh --version vX.Y.Z --stage-dir <dir> \
+  --cp-build <dir> --ldflags <flags> \
+  --identity "Developer ID Application: <name> (<TEAMID>)" --team-id <TEAMID> \
+  --notes-file <file> [--repo <owner/name>] [--k3sm-dir <k3sm checkout>]
+```
+
+`--k3sm-dir` defaults to `../k3sm` beside this repo. In order, it:
+
+1. runs the k3sm checkout's `hack/release/publish.sh --through-verify`,
+   which stages, signs, verifies and packages the k3sm tree at
+   `<stage-dir>`, then seals it
+2. checks that the staged `k3sm` reports the tag's version and that the
+   seal names the tree's `PAYLOAD-SHA256`
+3. runs `hack/build-app.sh --version <x.y.z> --team-id <TEAMID> --payload
+   <stage-dir> <stage-dir>.app-build`; `x.y.z` is the tag's core version, so
+   `vX.Y.Z-rc.N` builds `X.Y.Z`
+4. checks every file under the app's `payload/` against the tree's
+   `PAYLOAD-SHA256`: exactly the listed files and the manifest itself, byte
+   for byte, and nothing else; then the app's version and bundle id
+5. runs `sign-and-notarize.sh`, which signs, notarizes and staples the app,
+   then builds, signs, notarizes and staples
+   `<stage-dir>.app-build/k3sm_<version>_darwin_arm64.dmg`
+6. checks the image: its exact name; `codesign` against the Developer ID
+   requirement, `stapler validate` and `spctl`; then, mounted read-only, a
+   root holding only `k3sm.app` and the `Applications` link, the checks of
+   step 4 again, the app's signature, staple and compiled Team ID pin, and no
+   `K3smTeamID` in its `Info.plist`
+7. runs `publish.sh --upload --disk-image <the image>`, which checks the
+   seal, the tree and the image again before the draft release, then
+   verifies the draft and promotes it
+
+Any failure stops the run before the upload. `publish.sh --upload` repeats
+every image check itself, so the checks here fail early and with a clearer
+message; they are not the only ones. Then open the Homebrew cask pull
+request.
+
+## The rehearsal: `release.sh --rehearsal`
+
+The unsigned mode the autonomous loop and the lab use:
+
+```sh
+hack/release/release.sh --rehearsal --version vX.Y.Z \
+  [--k3sm-dir <dir>] [--ldflags <flags>] [--out-dir <dir>] [--stub-payload]
+```
+
+It runs the k3sm checkout's `hack/release/stage.sh` (ad-hoc signed, stamped
+with the version), builds the app with `hack/build-app.sh --rehearsal` (bundle
+id `io.k3sm.app.rehearsal`, no Team ID), builds the image with `make-dmg.sh`,
+and runs the same payload and mount checks. The output is
+`k3sm_<version>_darwin_arm64-unsigned.dmg` in a fresh directory under the
+workspace's `k3sm-io.scratch` (or `--out-dir`).
+
+The rehearsal has no path to `publish.sh`, `gh`, `sign-and-notarize.sh` or a
+Developer ID signature. Its app pins no Team ID, so the app's root step
+refuses to install from it; install the staged tree through the CLI instead
+(`sudo <out-dir>/stage/k3sm install`).
+
+## The pieces
+
+- `hack/build-app.sh --version <x.y.z> --payload <tree> <outdir>` builds the
+  app around a tree and writes the payload's SHA-256 manifest.
+- `sign-and-notarize.sh <k3sm.app> <out.dmg> <identity> <team-id>` checks the
+  payload signatures and the Team ID pin, signs the app inside out, notarizes
+  and staples it, then builds the disk image with `make-dmg.sh`, signs it,
+  notarizes it and staples it, and prints its SHA-256.
+- `make-dmg.sh <k3sm.app> <out.dmg>` builds the image from an unsigned or
+  ad-hoc signed app too, for local testing.
+- `release.sh --self-test` runs every step above with fakes for `codesign`,
+  `notarytool`, `stapler`, `spctl`, `hdiutil`, `gh` and the k3sm scripts.
 
 ## Credentials
 
 - The Developer ID Application identity is non-exportable and set to prompt
-  on use, in a keychain the unattended loop does not unlock.
+  on use, in a keychain the unattended loop does not unlock. `release.sh`
+  takes its name as an argument and never reads it.
 - The notary credential is an App Store Connect API key stored under the
   keychain profile `k3sm-notary`. Scripts name the profile; they never read
   the key.
-- `sign-and-notarize.sh` refuses to run when `CLAUDECODE` or `K3SM_AUTO` is
-  set, or when stdin is not a terminal. Do not work around the refusal.
+- `release.sh` (outside `--rehearsal` and `--self-test`),
+  `sign-and-notarize.sh` and `publish.sh` refuse to run when `CLAUDECODE` or
+  `K3SM_AUTO` is set, or without a terminal. Do not work around the refusal.
