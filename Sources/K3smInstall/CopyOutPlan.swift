@@ -38,26 +38,6 @@ public enum CopyOutAction: Hashable, Sendable {
     /// Remove k3sm; `purge` also deletes its data.
     case uninstall(purge: Bool)
 
-    /// Why the app does not offer a purge, or nil when it does. `k3sm
-    /// uninstall --purge` learns whose kubeconfig to clean only from sudo's
-    /// SUDO_USER and SUDO_UID, which the administrator prompt does not set and
-    /// the scrubbed environment would strip; the CLI has no flag that names
-    /// the user instead. Until it does, a purge runs in Terminal.
-    public static let purgeUnavailableReason: String? =
-        "Deleting k3sm's data runs in Terminal for now: sudo k3sm uninstall --purge --yes. The app uninstalls and keeps the data."
-
-    /// The uninstall the window may run: `.uninstall(purge:)` for the
-    /// choice, or nil for a purge while `reason` says the app cannot purge.
-    /// The window builds its uninstall action only through this, so a purge
-    /// is unreachable from it until the CLI can be told whose kubeconfig to
-    /// clean.
-    public static func uninstall(
-        requestingPurge purge: Bool, purgeUnavailableReason reason: String? = purgeUnavailableReason
-    ) -> CopyOutAction? {
-        if purge, reason != nil { return nil }
-        return .uninstall(purge: purge)
-    }
-
     /// The sentence the administrator prompt shows. Fixed text per action:
     /// nothing typed by the user or read from the CLI appears in it.
     public var prompt: String {

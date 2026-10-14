@@ -22,7 +22,7 @@ import K3smStatus
 
 /// The golden argv of every root step, pinned against the k3sm CLI's flags
 /// (cmd/k3sm/install.go: `install --from-staging --user --agent --server
-/// --token-file`, `uninstall [--purge --yes]`). Each case is checked twice:
+/// --token-file`, `uninstall [--purge --yes --user]`). Each case is checked twice:
 /// as the builder's argument list, and as the argv /bin/sh actually hands the
 /// CLI when it runs the rendered line.
 @Suite("root step argv goldens")
@@ -49,7 +49,7 @@ struct ArgvGoldenTests {
         Case(name: "update a worker", action: .update(.agent(joinServer: studio)),
              argv: install + ["--agent", "--server", "studio.local"]),
         Case(name: "uninstall, keep data", action: .uninstall(purge: false), argv: ["uninstall"]),
-        Case(name: "purge", action: .uninstall(purge: true), argv: ["uninstall", "--purge", "--yes"]),
+        Case(name: "purge", action: .uninstall(purge: true), argv: ["uninstall", "--purge", "--yes", "--user", "alice"]),
     ]
 
     static func plan(_ action: CopyOutAction) throws -> CopyOutPlan {
@@ -87,10 +87,18 @@ struct ArgvGoldenTests {
         }
     }
 
-    @Test("a plain uninstall never passes --yes alone")
+    @Test("a plain uninstall passes no flag at all")
     func uninstallFlags() throws {
         let plain = RootScriptBuilder.arguments(for: try Self.plan(.uninstall(purge: false)))
-        #expect(!plain.contains(.literal("--yes")))
+        #expect(plain == [.literal("uninstall")])
+    }
+
+    @Test("a purge names the console user, because env -i strips SUDO_USER")
+    func purgeNamesTheUser() throws {
+        let purge = RootScriptBuilder.arguments(for: try Self.plan(.uninstall(purge: true)))
+        let i = try #require(purge.firstIndex(of: .literal("--user")))
+        #expect(purge[i + 1] == .literal("alice"))
+        #expect(purge.contains(.literal("--yes")))
     }
 
     /// The k3sm checkout to cross-check against: K3SM_DIR, or a sibling.

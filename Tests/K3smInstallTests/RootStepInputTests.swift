@@ -84,6 +84,31 @@ struct AgentJoinTargetTests {
         let noArgs = try PropertyListSerialization.data(fromPropertyList: ["Label": "x"], format: .xml, options: 0)
         #expect(throws: AgentJoinTarget.ReadError.noProgramArguments) { try AgentJoinTarget.read(plist: noArgs) }
     }
+
+    static func resolved(_ status: String?, plist: [String]? = nil) throws -> Result<String, AgentJoinTarget.ReadError> {
+        let data = try plist.map(Self.plist)
+        return AgentJoinTarget.resolve(statusJoinTarget: status, plist: { data }).map(\.argument)
+    }
+
+    @Test("the status joinTarget wins and drops the port")
+    func statusTarget() throws {
+        #expect(try Self.resolved("192.0.2.10:9345") == .success("192.0.2.10"))
+        #expect(try Self.resolved("studio.local:9345", plist: ["k3sm", "agent", "--server", "other.local"]) == .success("studio.local"))
+    }
+
+    @Test("the plist is read only when the field is absent")
+    func plistFallback() throws {
+        #expect(try Self.resolved(nil, plist: ["k3sm", "agent", "--server", "studio.local"]) == .success("studio.local"))
+        #expect(try Self.resolved(nil) == .failure(.notAPlist))
+        #expect(try Self.resolved(nil, plist: ["k3sm", "agent"]) == .failure(.noServerFlag))
+    }
+
+    @Test("a present but malformed joinTarget is refused, never replaced by the plist",
+          arguments: ["", "studio.local", "studio.local:", ":9345", "a:b:9345", "[fd00::1]:9345", "$(id):9345", "studio.local:93x"])
+    func malformedStatusTarget(_ text: String) throws {
+        let plist = ["k3sm", "agent", "--server", "other.local"]
+        #expect(try Self.resolved(text, plist: plist) == .failure(.invalidStatusTarget))
+    }
 }
 
 @Suite("uninstall request")
@@ -91,33 +116,30 @@ struct UninstallRequestTests {
     static let root = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
-    @Test("purge is unavailable today")
-    func purgeUnavailable() {
-        #expect(CopyOutAction.purgeUnavailableReason != nil)
+    @Test("the purge action is the one the window builds from its checkbox")
+    func purgeFollowsTheCheckbox() throws {
+        let files = try FileManager.default.contentsOfDirectory(
+            at: Self.root.appending(path: "Sources/K3smApp"), includingPropertiesForKeys: nil)
+        let model = try #require(files.first { $0.lastPathComponent == "AppModel.swift" })
+        let text = try String(contentsOf: model, encoding: .utf8)
+        #expect(text.contains(".uninstall(purge: purge)"))
     }
 
-    @Test("no purge action while purgeUnavailableReason is set")
-    func refusesPurge() {
-        #expect(CopyOutAction.uninstall(requestingPurge: true) == nil)
-        #expect(CopyOutAction.uninstall(requestingPurge: true, purgeUnavailableReason: "not yet") == nil)
-        #expect(CopyOutAction.uninstall(requestingPurge: false) == .uninstall(purge: false))
-    }
-
-    @Test("purge becomes buildable only once the reason is cleared")
-    func purgeOnceAvailable() {
-        #expect(CopyOutAction.uninstall(requestingPurge: true, purgeUnavailableReason: nil) == .uninstall(purge: true))
-    }
-
-    @Test("the app never constructs an uninstall action directly")
-    func appGoesThroughTheRequest() throws {
-        let dir = Self.root.appending(path: "Sources/K3smApp")
-        let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
-        var sawRequest = false
-        for url in files where url.pathExtension == "swift" {
-            let text = try String(contentsOf: url, encoding: .utf8)
-            #expect(!text.contains(".uninstall(purge"), "\(url.lastPathComponent) builds .uninstall(purge:) directly")
-            if text.contains("CopyOutAction.uninstall(requestingPurge:") { sawRequest = true }
+    @Test("no purge-unavailable gate remains anywhere in the sources")
+    func noGate() throws {
+        for dir in ["Sources/K3smApp", "Sources/K3smInstall"] {
+            let url = Self.root.appending(path: dir)
+            for file in try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+            where file.pathExtension == "swift" {
+                let text = try String(contentsOf: file, encoding: .utf8)
+                #expect(!text.contains("purgeUnavailable"), "\(file.lastPathComponent) still gates the purge")
+            }
         }
-        #expect(sawRequest)
+    }
+
+    @Test("the purge prompt says the data is deleted, the plain one that it is kept")
+    func prompts() {
+        #expect(CopyOutAction.uninstall(purge: true).prompt.contains("delete its data"))
+        #expect(CopyOutAction.uninstall(purge: false).prompt.contains("keep its data"))
     }
 }

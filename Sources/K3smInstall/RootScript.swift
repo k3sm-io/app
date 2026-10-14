@@ -129,7 +129,9 @@ public enum RootScriptBuilder {
     ///   the CLI refuses an install that names no human;
     /// - a worker update passes `--agent --server <host>`, because the CLI
     ///   re-derives the role and the join target from its flags each run;
-    /// - a plain uninstall takes no flag (`--yes` confirms only `--purge`).
+    /// - a plain uninstall takes no flag (`--yes` and `--user` apply only to
+    ///   `--purge`); a purge passes `--user` because `env -i` strips SUDO_USER
+    ///   and the CLI must be told whose kubeconfig to clean.
     public static func arguments(for plan: CopyOutPlan) -> [CLIArgument] {
         let install: [CLIArgument] = [
             .literal("install"), .literal("--from-staging"), .stagingDirectory,
@@ -148,7 +150,7 @@ public enum RootScriptBuilder {
         case .uninstall(purge: false):
             return [.literal("uninstall")]
         case .uninstall(purge: true):
-            return [.literal("uninstall"), .literal("--purge"), .literal("--yes")]
+            return [.literal("uninstall"), .literal("--purge"), .literal("--yes"), .literal("--user"), .literal(plan.user.name)]
         }
     }
 

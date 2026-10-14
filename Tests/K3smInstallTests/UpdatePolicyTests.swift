@@ -31,6 +31,7 @@ struct UpdatePolicyTests {
         var confirmed = false
         let want: UpdateVerdict
         var wantBehind: [String] = []
+        var wantUnverified: [String] = []
         var testDescription: String { name }
     }
 
@@ -50,12 +51,16 @@ struct UpdatePolicyTests {
              workers: [("w1", "0.2.0"), ("w2", "0.2.1")], want: .offer),
         Case(name: "server, workers behind", role: .server, payload: "0.2.0", installed: "0.1.7",
              workers: [("w2", "0.1.7"), ("w1", "0.2.0"), ("a3", "0.2.0-rc.1")], want: .waitForWorkers, wantBehind: ["a3", "w2"]),
-        Case(name: "server, unreadable worker counts as behind", role: .server, payload: "0.2.0", installed: "0.1.7",
-             workers: [("w1", nil), ("w2", "0.2.0")], want: .waitForWorkers, wantBehind: ["w1"]),
+        Case(name: "server, a worker without a version keeps the confirmation", role: .server, payload: "0.2.0", installed: "0.1.7",
+             workers: [("w1", nil), ("w2", "0.2.0")], want: .confirmWorkersUpdated, wantUnverified: ["w1"]),
+        Case(name: "server, a worker without a version, confirmed", role: .server, payload: "0.2.0", installed: "0.1.7",
+             workers: [("w1", nil), ("w2", "0.2.0")], confirmed: true, want: .offer, wantUnverified: ["w1"]),
+        Case(name: "server, behind beats unknown", role: .server, payload: "0.2.0", installed: "0.1.7",
+             workers: [("w1", nil), ("w2", "0.1.7")], confirmed: true, want: .waitForWorkers, wantBehind: ["w2"]),
         Case(name: "server downgrade with consent still checks workers", role: .server, payload: "0.1.6", installed: "0.1.7",
              workers: [("w1", "0.1.5")], allowDowngrade: true, want: .waitForWorkers, wantBehind: ["w1"]),
-        // Today's status JSON carries no worker versions (nil): a server waits
-        // for the user's confirmation, a worker does not.
+        // An absent worker list (nil) is unknown, never "no workers": a server
+        // waits for the user's confirmation, a worker does not.
         Case(name: "server, worker versions unknown", role: .server, payload: "0.2.0", installed: "0.1.7",
              workers: nil, want: .confirmWorkersUpdated),
         Case(name: "server, worker versions unknown, confirmed", role: .server, payload: "0.2.0", installed: "0.1.7",
@@ -81,6 +86,7 @@ struct UpdatePolicyTests {
         )
         #expect(decision.verdict == c.want)
         #expect(decision.workersToUpdate == c.wantBehind)
+        #expect(decision.workersUnverified == c.wantUnverified)
     }
 
     @Test("the server checks name the snapshot, the free space and the one-way engine change")

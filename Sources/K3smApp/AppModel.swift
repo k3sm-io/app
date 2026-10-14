@@ -53,13 +53,13 @@ final class AppModel: ObservableObject {
     @Published var choice: FirstRunChoice = .start
     @Published var serverText = ""
     @Published var token = ""
-    /// The worker's join target, read from its installed plist on refresh.
+    /// The worker's join target: the status report's `joinTarget`, or the
+    /// installed plist when the report has none.
     @Published private(set) var joinTarget: Result<ServerAddress, AgentJoinTarget.ReadError>?
     /// The user's confirmation that every worker is updated (server only,
     /// while the status report carries no worker versions).
     @Published var workersConfirmed = false
-    /// The uninstall form's purge checkbox; stays off while the app cannot
-    /// purge (`CopyOutAction.purgeUnavailableReason`).
+    /// The uninstall form's purge checkbox.
     @Published var purge = false
     /// Whether the uninstall confirmation is showing. Held here rather than
     /// in view state: the Command Line Tools toolchain has no SwiftUI macro
@@ -123,13 +123,15 @@ final class AppModel: ObservableObject {
     }
 
     /// The update decision for this Mac, or nil when the role, the payload
-    /// or the report is unknown. Worker versions are not in today's status
-    /// JSON, so a server update rests on the user's confirmation.
+    /// or the report is unknown. The workers come from the report's `workers`
+    /// list; an absent list or a worker without a version rests on the user's
+    /// confirmation.
     var updateDecision: UpdateDecision? {
         guard let role, let payloadVersion else { return nil }
         return UpdatePolicy.decide(
             role: role, payload: payloadVersion, installed: installedVersion,
-            workers: nil, allowDowngrade: false, workersConfirmed: workersConfirmed)
+            workers: report?.workers?.map { NodeVersion(name: $0.name, version: $0.k3smRelease) },
+            allowDowngrade: false, workersConfirmed: workersConfirmed)
     }
 
     /// The update action the window would run, or nil when none is ready.
@@ -145,9 +147,9 @@ final class AppModel: ObservableObject {
     }
 
     var canUpdate: Bool { canRunPrivileged && updateAction != nil }
-    /// The uninstall the window would run; nil for a purge the app cannot do.
-    var uninstallAction: CopyOutAction? { CopyOutAction.uninstall(requestingPurge: purge) }
-    var canUninstall: Bool { canRunPrivileged && uninstallAction != nil }
+    /// The uninstall the window would run.
+    var uninstallAction: CopyOutAction { .uninstall(purge: purge) }
+    var canUninstall: Bool { canRunPrivileged }
 
     /// Re-reads which screen applies, the full report, the installed version
     /// and, on a worker, its join target. The full report runs only here,
@@ -166,7 +168,9 @@ final class AppModel: ObservableObject {
         if case .exited(0, let stdout) = await runCLI(K3smCLI.versionArguments) {
             installedVersion = SemanticVersion.fromVersionCommand(String(decoding: stdout, as: UTF8.self))
         }
-        joinTarget = role == .agent ? Self.readJoinTarget() : nil
+        joinTarget = role == .agent
+            ? AgentJoinTarget.resolve(statusJoinTarget: report?.joinTarget, plist: Self.readPlist)
+            : nil
     }
 
     /// Runs the first-run choice through the privileged runner.
@@ -195,11 +199,10 @@ final class AppModel: ObservableObject {
         start(action, input: nil)
     }
 
-    /// Runs the uninstall, keeping the data unless purge is chosen and the
-    /// app can purge.
+    /// Runs the uninstall, keeping the data unless purge is chosen.
     func submitUninstall() {
-        guard canUninstall, let action = uninstallAction else { return }
-        start(action, input: nil)
+        guard canUninstall else { return }
+        start(uninstallAction, input: nil)
     }
 
     private func start(_ action: CopyOutAction, input: Data?) {
@@ -243,16 +246,10 @@ final class AppModel: ObservableObject {
         await CLIProcess.run(path: K3smCLI.path, arguments: arguments, environment: environment, deadline: PollSchedule.killDeadline)
     }
 
-    /// Reads the installed worker's join target from its plist.
-    private static func readJoinTarget() -> Result<ServerAddress, AgentJoinTarget.ReadError> {
-        guard let data = FileManager.default.contents(atPath: AgentJoinTarget.plistPath) else {
-            return .failure(.notAPlist)
-        }
-        do {
-            return .success(try AgentJoinTarget.read(plist: data))
-        } catch {
-            return .failure(error)
-        }
+    /// Reads the installed worker's LaunchDaemon plist, the join target's
+    /// fallback source.
+    private static func readPlist() -> Data? {
+        FileManager.default.contents(atPath: AgentJoinTarget.plistPath)
     }
 
     /// Reads the tail of the copy-out log, or "" when it is absent or not

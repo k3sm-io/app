@@ -172,11 +172,20 @@ struct UpdateSection: View {
         }
     }
 
+    private var unverifiedNote: String {
+        let names = model.updateDecision?.workersUnverified ?? []
+        if names.isEmpty {
+            return "k3sm cannot read the workers' versions. Update every worker first, then confirm."
+        }
+        return "These workers report no version: " + names.map(StatusDisplay.clip).joined(separator: ", ")
+            + ". Update every worker first, then confirm."
+    }
+
     @ViewBuilder
     private func serverNotes(payload: SemanticVersion) -> some View {
         Text("This Mac runs the control plane, so it updates last.").bold()
         ForEach(UpdatePolicy.serverChecks, id: \.self) { Text(verbatim: "• " + $0).font(.callout) }
-        Text("k3sm cannot read the workers' versions yet. Update every worker first, then confirm.")
+        Text(verbatim: unverifiedNote)
             .font(.callout)
             .foregroundStyle(.secondary)
         Toggle("Every worker runs k3sm " + payload.description + " or newer", isOn: $model.workersConfirmed)
@@ -197,18 +206,13 @@ struct UpdateSection: View {
 }
 
 /// UninstallSection removes k3sm through the same verified root step. The
-/// data stays unless purge is chosen, and purge is offered only once the CLI
-/// can be told whose kubeconfig to clean.
+/// data stays unless purge is chosen.
 struct UninstallSection: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle("Also delete k3sm's data", isOn: $model.purge)
-                .disabled(CopyOutAction.purgeUnavailableReason != nil)
-            if let reason = CopyOutAction.purgeUnavailableReason {
-                Text(verbatim: reason).font(.callout).foregroundStyle(.secondary)
-            }
             Button("Uninstall k3sm…") { model.confirmingUninstall = true }
                 .disabled(!model.canUninstall)
                 .confirmationDialog(

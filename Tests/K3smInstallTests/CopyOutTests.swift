@@ -115,7 +115,7 @@ struct CopyOutTests {
 
         #expect(!RootScriptBuilder.render(try Self.plan(.startServer)).readsInput)
         #expect(RootScriptBuilder.render(try Self.plan(.uninstall(purge: false))).text.contains("\"$k3sm\" 'uninstall'\n"))
-        #expect(RootScriptBuilder.render(try Self.plan(.uninstall(purge: true))).text.contains("\"$k3sm\" 'uninstall' '--purge' '--yes'\n"))
+        #expect(RootScriptBuilder.render(try Self.plan(.uninstall(purge: true))).text.contains("\"$k3sm\" 'uninstall' '--purge' '--yes' '--user' 'alice'\n"))
     }
 
     @Test("a hostile bundle path is interpolated only as one quoted word")
