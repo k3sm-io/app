@@ -165,13 +165,16 @@ public enum InstalledCLITrust: Equatable, Sendable {
         public let ownerUID: UInt32
         /// The permission bits (`st_mode & 0o7777`).
         public let mode: UInt16
+        /// Whether the path carries an extended ACL with any entry.
+        public let hasACL: Bool
 
-        public init(isSymlink: Bool, isDirectory: Bool, isRegularFile: Bool, ownerUID: UInt32, mode: UInt16) {
+        public init(isSymlink: Bool, isDirectory: Bool, isRegularFile: Bool, ownerUID: UInt32, mode: UInt16, hasACL: Bool = false) {
             self.isSymlink = isSymlink
             self.isDirectory = isDirectory
             self.isRegularFile = isRegularFile
             self.ownerUID = ownerUID
             self.mode = mode
+            self.hasACL = hasACL
         }
     }
 
@@ -185,6 +188,7 @@ public enum InstalledCLITrust: Equatable, Sendable {
             if f.ownerUID != 0 || f.mode & 0o022 != 0 {
                 return .refused("\(path) is not owned by root, or is writable by group or others")
             }
+            if f.hasACL { return .refused("\(path) carries an ACL") }
             if path == cliPath, !f.isRegularFile { return .refused("\(path) is not a regular file") }
             if path != cliPath, !f.isDirectory { return .refused("\(path) is not a directory") }
         }
@@ -224,5 +228,34 @@ public enum LifecycleSupport: Equatable, Sendable {
             return .unavailable(note: "The installed k3sm (\(version)) has no stop command. Update k3sm to stop and start it from the app.")
         }
         return .available
+    }
+}
+
+/// TrustedCLI runs the installed CLI, unprivileged, only after a fresh trust
+/// check made immediately before that run. No verdict is cached: a CLI that
+/// passed once and was then replaced, re-owned or given an ACL is refused on
+/// its next run, not trusted on the strength of the earlier check.
+public struct TrustedCLI<Output: Sendable>: Sendable {
+    public enum Result: Sendable {
+        case ran(Output)
+        case refused(String)
+    }
+
+    let check: @Sendable () async -> InstalledCLITrust
+    let execute: @Sendable ([String]) async -> Output
+
+    public init(check: @escaping @Sendable () async -> InstalledCLITrust, execute: @escaping @Sendable ([String]) async -> Output) {
+        self.check = check
+        self.execute = execute
+    }
+
+    /// Checks, then runs; a refusal runs nothing.
+    public func run(_ arguments: [String]) async -> Result {
+        switch await check() {
+        case .trusted:
+            return .ran(await execute(arguments))
+        case .refused(let why):
+            return .refused(why)
+        }
     }
 }

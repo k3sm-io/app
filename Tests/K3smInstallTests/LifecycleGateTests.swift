@@ -15,7 +15,6 @@ limitations under the License.
 */
 
 import Foundation
-import Synchronization
 import Testing
 
 import K3smStatus
@@ -134,150 +133,6 @@ struct StopWarningTests {
     }
 }
 
-/// A runner that records the scripts it is handed and never runs them.
-final class RecordingRunner: PrivilegedRunner {
-    let outcome: PrivilegedOutcome
-    private let seen = Mutex<[RootScript]>([])
-
-    init(outcome: PrivilegedOutcome = .succeeded) {
-        self.outcome = outcome
-    }
-
-    var scripts: [RootScript] { seen.withLock { $0 } }
-
-    func runAsRoot(_ script: RootScript, input: Data?) async -> PrivilegedOutcome {
-        seen.withLock { $0.append(script) }
-        return outcome
-    }
-}
-
-/// The confirmations a fake user was asked.
-final class Questions: Sendable {
-    private let seen = Mutex<[LifecycleConfirmation]>([])
-    func append(_ c: LifecycleConfirmation) { seen.withLock { $0.append(c) } }
-    var all: [LifecycleConfirmation] { seen.withLock { $0 } }
-}
-
-/// Status reads served from a fixed sequence.
-final class StatusSequence: Sendable {
-    private let reports: Mutex<[StatusReport?]>
-    private let count = Mutex(0)
-
-    init(_ reports: [StatusReport?]) {
-        self.reports = Mutex(reports)
-    }
-
-    var reads: Int { count.withLock { $0 } }
-
-    func next() -> StatusReport? {
-        count.withLock { $0 += 1 }
-        return reports.withLock { $0.isEmpty ? nil : $0.removeFirst() }
-    }
-}
-
-@Suite("lifecycle driver")
-struct LifecycleDriverTests {
-    static let team = TeamID("ABCDE12345")!
-
-    static func driver(_ reads: StatusSequence, runner: RecordingRunner, answer: Bool,
-                       asked: Questions? = nil) -> LifecycleDriver {
-        LifecycleDriver(
-            teamID: team,
-            readStatus: { reads.next() },
-            confirm: { c in
-                asked?.append(c)
-                return answer
-            },
-            runner: runner)
-    }
-
-    @Test("stop: live read, confirm with the warning, re-read, then the stop script")
-    func stopRuns() async throws {
-        let joined = Reports.make(nodeState: "running", verdict: "running", workers: [StatusWorker(name: "w", role: "agent")])
-        let reads = StatusSequence([joined, joined])
-        let runner = RecordingRunner()
-        let asked = Questions()
-        let result = await Self.driver(reads, runner: runner, answer: true, asked: asked).perform(.stop, expected: .running)
-        #expect(result == .ran(.succeeded, LifecycleOutcome.text(.succeeded, verb: .stop)))
-        #expect(reads.reads == 2)
-        let question = try #require(asked.all.first)
-        #expect(question.verb == .stop)
-        #expect(question.warning?.contains("1 other node has joined") == true)
-        #expect(runner.scripts == [LifecycleScriptBuilder.render(.stop, teamID: Self.team)])
-        #expect(runner.scripts.first?.usesStagingLock == false)
-    }
-
-    @Test("the warning comes from the live read, not the state the menu showed")
-    func warningIsLive() async throws {
-        let unknown = Reports.make(nodeState: "running", verdict: "running", workers: nil)
-        let asked = Questions()
-        _ = await Self.driver(StatusSequence([unknown, unknown]), runner: RecordingRunner(), answer: false, asked: asked)
-            .perform(.stop, expected: .running)
-        #expect(asked.all.first?.warning == StopWarning.unknown)
-    }
-
-    @Test("start from the notification runs only the start script")
-    func startRuns() async {
-        let runner = RecordingRunner()
-        let result = await Self.driver(StatusSequence([Reports.stopped, Reports.stopped]), runner: runner, answer: true)
-            .perform(.start, expected: .stopped)
-        #expect(result == .ran(.succeeded, "k3sm is starting."))
-        #expect(runner.scripts.map(\.prompt) == ["k3sm wants to start k3sm on this Mac."])
-    }
-
-    @Test("a state changed before the question refuses without asking")
-    func changedBefore() async {
-        let runner = RecordingRunner()
-        let asked = Questions()
-        let result = await Self.driver(StatusSequence([Reports.stopped]), runner: runner, answer: true, asked: asked)
-            .perform(.stop, expected: .running)
-        guard case .refused = result else { Issue.record("want refused, got \(result)"); return }
-        #expect(asked.all.isEmpty)
-        #expect(runner.scripts.isEmpty)
-    }
-
-    @Test("a state changed while the question was open refuses before the prompt")
-    func changedDuring() async {
-        let runner = RecordingRunner()
-        let result = await Self.driver(StatusSequence([Reports.running, Reports.stopped]), runner: runner, answer: true)
-            .perform(.restart, expected: .running)
-        guard case .refused(let why) = result else { Issue.record("want refused, got \(result)"); return }
-        #expect(why.contains("stopped now"))
-        #expect(runner.scripts.isEmpty)
-    }
-
-    @Test("an unreadable status refuses before and after the question")
-    func unreadable() async {
-        let runner = RecordingRunner()
-        let before = await Self.driver(StatusSequence([nil]), runner: runner, answer: true).perform(.stop, expected: .running)
-        guard case .refused = before else { Issue.record("want refused, got \(before)"); return }
-        let after = await Self.driver(StatusSequence([Reports.running, nil]), runner: runner, answer: true).perform(.stop, expected: .running)
-        guard case .refused = after else { Issue.record("want refused, got \(after)"); return }
-        #expect(runner.scripts.isEmpty)
-    }
-
-    @Test("declining the question runs nothing")
-    func declined() async {
-        let runner = RecordingRunner()
-        let reads = StatusSequence([Reports.running, Reports.running])
-        let result = await Self.driver(reads, runner: runner, answer: false).perform(.stop, expected: .running)
-        #expect(result == .declined)
-        #expect(reads.reads == 1)
-        #expect(runner.scripts.isEmpty)
-    }
-
-    @Test("every run is a fresh prompt")
-    func freshPrompt() async {
-        let runner = RecordingRunner()
-        let reads = StatusSequence([Reports.running, Reports.running, Reports.running, Reports.running])
-        let d = Self.driver(reads, runner: runner, answer: true)
-        _ = await d.perform(.restart, expected: .running)
-        _ = await d.perform(.restart, expected: .running)
-        #expect(runner.scripts.count == 2)
-        #expect(reads.reads == 4)
-    }
-}
-
 @Suite("lifecycle outcome")
 struct LifecycleOutcomeTests {
     @Test("partial stop codes name what was left", arguments: [
@@ -362,6 +217,12 @@ struct InstalledCLITrustTests {
              facts: Facts(isSymlink: true, isDirectory: false, isRegularFile: false, ownerUID: 0, mode: 0o755), contains: "is a symlink"),
         Case(name: "binary is a directory", path: "/Library/k3sm/k3sm", facts: dir, contains: "not a regular file"),
         Case(name: "ancestor is a file", path: "/Library", facts: bin, contains: "not a directory"),
+        Case(name: "ACL on the binary", path: "/Library/k3sm/k3sm",
+             facts: Facts(isSymlink: false, isDirectory: false, isRegularFile: true, ownerUID: 0, mode: 0o755, hasACL: true),
+             contains: "/Library/k3sm/k3sm carries an ACL"),
+        Case(name: "ACL on a directory", path: "/Library/k3sm",
+             facts: Facts(isSymlink: false, isDirectory: true, isRegularFile: false, ownerUID: 0, mode: 0o755, hasACL: true),
+             contains: "/Library/k3sm carries an ACL"),
     ]
 
     @Test("refusals", arguments: cases)

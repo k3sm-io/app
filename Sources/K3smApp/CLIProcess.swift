@@ -27,6 +27,8 @@ enum CLIOutcome: Sendable {
     case killed
     /// The CLI exited on its own.
     case exited(status: Int32, stdout: Data)
+    /// The CLI failed its trust check just before the run, so it was not run.
+    case refused(String)
 }
 
 /// CLIProcess runs the k3sm CLI by absolute path with the environment the

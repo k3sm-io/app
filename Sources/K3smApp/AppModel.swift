@@ -190,16 +190,20 @@ final class AppModel: ObservableObject {
     /// signature checks the lifecycle script makes; a developer build has no
     /// Team ID to check against and offers no lifecycle verb.
     func refreshLifecycleSupport() async {
-        guard let teamID else {
+        guard teamID != nil else {
             lifecycleSupport = .unavailable(note: LifecycleSupport.developerBuildNote)
             return
         }
-        let trust = await Task.detached { SelfCheck.installedCLITrust(team: teamID) }.value
-        var version: SemanticVersion?
-        if trust == .trusted, case .exited(0, let stdout) = await runCLI(K3smCLI.versionArguments) {
-            version = SemanticVersion.fromVersionCommand(String(decoding: stdout, as: UTF8.self))
+        switch await runCLI(K3smCLI.versionArguments) {
+        case .refused:
+            // runCLI has already disabled the lifecycle verbs with the reason.
+            return
+        case .exited(0, let stdout):
+            lifecycleSupport = LifecycleSupport.evaluate(
+                trust: .trusted, version: SemanticVersion.fromVersionCommand(String(decoding: stdout, as: UTF8.self)))
+        default:
+            lifecycleSupport = LifecycleSupport.evaluate(trust: .trusted, version: nil)
         }
-        lifecycleSupport = LifecycleSupport.evaluate(trust: trust, version: version)
     }
 
     /// Reads the full report now, or nil when it cannot be read.
@@ -343,8 +347,30 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Runs the installed CLI unprivileged, after a trust check made just
+    /// before this run (never a cached verdict). A refusal runs nothing and
+    /// disables the lifecycle verbs with its reason.
     private func runCLI(_ arguments: [String]) async -> CLIOutcome {
-        await CLIProcess.run(path: K3smCLI.path, arguments: arguments, environment: environment, deadline: PollSchedule.killDeadline)
+        switch await cli.run(arguments) {
+        case .ran(let outcome):
+            return outcome
+        case .refused(let why):
+            lifecycleSupport = LifecycleSupport.evaluate(trust: .refused(why), version: nil)
+            log.notice("installed k3sm failed its trust check; not run")
+            return .refused(why)
+        }
+    }
+
+    /// The trust-checked CLI every unprivileged run in the window and the
+    /// lifecycle flow goes through.
+    private var cli: TrustedCLI<CLIOutcome> {
+        let teamID = teamID
+        let environment = environment
+        return TrustedCLI(
+            check: { await Task.detached { SelfCheck.installedCLITrust(team: teamID) }.value },
+            execute: { arguments in
+                await CLIProcess.run(path: K3smCLI.path, arguments: arguments, environment: environment, deadline: PollSchedule.killDeadline)
+            })
     }
 
     /// Reads the installed worker's LaunchDaemon plist, the join target's

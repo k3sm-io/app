@@ -63,7 +63,7 @@ final class StatusPoller {
         switch outcome {
         case .missing:
             onReading(.binaryMissing, nil)
-        case .failedToLaunch, .killed:
+        case .failedToLaunch, .killed, .refused:
             onReading(.cliError, nil)
         case .exited(let status, let stdout):
             onReading(Reading.classify(exitCode: status, stdout: stdout), try? StatusReport.decode(stdout))
