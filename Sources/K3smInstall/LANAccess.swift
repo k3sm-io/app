@@ -79,13 +79,14 @@ public struct LANToggle: Equatable, Sendable {
             reason = "k3sm could not read the status of this Mac, so the setting is unknown."
         } else if stale {
             reason = "The status shown is out of date. It is being read again."
-        } else if network?.setting == .unknown {
+        } else if network?.setting == .unknown || network?.recordState == .unknown {
             reason = "The installed k3sm reported a setting this app does not know, so it will not change it."
         } else if let blocked {
             reason = blocked
         }
         let usable = trustRefusal == nil && report != nil && !lastReadFailed && !stale
-        let value = usable ? (network?.setting ?? .unknown) : .unknown
+        let known = network.map { $0.recordState != .unknown } ?? false
+        let value = usable && known ? (network?.setting ?? .unknown) : .unknown
         return LANToggle(visible: true, value: value, disabledReason: reason,
                          notes: usable ? notes(network) : [], showsIndicator: indicator)
     }
@@ -94,8 +95,13 @@ public struct LANToggle: Equatable, Sendable {
     static func notes(_ network: LANAccess?) -> [String] {
         guard let network else { return [] }
         var out: [String] = []
-        if !network.recorded {
+        if network.recordState == .unreadable {
+            out.append("The saved setting could not be read, so k3sm treats it as off. Run `sudo k3sm network lan on` or `off` in Terminal to set it again.")
+        } else if !network.recorded {
             out.append("On because no setting is recorded (k3sm installed before this setting existed).")
+        }
+        if network.appliedReadable == false {
+            out.append("What k3sm is serving can be read by an administrator only. Run `sudo k3sm network lan status` in Terminal to see it.")
         }
         if let applied = network.applied {
             let error = StatusDisplay.errorText(applied.error)
@@ -106,6 +112,35 @@ public struct LANToggle: Equatable, Sendable {
             }
         }
         return out
+    }
+}
+
+/// LANSource picks the report that drives the checkbox and the status item
+/// dot from the two reads the app makes: the full report (with the daemon's
+/// applied state, read when the menu opens, every minute while the item shows,
+/// and around a change) and the daemons probe (without it, read at the poll
+/// rate). The newer read wins. When the probe is newer, the last full read's
+/// applied state rides along only while the two reads agree on the setting
+/// and the record, so a stale applied report is never shown against a changed
+/// setting.
+public enum LANSource {
+    public typealias Read = (report: StatusReport, at: Date)
+
+    public static func choose(full: Read?, probe: Read?) -> Read? {
+        guard let probe else { return full }
+        guard let full else { return probe }
+        if full.at >= probe.at { return full }
+        let f = full.report.network
+        let p = probe.report.network
+        guard f.fieldPresent, p.fieldPresent, f.setting == p.setting, f.recorded == p.recorded,
+              f.recordState == p.recordState else { return probe }
+        let network = LANAccess(
+            setting: p.setting, recorded: p.recorded, covers: p.covers, alwaysOn: p.alwaysOn,
+            applied: f.applied, recordState: p.recordState, appliedReadable: f.appliedReadable)
+        let r = probe.report
+        return (StatusReport(
+            schemaVersion: r.schemaVersion, verdict: r.verdict, role: r.role, summary: r.summary, rows: r.rows,
+            stoppedBy: r.stoppedBy, workers: r.workers, joinTarget: r.joinTarget, network: network), probe.at)
     }
 }
 
@@ -184,7 +219,7 @@ public enum LANPrecondition {
             return .refused("This Mac has no k3sm node with this setting. Nothing was changed.")
         }
         let now = live.network.setting
-        guard now != .unknown else {
+        guard now != .unknown, live.network.recordState != .unknown else {
             return .refused("The installed k3sm reported a setting this app does not know, so it did not change it.")
         }
         guard now == expected else {

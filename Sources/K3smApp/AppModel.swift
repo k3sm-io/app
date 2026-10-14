@@ -67,11 +67,15 @@ final class AppModel: ObservableObject {
     @Published var confirmingUninstall = false
     /// Whether Stop, Start and Restart are offered; nil until first checked.
     @Published private(set) var lifecycleSupport: LifecycleSupport?
-    /// The last full report that decoded, the LAN setting's only source (the
-    /// daemons probe carries no `network` field), and when it was read.
+    /// The last full report that decoded, and when it was read. It alone
+    /// carries the daemon's applied state.
     @Published private(set) var lanReport: StatusReport?
     @Published private(set) var lanReadAt: Date?
-    /// Whether the most recent full read failed.
+    /// The last daemons probe that decoded, and when it was read. It carries
+    /// the `network` object at the poll rate.
+    @Published private(set) var lanProbe: StatusReport?
+    @Published private(set) var lanProbeAt: Date?
+    /// Whether the most recent read, full or probe, failed.
     @Published private(set) var lanReadFailed = false
     /// Why the installed CLI failed its trust check on the last run, if it did.
     @Published private(set) var lanTrustRefusal: String?
@@ -242,6 +246,18 @@ final class AppModel: ObservableObject {
         return decoded
     }
 
+    /// Takes one poll result: a decoded daemons probe becomes the freshest
+    /// source of the LAN setting; a failed one marks the read failed.
+    func noteProbe(_ report: StatusReport?) {
+        if let report {
+            lanProbe = report
+            lanProbeAt = Date()
+            lanReadFailed = false
+        } else {
+            lanReadFailed = true
+        }
+    }
+
     /// The "Allow connections from other devices" checkbox as of `now`.
     func lanToggle(now: Date = Date()) -> LANToggle {
         var blocked: String?
@@ -252,8 +268,11 @@ final class AppModel: ObservableObject {
         } else if case .disabled(let reason) = availability {
             blocked = reason
         }
+        let full = lanReport.flatMap { r in lanReadAt.map { (report: r, at: $0) } }
+        let probe = lanProbe.flatMap { r in lanProbeAt.map { (report: r, at: $0) } }
+        let source = LANSource.choose(full: full, probe: probe)
         return LANToggle.evaluate(
-            report: lanReport, readAt: lanReadAt, now: now, lastReadFailed: lanReadFailed,
+            report: source?.report, readAt: source?.at, now: now, lastReadFailed: lanReadFailed,
             trustRefusal: lanTrustRefusal, blocked: blocked)
     }
 

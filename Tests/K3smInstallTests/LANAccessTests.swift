@@ -163,7 +163,11 @@ struct LANScriptTests {
         let flat = network.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         #expect(flat.contains("exitNetworkRestoreFailed = \(LifecycleExit.lanRestoreFailed)"))
         #expect(report.contains("`json:\"network,omitempty\"`"))
-        for key in ["lan\"", "recorded\"", "covers\"", "alwaysOn\"", "applied,omitempty\"", "error,omitempty\""] {
+        let daemons = try read("pkg/status/daemons.go")
+        #expect(daemons.contains("`json:\"network,omitempty\"`"), "the daemons probe does not carry network")
+        #expect(status.contains("NetworkRecordUnreadable = \"unreadable\""), "the unreadable record word changed")
+        for key in ["lan\"", "recorded\"", "recordState,omitempty\"", "covers\"", "alwaysOn\"", "applied,omitempty\"",
+                    "appliedReadable,omitempty\"", "error,omitempty\""] {
             #expect(status.contains("`json:\"" + key + "`"), "pkg/status/network.go has no json:\"\(key)")
         }
         for word in ["nodeports", "loadbalancers", "ingress", "apiserver", "join", "mesh"] {

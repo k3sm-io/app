@@ -30,7 +30,7 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 | `Workloads`, `Pod`, `PodHealth`, `WorkloadKind` | console | decodes `kubectl get pods -A -o json` (the API's `PodList` or kubectl's `List` of pods) into the rows a workloads view shows: how each pod runs, its health word and severity, owner, ports, requests |
 | `LifecycleState` | L6, L9 | running, stopped, not installed or unreadable, from one report; an unknown verdict, state or role word never fails it |
 | `StoppedNotice` | L6 | the login-time title, "k3sm is stopped (by you)" or "(auto on <network>)", only for a login launch with a recorded stop; unknown actor and phase words get the plain form |
-| `LANAccess`, `LANSetting`, `LANApplied` | LAN access | the additive `network` object: an absent field is on with nothing recorded, an unrecognized value or a field that is not an object is unknown (never off), the daemon's applied report and error when present; `hasLANSwitch` is false for a role with no switch |
+| `LANAccess`, `LANSetting`, `LANRecordState`, `LANApplied` | LAN access | the additive `network` object, in the full report and the daemons probe: an absent field is on with nothing recorded, an unrecognized value or a field that is not an object is unknown (never off); `recordState` is ok when absent, `unreadable` for a record that cannot be used (the setting is then off), and unknown for any other word (never ok); `appliedReadable: false` says the daemon's applied state exists but the caller cannot read it; the applied report and error when present; `hasLANSwitch` is false for a role with no switch |
 | `K3smLogs` | L6 | the fixed log paths the menu opens: the node daemon's for the role, netd's, the copy-out log |
 | `ResourceName`, `Quantity` | console | the only way a pod or namespace name reaches a kubectl command line (RFC 1123 subdomain, nothing else); cores and bytes from resource quantities |
 
@@ -63,7 +63,7 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 |---|---|---|
 | `AppDelegate` | A15 | wiring; login-item launch shows only the status item; reopen shows the window; activity assertion against App Nap; pauses polling off the active console session |
 | `StatusPoller`, `CLIProcess` | R6 | serial probe runs with a SIGKILL deadline and a scrubbed environment |
-| `StatusItemController` | R7, L6 | inserts and removes the `NSStatusItem`; logs `status item: visible` only when on screen; respects a user removal; the menu: verdict, summary and status rows (the full report on open), the LAN access checkbox (tri-state, its notes, the dot on the icon while on, a full re-read once a minute while shown), Stop, Restart, Open Status, Open Logs, Write a Bug Report, Open k3sm, Quit |
+| `StatusItemController` | R7, L6 | inserts and removes the `NSStatusItem`; logs `status item: visible` only when on screen; respects a user removal; the menu: verdict, summary and status rows (the full report on open), the LAN access checkbox (tri-state, its notes, the dot on the icon while on; it follows each daemons probe, and a full re-read once a minute while shown adds the applied state), Stop, Restart, Open Status, Open Logs, Write a Bug Report, Open k3sm, Quit |
 | `MenuActions` | L6 | logs through `NSWorkspace` on fixed paths; the status and bug report `.command` files opened in Terminal; never a shell from the app |
 | `StoppedNotifier` | L6 | the login-time stopped notification and its Start action |
 | `MainWindowController`, `Views`, `AppModel` | A9, A15, A16, L6 | SwiftUI in an `NSWindow`; first run (start or join), status with `stoppedBy`, Stop, Restart and Start (or the note when the installed k3sm lacks them), the LAN access checkbox, Update (by `UpdatePolicy`) and Uninstall (with the purge checkbox); `.regular` while open, `.accessory` after; tails the copy-out log |
@@ -143,17 +143,11 @@ accepts the held outer lock once its staging-directory checks pass.
   only as text. The app's Stop warning reads the `workers` list of a live
   `k3sm status -o json` instead, and warns when that list is absent.
 
-- The daemons probe (`k3sm status daemons -o json`) carries no `network`
-  field, so the LAN access checkbox and the status item's dot come from the
-  full report only: on menu open, in the window, after a change, and once a
-  minute while the status item is shown.
-- The CLI leaves `network` out both on a k3sm from before the switch and when
-  the record cannot be read; the app cannot tell the two apart and reads
-  either as on with nothing recorded, while the daemon serves an unreadable
-  record as off.
 - `network.applied` is present only when the caller can read it (root). The
-  app runs the status as the user, so a recorded and applied mismatch or a
-  refused change shows only if k3sm makes that report readable.
+  app runs the status as the user, so k3sm sets `appliedReadable: false` and
+  the app says that an administrator can see what is served with `sudo k3sm
+  network lan status`. A mismatch between the recorded and the applied setting,
+  or a refused change, shows only when the report is readable.
 
 ## What the later builds fill in
 

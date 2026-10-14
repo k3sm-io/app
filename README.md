@@ -131,15 +131,22 @@ this Mac is on, so any device there can reach them. With it off they answer
 only on this Mac and over the cluster mesh. While it is on, the status item's
 icon carries a small dot.
 
-The checkbox shows the recorded setting from the last full `k3sm status -o
-json` read, and has three states: on, off and unknown. It cannot be clicked
+The checkbox shows the recorded setting from the newest status read, and has
+three states: on, off and unknown. The status item's regular probe (`k3sm
+status daemons -o json`) carries the setting, so the checkbox and the dot
+follow a change made in Terminal within a few seconds. The full report, read
+when the menu opens and once a minute while the item shows, adds what the node
+daemon serves. It cannot be clicked
 when the status could not be read, when that read is out of date, when the
 installed k3sm failed the app's trust checks, or when k3sm reports a value the
 app does not know; the reason is shown under it. A k3sm from before this
 setting existed reports none, and serves every network, so the checkbox
-shows on with a note that nothing is recorded. When k3sm says the daemon
+shows on with a note that nothing is recorded. If the saved setting cannot be
+used, k3sm serves it as off, and the checkbox shows off with a note that names
+`sudo k3sm network lan on` or `off` to set it again. When k3sm says the daemon
 still serves a different value, or that its last change was refused, the
-window and the menu say so. A Mac with no server or worker installed shows
+window and the menu say so; when only an administrator can read what the
+daemon serves, the note points to `sudo k3sm network lan status`. A Mac with no server or worker installed shows
 no checkbox.
 
 Turning it on first asks, naming what becomes reachable and what the setting

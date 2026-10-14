@@ -153,6 +153,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     /// Feeds one poll result through the visibility rule.
     func observe(_ reading: Reading, report: StatusReport?) {
+        model.noteProbe(report)
         let change = tracker.observe(reading)
         if change.logUnavailable {
             log.notice("k3sm status unavailable")
