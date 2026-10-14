@@ -66,6 +66,43 @@ public struct StatusRow: Decodable, Equatable, Sendable {
     }
 }
 
+/// StoppedBy is who stopped k3sm on this Mac, from the additive `stoppedBy`
+/// object the CLI prints while a stop marker exists. Every field is data shown
+/// verbatim; `at` stays the CLI's RFC 3339 text. It carries no verdict.
+public struct StoppedBy: Decodable, Equatable, Sendable {
+    /// "user" or "auto" today; any other word is kept as printed.
+    public let actor: String
+    public let reason: String
+    public let at: String
+    /// "stopping" (a stop left something behind) or "stopped".
+    public let phase: String
+
+    public init(actor: String, reason: String, at: String, phase: String) {
+        self.actor = actor
+        self.reason = reason
+        self.at = at
+        self.phase = phase
+    }
+
+    private enum CodingKeys: String, CodingKey { case actor, reason, at, phase }
+
+    /// Decodes tolerantly: a missing or mistyped field reads as "".
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        actor = (try? c.decodeIfPresent(String.self, forKey: .actor)) ?? ""
+        reason = (try? c.decodeIfPresent(String.self, forKey: .reason)) ?? ""
+        at = (try? c.decodeIfPresent(String.self, forKey: .at)) ?? ""
+        phase = (try? c.decodeIfPresent(String.self, forKey: .phase)) ?? ""
+    }
+
+    /// The one line the window shows, for example
+    /// `stopped by user: maintenance window`.
+    public var line: String {
+        let head = "\(phase.isEmpty ? "stopped" : phase) by \(actor.isEmpty ? "someone" : actor)"
+        return reason.isEmpty ? head : head + ": " + reason
+    }
+}
+
 /// StatusReport is the decoded output of `k3sm status -o json` (rows in
 /// `rows`) or of the cheaper `k3sm status daemons -o json` probe (rows in
 /// `daemons`). Both shapes carry the same top-level fields.
@@ -78,17 +115,22 @@ public struct StatusReport: Decodable, Equatable, Sendable {
     public let role: String
     public let summary: String
     public let rows: [StatusRow]
+    /// Who stopped k3sm, present only while the CLI reports a stop marker. A
+    /// `stoppedBy` value that is not an object decodes as nil rather than
+    /// failing the report.
+    public let stoppedBy: StoppedBy?
 
-    public init(schemaVersion: Int, verdict: Verdict, role: String, summary: String, rows: [StatusRow]) {
+    public init(schemaVersion: Int, verdict: Verdict, role: String, summary: String, rows: [StatusRow], stoppedBy: StoppedBy? = nil) {
         self.schemaVersion = schemaVersion
         self.verdict = verdict
         self.role = role
         self.summary = summary
         self.rows = rows
+        self.stoppedBy = stoppedBy
     }
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, verdict, role, summary, rows, daemons
+        case schemaVersion, verdict, role, summary, rows, daemons, stoppedBy
     }
 
     public init(from decoder: Decoder) throws {
@@ -102,6 +144,7 @@ public struct StatusReport: Decodable, Equatable, Sendable {
         } else {
             rows = try c.decodeIfPresent([StatusRow].self, forKey: .daemons) ?? []
         }
+        stoppedBy = (try? c.decodeIfPresent(StoppedBy.self, forKey: .stoppedBy)) ?? nil
     }
 
     /// Returns the row with the given name, if the report carries one.
