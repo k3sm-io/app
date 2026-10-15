@@ -101,8 +101,14 @@ rest.
 
 ## The menu
 
-The status item's menu holds actions only; the status and the setting for
-connections from other devices are in the window. The actions:
+The status item's menu opens with two status lines, **Cluster** and **This
+Mac**, each with a coloured circle and a word: ok (green), degraded (amber),
+down (red) or unknown (grey). This Mac follows k3sm's verdict on this Mac.
+Cluster reads the nodes-ready count: ok when every node is ready, degraded
+when some are, down when none is or the API server cannot be reached. Both
+come from the full status read each time the menu opens, and This Mac also
+follows the regular probe. The full status and the setting for connections
+from other devices are in the window. Then come the actions:
 
 - **Stop k3sm** stops k3sm on this Mac completely, pods included, and keeps it
   stopped across restarts until you start it (`sudo k3sm stop`). Before it

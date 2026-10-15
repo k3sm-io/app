@@ -25,11 +25,12 @@ import K3smStatus
 /// and respects a user who removes the item (Command-drag or Menu Bar
 /// settings) until the next launch.
 ///
-/// The menu carries actions only: Stop (with the multi-node warning) and
-/// Restart, Open Status, Open Logs, Write a Bug Report, Open k3sm and Quit.
+/// The menu opens with two status lines, Cluster and This Mac, each with a
+/// coloured circle and the word, then the actions: Stop (with the
+/// multi-node warning) and Restart, Open Status, Open Logs, Write a Bug Report, Open k3sm and Quit.
 /// Stop and Restart go through `AppModel.perform` and are shown only when
 /// the installed CLI has them; otherwise they are hidden and the window says
-/// why. The status and the LAN setting are in the window. While LAN access
+/// why. The full status and the LAN setting are in the window. While LAN access
 /// is on, the status item's icon carries a small dot.
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
@@ -41,6 +42,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var removedByUser = false
     private var removingItem = false
     private let menu = NSMenu()
+    private let clusterItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let thisMacItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var stopItem = NSMenuItem()
     private var restartItem = NSMenuItem()
     /// The separator after Stop and Restart, hidden with them so the menu
@@ -64,6 +67,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         super.init()
         menu.autoenablesItems = false
         menu.delegate = self
+        for line in [clusterItem, thisMacItem] {
+            line.isEnabled = false
+            menu.addItem(line)
+        }
+        menu.addItem(.separator())
+        showStatusLine(clusterItem, MenuStatus.clusterLabel, .unknown)
+        showStatusLine(thisMacItem, MenuStatus.thisMacLabel, .unknown)
         stopItem = add(LifecycleVerb.stop.title + "…", #selector(stopAction))
         restartItem = add(LifecycleVerb.restart.title + "…", #selector(restartAction))
         menu.addItem(lifecycleEnd)
@@ -84,6 +94,33 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
+    /// Shows one status line: the label and word as the title, a circle in
+    /// the health's colour as the image, and both in the accessibility text.
+    private func showStatusLine(_ line: NSMenuItem, _ label: String, _ health: MenuHealth) {
+        line.title = MenuStatus.title(label, health)
+        line.image = Self.dot(health, description: MenuStatus.accessibilityText(label, health))
+        line.setAccessibilityLabel(MenuStatus.accessibilityText(label, health))
+    }
+
+    /// A 10-point filled circle, not a template, so it keeps its colour.
+    private static func dot(_ health: MenuHealth, description: String) -> NSImage {
+        let color: NSColor
+        switch health {
+        case .ok: color = NSColor(Palette.ok)
+        case .degraded: color = NSColor(Palette.warn)
+        case .down: color = .systemRed
+        case .unknown: color = NSColor(Palette.unknown)
+        }
+        let image = NSImage(size: NSSize(width: 10, height: 10), flipped: false) { rect in
+            color.setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            return true
+        }
+        image.isTemplate = false
+        image.accessibilityDescription = description
+        return image
+    }
+
     /// Shows the degraded mark and the LAN dot on the icon.
     private func updateIcon() {
         item?.button?.image = Self.icon(degraded: degraded, lan: model.lanToggle().showsIndicator)
@@ -100,6 +137,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func observe(_ reading: Reading, report: StatusReport?) {
         model.noteProbe(report)
         let change = tracker.observe(reading)
+        // The probe carries the verdict but not the node row, so it updates
+        // This Mac only; Cluster waits for the full read on the next open.
+        showStatusLine(thisMacItem, MenuStatus.thisMacLabel, MenuStatus.thisMac(of: report, readFailed: report == nil))
         if change.logUnavailable {
             log.notice("k3sm status unavailable")
         }
@@ -132,10 +172,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: NSMenuDelegate
 
-    /// On open: re-check lifecycle support.
+    /// On open: re-check lifecycle support, and read the full report once
+    /// for the two status lines (the probe has no node row). Between opens
+    /// they show the last read.
     func menuWillOpen(_ menu: NSMenu) {
         updateLifecycleItems(model.lifecycleSupport)
-        Task { await model.refreshLifecycleSupport() }
+        Task {
+            await model.refreshLifecycleSupport()
+            let full = await model.readFullReport()
+            showStatusLine(clusterItem, MenuStatus.clusterLabel, MenuStatus.cluster(of: full))
+            showStatusLine(thisMacItem, MenuStatus.thisMacLabel, MenuStatus.thisMac(of: full, readFailed: full == nil))
+        }
     }
 
     // MARK: actions
