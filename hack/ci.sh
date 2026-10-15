@@ -17,12 +17,22 @@
 #   8. every file under .github/workflows/ is dormant (fully commented out)
 #   9. the vendored status fixtures match a sibling k3sm checkout, when one exists
 #  10. the dependency supply-chain check: its self-test, then the live tree
+#
+# K3SM_SWIFTPM_DISABLE_SANDBOX=1 passes --disable-sandbox to every swift
+# package, build and test run. SwiftPM applies its own sandbox when it compiles
+# the manifest and builds, and a process already inside a sandbox cannot apply
+# another one (sandbox_apply: Operation not permitted). A sandboxed caller sets
+# this to turn off the inner sandbox and keep its own. Unset, nothing changes.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # The Command Line Tools ship the swift-testing macro plugin in a directory
 # SwiftPM does not search on its own; point the compiler at it. A full Xcode
 # toolchain finds it without help, so this applies only when the plugin exists.
+SWIFT_FLAGS=()
+if [ "${K3SM_SWIFTPM_DISABLE_SANDBOX:-}" = 1 ]; then
+	SWIFT_FLAGS=(--disable-sandbox)
+fi
 TEST_FLAGS=()
 devdir="$(xcode-select -p 2>/dev/null || true)"
 plugdir="$devdir/usr/lib/swift/host/plugins/testing"
@@ -33,7 +43,7 @@ fi
 echo "==> no third-party dependencies"
 # The package depends on nothing outside the toolchain, which is also why there
 # is no Package.resolved to commit: SwiftPM writes one only when it has pins.
-deps="$(swift package show-dependencies 2>&1)"
+deps="$(swift package ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} show-dependencies 2>&1)"
 printf '%s\n' "$deps" | grep -q '^No external dependencies found' \
 	|| { echo "FAIL: the package must not declare dependencies:"; printf '%s\n' "$deps"; exit 1; }
 [ ! -e Package.resolved ] || grep -q '"pins" : \[\s*\]' Package.resolved \
@@ -41,12 +51,12 @@ printf '%s\n' "$deps" | grep -q '^No external dependencies found' \
 echo "    ok"
 
 echo "==> swift build"
-swift build
-
-echo "==> swift test"
 # ${arr[@]+"${arr[@]}"} expands to nothing for an empty array; macOS bash 3.2
 # treats a bare "${arr[@]}" on an empty array as unbound under set -u.
-swift test ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"}
+swift build ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"}
+
+echo "==> swift test"
+swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"}
 
 echo "==> hack/build-app.sh (temp dir)"
 tmp="$(mktemp -d)"

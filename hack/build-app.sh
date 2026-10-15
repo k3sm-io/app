@@ -33,6 +33,13 @@
 # Signing is ad-hoc and inside out (nested code first, the bundle root last,
 # never --deep for signing). Developer ID signing and notarization are
 # hack/release/sign-and-notarize.sh, run by a person.
+#
+# K3SM_SWIFTPM_DISABLE_SANDBOX=1 passes --disable-sandbox to every swift build
+# run. SwiftPM applies its own sandbox when it compiles the manifest and builds,
+# and a process already inside a sandbox cannot apply another one
+# (sandbox_apply: Operation not permitted). A sandboxed caller sets this to turn
+# off the inner sandbox and keep its own. Unset, nothing changes. This script
+# runs standalone, so it reads the variable itself rather than relying on ci.sh.
 set -euo pipefail
 
 usage() {
@@ -94,6 +101,10 @@ fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PRODUCT=K3smApp   # the SwiftPM executable product
 EXE=k3sm-app      # the bundle executable (CFBundleExecutable in Resources/Info.plist)
+SWIFT_FLAGS=()
+if [ "${K3SM_SWIFTPM_DISABLE_SANDBOX:-}" = 1 ]; then
+	SWIFT_FLAGS=(--disable-sandbox)
+fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -161,8 +172,10 @@ if [ -n "$TEAM_ID" ]; then
 fi
 
 echo "==> swift build -c release --arch arm64"
-( cd "$SRC" && swift build -c release --arch arm64 --product "$PRODUCT" )
-BIN_DIR="$(cd "$SRC" && swift build -c release --arch arm64 --show-bin-path)"
+# ${arr[@]+"${arr[@]}"} expands to nothing for an empty array; macOS bash 3.2
+# treats a bare "${arr[@]}" on an empty array as unbound under set -u.
+( cd "$SRC" && swift build ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} -c release --arch arm64 --product "$PRODUCT" )
+BIN_DIR="$(cd "$SRC" && swift build ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} -c release --arch arm64 --show-bin-path)"
 [ -x "$BIN_DIR/$PRODUCT" ] || { echo "build-app: $BIN_DIR/$PRODUCT not found" >&2; exit 1; }
 
 echo "==> assemble $APP (version $VERSION)"
