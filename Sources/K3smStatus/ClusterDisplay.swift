@@ -375,10 +375,14 @@ public enum ClusterDisplay {
         return ClusterUsage(requested: used, allocatable: total, text: "\(WorkloadsDisplay.cores(used)) of \(WorkloadsDisplay.cores(total))")
     }
 
+    /// The pods' summed byte requests of the summed allocatable, nil when
+    /// any allocatable is unknown or there is none. The request sum
+    /// saturates at Int64 the way `requests(of:)` does, so one hostile
+    /// request shows a capped figure instead of blanking the meter.
     static func memoryUsage(_ pods: [Pod], allocatable: [Int64?]) -> ClusterUsage? {
         guard !allocatable.isEmpty, allocatable.allSatisfy({ $0 != nil }),
-              let total = Quantity.sum(allocatable.compactMap { $0 }),
-              let used = Quantity.sum(pods.compactMap(\.memoryRequest)) else { return nil }
+              let total = Quantity.sum(allocatable.compactMap { $0 }) else { return nil }
+        let used = requests(of: pods).memoryBytes
         return ClusterUsage(requested: Double(used), allocatable: Double(total), text: "\(bytes(used)) of \(bytes(total))")
     }
 

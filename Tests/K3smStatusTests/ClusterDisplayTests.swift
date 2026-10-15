@@ -295,6 +295,23 @@ struct ClusterDisplayTests {
         #expect(PanelTile(label: "a\nb", value: "1\u{1B}2", detail: "of\r3") == PanelTile(label: "a b", value: "1 2", detail: "of 3"))
     }
 
+    @Test("tiles: a byte request near Int64 beside a normal one saturates instead of vanishing")
+    func tilesHostileMemory() throws {
+        let (report, nodes, _) = try Self.twoNodes()
+        let pods = [testPod("huge", bytes: 9_223_372_036_000_000_000), testPod("ok", bytes: 1 << 30)].map {
+            Pod(name: $0.name, namespace: $0.namespace, uid: $0.uid, image: $0.image, kind: $0.kind, phase: $0.phase,
+                health: $0.health, ready: $0.ready, restarts: $0.restarts, ports: $0.ports, owner: $0.owner, created: $0.created,
+                cpuRequest: $0.cpuRequest, memoryRequest: $0.memoryRequest, nodeName: "mac-a")
+        }
+        let got = ClusterDisplay.summary(of: report, nodes: nodes, pods: pods)
+        let capped = WorkloadsDisplay.bytes(.max)
+        #expect(got.memory?.requested == Double(Int64.max))
+        #expect(ClusterDisplay.tiles(for: got).first { $0.label == "memory requested" }
+            == PanelTile(label: "memory requested", value: capped, detail: "of 66 GB"))
+        #expect(got.nodes.first?.memory?.text == "\(capped) of 60 GB")
+        #expect(got.nodes.last?.memory?.text == "0 GB of 6.0 GB")
+    }
+
     @Test("tiles: this Mac")
     func macTiles() {
         let got = ClusterDisplay.macTiles(
