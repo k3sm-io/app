@@ -73,6 +73,8 @@ public enum PollSchedule {
     public static let visibleInterval: Duration = .seconds(5)
     public static let hiddenInterval: Duration = .seconds(15)
     public static let killDeadline: Duration = .seconds(4)
+    /// The wait between full status reads while the console window is open.
+    public static let consoleReportInterval: Duration = .seconds(30)
 
     /// The wait before the next poll, chosen by whether the item is shown.
     public static func interval(visible: Bool) -> Duration {

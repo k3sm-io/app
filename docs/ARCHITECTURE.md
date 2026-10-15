@@ -24,7 +24,7 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 | `NodeRole` | R4 | the closed two-case table from role to daemon label |
 | `Reading`, `VisibilityTracker` | R6, R7 | classifies one CLI run; show after one running read, hide after two misses |
 | `K3smCLI` | R4, R6 | the absolute CLI path, fixed argument lists (status, version, and the kubectl calls behind the console: pod list, logs, events, manifest), the built environment |
-| `PollSchedule` | R6 | 5 s visible, 15 s hidden, 4 s kill deadline |
+| `PollSchedule` | R6 | 5 s visible, 15 s hidden, 4 s kill deadline; the full report every 30 s while the console is open |
 | `StatusDisplay` | R5 | flattens control characters, clips fields, caps rows; `errorText` removes control and format characters from CLI error text and truncates it |
 | `SemanticVersion`, `PayloadRelation` | A8, A9 | semver precedence; payload newer, same or older than installed |
 | `Workloads`, `Pod`, `PodHealth`, `WorkloadKind` | console | decodes `kubectl get pods -A -o json` (the API's `PodList` or kubectl's `List` of pods) into the rows a workloads view shows: how each pod runs, its health word and severity, owner, ports, requests |

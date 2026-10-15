@@ -92,6 +92,10 @@ final class AppModel: ObservableObject {
     private let user: ConsoleUser?
     private let runner: any PrivilegedRunner
     private let environment: [String: String]
+    /// The console's report loop; set only while the console is on screen.
+    private var reportTask: Task<Void, Never>?
+    /// How many `refresh()` calls are running, so a tick never doubles one.
+    private var refreshesInFlight = 0
 
     init(runner: any PrivilegedRunner, environment: [String: String]) {
         self.runner = runner
@@ -183,9 +187,11 @@ final class AppModel: ObservableObject {
     }
 
     /// Re-reads which screen applies, the full report, the installed version
-    /// and, on a worker, its join target. The full report runs only here,
-    /// when the window is shown.
+    /// and, on a worker, its join target. The full report runs only here:
+    /// when the window is shown, and on the console's report loop.
     func refresh() async {
+        refreshesInFlight += 1
+        defer { refreshesInFlight -= 1 }
         screen = FileManager.default.fileExists(atPath: K3smCLI.installRoot) ? .status : .firstRun
         guard screen == .status else {
             report = nil
@@ -201,6 +207,29 @@ final class AppModel: ObservableObject {
             ? AgentJoinTarget.resolve(statusJoinTarget: report?.joinTarget, plist: Self.readPlist)
             : nil
         await refreshLifecycleSupport()
+    }
+
+    /// Starts re-reading the full report while the console is on screen, every
+    /// `PollSchedule.consoleReportInterval`, one read at a time; a tick that
+    /// finds a read in flight skips it. The first read waits one interval,
+    /// since showing the window already refreshes. A second start is a no-op.
+    func startReportPolling() {
+        guard reportTask == nil else { return }
+        reportTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: PollSchedule.consoleReportInterval)
+                guard !Task.isCancelled, let self else { return }
+                if self.refreshesInFlight == 0 {
+                    await self.refresh()
+                }
+            }
+        }
+    }
+
+    /// Stops the console's report loop when the console leaves the screen.
+    func stopReportPolling() {
+        reportTask?.cancel()
+        reportTask = nil
     }
 
     /// Re-detects whether the installed CLI has `k3sm stop`. The CLI is run

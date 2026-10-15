@@ -51,8 +51,14 @@ struct ConsoleView: View {
         .background(Color.white)
         .ignoresSafeArea()
         .preferredColorScheme(.light)
-        .onAppear { app.workloads.start() }
-        .onDisappear { app.workloads.stop() }
+        .onAppear {
+            app.workloads.start()
+            app.startReportPolling()
+        }
+        .onDisappear {
+            app.workloads.stop()
+            app.stopReportPolling()
+        }
     }
 
     @ViewBuilder

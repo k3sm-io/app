@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import Foundation
 import Testing
 
 @testable import K3smStatus
@@ -55,6 +56,28 @@ struct CLITests {
         #expect(PollSchedule.interval(visible: true) == .seconds(5))
         #expect(PollSchedule.interval(visible: false) == .seconds(15))
         #expect(PollSchedule.killDeadline < PollSchedule.visibleInterval)
+    }
+
+    struct StatedCase: Sendable, CustomTestStringConvertible {
+        let name: String
+        let value: Duration
+        let seconds: Int64
+        let readme: String
+        var testDescription: String { name }
+    }
+
+    @Test("the schedule is what the README states", arguments: [
+        StatedCase(name: "console report", value: PollSchedule.consoleReportInterval, seconds: 30,
+                   readme: "re-read every 30 seconds"),
+    ])
+    func stated(_ c: StatedCase) throws {
+        #expect(c.value == .seconds(c.seconds))
+        let readme = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("README.md")
+        let text = try String(contentsOf: readme, encoding: .utf8)
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        #expect(text.contains(c.readme))
     }
 
     struct ClipCase: Sendable, CustomTestStringConvertible {

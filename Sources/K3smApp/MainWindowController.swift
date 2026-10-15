@@ -38,15 +38,19 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
-        if model.screen == .status { model.workloads.start() }
+        if model.screen == .status {
+            model.workloads.start()
+            model.startReportPolling()
+        }
         Task { await model.refresh() }
     }
 
-    /// The console polls only while the window is on screen: stop it here,
-    /// not only from the view's onDisappear, which an ordered-out window may
-    /// never deliver.
+    /// The console polls (its pod list and the full report) only while the
+    /// window is on screen: stop both here, not only from the view's
+    /// onDisappear, which an ordered-out window may never deliver.
     func windowWillClose(_ notification: Notification) {
         model.workloads.stop()
+        model.stopReportPolling()
         NSApp.setActivationPolicy(.accessory)
     }
 
