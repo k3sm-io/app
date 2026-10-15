@@ -27,8 +27,8 @@ enum ConsoleSection: String, CaseIterable, Identifiable {
 /// the chosen section in the middle, the inspector on the right unless the
 /// details button has collapsed it. Every string from the CLI renders verbatim
 /// and clipped. The lifecycle controls are the status panel, a popover from
-/// the info button. The console is a light design and keeps the light scheme
-/// whatever the system appearance.
+/// the info button. The console follows the system appearance; only the navy
+/// Mac panel keeps its own colours.
 struct ConsoleView: View {
     @ObservedObject var app: AppModel
 
@@ -61,9 +61,8 @@ struct ConsoleView: View {
             minWidth: Self.minSize(inspectorShown: app.inspectorShown).width,
             minHeight: Self.minSize(inspectorShown: app.inspectorShown).height
         )
-        .background(Color.white)
+        .background(Palette.surface)
         .ignoresSafeArea()
-        .preferredColorScheme(.light)
         .onAppear {
             app.workloads.start()
             app.startReportPolling()
@@ -136,7 +135,7 @@ struct ChipStyle: ButtonStyle {
             .font(.system(size: 13, weight: selected ? .medium : .regular))
             .foregroundStyle(selected ? Color.primary : Palette.ink2)
             .padding(.horizontal, 13).padding(.vertical, 5)
-            .background(selected ? Color.white : Color.clear)
+            .background(selected ? Palette.raised : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .shadow(color: .black.opacity(selected ? 0.1 : 0), radius: 1, y: 1)
     }

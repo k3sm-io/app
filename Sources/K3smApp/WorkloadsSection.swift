@@ -42,7 +42,7 @@ struct WorkloadsSection: View {
             }
             if let at = model.readAt {
                 Text(verbatim: "live from this Mac, \(at.formatted(date: .omitted, time: .standard))")
-                    .font(.system(size: 11)).foregroundStyle(Palette.ink3)
+                    .font(.system(size: 11)).foregroundStyle(Palette.dimText)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.bottom, 8)
             }
         }
@@ -63,7 +63,7 @@ struct NamespaceGroup: View {
     var body: some View {
         if !pods.isEmpty {
             HStack(spacing: 7) {
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Palette.ink3)
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Palette.dimText)
                 Text(verbatim: StatusDisplay.clip(namespace)).font(.system(size: 13, weight: .semibold))
                 Text(verbatim: "\(pods.count) \(pods.count == 1 ? "pod" : "pods")").font(.system(size: 12)).foregroundStyle(Palette.ink2)
             }
@@ -96,7 +96,7 @@ enum PodColumns {
             Text("Memory").frame(width: memory, alignment: .trailing)
             Text("Age").frame(width: age, alignment: .trailing)
         }
-        .font(.system(size: 11.5)).foregroundStyle(Palette.ink3)
+        .font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
         .padding(.horizontal, 20).padding(.top, 10)
     }
 }
@@ -111,7 +111,7 @@ struct PodRow: View {
             Circle().fill(Palette.health(pod.health.severity)).frame(width: 9, height: 9).frame(width: PodColumns.dot)
             VStack(alignment: .leading, spacing: 1) {
                 Text(verbatim: StatusDisplay.clip(pod.name)).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                Text(verbatim: StatusDisplay.clip(pod.image)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.ink3).lineLimit(1)
+                Text(verbatim: StatusDisplay.clip(pod.image)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.dimText).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 6) {

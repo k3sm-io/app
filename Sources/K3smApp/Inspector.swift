@@ -45,7 +45,7 @@ struct Inspector: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Palette.paper)
+        .background(Palette.surface)
     }
 
     private func heading(_ pod: Pod) -> some View {
@@ -92,7 +92,7 @@ struct Inspector: View {
 
     private func fact(_ label: String, _ value: String, mono: Bool = false) -> some View {
         GridRow {
-            Text(label).font(.system(size: 12.5)).foregroundStyle(Palette.ink3).frame(width: 86, alignment: .leading)
+            Text(label).font(.system(size: 12.5)).foregroundStyle(Palette.dimText).frame(width: 86, alignment: .leading)
             Text(verbatim: StatusDisplay.clip(value)).font(.system(size: mono ? 11.5 : 12.5, design: mono ? .monospaced : .default)).textSelection(.enabled)
         }
     }
