@@ -125,7 +125,6 @@ struct ClusterDisplayTests {
                 running: 1),
         ])
         #expect(got.cores?.text == "5 of 26.5")
-        #expect(got.podsByNode == "3 on mac-a · 1 on mac-b")
         #expect(got.versions == "versions differ")
     }
 
@@ -139,7 +138,6 @@ struct ClusterDisplayTests {
         #expect(got.nodes.map(\.role) == ["agent", "server"])
         #expect(got.nodes.map(\.thisMac) == [true, false])
         #expect(got.nodes.map(\.running) == [1, 3])
-        #expect(got.podsByNode == "1 on mac-b · 3 on mac-a")
     }
 
     @Test("single node with its lists")

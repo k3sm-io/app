@@ -26,6 +26,7 @@ import SwiftUI
 enum Palette {
     static let deep = Color(red: 0.027, green: 0.051, blue: 0.239)      // #070d3d, the Mac panel
     static let deep2 = Color(red: 0.067, green: 0.102, blue: 0.361)     // #111a5c, meters' tracks
+    static let deepRaised = Color(red: 0.051, green: 0.082, blue: 0.302) // #0d154d, the panel's tiles
     static let blue = Color(red: 0.008, green: 0.184, blue: 0.984)      // #022ffb, the accent
 
     /// The console's surface: the window, the strip, the list and the inspector.

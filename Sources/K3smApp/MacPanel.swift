@@ -18,10 +18,11 @@ import K3smStatus
 import SwiftUI
 
 /// MacPanel is the left column, scrolled. With more than one node a switch
-/// at the top picks the view: Cluster (the cluster's stats, its nodes with
-/// what their pods request, the cluster's cores and memory) or This Mac (the
-/// machine, what the pods ask of it, the data root, the nodes block). Both
-/// end with the daemons from the status report.
+/// at the top picks the view: Cluster (the state, a grid of tiles with the
+/// cluster's figures, one compact row per node with what its pods request)
+/// or This Mac (the machine, the state, tiles with what the pods ask of it
+/// and the data root, the nodes block, the core grid and the memory meter).
+/// Both end with the daemons from the status report.
 struct MacPanel: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
@@ -47,7 +48,7 @@ struct MacPanel: View {
     /// The column, top to bottom: the switch, the view, then the daemons. It
     /// scrolls, so nothing is cut off in a short window.
     private var content: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 14) {
             Wordmark(flap: app.flap)
                 .padding(.top, 44)
             if PanelMode.showsSwitch(nodeCount: cluster.nodeCount) {
@@ -71,103 +72,97 @@ struct MacPanel: View {
         }
     }
 
-    /// The cluster view: title and stats, one row per node, the cluster meters.
+    /// The cluster view: the state above the tiles, then one compact row
+    /// per node with what its pods request.
     @ViewBuilder private var clusterView: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 10) {
             if PanelMode.showsHeading(nodeCount: cluster.nodeCount) {
                 Text(verbatim: cluster.title).font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
             }
-            if let line = cluster.line {
-                Text(verbatim: line).font(.system(size: 12)).foregroundStyle(.white.opacity(0.8)).monospacedDigit()
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            stateRow
+            TileGrid(tiles: ClusterDisplay.tiles(for: cluster))
             if let note = cluster.note {
                 Footnote(note)
             }
-            stateRow.padding(.top, 4)
         }
         if cluster.nodes.isEmpty {
             nodesBlock
         } else {
-            PanelBlock("Nodes", value: "\(cluster.nodes.filter(\.isReady).count)/\(cluster.nodes.count) ready") {
-                VStack(alignment: .leading, spacing: 12) {
+            PanelBlock("Nodes", value: cluster.versions ?? "") {
+                VStack(alignment: .leading, spacing: 10) {
                     ForEach(Array(cluster.nodes.enumerated()), id: \.offset) { _, node in
                         clusterNodeRow(node)
                     }
-                    if let line = cluster.podsByNode {
-                        Footnote("Running pods: \(line)")
-                    }
                 }
-            }
-        }
-        if let cores = cluster.cores {
-            PanelBlock("Cores requested", value: cores.text) {
-                Meter(parts: [(cores.requested, Palette.fill)], total: cores.allocatable)
-                Footnote("Requests of the cores the nodes offer to pods, not use.")
-            }
-        }
-        if let memory = cluster.memory {
-            PanelBlock("Memory requested", value: memory.text) {
-                Meter(parts: [(memory.requested, Palette.fill)], total: memory.allocatable)
+                Footnote("Requested by pods, not used.")
             }
         }
     }
 
+    /// One node: the readiness dot, the name with a tag on this Mac's, the
+    /// role and its running pods, then its cores and memory meters side by side.
     private func clusterNodeRow(_ node: ClusterNodeRow) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 7) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
                 Circle().fill(node.isReady ? Palette.okOnDark : .orange).frame(width: 7, height: 7)
-                Text(verbatim: node.thisMac ? "\(node.name) (this Mac)" : node.name)
-                    .foregroundStyle(.white).lineLimit(1).truncationMode(.middle)
-                Spacer()
-                if let version = node.version {
-                    Text(verbatim: version).foregroundStyle(.white.opacity(0.8)).monospacedDigit()
+                    .accessibilityLabel(Text(verbatim: node.ready))
+                Text(verbatim: node.name).font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
+                    .lineLimit(1).truncationMode(.middle)
+                if node.thisMac {
+                    Text("this Mac").font(.system(size: 9, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Capsule().fill(.white.opacity(0.14)))
+                        .fixedSize()
+                }
+                Text(verbatim: node.role).font(.system(size: 11)).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
+                Spacer(minLength: 4)
+                if let running = node.running {
+                    Text(verbatim: "\(running) \(running == 1 ? "pod" : "pods")").font(.system(size: 11)).monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.62)).fixedSize()
                 }
             }
-            .font(.system(size: 12, weight: .medium))
-            Text(verbatim: "\(node.role) · \(node.ready)").font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
-            if let cores = node.cores {
-                usageRow("Cores", cores)
-            }
-            if let memory = node.memory {
-                usageRow("Memory", memory)
+            HStack(spacing: 10) {
+                slimMeter("Cores", node.cores)
+                slimMeter("Memory", node.memory)
             }
         }
     }
 
-    private func usageRow(_ title: String, _ usage: ClusterUsage) -> some View {
+    /// A 5 pt meter with its value under it, dim and monospaced; an empty
+    /// track when the node's allocatable is unknown.
+    private func slimMeter(_ title: String, _ usage: ClusterUsage?) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(title).foregroundStyle(.white.opacity(0.62))
-                Spacer()
-                Text(verbatim: usage.text).foregroundStyle(.white.opacity(0.8)).monospacedDigit()
-            }
-            .font(.system(size: 11))
-            Meter(parts: [(usage.requested, Palette.fill)], total: usage.allocatable, height: 6)
+            Meter(parts: [(usage?.requested ?? 0, Palette.fill)], total: usage?.allocatable ?? 0)
+            Text(verbatim: usage?.text ?? " ").font(.system(size: 10)).monospacedDigit()
+                .foregroundStyle(.white.opacity(0.62)).lineLimit(1).minimumScaleFactor(0.8)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(verbatim: "\(title) \(usage?.text ?? "unknown")"))
     }
 
-    /// This Mac's view: the machine, the nodes block, the three meters.
+    /// This Mac's view: the machine, the state and the tiles, the nodes
+    /// block, the core grid and the memory meter.
     @ViewBuilder private var thisMacView: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 10) {
             if PanelMode.showsHeading(nodeCount: cluster.nodeCount) {
                 Text(verbatim: cluster.title).font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
             }
             Text(verbatim: Self.machine.line).font(.system(size: 12)).foregroundStyle(.white.opacity(0.62))
-            stateRow.padding(.top, 4)
+            stateRow
+            TileGrid(tiles: ClusterDisplay.macTiles(
+                requests: macRequests, cores: Self.machine.cores, memoryBytes: Self.machine.memoryBytes,
+                dataRootUsed: workloads.load.dataRootUsedBytes, dataRootSize: workloads.load.dataRootSizeBytes,
+                pods: macPods.count))
         }
         nodesBlock
-        PanelBlock("Cores requested by pods", value: "\(WorkloadsDisplay.cores(coresRequested)) of \(Self.machine.cores)") {
+        VStack(alignment: .leading, spacing: 10) {
             CoreGrid(cores: Self.machine.cores, performance: Self.machine.performanceCores, used: coresRequested)
-            Footnote("Squares are performance cores, circles are efficiency cores. Requests, not use.")
+            Footnote("Squares are performance cores, circles efficiency cores.")
         }
         PanelBlock("Unified memory", value: "\(WorkloadsDisplay.bytes(workloads.load.memoryUsedBytes)) of \(WorkloadsDisplay.bytes(Self.machine.memoryBytes))") {
             Meter(parts: [(Double(memoryRequested), Palette.fill), (Double(max(0, workloads.load.memoryUsedBytes - memoryRequested)), Palette.fillDim)], total: Double(Self.machine.memoryBytes))
             Legend(rows: [("Requested by pods", Palette.fill, WorkloadsDisplay.bytes(memoryRequested)), ("macOS and apps", Palette.fillDim, WorkloadsDisplay.bytes(workloads.load.memoryUsedBytes))])
-        }
-        PanelBlock("Data root", value: "\(WorkloadsDisplay.bytes(workloads.load.dataRootUsedBytes)) of \(WorkloadsDisplay.bytes(workloads.load.dataRootSizeBytes))") {
-            Meter(parts: [(Double(workloads.load.dataRootUsedBytes), Palette.fill)], total: Double(workloads.load.dataRootSizeBytes))
-            Footnote("\(HostFacts.dataRoot), the volume it sits on")
         }
     }
 
@@ -277,7 +272,7 @@ struct PanelBlock<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(title).foregroundStyle(.white.opacity(0.62))
                 Spacer()
@@ -285,6 +280,58 @@ struct PanelBlock<Content: View>: View {
             }
             .font(.system(size: 12, weight: .medium))
             content()
+        }
+    }
+}
+
+/// TileGrid is the panel's figures in two fixed columns of tiles.
+struct TileGrid: View {
+    let tiles: [PanelTile]
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10, alignment: .topLeading), count: 2),
+                  alignment: .leading, spacing: 10) {
+            ForEach(Array(tiles.enumerated()), id: \.offset) { _, tile in
+                Tile(tile: tile)
+            }
+        }
+    }
+}
+
+/// Tile is one figure: the value large, its "of" beside it (or under it
+/// when the two do not fit), and the label small and lowercase below.
+struct Tile: View {
+    let tile: PanelTile
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    value
+                    detail
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    value
+                    detail
+                }
+            }
+            Text(verbatim: tile.label).font(.system(size: 11)).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.deepRaised))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var value: some View {
+        Text(verbatim: tile.value).font(.system(size: 20, weight: .semibold)).monospacedDigit()
+            .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
+    }
+
+    @ViewBuilder private var detail: some View {
+        if let detail = tile.detail {
+            Text(verbatim: detail).font(.system(size: 11)).monospacedDigit()
+                .foregroundStyle(.white.opacity(0.62)).lineLimit(1).fixedSize()
         }
     }
 }
@@ -317,7 +364,7 @@ struct CoreGrid: View {
 struct Meter: View {
     let parts: [(Double, Color)]
     let total: Double
-    var height: CGFloat = 12
+    var height: CGFloat = 5
 
     var body: some View {
         GeometryReader { geo in
@@ -330,7 +377,7 @@ struct Meter: View {
         }
         .frame(height: height)
         .background(Palette.deep2)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .clipShape(RoundedRectangle(cornerRadius: height / 2))
     }
 }
 

@@ -139,12 +139,6 @@ public struct ClusterSummary: Equatable, Sendable {
         self.versions = versions
     }
 
-    /// Running pods per node, "3 on mac-a · 1 on mac-b", nil without both lists.
-    public var podsByNode: String? {
-        let parts = nodes.compactMap { row in row.running.map { "\($0) on \(row.name)" } }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
     /// The stats joined with " · ", or nil when there are none.
     public var line: String? {
         stats.isEmpty ? nil : stats.map(\.text).joined(separator: " · ")
