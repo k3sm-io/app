@@ -58,6 +58,13 @@ struct CLITests {
         #expect(PollSchedule.killDeadline < PollSchedule.visibleInterval)
     }
 
+    @Test("the list reads outlast the probe's deadline but not the report interval")
+    func listDeadline() {
+        #expect(PollSchedule.listDeadline == .seconds(10))
+        #expect(PollSchedule.killDeadline < PollSchedule.listDeadline)
+        #expect(PollSchedule.listDeadline < PollSchedule.consoleReportInterval)
+    }
+
     struct StatedCase: Sendable, CustomTestStringConvertible {
         let name: String
         let value: Duration

@@ -98,7 +98,7 @@ final class WorkloadsModel: ObservableObject {
             path: K3smCLI.path,
             arguments: K3smCLI.workloadsArguments,
             environment: environment,
-            deadline: PollSchedule.killDeadline,
+            deadline: PollSchedule.listDeadline,
             limit: OutputLimit.list
         )
         guard !Task.isCancelled else { return }
@@ -116,7 +116,7 @@ final class WorkloadsModel: ObservableObject {
             path: K3smCLI.path,
             arguments: K3smCLI.nodesArguments,
             environment: environment,
-            deadline: PollSchedule.killDeadline,
+            deadline: PollSchedule.listDeadline,
             limit: OutputLimit.list
         )
         guard !Task.isCancelled else { return }

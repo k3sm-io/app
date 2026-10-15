@@ -25,7 +25,7 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 | `Flap` | | the wordmark butterfly's wing beat: the hinge angle at each frame of one beat (two strokes toward the viewer, the second lower, ending flat) and the random rest between beats |
 | `Reading`, `VisibilityTracker` | R6, R7 | classifies one CLI run; show after one running read, hide after two misses |
 | `K3smCLI` | R4, R6 | the absolute CLI path, fixed argument lists (status, version, and the kubectl calls behind the console: pod list, node list, logs, events, manifest), the built environment |
-| `PollSchedule` | R6 | 5 s visible, 15 s hidden, 4 s kill deadline; the full report every 30 s while the console is open |
+| `PollSchedule` | R6 | 5 s visible, 15 s hidden, 4 s kill deadline; a 10 s deadline for the console's pod and node lists; the full report every 30 s while the console is open |
 | `OutputLimit`, `CappedOutput` | R6 | the most standard output one CLI run may produce (1 MiB status, 16 MiB pod and node lists, 64 KiB inspector detail) and the buffer that keeps the first `limit` bytes and records an overflow |
 | `StatusDisplay` | R5 | flattens control characters, clips fields, caps rows; `errorText` removes control and format characters from CLI error text and truncates it |
 | `SemanticVersion`, `PayloadRelation` | A8, A9 | semver precedence; payload newer, same or older than installed |

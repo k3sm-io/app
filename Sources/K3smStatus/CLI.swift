@@ -76,6 +76,14 @@ public enum PollSchedule {
     public static let visibleInterval: Duration = .seconds(5)
     public static let hiddenInterval: Duration = .seconds(15)
     public static let killDeadline: Duration = .seconds(4)
+    /// The deadline for the console's pod and node list reads. It is longer
+    /// than `killDeadline` because those reads go through kubectl to the API
+    /// server, on a worker across the network, and return every pod in the
+    /// cluster; the 4 s budget is sized for the local status probe, and a
+    /// slow but healthy list killed at 4 s would read as a CLI that did not
+    /// answer. It stays under `consoleReportInterval`, and the runs are
+    /// serial, so a slow list delays the next poll without stacking runs.
+    public static let listDeadline: Duration = .seconds(10)
     /// The wait between full status reads while the console window is open.
     public static let consoleReportInterval: Duration = .seconds(30)
 
