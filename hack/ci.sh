@@ -7,7 +7,8 @@
 #   0. the package declares no dependencies
 #   1. swift build
 #   2. swift test (the status decoder, the visibility rule, role detection)
-#   3. hack/build-app.sh into a temp dir (builds, signs and verifies the bundle)
+#   3. hack/build-app.sh into a temp dir (builds, signs and verifies the bundle;
+#      the app icon is in it and reads back with a 1024-pixel member)
 #   4. shellcheck over every hack/**/*.sh
 #   5. hack/build-app.sh --payload with a fake payload: the refusals, the
 #      manifest, the version stamp; then make-dmg.sh on the result
@@ -64,6 +65,20 @@ trap 'rm -rf "$tmp"' EXIT
 bash hack/build-app.sh "$tmp/out"
 [ -d "$tmp/out/k3sm.app" ] || { echo "FAIL: bundle not produced"; exit 1; }
 [ ! -e "$tmp/out/k3sm.app/Contents/Resources/payload" ] || { echo "FAIL: a payload appeared without --payload"; exit 1; }
+# The icon is in the bundle, named by Info.plist, and readable back into an
+# iconset whose largest member is the 1024-pixel render.
+icns="$tmp/out/k3sm.app/Contents/Resources/AppIcon.icns"
+[ -f "$icns" ] || { echo "FAIL: the bundle has no Contents/Resources/AppIcon.icns"; exit 1; }
+[ "$(plutil -extract CFBundleIconFile raw "$tmp/out/k3sm.app/Contents/Info.plist")" = AppIcon ] \
+	|| { echo "FAIL: Info.plist CFBundleIconFile is not AppIcon"; exit 1; }
+iconutil -c iconset "$icns" -o "$tmp/AppIcon.iconset" \
+	|| { echo "FAIL: iconutil cannot read the bundle's AppIcon.icns"; exit 1; }
+big="$tmp/AppIcon.iconset/icon_512x512@2x.png"
+[ -f "$big" ] || { echo "FAIL: AppIcon.icns has no 512x512@2x member"; exit 1; }
+[ "$(sips -g pixelWidth "$big" | awk '/pixelWidth/ {print $2}')" = 1024 ] \
+	&& [ "$(sips -g pixelHeight "$big" | awk '/pixelHeight/ {print $2}')" = 1024 ] \
+	|| { echo "FAIL: the 512x512@2x icon is not 1024x1024"; exit 1; }
+echo "    ok (app icon)"
 
 echo "==> shellcheck (hack/**/*.sh)"
 command -v shellcheck >/dev/null || { echo "FAIL: shellcheck is not installed (brew install shellcheck)"; exit 1; }

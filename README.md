@@ -221,6 +221,10 @@ use the app's uninstall action before deleting the app, or run
 Requires macOS 26 or later on Apple silicon and Swift 6. The package has no
 third-party dependencies.
 
+The app icon, `Resources/AppIcon.icns`, is generated from the k3sm butterfly
+mark in `Resources/k3sm-mark.svg` by `hack/make-icon.sh`; rerun it after the
+mark changes and commit the result.
+
 ```sh
 swift build
 swift test
