@@ -54,6 +54,11 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 | `CopyOutOutcome`, `CopyOutExit`, `OutcomeSummary` | A14, A15 | reads the log's final status line; names the script's own exit statuses; one sentence for the window |
 | `ServerAddress` | A14 | strict ASCII host[:port] grammar; the CLI argument is the bare host |
 | `UpdatePolicy` | A9 | worker always; server only when every worker in the status `workers` list is at or above the payload, naming the workers behind; with the list absent or a worker's version missing, server only after the user confirms; the datastore checks shown before a server update |
+| `InstalledCLIPreamble` | L7, L9 | the one definition of the checks every root script that runs the installed CLI makes first (path chain, ACLs, `codesign --verify -R`); the lifecycle verbs and the join token mint both start with it |
+| `JoinTokenMint`, `JoinToken` | L7 | the closed mint set (one worker token) and its root script: the shared checks, then `token create --ttl 15m` (one TTL constant, never `--server`), printing the token only after the CLI exited 0; the `K10<hex>::<user>:<secret>` grammar, a redacted description, and the redaction every mint error passes through |
+| `JoinAddress`, `JoinAddressSource`, `InterfaceAddress` | L7 | the server's underlay IPv4 address from this Mac's interfaces: never the mesh range (100.64.0.0/10), loopback, link-local, a tunnel, a VM NAT bridge or a down interface; exactly one candidate, or the reason there is none or several |
+| `CopyJoinCommand`, `JoinCommandDriver`, `JoinCommandText` | L7 | Copy Join Command: shown only on a server, enabled only when it runs, privileged actions are available and one join address resolves; single-flight (the menu claims `running` before its task, and the driver's own claim makes a second click busy); on click a live re-read (a changed role or state refuses before the prompt), a fresh mint, the grammar check, and the documented two-step join as one pasteable line |
+| `ConcealedClipboard`, `Pasteboard`, `ClearScheduler` | L7 | the pasteboard item: string plus `org.nspasteboard.ConcealedType`, prepared `.currentHostOnly`; cleared at a 60 s wall-clock deadline or at quit only if the change count still equals the one the write returned; a second copy cancels and re-baselines; at launch, a leftover from a crashed run is cleared only when it carries the concealed marker and is exactly a line this app writes |
 | `LifecycleVerb`, `LifecycleScriptBuilder`, `LifecycleExit` | L9 | the closed verb set (stop, start, restart, and the two LAN access verbs) and its separate root script: no staging and no lock; `env -i`, `cd /`; refuses unless `/Library/k3sm/k3sm` and every directory above it are root-owned, not group or other writable, not symlinks and carry no ACL, and the binary passes `codesign --verify -R` against the compiled Team ID; then runs the verb as a literal. `arguments(for:)` is the one definition of its argv |
 | `LifecyclePrecondition`, `LifecycleConfirmation`, `StopWarning` | L5, L9 | a live state that differs from the one the user acted on refuses; the confirmation names the verb; Stop warns on a server with joined nodes, and when the `workers` list is unknown |
 | `LifecycleDriver` | L6, L9 | one verb from click to outcome: live read, confirmation, a second live read, then a fresh administrator prompt |
@@ -61,7 +66,7 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 | `InstalledCLITrust`, `LifecycleSupport`, `TrustedCLI` | L6, L9 | the app's own ownership, ACL and signature check of the installed CLI, made again immediately before every unprivileged run from the window, the lifecycle flow and the menu's Terminal actions (never a cached verdict); feature detection of `k3sm stop` by version, run only through that check |
 | `LANToggle`, `LANConfirmationText`, `LANPrecondition`, `LANDriver`, `LANOutcome` | LAN access | the tri-state checkbox (disabled with the reason on a failed, stale or untrusted read or an unknown value; notes for a missing record, a recorded and applied mismatch, a refused change; the indicator while on); the question before turning access on, from the report's `covers` and `alwaysOn`, Cancel the default; one LAN verb from click to outcome: live read, the question (on only), a second live read, the administrator prompt, then a read that confirms the value |
 | `BugReport`, `StatusCommand`, `CommandFile` | L6 | the static Terminal `.command` files behind Write a Bug Report and Open Status, written into a fresh 0700 directory; the collector reads an allowlist through a redaction pass |
-| `PrivilegedRunner`, `PrivilegedRun`, `PrivilegedAvailability` | A5, A15, R8 | the path to root (a runner may also return the step's error output, which the app shows only through `errorText`); enables privileged actions only with a Team ID, a valid self-signature and an admin user |
+| `PrivilegedRunner`, `PrivilegedRun`, `PrivilegedFailure`, `PrivilegedAvailability` | A5, A15, R8, L7 | the path to root (a runner may also return the step's error output, which the app shows only through `errorText`, or, for the join token mint only, a successful step's standard output as an in-process result of at most 4 KiB); enables privileged actions only with a Team ID, a valid self-signature and an admin user |
 
 ## K3smApp
 
@@ -69,7 +74,7 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 |---|---|---|
 | `AppDelegate` | A15 | wiring; login-item launch shows only the status item; reopen shows the window; activity assertion against App Nap; pauses polling off the active console session |
 | `StatusPoller`, `CLIProcess` | R6 | serial probe runs with a scrubbed environment; the child is killed (SIGKILL) at the deadline, once its output passes the run's `OutputLimit` (`.truncated`, the first bytes kept), or when the awaiting task is cancelled; the signal reaches the direct child only, so a `kubectl` the wrapper forked may outlive it |
-| `StatusItemController` | R7, L6 | inserts and removes the `NSStatusItem`; logs `status item: visible` only when on screen; respects a user removal; the menu: the Cluster and This Mac status lines (`MenuStatus`, a coloured circle and the word; read from the full report on open, This Mac also from each probe), then Stop and Restart (shown only when lifecycle support is available, never disabled-but-visible), Open Status, Open Logs, Write a Bug Report, Open k3sm, Quit; the icon carries the LAN dot, following each daemons probe |
+| `StatusItemController` | R7, L6 | inserts and removes the `NSStatusItem`; logs `status item: visible` only when on screen; respects a user removal; the menu: the Cluster and This Mac status lines (`MenuStatus`, a coloured circle and the word; read from the full report on open, This Mac also from each probe), then Stop and Restart (shown only when lifecycle support is available, never disabled-but-visible), Open Status, Open Logs, Write a Bug Report, Copy Join Command (a server only; the tooltip says why it is disabled), Open k3sm, Quit; the icon carries the LAN dot, following each daemons probe |
 | `FlapModel` | | plays a `Flap` beat after each rest while the console is up (started and stopped by the window controller with the console's polls); skips the beat under Reduce Motion; `FlappingButterfly` in `MacPanel` turns each half of the mark about the centre line by its angle |
 | `MenuActions` | L6 | logs through `NSWorkspace` on fixed paths; the status and bug report `.command` files opened in Terminal; never a shell from the app |
 | `StoppedNotifier` | L6 | the login-time stopped notification and its Start action |
@@ -80,7 +85,10 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 | `MainMenu` | A15 | the menu bar while the window is open: `Settings…` opens the status panel, `Refresh`, Edit for the search field, Window; the status item keeps its own menu |
 | `LoginItem` | A15 | `SMAppService.mainApp`, registered once per user from `/Applications`; `.requiresApproval` links to Login Items |
 | `SelfCheck` | A15, R4, R8, L9 | the compiled Team ID, `SecStaticCode` self-verification, admin check, the console user, the passwd-based CLI environment, and `lstat` plus `SecStaticCode` of the installed CLI |
-| `AppleScriptRunner` | A14 | the concrete `PrivilegedRunner`: `do shell script ... with administrator privileges` on its own thread, stdin through a 0600 FIFO; never run by tests or ci |
+| `AppleScriptRunner` | A14, L7 | the concrete `PrivilegedRunner`, and the only one: `do shell script ... with administrator privileges` on its own thread, stdin through a 0600 FIFO; the capturing run reads the result descriptor's string, bounded; never run by tests or ci |
+| `GeneralPasteboard` | L7 | the `NSPasteboard` adapter: `prepareForNewContents(with: [.currentHostOnly])`, the string and the concealed marker; reads the current item's types and string for the launch-time sweep |
+| `WallClockClearScheduler` | L7 | the clear timer: `asyncAfter(wallDeadline:)`, so a sleep never extends the 60 s |
+| `InterfaceAddressSource` | L7 | the `getifaddrs` join address source |
 
 ## hack/
 
@@ -89,6 +97,7 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 | `build-app.sh` | R10, A10 | arm64 release build, ad-hoc signed; `--payload` copies and checks a staged tree and writes `payload.sha256`; `--version` stamps Info.plist; `--team-id` compiles the Team ID pin from a source copy under `.build/pinned-src` |
 | `release/make-dmg.sh` | A11 | the UDZO disk image with an `/Applications` symlink |
 | `release/sign-and-notarize.sh` | A5, A11, A18 | attended Developer ID signing, notarization and stapling of the app and the image; refuses agent, loop and non-terminal runs, and an app not built with `--team-id` for its team |
+| `acceptance/B486.sh` | L7 | `swift test` (the mint golden and its `token.go` cross-check, the token grammar, the join text golden against `install.go` and `multi-node.md`, the address and gating tables, the clear semantics, the sentinel token reaching only the pasteboard), then static checks: no process, shell, osascript or pbcopy in the new files, one `PrivilegedRunner`, no `--server` in the mint, the concealed and local-only write |
 | `acceptance/B458.sh` | | `swift test` (argv goldens, Team ID pin, update policy, `stoppedBy`), the developer and `--team-id` bundles built and verified with `codesign --verify --strict --deep` |
 | `ci.sh` | | the gate: build, tests, bundle builds, shellcheck, payload and refusal checks, headers, workflow dormancy, fixture drift |
 
@@ -116,6 +125,26 @@ lock. `LifecycleScriptBuilder.arguments(for:)` is pinned against `k3sm`
 | restart | `restart --actor user --reason 'from the k3sm app'` |
 | allow connections from other devices | `network lan on` |
 | stop allowing them | `network lan off` |
+| copy join command (the mint) | `token create --ttl 15m` |
+
+Copy Join Command copies, for a server whose one underlay address is
+`<ip>`, the documented two-step join of `docs/user/multi-node.md` as one line:
+
+```sh
+printf '%s' '<token>' | sudo sh -c 'umask 077; cat > /var/root/k3sm-join-token' && sudo k3sm install --agent --server <ip> --token-file /var/root/k3sm-join-token
+```
+
+The token expires in 15 minutes. It never enters argv, a file, a log or the
+app's model: it returns as the administrator prompt's result, passes the
+grammar, goes onto the pasteboard as a concealed item that stays on this Mac,
+and is cleared after 60 seconds if nothing replaced it. Some clipboard
+managers ignore the concealed marker, and the pasted command leaves the token
+in the joining Mac's shell history until it expires; the result note says
+both. The 60 s clear lives in the app's process: if the app crashes or is
+force-quit first, the item stays until the app next starts (which clears only
+its own concealed join line) or something else is copied. A Mac with two
+active underlay addresses disables the action until a later build adds an
+address choice. The live join is proven in the M18 lab.
 
 The two LAN access argv are compile-time constants, pinned against `k3sm`
 `cmd/k3sm/network.go`; nothing decoded from the status reaches them.
@@ -164,8 +193,8 @@ accepts the held outer lock once its staging-directory checks pass.
 
 The app build:
 
-- the server's Copy Join Command menu item, release notes and docs links in
-  the menu, and the k3sm template icon;
+- release notes and docs links in the menu, and the k3sm template icon;
+- the live join from a copied command (the M18 lab);
 - an explicit downgrade from the window, over `install --allow-downgrade`;
 - the lab confirmation that a login-item launch is detected and that the
   status item's on-screen log line holds on each macOS version.

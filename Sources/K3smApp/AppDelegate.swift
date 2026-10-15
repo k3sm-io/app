@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 import AppKit
+import K3smInstall
 import K3smStatus
 
 /// AppDelegate wires the parts together: the poller feeds the status item,
@@ -37,6 +38,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let loginLaunch = Self.launchedAsLoginItem()
+        // A join command a crashed or force-quit run left on the pasteboard
+        // goes now; only this app's own concealed line is ever cleared.
+        if ConcealedClipboard.sweepLeftover(GeneralPasteboard()) {
+            log.notice("join command: cleared a leftover from an earlier run")
+        }
         let environment = SelfCheck.cliEnvironment()
         let model = AppModel(runner: AppleScriptPrivilegedRunner(), environment: environment)
         let windowController = MainWindowController(model: model)
@@ -86,6 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         poller?.stop()
+        // A join command still on the pasteboard, unchanged, goes with the app.
+        model?.joinClipboard.clearIfUnchanged()
         if let activity {
             ProcessInfo.processInfo.endActivity(activity)
         }
