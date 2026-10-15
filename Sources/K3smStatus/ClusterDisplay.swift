@@ -53,7 +53,8 @@ public struct ClusterNodeRow: Equatable, Sendable {
     /// "Ready", "Not ready" or "Ready unknown".
     public let ready: String
     public let isReady: Bool
-    public let version: String
+    /// Nil when every node runs the same release, which the stats then name.
+    public let version: String?
     /// True for the node the status report names as this Mac's.
     public let thisMac: Bool
     /// Cores and memory requested by the pods bound to this node, nil when
@@ -62,7 +63,7 @@ public struct ClusterNodeRow: Equatable, Sendable {
     public let memory: ClusterUsage?
 
     public init(
-        name: String, role: String, ready: String, isReady: Bool, version: String, thisMac: Bool,
+        name: String, role: String, ready: String, isReady: Bool, version: String?, thisMac: Bool,
         cores: ClusterUsage?, memory: ClusterUsage?
     ) {
         self.name = name
@@ -141,9 +142,11 @@ public enum PanelMode: String, CaseIterable, Sendable {
 /// ClusterDisplay turns the status report, the node list and the pod list
 /// into the panel's cluster view. The title follows `workers` the way
 /// `NodesDisplay` does: absent is unknown, empty is no other node. A server
-/// with workers is titled "Cluster" and its stats open with the Mac count. A nil
-/// node or pod list is unknown, and the stats then come from the report's
-/// `node` and `workloads` rows as printed. Every string is clipped.
+/// with workers is titled "Cluster" and its stats open with the Mac count.
+/// With the node list known the stats end with its `VersionAgreement`, and
+/// the node rows show a version only when the releases do not all agree. A
+/// nil node or pod list is unknown, and the stats then come from the
+/// report's `node` and `workloads` rows as printed. Every string is clipped.
 public enum ClusterDisplay {
     public static let singleTitle = "This Mac is the cluster"
     public static let unknownTitle = "This Mac"
@@ -180,7 +183,11 @@ public enum ClusterDisplay {
                 memory = memoryUsage(bound, allocatable: nodes.map(\.allocatableMemoryBytes))
                 if let cores { stats.append(ClusterStat(label: "cores requested", value: cores.text)) }
                 if let memory { stats.append(ClusterStat(label: "memory requested", value: memory.text)) }
-                rows = order.map { node in row(node, pods: active.filter { $0.nodeName == node.name }, ownNode: ownNode, ownRole: ownRole) }
+                let agreement = VersionAgreement.of(order.map(\.k3smRelease))
+                rows = order.map { node in
+                    row(node, pods: active.filter { $0.nodeName == node.name }, ownNode: ownNode, ownRole: ownRole,
+                        showsVersion: agreement.showsPerNode)
+                }
                 podsByNode = order.map { node in
                     "\(pods.filter { $0.health == .running && $0.nodeName == node.name }.count) on \(StatusDisplay.clip(node.name))"
                 }.joined(separator: " · ")
@@ -188,6 +195,9 @@ public enum ClusterDisplay {
             stats.append(ClusterStat(label: "vm", value: "\(active.filter { $0.kind == .linuxVM }.count)"))
         } else if let report {
             stats += workloadStats(report)
+        }
+        if let nodes, let stat = VersionAgreement.of(nodes.map(\.k3smRelease)).stat {
+            stats.append(stat)
         }
         return ClusterSummary(
             title: title, stats: stats, note: note, nodeCount: nodeCount, nodes: rows,
@@ -233,7 +243,7 @@ public enum ClusterDisplay {
         }
     }
 
-    static func row(_ node: ClusterNode, pods: [Pod], ownNode: String?, ownRole: String) -> ClusterNodeRow {
+    static func row(_ node: ClusterNode, pods: [Pod], ownNode: String?, ownRole: String, showsVersion: Bool) -> ClusterNodeRow {
         let ready: String
         switch node.ready {
         case true?: ready = "Ready"
@@ -243,7 +253,7 @@ public enum ClusterDisplay {
         let version = node.k3smRelease?.description ?? node.kubeletVersion.map(StatusDisplay.clip) ?? NodesDisplay.versionUnknown
         return ClusterNodeRow(
             name: StatusDisplay.clip(node.name), role: StatusDisplay.clip(node.role(ownNode: ownNode, ownRole: ownRole)),
-            ready: ready, isReady: node.ready == true, version: version, thisMac: node.name == ownNode,
+            ready: ready, isReady: node.ready == true, version: showsVersion ? version : nil, thisMac: node.name == ownNode,
             cores: coresUsage(pods, allocatable: [node.allocatableMilliCPU]),
             memory: memoryUsage(pods, allocatable: [node.allocatableMemoryBytes]))
     }

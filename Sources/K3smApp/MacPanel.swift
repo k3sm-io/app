@@ -116,7 +116,9 @@ struct MacPanel: View {
                 Text(verbatim: node.thisMac ? "\(node.name) (this Mac)" : node.name)
                     .foregroundStyle(.white).lineLimit(1).truncationMode(.middle)
                 Spacer()
-                Text(verbatim: node.version).foregroundStyle(.white.opacity(0.8)).monospacedDigit()
+                if let version = node.version {
+                    Text(verbatim: version).foregroundStyle(.white.opacity(0.8)).monospacedDigit()
+                }
             }
             .font(.system(size: 12, weight: .medium))
             Text(verbatim: "\(node.role) · \(node.ready)").font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
@@ -212,9 +214,14 @@ struct MacPanel: View {
                     Text(verbatim: line.name).foregroundStyle(.white.opacity(0.8)).lineLimit(1).truncationMode(.middle)
                     Text(verbatim: line.role).foregroundStyle(.white.opacity(0.55))
                     Spacer()
-                    Text(verbatim: line.version).foregroundStyle(.white).monospacedDigit()
+                    if let version = line.version {
+                        Text(verbatim: version).foregroundStyle(.white).monospacedDigit()
+                    }
                 }
                 .font(.system(size: 12))
+            }
+            if let versions = nodes.versions {
+                Text(verbatim: versions).font(.system(size: 12)).foregroundStyle(.white.opacity(0.8)).monospacedDigit()
             }
             if let note = nodes.note {
                 Footnote(note)

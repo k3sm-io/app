@@ -111,7 +111,7 @@ struct ClusterDisplayTests {
         let got = ClusterDisplay.summary(of: report, nodes: nodes, pods: pods)
         #expect(got.title == "Cluster")
         #expect(got.nodeCount == 2)
-        #expect(got.line == "2 Macs · 1/2 nodes ready · 4 running · 5 of 26.5 cores requested · 3.8 GB of 66 GB memory requested · 1 vm")
+        #expect(got.line == "2 Macs · 1/2 nodes ready · 4 running · 5 of 26.5 cores requested · 3.8 GB of 66 GB memory requested · 1 vm · versions differ")
         #expect(got.nodes == [
             ClusterNodeRow(
                 name: "mac-a", role: "server", ready: "Ready", isReady: true, version: "0.1.7", thisMac: true,
@@ -146,7 +146,8 @@ struct ClusterDisplayTests {
         let got = ClusterDisplay.summary(of: report, nodes: mine, pods: pods.filter { $0.nodeName != "mac-b" })
         #expect(got.title == "This Mac is the cluster")
         #expect(got.nodeCount == 1)
-        #expect(got.line == "1/1 nodes ready · 3 running · 3.5 of 19 cores requested · 3.2 GB of 60 GB memory requested · 1 vm")
+        #expect(got.line == "1/1 nodes ready · 3 running · 3.5 of 19 cores requested · 3.2 GB of 60 GB memory requested · 1 vm · k3sm 0.1.7")
+        #expect(got.nodes.map(\.version) == [nil])
         #expect(PanelMode.effective(chosen: .cluster, nodeCount: got.nodeCount) == .thisMac)
     }
 
@@ -171,6 +172,28 @@ struct ClusterDisplayTests {
         #expect(got.memory != nil)
         #expect(got.nodes.last?.cores == nil)
         #expect(got.nodes.first?.cores?.text == "3.5 of 19")
+    }
+
+    @Test("the node rows show versions only when they do not all agree", arguments: [
+        ("v1.36.2+k3sm.0.1.7", [nil, nil] as [String?], "k3sm 0.1.7"),
+        ("v1.36.2+k3sm.0.1.6", ["0.1.7", "0.1.6"], "versions differ"),
+        ("v1.36.2", ["0.1.7", "v1.36.2"], "versions: some unknown"),
+        (nil, ["0.1.7", "version unknown"], "versions: some unknown"),
+    ] as [(String?, [String?], String)])
+    func versionRows(_ other: String?, _ want: [String?], _ stat: String) throws {
+        let (report, nodes, pods) = try Self.twoNodes()
+        let mine = try #require(nodes.first { $0.name == "mac-a" })
+        let mixed = nodes.map {
+            $0.name == "mac-b"
+                ? ClusterNode(name: "mac-b", ready: $0.ready, kubeletVersion: other, controlPlane: $0.controlPlane,
+                              allocatableMilliCPU: $0.allocatableMilliCPU, allocatableMemoryBytes: $0.allocatableMemoryBytes)
+                : $0
+        }
+        let got = ClusterDisplay.summary(of: report, nodes: mixed, pods: pods)
+        #expect(mine.k3smRelease == SemanticVersion("0.1.7"))
+        #expect(got.nodes.map(\.version) == want)
+        #expect(got.stats.last?.text == stat)
+        #expect(ClusterDisplay.summary(of: report, nodes: mixed, pods: nil).stats.last?.text == stat)
     }
 
     struct SplitCase: Sendable, CustomTestStringConvertible {

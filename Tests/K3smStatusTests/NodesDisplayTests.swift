@@ -37,22 +37,22 @@ struct NodesDisplayTests {
                 NodeLine(name: "node-a", role: "server", version: "0.1.7"),
                 NodeLine(name: "node-b", role: "agent", version: "0.1.6"),
             ],
-            note: nil)),
+            note: nil, versions: "versions differ")),
         Case(fixture: "status_json_running.json", want: NodesView(
             heading: "1/1 nodes ready",
-            lines: [NodeLine(name: "This Mac", role: "server", version: "0.1.7")],
-            note: "No other nodes")),
+            lines: [NodeLine(name: "This Mac", role: "server", version: nil)],
+            note: "No other nodes", versions: "k3sm 0.1.7")),
         Case(fixture: "status_json_unknown.json", want: NodesView(
             heading: "apiserver unreachable",
-            lines: [NodeLine(name: "This Mac", role: "server", version: "0.1.7")],
-            note: "Other nodes unknown: the apiserver did not answer")),
+            lines: [NodeLine(name: "This Mac", role: "server", version: nil)],
+            note: "Other nodes unknown: the apiserver did not answer", versions: "k3sm 0.1.7")),
         Case(fixture: "status_json_agent-join-target.json", want: NodesView(
             heading: "apiserver unreachable",
             lines: [
                 NodeLine(name: "This Mac", role: "agent", version: "0.1.7"),
                 NodeLine(name: "192.0.2.10", role: "server", version: "version unknown"),
             ],
-            note: nil)),
+            note: nil, versions: "versions: some unknown")),
     ]
 
     @Test("each report shape renders its rows", arguments: cases)
@@ -67,6 +67,7 @@ struct NodesDisplayTests {
         let view = NodesDisplay.view(report: report, installed: nil)
         #expect(view.lines == [NodeLine(name: "This Mac", role: "agent", version: "version unknown")])
         #expect(view.note == NodesDisplay.serverUnknown)
+        #expect(view.versions == nil)
     }
 
     @Test("workers are sorted by name, unknown versions and roles say so, strings are clipped")
@@ -87,6 +88,46 @@ struct NodesDisplayTests {
             NodeLine(name: StatusDisplay.clip(long), role: "agent", version: "0.2.0-rc.1"),
             NodeLine(name: "zeta ", role: "agent", version: "version unknown"),
         ])
+        #expect(view.versions == "versions: some unknown")
+    }
+
+    @Test("one release on every node is named once, not per row")
+    func sameRelease() {
+        let report = StatusReport(
+            schemaVersion: 1, verdict: .running, role: "server", summary: "", rows: [],
+            workers: [StatusWorker(name: "node-b", role: "agent", version: "v1.36.2+k3sm.0.1.7")])
+        let view = NodesDisplay.view(report: report, installed: Self.installed)
+        #expect(view.lines == [
+            NodeLine(name: "This Mac", role: "server", version: nil),
+            NodeLine(name: "node-b", role: "agent", version: nil),
+        ])
+        #expect(view.versions == "k3sm 0.1.7")
+    }
+
+    struct AgreementCase: Sendable, CustomTestStringConvertible {
+        let name: String
+        let releases: [String?]
+        let want: VersionAgreement
+        let stat: String?
+        var testDescription: String { name }
+    }
+
+    static let agreementCases: [AgreementCase] = [
+        AgreementCase(name: "all the same", releases: ["0.1.7", "0.1.7", "0.1.7"], want: .same(SemanticVersion("0.1.7")!), stat: "k3sm 0.1.7"),
+        AgreementCase(name: "one node", releases: ["0.2.0-rc.1"], want: .same(SemanticVersion("0.2.0-rc.1")!), stat: "k3sm 0.2.0-rc.1"),
+        AgreementCase(name: "two differ", releases: ["0.1.7", "0.1.6"], want: .differ, stat: "versions differ"),
+        AgreementCase(name: "differ with one unknown", releases: ["0.1.7", nil, "0.1.6"], want: .differ, stat: "versions differ"),
+        AgreementCase(name: "agree with one unknown", releases: ["0.1.7", nil], want: .someUnknown, stat: "versions: some unknown"),
+        AgreementCase(name: "all unknown", releases: [nil, nil], want: .unknown, stat: nil),
+        AgreementCase(name: "no nodes", releases: [], want: .unknown, stat: nil),
+    ]
+
+    @Test("the version agreement of the nodes", arguments: agreementCases)
+    func agreement(_ c: AgreementCase) {
+        let got = VersionAgreement.of(c.releases.map { $0.flatMap(SemanticVersion.init) })
+        #expect(got == c.want)
+        #expect(got.stat?.text == c.stat)
+        #expect(got.showsPerNode == (c.stat?.hasPrefix("k3sm ") != true))
     }
 
     @Test("the join target's host drops the port and IPv6 brackets", arguments: [
