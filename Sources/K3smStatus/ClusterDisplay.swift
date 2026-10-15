@@ -236,14 +236,18 @@ public enum ClusterDisplay {
 
     /// What the pods ask of a host: their core requests and their byte
     /// requests, each summed over the pods that state one. The This Mac view
-    /// draws its meters from it. A byte sum past Int64 saturates there, so a
-    /// pod that requests more than any Mac has fills the meter instead of
-    /// stopping the app.
+    /// draws its meters from it. A byte sum past Int64 saturates there, and
+    /// the core sum saturates at `WorkloadsDisplay.maxCores`, so a pod that
+    /// requests more than any Mac has fills the meter instead of stopping the
+    /// app. The API server accepts "1e308" cores on any pod; two of them sum
+    /// to infinity. A negative or NaN core value counts as nothing.
     public static func requests(of pods: [Pod]) -> PodRequests {
         let bytes = pods.compactMap(\.memoryRequest)
-        return PodRequests(
-            cores: pods.compactMap(\.cpuRequest).reduce(0, +),
-            memoryBytes: Quantity.sum(bytes) ?? .max)
+        var cores = 0.0
+        for v in pods.compactMap(\.cpuRequest) where v > 0 {
+            cores = min(WorkloadsDisplay.maxCores, cores + min(WorkloadsDisplay.maxCores, v))
+        }
+        return PodRequests(cores: cores, memoryBytes: Quantity.sum(bytes) ?? .max)
     }
 
     /// The title, its note, and the Mac count for a server with workers.

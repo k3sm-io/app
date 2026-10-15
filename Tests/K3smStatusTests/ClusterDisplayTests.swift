@@ -335,4 +335,54 @@ struct HostRequestsTests {
     func hostArithmeticSumsPodRequests(_ c: Case) {
         #expect(ClusterDisplay.requests(of: c.pods) == c.want)
     }
+
+    struct CPUCase: Sendable, CustomTestStringConvertible {
+        let name: String
+        /// Each pod's containers' cpu requests, as the API served them.
+        let pods: [[String]]
+        let wantCores: Double
+        let wantSum: String
+        let wantRows: [String]
+        var testDescription: String { name }
+    }
+
+    static func decoded(_ pods: [[String]]) throws -> [Pod] {
+        let items = pods.enumerated().map { i, cpus in
+            let containers = cpus.map { #"{"name":"c","image":"x","resources":{"requests":{"cpu":"\#($0)"}}}"# }
+            return #"{"metadata":{"name":"p\#(i)","namespace":"default"},"spec":{"containers":[\#(containers.joined(separator: ","))]},"status":{"phase":"Running"}}"#
+        }
+        return try Workloads.decode(Data(#"{"kind":"PodList","items":[\#(items.joined(separator: ","))]}"#.utf8)).pods
+    }
+
+    static let cpuCases: [CPUCase] = [
+        CPUCase(name: "ordinary requests", pods: [["500m"], ["1.5"]], wantCores: 2, wantSum: "2", wantRows: ["0.50", "1.5"]),
+        CPUCase(name: "2^63 cores saturates", pods: [["9223372036854775807"]],
+                wantCores: WorkloadsDisplay.maxCores, wantSum: "1000000+", wantRows: ["1000000+"]),
+        CPUCase(name: "two pods at 1e308 saturate instead of summing to infinity", pods: [["1e308"], ["1e308"]],
+                wantCores: WorkloadsDisplay.maxCores, wantSum: "1000000+", wantRows: ["1000000+", "1000000+"]),
+        CPUCase(name: "one pod whose containers sum to infinity", pods: [["1e308", "1e308"]],
+                wantCores: WorkloadsDisplay.maxCores, wantSum: "1000000+", wantRows: ["1000000+"]),
+        CPUCase(name: "a negative quantity is no request", pods: [["-1"], ["250m"]], wantCores: 0.25, wantSum: "0.25", wantRows: ["", "0.25"]),
+    ]
+
+    @Test("hostile cpu requests saturate and render a capped figure", arguments: cpuCases)
+    func hostileCPURequests(_ c: CPUCase) throws {
+        let pods = try Self.decoded(c.pods)
+        let sum = ClusterDisplay.requests(of: pods).cores
+        #expect(sum == c.wantCores)
+        #expect(sum.isFinite)
+        #expect(WorkloadsDisplay.cores(sum) == c.wantSum)
+        #expect(pods.map { WorkloadsDisplay.cores($0.cpuRequest) } == c.wantRows)
+    }
+
+    @Test("a negative, NaN or infinite core value built outside the decoder never traps")
+    func coreValuesOutsideTheDecoder() {
+        let pods = [testPod("a", cores: -2), testPod("b", cores: .nan), testPod("c", cores: .infinity), testPod("d", cores: 1)]
+        #expect(ClusterDisplay.requests(of: pods).cores == WorkloadsDisplay.maxCores)
+        #expect(ClusterDisplay.requests(of: [pods[0], pods[1], pods[3]]).cores == 1)
+        #expect(WorkloadsDisplay.cores(-2) == "")
+        #expect(WorkloadsDisplay.cores(.nan) == "")
+        #expect(WorkloadsDisplay.cores(.infinity) == "1000000+")
+        #expect(WorkloadsDisplay.cores(9_223_372_036_854_775_807) == "1000000+")
+    }
 }

@@ -71,9 +71,18 @@ public enum WorkloadsDisplay {
         }
     }
 
-    /// Cores as the list shows them: "0.25", "2", or "" when nothing was requested.
+    /// The most cores a figure shows; a larger or infinite value is shown
+    /// as this figure with a "+", and the This Mac sum saturates here.
+    public static let maxCores: Double = 1_000_000
+
+    /// Cores as the list shows them: "0.25", "2", "1000000+" at or past
+    /// `maxCores`, or "" when nothing (or nothing countable: a negative or
+    /// NaN value) was requested. A request is API data: "9223372036854775807"
+    /// is 2^63 as a Double, which `Int(_:)` traps on, so no value outside
+    /// `maxCores` reaches the conversion.
     public static func cores(_ value: Double?) -> String {
-        guard let v = value else { return "" }
+        guard let v = value, v >= 0 else { return "" }
+        if v >= maxCores { return "\(Int(maxCores))+" }
         if v == v.rounded() { return String(Int(v)) }
         return String(format: v < 1 ? "%.2f" : "%.1f", v)
     }
