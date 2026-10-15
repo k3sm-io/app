@@ -47,6 +47,20 @@ struct FlapTests {
         }
     }
 
+    /// inFlight, reduceMotion, windowVisible, started, and the verdict.
+    @Test("a hover starts a beat only when one may play now", arguments: [
+        (false, false, true, true, true),
+        (true, false, true, true, false),
+        (false, true, true, true, false),
+        (false, false, false, true, false),
+        (true, true, false, true, false),
+        (false, false, true, false, false),
+    ] as [(Bool, Bool, Bool, Bool, Bool)])
+    func hoverStartsBeat(_ inFlight: Bool, _ reduceMotion: Bool, _ windowVisible: Bool, _ started: Bool, _ want: Bool) {
+        #expect(Flap.hoverStartsBeat(inFlight: inFlight, reduceMotion: reduceMotion, windowVisible: windowVisible,
+                                     started: started) == want)
+    }
+
     @Test("the rest stays between its bounds", arguments: [-1.0, 0, 0.5, 1, 2])
     func restBounds(unit: Double) {
         let r = Flap.rest(unit: unit)

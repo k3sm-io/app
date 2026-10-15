@@ -60,6 +60,14 @@ public enum Flap {
         !reduceMotion && windowVisible
     }
 
+    /// hoverStartsBeat is whether the pointer entering the mark starts a beat
+    /// at once: only while the beats are scheduled (`started`, the console is
+    /// up), not while one is already playing, and only when `plays` would let
+    /// a timed beat play (Reduce Motion off, the window visible).
+    public static func hoverStartsBeat(inFlight: Bool, reduceMotion: Bool, windowVisible: Bool, started: Bool = true) -> Bool {
+        started && !inFlight && plays(reduceMotion: reduceMotion, windowVisible: windowVisible)
+    }
+
     /// rest is the wait before the next beat for `unit` in 0...1 (a random
     /// draw), from `restMin` to `restMax`; a value outside is clamped.
     public static func rest(unit: Double) -> TimeInterval {

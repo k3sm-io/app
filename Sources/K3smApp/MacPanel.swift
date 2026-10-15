@@ -247,13 +247,15 @@ struct MacPanel: View {
     }
 }
 
-/// Wordmark is the k3sm mark and name, under the window controls.
+/// Wordmark is the k3sm mark and name, under the window controls. The
+/// pointer entering the mark asks the model for a beat.
 struct Wordmark: View {
     @ObservedObject var flap: FlapModel
 
     var body: some View {
         HStack(spacing: 9) {
             FlappingButterfly(angle: flap.angle).frame(width: 24, height: 24)
+                .onHover { inside in if inside { flap.poke() } }
             Text("k3sm").font(.system(size: 19, weight: .semibold)).foregroundStyle(.white)
         }
     }

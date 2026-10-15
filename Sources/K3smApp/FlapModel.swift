@@ -19,8 +19,9 @@ import K3smStatus
 
 /// FlapModel plays the wordmark butterfly's wing beat while the console is
 /// on screen: a `Flap` beat after each random rest, skipped while Reduce
-/// Motion is on. The window controller starts and stops it with the
-/// console's polls, so nothing runs while the window is closed. Between
+/// Motion is on, and one at once when the pointer enters the mark (`poke`).
+/// The window controller starts and stops it with the console's polls, so
+/// nothing runs while the window is closed. Between
 /// beats no timer fires but the one that ends the rest.
 @MainActor
 final class FlapModel: ObservableObject {
@@ -51,6 +52,21 @@ final class FlapModel: ObservableObject {
         angle = 0
     }
 
+    /// poke plays one beat now when `Flap.hoverStartsBeat` allows it (the
+    /// beats are running, none is playing, and `Flap.plays` passes: Reduce
+    /// Motion off, the window visible), and does
+    /// nothing otherwise. The pending rest is cancelled so it cannot fire
+    /// mid-beat; the beat's end draws the next random rest as usual.
+    func poke() {
+        let started = restTimer != nil || frameTimer != nil
+        guard Flap.hoverStartsBeat(
+            inFlight: frameTimer != nil, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            windowVisible: windowVisible(), started: started) else { return }
+        restTimer?.invalidate()
+        restTimer = nil
+        play()
+    }
+
     private func rest() {
         restTimer = Timer.scheduledTimer(withTimeInterval: Flap.rest(unit: .random(in: 0...1)), repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.beat() }
@@ -63,6 +79,10 @@ final class FlapModel: ObservableObject {
             rest()
             return
         }
+        play()
+    }
+
+    private func play() {
         frames = Flap.frames()
         frameIndex = 0
         frameTimer = Timer.scheduledTimer(withTimeInterval: 1 / Flap.frameRate, repeats: true) { [weak self] _ in
