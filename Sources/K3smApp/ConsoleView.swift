@@ -35,7 +35,7 @@ struct ConsoleView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            MacPanel(workloads: app.workloads, report: app.report)
+            MacPanel(workloads: app.workloads, report: app.report, installed: app.installedVersion)
                 .frame(width: 250)
             Divider()
             VStack(spacing: 0) {

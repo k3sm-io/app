@@ -73,7 +73,10 @@ turned off.
   the next launch.
 - The **window** opens whenever you open the app from `/Applications`,
   Spotlight or the Dock, even when k3sm is stopped, so there is always a way
-  back in. A launch at login shows only the status item.
+  back in. A launch at login shows only the status item. Its left panel lists
+  the cluster's nodes with their roles and k3sm versions, read again when the
+  window opens and on Refresh: on the control-plane Mac every node, on a
+  worker this Mac and the server it joined.
 
 The app reads state only from `k3sm status -o json`, the machine interface the
 k3sm CLI documents. It runs `/Library/k3sm/k3sm` by absolute path with an

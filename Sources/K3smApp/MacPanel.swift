@@ -18,10 +18,12 @@ import K3smStatus
 import SwiftUI
 
 /// MacPanel is the left column: the machine, what the pods ask of it, the
-/// data root, and the daemons from the status report.
+/// data root, the cluster's nodes and the daemons from the status report.
 struct MacPanel: View {
     @ObservedObject var workloads: WorkloadsModel
     let report: StatusReport?
+    /// This Mac's installed k3sm, as the window last read it.
+    let installed: SemanticVersion?
 
     private static let machine = HostFacts.read()
     /// The status rows the panel lists, in the report's order.
@@ -54,6 +56,11 @@ struct MacPanel: View {
                 Meter(parts: [(Double(workloads.load.dataRootUsedBytes), Palette.fill)], total: Double(workloads.load.dataRootSizeBytes))
                 Footnote("\(HostFacts.dataRoot), the volume it sits on")
             }
+            if let nodes {
+                PanelBlock("Nodes", value: nodes.heading ?? "") {
+                    nodeRows(nodes)
+                }
+            }
             Spacer()
             daemonRows
             Footnote("Start, stop and uninstall are behind the info button.")
@@ -71,6 +78,28 @@ struct MacPanel: View {
         let count = "\(pods.count) \(pods.count == 1 ? "pod" : "pods")"
         guard let report else { return "Status not read, \(count)" }
         return report.verdict == .running ? "Running, \(count)" : "\(report.verdict.word): \(report.summary)"
+    }
+
+    /// The nodes block, re-derived from each report; nil before the first read.
+    private var nodes: NodesView? {
+        report.map { NodesDisplay.view(report: $0, installed: installed) }
+    }
+
+    private func nodeRows(_ nodes: NodesView) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(nodes.lines.enumerated()), id: \.offset) { _, line in
+                HStack(spacing: 8) {
+                    Text(verbatim: line.name).foregroundStyle(.white.opacity(0.8)).lineLimit(1).truncationMode(.middle)
+                    Text(verbatim: line.role).foregroundStyle(.white.opacity(0.55))
+                    Spacer()
+                    Text(verbatim: line.version).foregroundStyle(.white).monospacedDigit()
+                }
+                .font(.system(size: 12))
+            }
+            if let note = nodes.note {
+                Footnote(note)
+            }
+        }
     }
 
     private var daemonRows: some View {
