@@ -81,8 +81,9 @@ public enum PollSchedule {
     /// server, on a worker across the network, and return every pod in the
     /// cluster; the 4 s budget is sized for the local status probe, and a
     /// slow but healthy list killed at 4 s would read as a CLI that did not
-    /// answer. It stays under `consoleReportInterval`, and the runs are
-    /// serial, so a slow list delays the next poll without stacking runs.
+    /// answer. It stays under `consoleReportInterval`, and `PollGate` keeps
+    /// the console's runs serial, so a slow list delays the next poll
+    /// without stacking runs.
     public static let listDeadline: Duration = .seconds(10)
     /// The wait between full status reads while the console window is open.
     public static let consoleReportInterval: Duration = .seconds(30)
@@ -90,6 +91,40 @@ public enum PollSchedule {
     /// The wait before the next poll, chosen by whether the item is shown.
     public static func interval(visible: Bool) -> Duration {
         visible ? visibleInterval : hiddenInterval
+    }
+}
+
+/// PollGate keeps one model's list reads serial: at most one run is in
+/// flight, and a run asked for meanwhile (a Refresh during a poll) is
+/// coalesced into one more run after the current one, however many times it
+/// is asked for. The caller calls `begin()` before a run and `finish()` after
+/// each, running again while `finish()` says so.
+public struct PollGate: Equatable, Sendable {
+    public private(set) var running = false
+    public private(set) var pending = false
+
+    public init() {}
+
+    /// True when the caller runs now; false when a run is in flight, which
+    /// then runs once more when it finishes.
+    public mutating func begin() -> Bool {
+        if running {
+            pending = true
+            return false
+        }
+        running = true
+        return true
+    }
+
+    /// True when a run was asked for during this one, and the caller runs
+    /// again; false when the gate is free.
+    public mutating func finish() -> Bool {
+        if pending {
+            pending = false
+            return true
+        }
+        running = false
+        return false
     }
 }
 

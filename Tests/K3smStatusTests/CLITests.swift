@@ -65,6 +65,36 @@ struct CLITests {
         #expect(PollSchedule.listDeadline < PollSchedule.consoleReportInterval)
     }
 
+    enum GateStep: Sendable { case begin(Bool), finish(Bool) }
+
+    struct GateCase: Sendable, CustomTestStringConvertible {
+        let name: String
+        let steps: [GateStep]
+        var testDescription: String { name }
+    }
+
+    @Test("the poll gate keeps one run in flight and coalesces the rest into one more", arguments: [
+        GateCase(name: "a lone run", steps: [.begin(true), .finish(false)]),
+        GateCase(name: "a refresh during a run runs once more after it",
+                 steps: [.begin(true), .begin(false), .finish(true), .finish(false)]),
+        GateCase(name: "three refreshes during a run coalesce into one",
+                 steps: [.begin(true), .begin(false), .begin(false), .begin(false), .finish(true), .finish(false)]),
+        GateCase(name: "a refresh during the extra run runs once more again",
+                 steps: [.begin(true), .begin(false), .finish(true), .begin(false), .finish(true), .finish(false)]),
+        GateCase(name: "the gate is free again after a run",
+                 steps: [.begin(true), .finish(false), .begin(true), .finish(false)]),
+    ])
+    func pollGate(_ c: GateCase) {
+        var gate = PollGate()
+        for step in c.steps {
+            switch step {
+            case .begin(let want): #expect(gate.begin() == want)
+            case .finish(let want): #expect(gate.finish() == want)
+            }
+        }
+        #expect(gate == PollGate())
+    }
+
     struct StatedCase: Sendable, CustomTestStringConvertible {
         let name: String
         let value: Duration
