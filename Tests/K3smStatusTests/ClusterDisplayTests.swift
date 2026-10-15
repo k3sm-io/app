@@ -240,6 +240,14 @@ struct ClusterDisplayTests {
         #expect(PanelMode.effective(chosen: chosen, nodeCount: count) == want)
         #expect(PanelMode.showsSwitch(nodeCount: count) == (count > 1))
     }
+
+    @Test("the heading shows only without the tabs", arguments: [
+        (0, true), (1, true), (2, false), (3, false),
+    ] as [(Int, Bool)])
+    func heading(_ count: Int, _ want: Bool) {
+        #expect(PanelMode.showsHeading(nodeCount: count) == want)
+        #expect(PanelMode.showsHeading(nodeCount: count) != PanelMode.showsSwitch(nodeCount: count))
+    }
 }
 
 @Suite("the node list")

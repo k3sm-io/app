@@ -51,13 +51,15 @@ struct MacPanel: View {
             Wordmark(flap: app.flap)
                 .padding(.top, 44)
             if PanelMode.showsSwitch(nodeCount: cluster.nodeCount) {
-                HStack(spacing: 6) {
+                HStack(spacing: 18) {
                     ForEach(PanelMode.allCases, id: \.self) { m in
                         Button(m.title) { app.panelMode = m }
-                            .buttonStyle(PanelChipStyle(selected: mode == m))
+                            .buttonStyle(PanelTabStyle(selected: mode == m))
                             .accessibilityAddTraits(mode == m ? .isSelected : [])
                     }
+                    Spacer(minLength: 0)
                 }
+                .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.12)).frame(height: 1) }
             }
             if mode == .cluster {
                 clusterView
@@ -72,7 +74,9 @@ struct MacPanel: View {
     /// The cluster view: title and stats, one row per node, the cluster meters.
     @ViewBuilder private var clusterView: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(verbatim: cluster.title).font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
+            if PanelMode.showsHeading(nodeCount: cluster.nodeCount) {
+                Text(verbatim: cluster.title).font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
+            }
             if let line = cluster.line {
                 Text(verbatim: line).font(.system(size: 12)).foregroundStyle(.white.opacity(0.8)).monospacedDigit()
                     .fixedSize(horizontal: false, vertical: true)
@@ -146,8 +150,9 @@ struct MacPanel: View {
     /// This Mac's view: the machine, the nodes block, the three meters.
     @ViewBuilder private var thisMacView: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(verbatim: PanelMode.showsSwitch(nodeCount: cluster.nodeCount) ? ClusterDisplay.unknownTitle : cluster.title)
-                .font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
+            if PanelMode.showsHeading(nodeCount: cluster.nodeCount) {
+                Text(verbatim: cluster.title).font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
+            }
             Text(verbatim: Self.machine.line).font(.system(size: 12)).foregroundStyle(.white.opacity(0.62))
             stateRow.padding(.top, 4)
         }
@@ -359,18 +364,18 @@ struct Footnote: View {
     }
 }
 
-/// PanelChipStyle is a switch chip on the dark panel: filled when selected,
-/// a thin outline otherwise, the label white either way.
-struct PanelChipStyle: ButtonStyle {
+/// PanelTabStyle is a tab in the panel's tab strip: full-white text and a
+/// 2 pt white underline on the strip's hairline when selected, dimmer text
+/// and no underline otherwise. No fill, no outline.
+struct PanelTabStyle: ButtonStyle {
     let selected: Bool
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(selected ? Color.white : Color.white.opacity(0.7))
-            .padding(.horizontal, 12).padding(.vertical, 5)
-            .background(Capsule().fill(selected ? Palette.fill : Color.clear))
-            .overlay(Capsule().strokeBorder(Color.white.opacity(selected ? 0 : 0.3), lineWidth: 1))
-            .contentShape(Capsule())
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(selected ? Color.white : Color.white.opacity(0.55))
+            .padding(.bottom, 8)
+            .overlay(alignment: .bottom) { Rectangle().fill(selected ? Color.white : Color.clear).frame(height: 2) }
+            .contentShape(Rectangle())
             .opacity(configuration.isPressed ? 0.8 : 1)
     }
 }

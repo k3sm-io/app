@@ -132,6 +132,10 @@ public enum PanelMode: String, CaseIterable, Sendable {
     /// The switch is shown only when there is more than one node.
     public static func showsSwitch(nodeCount: Int) -> Bool { nodeCount > 1 }
 
+    /// The view's heading is shown only when the switch is hidden: the
+    /// selected tab already names the view, so a heading would repeat it.
+    public static func showsHeading(nodeCount: Int) -> Bool { !showsSwitch(nodeCount: nodeCount) }
+
     /// The view shown: the user's choice when the switch is shown, Cluster
     /// before any choice; This Mac whenever there is one node.
     public static func effective(chosen: PanelMode?, nodeCount: Int) -> PanelMode {
