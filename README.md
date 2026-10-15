@@ -68,9 +68,10 @@ turned off.
 ## Everyday use
 
 - The **status item** appears in the menu bar while this Mac's node daemon is
-  running and disappears when it stops. A quick restart does not make it
-  flicker. If you remove it from the menu bar, the app leaves it removed until
-  the next launch.
+  running and disappears when it stops. It is the butterfly mark, with a
+  triangle badge when k3sm is degraded and a dot when connections from other
+  devices are allowed. A quick restart does not make it flicker. If you remove
+  it from the menu bar, the app leaves it removed until the next launch.
 - The **window** opens whenever you open the app from `/Applications`,
   Spotlight or the Dock, even when k3sm is stopped, so there is always a way
   back in. A launch at login shows only the status item. The left panel is

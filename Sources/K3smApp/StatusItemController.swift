@@ -305,25 +305,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         log.notice("status item: visible")
     }
 
-    /// The status item's icon. With `lan`, a small dot sits at its lower
-    /// right: other devices can connect to this Mac's workloads.
+    /// The status item's icon: the butterfly mark, with a triangle at its
+    /// top right when degraded and a dot at its lower right with `lan`
+    /// (other devices can connect to this Mac's workloads).
     private static func icon(degraded: Bool, lan: Bool) -> NSImage? {
-        let name = degraded ? "exclamationmark.triangle" : "shippingbox"
         let label = (degraded ? "k3sm degraded" : "k3sm") + (lan ? ", connections from other devices allowed" : "")
-        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: label) else { return nil }
-        guard lan else {
-            base.isTemplate = true
-            return base
-        }
-        let size = NSSize(width: base.size.width + 4, height: base.size.height)
-        let image = NSImage(size: size, flipped: false) { _ in
-            base.draw(in: NSRect(x: 0, y: 0, width: base.size.width, height: base.size.height))
-            NSColor.black.setFill()
-            NSBezierPath(ovalIn: NSRect(x: size.width - 6, y: 0, width: 6, height: 6)).fill()
-            return true
-        }
-        image.isTemplate = true
-        image.accessibilityDescription = label
-        return image
+        return ButterflyImage.statusIcon(degraded: degraded, lan: lan, label: label)
     }
 }
