@@ -119,7 +119,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         let lines = toggle.visible ? (toggle.disabledReason.map { [$0] } ?? []) + toggle.notes : []
         lanNoteItems = lines.map { line in
-            let item = NSMenuItem(title: StatusDisplay.clip(line), action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: StatusDisplay.menuLine(line), action: nil, keyEquivalent: "")
             item.isEnabled = false
             item.indentationLevel = 1
             return item
@@ -174,16 +174,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         refreshLANIfOld()
     }
 
-    /// Shows the verdict and summary, and the status rows, of a report.
+    /// Shows the verdict and summary, and the status rows (name and state
+    /// only), of a report, each as one short menu line.
     private func show(_ report: StatusReport) {
         self.report = report
-        let summary = report.summary.isEmpty ? report.verdict.word : "\(report.verdict.word) · \(report.summary)"
-        headerItem.title = StatusDisplay.clip("k3sm " + summary)
+        headerItem.title = StatusDisplay.menuHeader(of: report)
         for row in rowItems {
             menu.removeItem(row)
         }
-        rowItems = StatusDisplay.rows(of: report).map { row in
-            let item = NSMenuItem(title: StatusDisplay.clip("\(row.name): \(row.state) · \(row.detail)"), action: nil, keyEquivalent: "")
+        rowItems = StatusDisplay.menuRows(of: report).map { line in
+            let item = NSMenuItem(title: line, action: nil, keyEquivalent: "")
             item.isEnabled = false
             item.indentationLevel = 1
             return item
