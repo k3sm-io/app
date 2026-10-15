@@ -44,7 +44,9 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var screen: Screen = .firstRun
     /// Whether the console shows the status panel (start, stop, connections,
-    /// uninstall): the info button and Settings… open it.
+    /// uninstall): the info button and Settings… open it. A change of screen
+    /// closes it, so a Settings… chosen on the first-run screen does not open
+    /// the popover by itself once the install finishes.
     @Published var statusPanelShown = false
     /// Which section the console shows in its middle column.
     @Published var section: ConsoleSection = .workloads
@@ -208,7 +210,11 @@ final class AppModel: ObservableObject {
     func refresh() async {
         refreshesInFlight += 1
         defer { refreshesInFlight -= 1 }
-        screen = FileManager.default.fileExists(atPath: K3smCLI.installRoot) ? .status : .firstRun
+        let next: Screen = FileManager.default.fileExists(atPath: K3smCLI.installRoot) ? .status : .firstRun
+        if next != screen {
+            screen = next
+            statusPanelShown = false
+        }
         guard screen == .status else {
             report = nil
             installedVersion = nil
