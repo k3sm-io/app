@@ -44,6 +44,31 @@ public struct ClusterUsage: Equatable, Sendable {
         self.allocatable = allocatable
         self.text = text
     }
+
+    /// The requested figure, the text before " of ": "3.5", "3.2 GB".
+    public var amount: String { parts.0 }
+    /// The text after it, "of 19", or nil when the text has no " of ".
+    public var ofTotal: String? { parts.1.map { "of \($0)" } }
+
+    private var parts: (String, String?) {
+        guard let range = text.range(of: " of ") else { return (text, nil) }
+        return (String(text[..<range.lowerBound]), String(text[range.upperBound...]))
+    }
+}
+
+/// PanelTile is one tile of the console panel's grid: a big figure, the
+/// small words under it, and an optional "of 19" beside the figure. Every
+/// string is clipped.
+public struct PanelTile: Equatable, Sendable {
+    public let label: String
+    public let value: String
+    public let detail: String?
+
+    public init(label: String, value: String, detail: String? = nil) {
+        self.label = StatusDisplay.clip(label)
+        self.value = StatusDisplay.clip(value)
+        self.detail = detail.map(StatusDisplay.clip)
+    }
 }
 
 /// ClusterNodeRow is one node of the cluster view, every string clipped.
@@ -61,10 +86,12 @@ public struct ClusterNodeRow: Equatable, Sendable {
     /// the node's allocatable is unknown.
     public let cores: ClusterUsage?
     public let memory: ClusterUsage?
+    /// The running pods bound to this node, nil when the pod list is unknown.
+    public let running: Int?
 
     public init(
         name: String, role: String, ready: String, isReady: Bool, version: String?, thisMac: Bool,
-        cores: ClusterUsage?, memory: ClusterUsage?
+        cores: ClusterUsage?, memory: ClusterUsage?, running: Int? = nil
     ) {
         self.name = name
         self.role = role
@@ -74,6 +101,7 @@ public struct ClusterNodeRow: Equatable, Sendable {
         self.thisMac = thisMac
         self.cores = cores
         self.memory = memory
+        self.running = running
     }
 }
 
@@ -93,12 +121,13 @@ public struct ClusterSummary: Equatable, Sendable {
     /// Requested of the summed allocatable; nil when any node's is unknown.
     public let cores: ClusterUsage?
     public let memory: ClusterUsage?
-    /// Running pods per node, "3 on mac-a · 1 on mac-b", nil without both lists.
-    public let podsByNode: String?
+    /// "versions differ" or "versions: some unknown" when the node rows
+    /// show their own versions; nil when the releases agree or are unknown.
+    public let versions: String?
 
     public init(
         title: String, stats: [ClusterStat], note: String?, nodeCount: Int = 1, nodes: [ClusterNodeRow] = [],
-        cores: ClusterUsage? = nil, memory: ClusterUsage? = nil, podsByNode: String? = nil
+        cores: ClusterUsage? = nil, memory: ClusterUsage? = nil, versions: String? = nil
     ) {
         self.title = title
         self.stats = stats
@@ -107,7 +136,13 @@ public struct ClusterSummary: Equatable, Sendable {
         self.nodes = nodes
         self.cores = cores
         self.memory = memory
-        self.podsByNode = podsByNode
+        self.versions = versions
+    }
+
+    /// Running pods per node, "3 on mac-a · 1 on mac-b", nil without both lists.
+    public var podsByNode: String? {
+        let parts = nodes.compactMap { row in row.running.map { "\($0) on \(row.name)" } }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// The stats joined with " · ", or nil when there are none.
@@ -155,7 +190,7 @@ public struct PodRequests: Equatable, Sendable {
 }
 
 /// ClusterDisplay turns the status report, the node list and the pod list
-/// into the panel's cluster view. The title follows `workers` the way
+/// into the panel's cluster view and its tiles. The title follows `workers` the way
 /// `NodesDisplay` does: absent is unknown, empty is no other node. A server
 /// with workers is titled "Cluster" and its stats open with the Mac count.
 /// With the node list known the stats end with its `VersionAgreement`, and
@@ -188,7 +223,6 @@ public enum ClusterDisplay {
         var cores: ClusterUsage?
         var memory: ClusterUsage?
         var rows: [ClusterNodeRow] = []
-        var podsByNode: String?
         if let pods {
             stats.append(ClusterStat(label: "running", value: "\(pods.filter { $0.health == .running }.count)"))
             if let nodes {
@@ -201,22 +235,70 @@ public enum ClusterDisplay {
                 let agreement = VersionAgreement.of(order.map(\.k3smRelease))
                 rows = order.map { node in
                     row(node, pods: active.filter { $0.nodeName == node.name }, ownNode: ownNode, ownRole: ownRole,
-                        showsVersion: agreement.showsPerNode)
+                        showsVersion: agreement.showsPerNode,
+                        running: pods.filter { $0.health == .running && $0.nodeName == node.name }.count)
                 }
-                podsByNode = order.map { node in
-                    "\(pods.filter { $0.health == .running && $0.nodeName == node.name }.count) on \(StatusDisplay.clip(node.name))"
-                }.joined(separator: " · ")
             }
             stats.append(ClusterStat(label: "vm", value: "\(active.filter { $0.kind == .linuxVM }.count)"))
         } else if let report {
             stats += workloadStats(report)
         }
-        if let nodes, let stat = VersionAgreement.of(nodes.map(\.k3smRelease)).stat {
-            stats.append(stat)
+        var versions: String?
+        if let nodes {
+            let agreement = VersionAgreement.of(nodes.map(\.k3smRelease))
+            if let stat = agreement.stat {
+                stats.append(stat)
+                if agreement.showsPerNode { versions = stat.text }
+            }
         }
         return ClusterSummary(
             title: title, stats: stats, note: note, nodeCount: nodeCount, nodes: rows,
-            cores: cores, memory: memory, podsByNode: podsByNode)
+            cores: cores, memory: memory, versions: versions)
+    }
+
+    /// The Cluster view's tiles, in order: the Mac count (or the nodes
+    /// ready, "1/2", whenever not every node is ready, and always when there
+    /// is no Mac count), the running pods, then the cores and the memory
+    /// requested with their totals beside them. A tile whose source is
+    /// unknown is left out.
+    public static func tiles(for summary: ClusterSummary) -> [PanelTile] {
+        func stat(_ label: String) -> String? { summary.stats.first { $0.label == label }?.value }
+        var tiles: [PanelTile] = []
+        let ready = stat("nodes ready")
+        let parts = ready?.split(separator: "/").map(String.init) ?? []
+        let allReady = parts.count == 2 && parts[0] == parts[1]
+        if let macs = stat("Macs"), ready == nil || allReady {
+            tiles.append(PanelTile(label: "Macs", value: macs))
+        } else if let ready {
+            tiles.append(PanelTile(label: "nodes ready", value: ready))
+        }
+        if let running = stat("running") {
+            tiles.append(PanelTile(label: "pods running", value: running))
+        }
+        if let cores = summary.cores {
+            tiles.append(PanelTile(label: "cores requested", value: cores.amount, detail: cores.ofTotal))
+        }
+        if let memory = summary.memory {
+            tiles.append(PanelTile(label: "memory requested", value: memory.amount, detail: memory.ofTotal))
+        }
+        return tiles
+    }
+
+    /// The This Mac view's tiles: what its pods request of its cores and of
+    /// its unified memory, the data root's volume used of its size, and how
+    /// many pods it runs. A size of zero or less (unread) leaves its "of"
+    /// out; a hostile core sum arrives already saturated by `requests(of:)`.
+    public static func macTiles(requests: PodRequests, cores: Int, memoryBytes: Int64,
+                                dataRootUsed: Int64, dataRootSize: Int64, pods: Int) -> [PanelTile] {
+        [
+            PanelTile(label: "cores requested", value: WorkloadsDisplay.cores(requests.cores),
+                      detail: cores > 0 ? "of \(cores)" : nil),
+            PanelTile(label: "memory requested", value: bytes(requests.memoryBytes),
+                      detail: memoryBytes > 0 ? "of \(bytes(memoryBytes))" : nil),
+            PanelTile(label: "data root", value: bytes(dataRootUsed),
+                      detail: dataRootSize > 0 ? "of \(bytes(dataRootSize))" : nil),
+            PanelTile(label: pods == 1 ? "pod on this Mac" : "pods on this Mac", value: "\(max(0, pods))"),
+        ]
     }
 
     /// The pods the This Mac view counts: not finished, and bound to this
@@ -274,7 +356,7 @@ public enum ClusterDisplay {
         }
     }
 
-    static func row(_ node: ClusterNode, pods: [Pod], ownNode: String?, ownRole: String, showsVersion: Bool) -> ClusterNodeRow {
+    static func row(_ node: ClusterNode, pods: [Pod], ownNode: String?, ownRole: String, showsVersion: Bool, running: Int?) -> ClusterNodeRow {
         let ready: String
         switch node.ready {
         case true?: ready = "Ready"
@@ -286,7 +368,7 @@ public enum ClusterDisplay {
             name: StatusDisplay.clip(node.name), role: StatusDisplay.clip(node.role(ownNode: ownNode, ownRole: ownRole)),
             ready: ready, isReady: node.ready == true, version: showsVersion ? version : nil, thisMac: node.name == ownNode,
             cores: coresUsage(pods, allocatable: [node.allocatableMilliCPU]),
-            memory: memoryUsage(pods, allocatable: [node.allocatableMemoryBytes]))
+            memory: memoryUsage(pods, allocatable: [node.allocatableMemoryBytes]), running: running)
     }
 
     /// The pods' summed core requests of the summed allocatable, nil when

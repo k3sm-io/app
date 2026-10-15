@@ -116,14 +116,17 @@ struct ClusterDisplayTests {
             ClusterNodeRow(
                 name: "mac-a", role: "server", ready: "Ready", isReady: true, version: "0.1.7", thisMac: true,
                 cores: ClusterUsage(requested: 3.5, allocatable: 19, text: "3.5 of 19"),
-                memory: ClusterUsage(requested: 3.25 * 1_073_741_824, allocatable: 60 * 1_073_741_824, text: "3.2 GB of 60 GB")),
+                memory: ClusterUsage(requested: 3.25 * 1_073_741_824, allocatable: 60 * 1_073_741_824, text: "3.2 GB of 60 GB"),
+                running: 3),
             ClusterNodeRow(
                 name: "mac-b", role: "agent", ready: "Not ready", isReady: false, version: "0.1.6", thisMac: false,
                 cores: ClusterUsage(requested: 1.5, allocatable: 7.5, text: "1.5 of 7.5"),
-                memory: ClusterUsage(requested: 512 * 1_048_576, allocatable: 6 * 1_073_741_824, text: "512 MB of 6.0 GB")),
+                memory: ClusterUsage(requested: 512 * 1_048_576, allocatable: 6 * 1_073_741_824, text: "512 MB of 6.0 GB"),
+                running: 1),
         ])
         #expect(got.cores?.text == "5 of 26.5")
         #expect(got.podsByNode == "3 on mac-a · 1 on mac-b")
+        #expect(got.versions == "versions differ")
     }
 
     @Test("this Mac's node comes first, whatever its name")
@@ -135,6 +138,7 @@ struct ClusterDisplayTests {
         #expect(got.nodes.map(\.name) == ["mac-b", "mac-a"])
         #expect(got.nodes.map(\.role) == ["agent", "server"])
         #expect(got.nodes.map(\.thisMac) == [true, false])
+        #expect(got.nodes.map(\.running) == [1, 3])
         #expect(got.podsByNode == "1 on mac-b · 3 on mac-a")
     }
 
@@ -157,7 +161,7 @@ struct ClusterDisplayTests {
         let got = ClusterDisplay.summary(of: report, nodes: nil, pods: pods)
         #expect(got.title == "Cluster")
         #expect(got.nodeCount == 2)
-        #expect(got.nodes.isEmpty && got.cores == nil && got.memory == nil && got.podsByNode == nil)
+        #expect(got.nodes.isEmpty && got.cores == nil && got.memory == nil && got.versions == nil)
         #expect(got.line == "2 Macs · 1/2 nodes ready · 4 running · 1 vm")
     }
 
@@ -192,6 +196,7 @@ struct ClusterDisplayTests {
         let got = ClusterDisplay.summary(of: report, nodes: mixed, pods: pods)
         #expect(mine.k3smRelease == SemanticVersion("0.1.7"))
         #expect(got.nodes.map(\.version) == want)
+        #expect(got.versions == (stat.hasPrefix("versions") ? stat : nil))
         #expect(got.stats.last?.text == stat)
         #expect(ClusterDisplay.summary(of: report, nodes: mixed, pods: nil).stats.last?.text == stat)
     }
@@ -219,6 +224,99 @@ struct ClusterDisplayTests {
         let got = ClusterDisplay.thisMacPods(pods, report: report, nodeCount: c.nodeCount).map(\.name).sorted()
         #expect(got == c.want)
         #expect(!got.contains("job-done"))
+    }
+
+    @Test("tiles: one node with its lists")
+    func tilesSingleNode() throws {
+        let (_, nodes, pods) = try Self.twoNodes()
+        let report = Self.report(workers: [], node: "1/1 nodes ready · mac-a kubelet v1.36.2", workloads: nil)
+        let got = ClusterDisplay.summary(of: report, nodes: nodes.filter { $0.name == "mac-a" }, pods: pods.filter { $0.nodeName != "mac-b" })
+        #expect(ClusterDisplay.tiles(for: got) == [
+            PanelTile(label: "nodes ready", value: "1/1"),
+            PanelTile(label: "pods running", value: "3"),
+            PanelTile(label: "cores requested", value: "3.5", detail: "of 19"),
+            PanelTile(label: "memory requested", value: "3.2 GB", detail: "of 60 GB"),
+        ])
+        #expect(got.versions == nil)
+    }
+
+    @Test("tiles: two nodes, one not ready, versions differing")
+    func tilesTwoNodesDiffer() throws {
+        let (report, nodes, pods) = try Self.twoNodes()
+        let got = ClusterDisplay.summary(of: report, nodes: nodes, pods: pods)
+        #expect(ClusterDisplay.tiles(for: got) == [
+            PanelTile(label: "nodes ready", value: "1/2"),
+            PanelTile(label: "pods running", value: "4"),
+            PanelTile(label: "cores requested", value: "5", detail: "of 26.5"),
+            PanelTile(label: "memory requested", value: "3.8 GB", detail: "of 66 GB"),
+        ])
+        #expect(got.versions == "versions differ")
+    }
+
+    @Test("tiles: two ready nodes on one release show the Mac count")
+    func tilesTwoNodesAgree() throws {
+        let (report, nodes, pods) = try Self.twoNodes()
+        let same = nodes.map {
+            ClusterNode(name: $0.name, ready: true, kubeletVersion: "v1.36.2+k3sm.0.1.7", controlPlane: $0.controlPlane,
+                        allocatableMilliCPU: $0.allocatableMilliCPU, allocatableMemoryBytes: $0.allocatableMemoryBytes)
+        }
+        let got = ClusterDisplay.summary(of: report, nodes: same, pods: pods)
+        #expect(ClusterDisplay.tiles(for: got).map(\.label) == ["Macs", "pods running", "cores requested", "memory requested"])
+        #expect(ClusterDisplay.tiles(for: got).first == PanelTile(label: "Macs", value: "2"))
+        #expect(got.versions == nil)
+        #expect(got.nodes.map(\.version) == [nil, nil])
+    }
+
+    @Test("tiles: no report and no lists, nothing to show")
+    func tilesNoReport() {
+        #expect(ClusterDisplay.tiles(for: ClusterDisplay.summary(of: nil, nodes: nil, pods: nil)).isEmpty)
+    }
+
+    @Test("tiles: a report alone gives the counts and no requests")
+    func tilesReportOnly() {
+        let report = Self.report(workers: [StatusWorker(name: "b", role: "agent")], node: "2/2 nodes ready · a kubelet v1", workloads: "6 running")
+        #expect(ClusterDisplay.tiles(for: ClusterDisplay.summary(of: report, nodes: nil, pods: nil)) == [
+            PanelTile(label: "Macs", value: "2"), PanelTile(label: "pods running", value: "6"),
+        ])
+    }
+
+    @Test("tiles: a hostile core request saturates, a hostile label is flattened")
+    func tilesHostile() throws {
+        let (report, nodes, _) = try Self.twoNodes()
+        var pod = try HostRequestsTests.decoded([["1e308"], ["1e308"]])
+        pod = pod.map {
+            Pod(name: $0.name, namespace: $0.namespace, uid: $0.uid, image: $0.image, kind: $0.kind, phase: $0.phase,
+                health: $0.health, ready: $0.ready, restarts: $0.restarts, ports: $0.ports, owner: $0.owner, created: $0.created,
+                cpuRequest: $0.cpuRequest, memoryRequest: $0.memoryRequest, nodeName: "mac-a")
+        }
+        let got = ClusterDisplay.tiles(for: ClusterDisplay.summary(of: report, nodes: nodes, pods: pod))
+        #expect(got.first { $0.label == "cores requested" } == PanelTile(label: "cores requested", value: "1000000+", detail: "of 26.5"))
+        let flat = ClusterDisplay.tiles(for: ClusterDisplay.summary(
+            of: Self.report(workers: [], node: "1/1 nodes ready", workloads: "2 run\u{1B}ning"), nodes: nil, pods: nil))
+        #expect(flat == [PanelTile(label: "nodes ready", value: "1/1")])
+        #expect(PanelTile(label: "a\nb", value: "1\u{1B}2", detail: "of\r3") == PanelTile(label: "a b", value: "1 2", detail: "of 3"))
+    }
+
+    @Test("tiles: this Mac")
+    func macTiles() {
+        let got = ClusterDisplay.macTiles(
+            requests: PodRequests(cores: 1.75, memoryBytes: 3 << 30), cores: 10, memoryBytes: 16 << 30,
+            dataRootUsed: 120 << 30, dataRootSize: 500 << 30, pods: 4)
+        #expect(got == [
+            PanelTile(label: "cores requested", value: "1.8", detail: "of 10"),
+            PanelTile(label: "memory requested", value: "3.0 GB", detail: "of 16 GB"),
+            PanelTile(label: "data root", value: "120 GB", detail: "of 500 GB"),
+            PanelTile(label: "pods on this Mac", value: "4"),
+        ])
+        let idle = ClusterDisplay.macTiles(
+            requests: PodRequests(cores: WorkloadsDisplay.maxCores, memoryBytes: 0), cores: 0, memoryBytes: 0,
+            dataRootUsed: 0, dataRootSize: 0, pods: 1)
+        #expect(idle == [
+            PanelTile(label: "cores requested", value: "1000000+"),
+            PanelTile(label: "memory requested", value: "0 GB"),
+            PanelTile(label: "data root", value: "0 GB"),
+            PanelTile(label: "pod on this Mac", value: "1"),
+        ])
     }
 
     @Test("the vendored status fixtures", arguments: [
