@@ -25,7 +25,7 @@ import K3smStatus
 /// and respects a user who removes the item (Command-drag or Menu Bar
 /// settings) until the next launch.
 ///
-/// The menu carries the verdict and summary, the status rows, the "Allow
+/// The menu carries the verdict and summary, one line of cluster stats, the "Allow
 /// connections from other devices" checkbox, Stop (with the multi-node
 /// warning) and Restart, Open Status, Open Logs, Write a Bug
 /// Report, Open k3sm and Quit. Stop and Restart go through `AppModel.perform`
@@ -43,7 +43,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var removingItem = false
     private let menu = NSMenu()
     private let headerItem = NSMenuItem(title: "k3sm", action: nil, keyEquivalent: "")
-    private var rowItems: [NSMenuItem] = []
+    /// The one line of cluster stats under the header; hidden when the
+    /// report carries none.
+    private let statsItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let rowsEnd = NSMenuItem.separator()
     private var stopItem = NSMenuItem()
     private var restartItem = NSMenuItem()
@@ -72,6 +74,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.delegate = self
         headerItem.isEnabled = false
         menu.addItem(headerItem)
+        statsItem.isEnabled = false
+        statsItem.indentationLevel = 1
+        statsItem.isHidden = true
+        menu.addItem(statsItem)
         menu.addItem(rowsEnd)
         lanItem = add(LANToggle.title, #selector(lanAction))
         lanItem.subtitle = LANToggle.subtitle
@@ -174,24 +180,19 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         refreshLANIfOld()
     }
 
-    /// Shows the verdict and summary, and the status rows (name and state
-    /// only), of a report, each as one short menu line.
+    /// Shows the verdict and summary of a report as the menu's header; the
+    /// rows themselves are in the window.
     private func show(_ report: StatusReport) {
         self.report = report
         headerItem.title = StatusDisplay.menuHeader(of: report)
-        for row in rowItems {
-            menu.removeItem(row)
-        }
-        rowItems = StatusDisplay.menuRows(of: report).map { line in
-            let item = NSMenuItem(title: line, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            item.indentationLevel = 1
-            return item
-        }
-        let at = menu.index(of: rowsEnd)
-        for (offset, row) in rowItems.enumerated() {
-            menu.insertItem(row, at: at + offset)
-        }
+    }
+
+    /// Shows the one line of cluster stats from a full report. The launchd
+    /// probe carries no node or workloads row, so only a full read sets it.
+    private func showStats(_ full: StatusReport) {
+        let stats = StatusDisplay.menuStats(of: full)
+        statsItem.title = stats ?? ""
+        statsItem.isHidden = stats == nil
     }
 
     private func updateLifecycleItems(_ support: LifecycleSupport?) {
@@ -208,13 +209,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: NSMenuDelegate
 
     /// On open: re-check lifecycle support and read the full report, so the
-    /// rows are the whole status, not only the launchd probe.
+    /// stats line comes from the whole status, not only the launchd probe.
     func menuWillOpen(_ menu: NSMenu) {
         updateLifecycleItems(model.lifecycleSupport)
         Task {
             await model.refreshLifecycleSupport()
             if let full = await model.readFullReport() {
                 show(full)
+                showStats(full)
             }
         }
     }

@@ -77,37 +77,50 @@ struct MenuLineTests {
         #expect(got.filter { $0 == "…" }.count == (c.input.count > Self.limit ? 1 : 0))
     }
 
-    @Test("rows are name and state only, in order")
-    func rows() {
-        let detail = "launchd reports running, but pid 1292 is not in the process table"
-        let report = Self.report(rows: [
-            StatusRow(name: "install", state: "ok", detail: "/Library/k3sm/k3sm"),
-            StatusRow(name: "netd", state: "unknown", detail: detail),
-            StatusRow(name: "node\n", state: String(repeating: "s", count: 80), detail: "1/1 nodes ready"),
-        ])
-        let got = StatusDisplay.menuRows(of: report)
-        #expect(got == [
-            "install: ok",
-            "netd: unknown",
-            "node : " + String(repeating: "s", count: Self.limit - 8) + "…",
-        ])
-        #expect(got.allSatisfy { !$0.contains("·") && $0.count <= Self.limit })
-        #expect(!got.contains { $0.contains("pid") || $0.contains("/Library") || $0.contains("nodes ready") })
+    struct StatsCase: Sendable, CustomTestStringConvertible {
+        let name: String
+        let rows: [StatusRow]
+        let want: String?
+        var testDescription: String { name }
     }
 
-    @Test("rows follow the row cap")
-    func rowCap() {
-        let rows = (0..<40).map { StatusRow(name: "row\($0)", state: "ok", detail: "d") }
-        #expect(StatusDisplay.menuRows(of: Self.report(rows: rows)).count == StatusDisplay.maxRows)
+    static let statsCases: [StatsCase] = [
+        StatsCase(
+            name: "nodes ready and the pod counts",
+            rows: [
+                StatusRow(name: "install", state: "ok", detail: "/Library/k3sm/k3sm"),
+                StatusRow(name: "node", state: "ready", detail: "2/2 nodes ready · my-mac kubelet v1.36.2"),
+                StatusRow(name: "workloads", state: "ok", detail: "6 running · 2 succeeded"),
+            ],
+            want: "2/2 nodes ready · 6 running · 2 succeeded"),
+        StatsCase(
+            name: "a long line is cut at the limit",
+            rows: [
+                StatusRow(name: "node", state: "ready", detail: "12/12 nodes ready"),
+                StatusRow(name: "workloads", state: "ok", detail: "120 running · 40 succeeded · 30 vm · 2 failed"),
+            ],
+            want: "12/12 nodes ready · 120 running · 40 succee…"),
+        StatsCase(
+            name: "no counts, no line",
+            rows: [
+                StatusRow(name: "netd", state: "running", detail: "pid 1292"),
+                StatusRow(name: "node", state: "unknown", detail: "apiserver unreachable"),
+            ],
+            want: nil),
+    ]
+
+    @Test("one stats line, no rows", arguments: statsCases)
+    func stats(_ c: StatsCase) {
+        let got = StatusDisplay.menuStats(of: Self.report(rows: c.rows))
+        #expect(got == c.want)
+        #expect((got?.count ?? 0) <= StatusDisplay.menuLineLimit)
+        #expect(!(got ?? "").contains("install") && !(got ?? "").contains("netd"))
     }
 
-    @Test("a real degraded report renders as short lines")
+    @Test("a real degraded report renders as two short lines")
     func degradedFixture() throws {
         let report = try StatusReport.decode(try fixture("status_json_degraded.json"))
-        let header = StatusDisplay.menuHeader(of: report)
-        let rows = StatusDisplay.menuRows(of: report)
-        #expect(header.hasPrefix("k3sm · degraded · "))
-        #expect(rows.count == report.rows.count)
-        #expect(rows.allSatisfy { $0.count <= StatusDisplay.menuLineLimit && !$0.contains("·") })
+        #expect(StatusDisplay.menuHeader(of: report) == "k3sm · degraded · netd: launchd reports run…")
+        #expect(StatusDisplay.menuStats(of: report) == "1/1 nodes ready · 3 running")
     }
 }

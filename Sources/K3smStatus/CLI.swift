@@ -157,9 +157,10 @@ public enum StatusDisplay {
         return menuLine(header)
     }
 
-    /// Returns one menu line per row of `rows(of:)`, in order, each
-    /// `<name>: <state>` with no detail text.
-    public static func menuRows(of report: StatusReport) -> [String] {
-        rows(of: report).map { menuLine("\($0.name): \($0.state)") }
+    /// Returns the menu's one stats line: the report-only cluster stats of
+    /// `ClusterDisplay.summary(of:nodes:pods:)` joined with " · ", as one menu
+    /// line, or nil when the report carries none. No row is listed.
+    public static func menuStats(of report: StatusReport) -> String? {
+        ClusterDisplay.summary(of: report, nodes: nil, pods: nil).line.map(menuLine)
     }
 }

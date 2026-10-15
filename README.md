@@ -94,10 +94,9 @@ rest.
 
 ## The menu
 
-The status item's menu shows the verdict and summary, then the status rows,
-each one short line with the name and state only (the full report is read
-each time the menu opens; the report with every detail is in the window), and
-these actions:
+The status item's menu shows the verdict line and one line of cluster stats
+(nodes ready and the pod counts, read from the full report each time the menu
+opens). The full report is in the window. Then come these actions:
 
 - **Stop k3sm** stops k3sm on this Mac completely, pods included, and keeps it
   stopped across restarts until you start it (`sudo k3sm stop`). Before it
