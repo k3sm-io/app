@@ -29,7 +29,8 @@ import K3smStatus
 /// coloured circle and the word, then the actions: Update to <tag>… while
 /// the update plan offers one (`UpdatePlan`; "Updating…", disabled, while a
 /// roll runs; shown disabled with the reason on a developer build), Stop
-/// (with the multi-node warning) and Restart, Live Status (and Live Top when the CLI has it), Open Logs, Write a Bug Report, Settings, Dashboard and Quit.
+/// (with the multi-node warning) and Restart, Live Status (and Live Top when the CLI has it), Open Logs, Write a Bug Report,
+/// Copy Join Command (a server only), Settings, Dashboard and Quit.
 /// Stop and Restart go through `AppModel.perform` and are shown only when
 /// the installed CLI has them; otherwise they are hidden and the window says
 /// why. The full status and the LAN setting are in the window. While LAN access
@@ -60,6 +61,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// The separator after Stop and Restart, hidden with them so the menu
     /// never starts with a rule.
     private let lifecycleEnd = NSMenuItem.separator()
+    private var joinItem = NSMenuItem()
     /// Keeps the icon's LAN dot current when the model changes.
     private var iconObservation: AnyCancellable?
     private var degraded = false
@@ -77,6 +79,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var framesBegan: TimeInterval?
     private var frameTimer: Timer?
     private var wingAngle = 0.0
+    /// The last report the poller or the menu's full read returned, which
+    /// Copy Join Command is gated on (the role is in the full read).
+    private var joinReport: StatusReport?
 
     /// Whether the rule currently wants the item shown.
     var wantsVisible: Bool { tracker.visible }
@@ -105,6 +110,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         liveTopItem.isHidden = true
         _ = add("Open Logs", #selector(openLogsAction), help: Help.Menus.openLogs)
         _ = add("Write a Bug Report…", #selector(bugReportAction), help: Help.Menus.bugReport)
+        joinItem = add(CopyJoinCommand.title, #selector(copyJoinAction))
+        joinItem.subtitle = CopyJoinCommand.menuNote
         menu.addItem(.separator())
         _ = add("Settings…", #selector(openSettingsAction), key: ",", help: Help.Menus.settings)
         _ = add(MenuStatus.windowItemTitle, #selector(openWindowAction), key: "o", help: Help.Menus.dashboard)
@@ -121,9 +128,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 MainActor.assumeIsolated {
                     self?.updateIcon()
                     self?.updateUpdateItem()
+                    self?.updateJoinItem()
                 }
             }
         }
+        updateJoinItem()
     }
 
     /// Shows one status line: the label and word as the title, a circle in
@@ -153,6 +162,23 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         return image
     }
 
+    /// Shows Copy Join Command only on a server, enabled only when the
+    /// server runs and one join address resolves; the tooltip says why not.
+    private func updateJoinItem() {
+        switch model.copyJoinState(report: joinReport) {
+        case .hidden:
+            joinItem.isHidden = true
+        case .disabled(let why):
+            joinItem.isHidden = false
+            joinItem.isEnabled = false
+            joinItem.toolTip = why
+        case .enabled:
+            joinItem.isHidden = false
+            joinItem.isEnabled = true
+            joinItem.toolTip = CopyJoinCommand.copiedNote
+        }
+    }
+
     /// Shows the degraded mark and the LAN dot on the icon.
     private func updateIcon() {
         item?.button?.image = Self.icon(degraded: degraded, lan: model.lanToggle().showsIndicator, wingAngle: wingAngle)
@@ -180,8 +206,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         if let report {
             self.report = report
+            joinReport = report
             degraded = report.verdict == .degraded
             updateIcon()
+            updateJoinItem()
         }
         if change.visibilityChanged {
             if tracker.visible {
@@ -238,6 +266,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             stepFrames()
             showStatusLine(clusterItem, MenuStatus.clusterLabel, MenuStatus.cluster(of: full))
             showStatusLine(thisMacItem, MenuStatus.thisMacLabel, MenuStatus.thisMac(of: full, readFailed: full == nil))
+            if let full {
+                joinReport = full
+                updateJoinItem()
+            }
             await model.refreshUpdateStatus()
             updateUpdateItem()
         }
@@ -315,6 +347,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func openLogsAction() {
         MenuActions.openLogs(role: report.flatMap(NodeRole.detect(in:)))
+    }
+
+    /// Mints and copies a fresh join command; the driver re-reads the role
+    /// and state first.
+    @objc private func copyJoinAction() {
+        model.copyJoinCommand()
     }
 
     @objc private func bugReportAction() {

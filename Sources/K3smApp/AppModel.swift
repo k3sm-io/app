@@ -426,6 +426,10 @@ final class AppModel: ObservableObject {
     /// A triggered read came while another `refresh()` ran: one more runs
     /// when the last in flight finishes, so a change seen mid-read is read.
     private var refreshPending = false
+    /// The concealed pasteboard item behind Copy Join Command; the app
+    /// clears it at quit if it is still ours.
+    let joinClipboard = ConcealedClipboard(pasteboard: GeneralPasteboard(), scheduler: WallClockClearScheduler())
+    private let joinAddresses = InterfaceAddressSource()
 
     init(runner: any PrivilegedRunner, environment: [String: String]) {
         self.runner = runner
@@ -1652,6 +1656,62 @@ final class AppModel: ObservableObject {
             }
             log.notice("LAN access verb finished")
         }
+    }
+
+    /// Copy Join Command for the report the menu showed, with this Mac's
+    /// join address read now.
+    func copyJoinState(report: StatusReport?) -> CopyJoinCommand.State {
+        CopyJoinCommand.evaluate(
+            report: report, availability: availability, busy: running, addresses: JoinAddress.resolve(joinAddresses))
+    }
+
+    /// Mints a fresh join token through the administrator prompt and copies
+    /// the join command. The driver re-reads the status and the address
+    /// first, so a Mac that is no longer a running server refuses before the
+    /// prompt. Only the result note reaches the model; the token never does.
+    func copyJoinCommand() {
+        guard !running else { return }
+        guard let teamID else {
+            Self.alert(title: "k3sm cannot create a join token", text: "This build of k3sm is not Developer ID signed. Use `sudo k3sm token create` in Terminal.")
+            return
+        }
+        // The guard above and this claim run in one synchronous main-actor
+        // step, so a second click before the Task starts finds it running.
+        running = true
+        outcomeMessage = nil
+        let driver = joinDriver(teamID: teamID)
+        Task {
+            let result = await driver.perform()
+            running = false
+            switch result {
+            case .cancelled:
+                break
+            case .refused(let why), .failed(let why):
+                outcomeMessage = why
+                Self.alert(title: "Nothing was copied", text: why)
+            case .copied(let note):
+                outcomeMessage = note
+                Self.alert(title: "Join command copied", text: note)
+            }
+        }
+    }
+
+    /// The one Copy Join Command driver, made on first use and kept, so its
+    /// single-flight claim spans every click.
+    private var joinDriverInstance: JoinCommandDriver?
+
+    private func joinDriver(teamID: TeamID) -> JoinCommandDriver {
+        if let d = joinDriverInstance { return d }
+        let d = JoinCommandDriver(
+            teamID: teamID,
+            readStatus: { [weak self] in await self?.readFullReport() },
+            availability: { [weak self] in self?.availability ?? .disabled(reason: "k3sm is quitting.") },
+            addresses: joinAddresses,
+            runner: runner,
+            clipboard: joinClipboard,
+            log: { message in log.notice("\(message, privacy: .public)") })
+        joinDriverInstance = d
+        return d
     }
 
     /// Runs one lifecycle verb from the menu, the window or the login

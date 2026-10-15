@@ -50,10 +50,39 @@ struct AppleScriptPrivilegedRunner: PrivilegedRunner {
         }
     }
 
+    /// Runs a step with no stdin and returns `do shell script`'s result, its
+    /// standard output, only when the step exited 0. The result string never
+    /// enters argv, a file or the error path: a failed step's error carries
+    /// only standard error, and the mint script prints the token only after
+    /// the CLI exited 0. Output over `capturedOutputLimit` is refused.
+    func runAsRootCapturingOutput(_ script: RootScript) async -> Result<String, PrivilegedFailure> {
+        await withCheckedContinuation { continuation in
+            Thread.detachNewThread {
+                let (run, output) = Self.execute(script, input: nil)
+                guard run.outcome == .succeeded else {
+                    continuation.resume(returning: .failure(.notSucceeded(run)))
+                    return
+                }
+                guard let output, output.utf8.count <= capturedOutputLimit else {
+                    continuation.resume(returning: .failure(.outputRefused))
+                    return
+                }
+                continuation.resume(returning: .success(output))
+            }
+        }
+    }
+
     private static func runBlocking(_ script: RootScript, input: Data?) -> PrivilegedRun {
+        execute(script, input: input).run
+    }
+
+    /// Runs the step; on success also returns the result descriptor's string
+    /// value (the script's standard output), which only the capturing path
+    /// reads.
+    private static func execute(_ script: RootScript, input: Data?) -> (run: PrivilegedRun, output: String?) {
         var fifo: InputFIFO?
         if let input {
-            guard let made = try? InputFIFO(feeding: input) else { return PrivilegedRun(outcome: .couldNotStart) }
+            guard let made = try? InputFIFO(feeding: input) else { return (PrivilegedRun(outcome: .couldNotStart), nil) }
             fifo = made
         }
         defer { fifo?.finish() }
@@ -61,21 +90,22 @@ struct AppleScriptPrivilegedRunner: PrivilegedRunner {
         let source = "do shell script \(AppleScriptText.literal(command))"
             + " with prompt \(AppleScriptText.literal(script.prompt))"
             + " with administrator privileges"
-        guard let compiled = NSAppleScript(source: source) else { return PrivilegedRun(outcome: .couldNotStart) }
+        guard let compiled = NSAppleScript(source: source) else { return (PrivilegedRun(outcome: .couldNotStart), nil) }
         var error: NSDictionary?
         let result = compiled.executeAndReturnError(&error)
         // `do shell script` returns the script's standard output, its line
         // endings turned into carriage returns and its last newline dropped.
-        // Only a script that asks for it keeps it, cut at the cap.
+        // Only a script that asks for it keeps it in the run, cut at the cap;
+        // the capturing path reads the raw result instead.
         guard let error else {
-            guard script.capturesOutput else { return PrivilegedRun(outcome: .succeeded) }
+            guard script.capturesOutput else { return (PrivilegedRun(outcome: .succeeded), result.stringValue) }
             let kept = PrivilegedRun.capped(result.stringValue)
-            return PrivilegedRun(outcome: .succeeded, output: kept.text, outputTruncated: kept.truncated)
+            return (PrivilegedRun(outcome: .succeeded, output: kept.text, outputTruncated: kept.truncated), result.stringValue)
         }
         let number = (error[NSAppleScript.errorNumber] as? NSNumber)?.int32Value ?? -1
         // -128 is userCanceledErr: the prompt was dismissed.
-        if number == -128 { return PrivilegedRun(outcome: .cancelled) }
-        return PrivilegedRun(outcome: .failed(exitStatus: number), errorOutput: error[NSAppleScript.errorMessage] as? String)
+        if number == -128 { return (PrivilegedRun(outcome: .cancelled), nil) }
+        return (PrivilegedRun(outcome: .failed(exitStatus: number), errorOutput: error[NSAppleScript.errorMessage] as? String), nil)
     }
 }
 

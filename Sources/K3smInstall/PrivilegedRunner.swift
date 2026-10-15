@@ -38,6 +38,27 @@ public protocol PrivilegedRunner: Sendable {
     /// to standard error when it failed, raw. Callers show it only through
     /// `StatusDisplay.errorText`.
     func runAsRootReportingError(_ script: RootScript, input: Data?) async -> PrivilegedRun
+    /// Runs a step that reads no stdin and returns what it wrote to standard
+    /// output when it exited 0, as the runner's in-process result: never a
+    /// file, never argv. The output is bounded (`capturedOutputLimit`); a
+    /// longer one is refused unread. A failed step returns no standard
+    /// output at all, only its error output. The join token mint is the one
+    /// caller, so the result is a secret: hold it briefly, never log it.
+    func runAsRootCapturingOutput(_ script: RootScript) async -> Result<String, PrivilegedFailure>
+}
+
+/// The most standard output a capturing run accepts. A join token is about
+/// a hundred bytes.
+public let capturedOutputLimit = 4096
+
+/// PrivilegedFailure is why a capturing run returned no output.
+public enum PrivilegedFailure: Error, Equatable, Sendable {
+    /// The step did not exit 0 (cancelled, could not start, or failed), with
+    /// its raw error output when the runner can read it.
+    case notSucceeded(PrivilegedRun)
+    /// The step exited 0 but its output was missing, not text, or longer than
+    /// `capturedOutputLimit`; it was dropped unread.
+    case outputRefused
 }
 
 /// PrivilegedRun is a finished root step and, when it failed, its raw error
@@ -76,6 +97,11 @@ extension PrivilegedRunner {
     /// A runner that cannot read the error output reports none.
     public func runAsRootReportingError(_ script: RootScript, input: Data?) async -> PrivilegedRun {
         PrivilegedRun(outcome: await runAsRoot(script, input: input))
+    }
+
+    /// A runner that cannot capture output runs nothing and returns no output.
+    public func runAsRootCapturingOutput(_ script: RootScript) async -> Result<String, PrivilegedFailure> {
+        .failure(.notSucceeded(PrivilegedRun(outcome: .couldNotStart)))
     }
 }
 

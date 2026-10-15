@@ -187,13 +187,7 @@ public enum LifecycleScriptBuilder {
     /// Every path the script checks before running the CLI: `/`, each
     /// directory above it, and the CLI itself.
     public static func checkedPaths(cliPath: String) -> [String] {
-        var paths = ["/"]
-        var current = ""
-        for component in cliPath.split(separator: "/") {
-            current += "/" + component
-            paths.append(current)
-        }
-        return paths
+        InstalledCLIPreamble.checkedPaths(cliPath: cliPath)
     }
 
     /// Renders the script for a fixed verb's CLI at `K3smCLI.path`.
@@ -278,11 +272,38 @@ public enum LifecycleScriptBuilder {
 
     private static func render(prompt: String, argv words: [String], teamID: TeamID, cliPath: String,
                                capturesOutput: Bool = false) -> RootScript {
+        let argv = words.map(ShellQuote.quote).joined(separator: " ")
+        let text = InstalledCLIPreamble.render(teamID: teamID, cliPath: cliPath) + "exec \"$k3sm\" \(argv)\n"
+        return RootScript(text: text, prompt: prompt, readsInput: false, usesStagingLock: false, capturesOutput: capturesOutput)
+    }
+}
+
+/// InstalledCLIPreamble is the one definition of the checks every root script
+/// that runs the installed CLI makes first (the lifecycle verbs and the join
+/// token mint): `set -eu`, `umask 077`, `cd /`; the CLI and every directory
+/// above it root-owned, not group or other writable, not symlinks and with no
+/// ACL; the CLI a regular file that passes `codesign --verify -R` against the
+/// Developer ID requirement built from the compiled Team ID. It ends with
+/// `$k3sm` set and checked, ready for the caller's one CLI line.
+public enum InstalledCLIPreamble {
+    /// Every path the script checks before running the CLI: `/`, each
+    /// directory above it, and the CLI itself.
+    public static func checkedPaths(cliPath: String) -> [String] {
+        var paths = ["/"]
+        var current = ""
+        for component in cliPath.split(separator: "/") {
+            current += "/" + component
+            paths.append(current)
+        }
+        return paths
+    }
+
+    /// The preamble text, ending in a newline.
+    public static func render(teamID: TeamID, cliPath: String) -> String {
         let q = ShellQuote.quote
         let paths = checkedPaths(cliPath: cliPath).map(q).joined(separator: " ")
         let requirement = "-R=" + DesignatedRequirement.developerID(teamID: teamID)
-        let argv = words.map(q).joined(separator: " ")
-        let text = #"""
+        return #"""
             set -eu
             umask 077
             cd /
@@ -310,9 +331,8 @@ public enum LifecycleScriptBuilder {
             	echo 'k3sm app: refused: the installed k3sm is not signed by the k3sm Developer ID' >&2
             	exit \#(LifecycleExit.signatureRejected)
             fi
-            exec "$k3sm" \#(argv)
+
             """#
-        return RootScript(text: text + "\n", prompt: prompt, readsInput: false, usesStagingLock: false, capturesOutput: capturesOutput)
     }
 }
 
