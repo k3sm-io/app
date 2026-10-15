@@ -31,7 +31,7 @@ struct ServerAddressTests {
         ValidCase(input: "studio.local", argument: "studio.local", description: "studio.local:9345"),
         ValidCase(input: "Studio.Local:9345", argument: "studio.local", description: "studio.local:9345"),
         ValidCase(input: "k3s-m1", argument: "k3s-m1", description: "k3s-m1:9345"),
-        ValidCase(input: "192.168.0.50", argument: "192.168.0.50", description: "192.168.0.50:9345"),
+        ValidCase(input: "192.0.2.50", argument: "192.0.2.50", description: "192.0.2.50:9345"),
         ValidCase(input: "10.0.0.1:9345", argument: "10.0.0.1", description: "10.0.0.1:9345"),
         ValidCase(input: "[fd00::1]", argument: "fd00::1", description: "[fd00::1]:9345"),
         ValidCase(input: "[FD00::1]:9345", argument: "fd00::1", description: "[fd00::1]:9345"),

@@ -56,7 +56,7 @@ struct AgentJoinTargetTests {
     static let cases: [Case] = [
         Case(name: "separate word", args: ["/Library/k3sm/k3sm", "agent", "--server", "studio.local", "--node-ip", "100.64.1.1"],
              want: "studio.local", error: nil),
-        Case(name: "single dash", args: ["/Library/k3sm/k3sm", "agent", "-server", "192.168.0.50"], want: "192.168.0.50", error: nil),
+        Case(name: "single dash", args: ["/Library/k3sm/k3sm", "agent", "-server", "192.0.2.50"], want: "192.0.2.50", error: nil),
         Case(name: "equals form", args: ["/Library/k3sm/k3sm", "agent", "--server=studio.local"], want: "studio.local", error: nil),
         Case(name: "bare IPv6", args: ["k3sm", "agent", "--server", "fd00::1"], want: "fd00::1", error: nil),
         Case(name: "first flag wins, as in the CLI", args: ["k3sm", "agent", "--server", "a.local", "--server", "b.local"],
