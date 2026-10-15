@@ -123,4 +123,10 @@ struct MenuLineTests {
         #expect(StatusDisplay.menuHeader(of: report) == "k3sm · degraded · netd: launchd reports run…")
         #expect(StatusDisplay.menuStats(of: report) == "1/1 nodes ready · 3 running")
     }
+
+    @Test("the menu leaves out the panel's Mac count")
+    func serverWithWorkers() throws {
+        let report = try StatusReport.decode(try fixture("status_json_server-with-workers.json"))
+        #expect(StatusDisplay.menuStats(of: report) == "3/3 nodes ready · 3 running")
+    }
 }

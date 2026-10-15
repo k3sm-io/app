@@ -157,10 +157,11 @@ public enum StatusDisplay {
         return menuLine(header)
     }
 
-    /// Returns the menu's one stats line: the report-only cluster stats of
-    /// `ClusterDisplay.summary(of:nodes:pods:)` joined with " · ", as one menu
-    /// line, or nil when the report carries none. No row is listed.
+    /// Returns the menu's one stats line: `ClusterDisplay.reportStats(_:)`
+    /// joined with " · ", as one menu line, or nil when the report carries
+    /// none. No row is listed, and the panel's Mac count is not shown.
     public static func menuStats(of report: StatusReport) -> String? {
-        ClusterDisplay.summary(of: report, nodes: nil, pods: nil).line.map(menuLine)
+        let stats = ClusterDisplay.reportStats(report)
+        return stats.isEmpty ? nil : menuLine(stats.map(\.text).joined(separator: " · "))
     }
 }

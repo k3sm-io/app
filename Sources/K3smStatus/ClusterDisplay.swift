@@ -140,28 +140,28 @@ public enum PanelMode: String, CaseIterable, Sendable {
 
 /// ClusterDisplay turns the status report, the node list and the pod list
 /// into the panel's cluster view. The title follows `workers` the way
-/// `NodesDisplay` does: absent is unknown, empty is no other node. A nil
+/// `NodesDisplay` does: absent is unknown, empty is no other node. A server
+/// with workers is titled "Cluster" and its stats open with the Mac count. A nil
 /// node or pod list is unknown, and the stats then come from the report's
 /// `node` and `workloads` rows as printed. Every string is clipped.
 public enum ClusterDisplay {
     public static let singleTitle = "This Mac is the cluster"
     public static let unknownTitle = "This Mac"
     public static let workerTitle = "Joined a cluster"
+    public static let clusterTitle = "Cluster"
     public static let othersUnknown = "other nodes unknown"
 
-    /// The title for a server with `workers` other nodes.
-    public static func clusterTitle(macs: Int) -> String {
-        "A cluster of \(macs) Macs"
-    }
-
     public static func summary(of report: StatusReport?, nodes: [ClusterNode]?, pods: [Pod]?) -> ClusterSummary {
-        let (title, note) = title(report)
+        let (title, note, macs) = title(report)
         let nodeCount = nodes?.count ?? report?.workers.map { $0.count + 1 } ?? 1
         let ownNode = report.flatMap(ownNodeName)
         let ownRole = report.map { NodeRole.detect(in: $0)?.rawValue ?? StatusDisplay.clip($0.role) } ?? ""
         let active = (pods ?? []).filter { $0.phase != "Succeeded" && $0.phase != "Failed" }
 
         var stats: [ClusterStat] = []
+        if let macs {
+            stats.append(ClusterStat(label: "Macs", value: "\(macs)"))
+        }
         if let nodes {
             stats.append(ClusterStat(label: "nodes ready", value: "\(nodes.filter { $0.ready == true }.count)/\(nodes.count)"))
         } else if let report {
@@ -209,11 +209,12 @@ public enum ClusterDisplay {
         }
     }
 
-    static func title(_ report: StatusReport?) -> (String, String?) {
-        guard let report else { return (unknownTitle, nil) }
-        if NodeRole.detect(in: report) == .agent { return (workerTitle, nil) }
-        guard let workers = report.workers else { return (unknownTitle, othersUnknown) }
-        return workers.isEmpty ? (singleTitle, nil) : (clusterTitle(macs: workers.count + 1), nil)
+    /// The title, its note, and the Mac count for a server with workers.
+    static func title(_ report: StatusReport?) -> (String, String?, Int?) {
+        guard let report else { return (unknownTitle, nil, nil) }
+        if NodeRole.detect(in: report) == .agent { return (workerTitle, nil, nil) }
+        guard let workers = report.workers else { return (unknownTitle, othersUnknown, nil) }
+        return workers.isEmpty ? (singleTitle, nil, nil) : (clusterTitle, nil, workers.count + 1)
     }
 
     /// This Mac's node name: the first word after "a/b nodes ready · " in
@@ -266,6 +267,12 @@ public enum ClusterDisplay {
 
     static func bytes(_ value: Int64) -> String {
         value > 0 ? WorkloadsDisplay.bytes(value) : "0 GB"
+    }
+
+    /// The stats the report alone gives, as printed: the `node` row's ready
+    /// count, then the `workloads` row's counts. The menu's stats line.
+    public static func reportStats(_ report: StatusReport) -> [ClusterStat] {
+        nodeStats(report) + workloadStats(report)
     }
 
     /// "a/b nodes ready" from the start of the `node` row's detail.

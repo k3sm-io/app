@@ -75,8 +75,8 @@ turned off.
 - The **window** opens whenever you open the app from `/Applications`,
   Spotlight or the Dock, even when k3sm is stopped, so there is always a way
   back in. A launch at login shows only the status item. The left panel is
-  headed by what this Mac is part of ("This Mac is the cluster", "A cluster of
-  3 Macs", or "Joined a cluster" on a worker). When the cluster has more than
+  headed by what this Mac is part of ("This Mac is the cluster", "Cluster" with
+  the number of Macs first in its stats, or "Joined a cluster" on a worker). When the cluster has more than
   one node, a switch at the top of the panel picks between two views:
   **Cluster** shows nodes ready, running pods, the cores and memory pods
   request of what the nodes offer, and each node with its role, readiness,

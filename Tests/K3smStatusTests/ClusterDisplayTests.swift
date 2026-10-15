@@ -63,8 +63,11 @@ struct ClusterDisplayTests {
                 workers: [StatusWorker(name: "node-b", role: "agent")],
                 node: "2/2 nodes ready · my-mac kubelet v1.36.2", workloads: "6 running"),
             want: ClusterSummary(
-                title: "A cluster of 2 Macs",
-                stats: [ClusterStat(label: "nodes ready", value: "2/2"), ClusterStat(label: "running", value: "6")],
+                title: "Cluster",
+                stats: [
+                    ClusterStat(label: "Macs", value: "2"), ClusterStat(label: "nodes ready", value: "2/2"),
+                    ClusterStat(label: "running", value: "6"),
+                ],
                 note: nil, nodeCount: 2)),
         Case(
             name: "workers unknown",
@@ -106,9 +109,9 @@ struct ClusterDisplayTests {
     func twoNodesWithRequests() throws {
         let (report, nodes, pods) = try Self.twoNodes()
         let got = ClusterDisplay.summary(of: report, nodes: nodes, pods: pods)
-        #expect(got.title == "A cluster of 2 Macs")
+        #expect(got.title == "Cluster")
         #expect(got.nodeCount == 2)
-        #expect(got.line == "1/2 nodes ready · 4 running · 5 of 26.5 cores requested · 3.8 GB of 66 GB memory requested · 1 vm")
+        #expect(got.line == "2 Macs · 1/2 nodes ready · 4 running · 5 of 26.5 cores requested · 3.8 GB of 66 GB memory requested · 1 vm")
         #expect(got.nodes == [
             ClusterNodeRow(
                 name: "mac-a", role: "server", ready: "Ready", isReady: true, version: "0.1.7", thisMac: true,
@@ -151,10 +154,10 @@ struct ClusterDisplayTests {
     func nodesUnknown() throws {
         let (report, _, pods) = try Self.twoNodes()
         let got = ClusterDisplay.summary(of: report, nodes: nil, pods: pods)
-        #expect(got.title == "A cluster of 2 Macs")
+        #expect(got.title == "Cluster")
         #expect(got.nodeCount == 2)
         #expect(got.nodes.isEmpty && got.cores == nil && got.memory == nil && got.podsByNode == nil)
-        #expect(got.line == "1/2 nodes ready · 4 running · 1 vm")
+        #expect(got.line == "2 Macs · 1/2 nodes ready · 4 running · 1 vm")
     }
 
     @Test("an unknown allocatable leaves the cluster meter out")
@@ -197,7 +200,7 @@ struct ClusterDisplayTests {
 
     @Test("the vendored status fixtures", arguments: [
         ("status_json_running.json", "This Mac is the cluster", "1/1 nodes ready · 3 running"),
-        ("status_json_server-with-workers.json", "A cluster of 3 Macs", "3/3 nodes ready · 3 running"),
+        ("status_json_server-with-workers.json", "Cluster", "3 Macs · 3/3 nodes ready · 3 running"),
         ("status_json_unknown.json", "This Mac", nil),
     ] as [(String, String, String?)])
     func fixtures(_ name: String, _ title: String, _ line: String?) throws {

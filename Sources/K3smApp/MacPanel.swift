@@ -51,11 +51,13 @@ struct MacPanel: View {
             Wordmark()
                 .padding(.top, 44)
             if PanelMode.showsSwitch(nodeCount: cluster.nodeCount) {
-                Picker("", selection: Binding(get: { mode }, set: { app.panelMode = $0 })) {
-                    ForEach(PanelMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                HStack(spacing: 6) {
+                    ForEach(PanelMode.allCases, id: \.self) { m in
+                        Button(m.title) { app.panelMode = m }
+                            .buttonStyle(PanelChipStyle(selected: mode == m))
+                            .accessibilityAddTraits(mode == m ? .isSelected : [])
+                    }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
             }
             if mode == .cluster {
                 clusterView
@@ -345,5 +347,21 @@ struct Footnote: View {
             .font(.system(size: 11))
             .foregroundStyle(.white.opacity(0.55))
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// PanelChipStyle is a switch chip on the dark panel: filled when selected,
+/// a thin outline otherwise, the label white either way.
+struct PanelChipStyle: ButtonStyle {
+    let selected: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(selected ? Color.white : Color.white.opacity(0.7))
+            .padding(.horizontal, 12).padding(.vertical, 5)
+            .background(Capsule().fill(selected ? Palette.fill : Color.clear))
+            .overlay(Capsule().strokeBorder(Color.white.opacity(selected ? 0 : 0.3), lineWidth: 1))
+            .contentShape(Capsule())
+            .opacity(configuration.isPressed ? 0.8 : 1)
     }
 }
