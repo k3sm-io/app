@@ -58,7 +58,15 @@ struct FlapTests {
     ] as [(Bool, Bool, Bool, Bool, Bool)])
     func hoverStartsBeat(_ inFlight: Bool, _ reduceMotion: Bool, _ windowVisible: Bool, _ started: Bool, _ want: Bool) {
         #expect(Flap.hoverStartsBeat(inFlight: inFlight, reduceMotion: reduceMotion, windowVisible: windowVisible,
-                                     started: started) == want)
+                                     sinceLastBeat: nil, started: started) == want)
+    }
+
+    @Test("a hover within the cooldown of the last beat's end starts nothing", arguments: [
+        (nil, true), (0, false), (Flap.hoverCooldown - 0.01, false), (Flap.hoverCooldown, true),
+        (Flap.hoverCooldown + 5, true), (-1, false), (.nan, false),
+    ] as [(TimeInterval?, Bool)])
+    func hoverCooldown(_ since: TimeInterval?, _ want: Bool) {
+        #expect(Flap.hoverStartsBeat(inFlight: false, reduceMotion: false, windowVisible: true, sinceLastBeat: since) == want)
     }
 
     @Test("the rest stays between its bounds", arguments: [-1.0, 0, 0.5, 1, 2])

@@ -60,12 +60,21 @@ public enum Flap {
         !reduceMotion && windowVisible
     }
 
+    /// The least time, in seconds, from the end of one beat to a beat a hover
+    /// starts, so a pointer wobbling on the mark's edge cannot chain beats.
+    public static let hoverCooldown: TimeInterval = 1.5
+
     /// hoverStartsBeat is whether the pointer entering the mark starts a beat
     /// at once: only while the beats are scheduled (`started`, the console is
-    /// up), not while one is already playing, and only when `plays` would let
-    /// a timed beat play (Reduce Motion off, the window visible).
-    public static func hoverStartsBeat(inFlight: Bool, reduceMotion: Bool, windowVisible: Bool, started: Bool = true) -> Bool {
-        started && !inFlight && plays(reduceMotion: reduceMotion, windowVisible: windowVisible)
+    /// up), not while one is already playing, not within `hoverCooldown` of
+    /// the last beat's end (`sinceLastBeat`, nil before any beat), and only
+    /// when `plays` would let a timed beat play (Reduce Motion off, the
+    /// window visible).
+    public static func hoverStartsBeat(
+        inFlight: Bool, reduceMotion: Bool, windowVisible: Bool, sinceLastBeat: TimeInterval?, started: Bool = true
+    ) -> Bool {
+        if let since = sinceLastBeat, !(since >= hoverCooldown) { return false }
+        return started && !inFlight && plays(reduceMotion: reduceMotion, windowVisible: windowVisible)
     }
 
     /// rest is the wait before the next beat for `unit` in 0...1 (a random

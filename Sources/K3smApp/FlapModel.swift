@@ -36,6 +36,9 @@ final class FlapModel: ObservableObject {
     private var frameTimer: Timer?
     private var frames: [Double] = []
     private var frameIndex = 0
+    /// When the last beat ended, on the system's monotonic uptime clock; nil
+    /// before the first.
+    private var lastBeatEnded: TimeInterval?
 
     /// start schedules the first beat; a second start is a no-op.
     func start() {
@@ -54,14 +57,17 @@ final class FlapModel: ObservableObject {
 
     /// poke plays one beat now when `Flap.hoverStartsBeat` allows it (the
     /// beats are running, none is playing, and `Flap.plays` passes: Reduce
-    /// Motion off, the window visible), and does
+    /// Motion off, the window visible) and `Flap.hoverCooldown` has passed
+    /// since the last beat ended, and does
     /// nothing otherwise. The pending rest is cancelled so it cannot fire
     /// mid-beat; the beat's end draws the next random rest as usual.
     func poke() {
         let started = restTimer != nil || frameTimer != nil
         guard Flap.hoverStartsBeat(
             inFlight: frameTimer != nil, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-            windowVisible: windowVisible(), started: started) else { return }
+            windowVisible: windowVisible(),
+            sinceLastBeat: lastBeatEnded.map { ProcessInfo.processInfo.systemUptime - $0 },
+            started: started) else { return }
         restTimer?.invalidate()
         restTimer = nil
         play()
@@ -95,6 +101,7 @@ final class FlapModel: ObservableObject {
             frameTimer?.invalidate()
             frameTimer = nil
             angle = 0
+            lastBeatEnded = ProcessInfo.processInfo.systemUptime
             rest()
             return
         }
