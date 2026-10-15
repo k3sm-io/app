@@ -295,3 +295,44 @@ struct NodesTests {
         ])
     }
 }
+
+/// A pod with only the fields the console's arithmetic, search and
+/// selection read.
+func testPod(_ name: String, namespace: String = "default", image: String = "registry.local/app:1",
+             cores: Double? = nil, bytes: Int64? = nil) -> Pod {
+    Pod(name: name, namespace: namespace, uid: "\(namespace)-\(name)", image: image, kind: .nativeProcess,
+        phase: "Running", health: .running, ready: true, restarts: 0, ports: [], owner: nil, created: nil,
+        cpuRequest: cores, memoryRequest: bytes, nodeName: nil)
+}
+
+@Suite("what the pods ask of this Mac")
+struct HostRequestsTests {
+    struct Case: Sendable, CustomTestStringConvertible {
+        let name: String
+        let pods: [Pod]
+        let want: PodRequests
+        var testDescription: String { name }
+    }
+
+    static let cases: [Case] = [
+        Case(name: "no pods", pods: [], want: PodRequests(cores: 0, memoryBytes: 0)),
+        Case(name: "no pod requests anything", pods: [testPod("a"), testPod("b")], want: PodRequests(cores: 0, memoryBytes: 0)),
+        Case(
+            name: "requests summed over pods",
+            pods: [testPod("a", cores: 0.25, bytes: 256 << 20), testPod("b", cores: 1.5, bytes: 1 << 30)],
+            want: PodRequests(cores: 1.75, memoryBytes: (256 << 20) + (1 << 30))),
+        Case(
+            name: "a pod without a request adds nothing",
+            pods: [testPod("a", cores: 2), testPod("b", bytes: 512 << 20), testPod("c")],
+            want: PodRequests(cores: 2, memoryBytes: 512 << 20)),
+        Case(
+            name: "bytes past Int64 saturate instead of trapping",
+            pods: [testPod("a", bytes: .max), testPod("b", bytes: 1)],
+            want: PodRequests(cores: 0, memoryBytes: .max)),
+    ]
+
+    @Test("cores and bytes are summed over the pods' requests", arguments: cases)
+    func hostArithmeticSumsPodRequests(_ c: Case) {
+        #expect(ClusterDisplay.requests(of: c.pods) == c.want)
+    }
+}

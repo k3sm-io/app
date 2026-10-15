@@ -143,6 +143,17 @@ public enum PanelMode: String, CaseIterable, Sendable {
     }
 }
 
+/// PodRequests is what a set of pods requests of a host, in cores and bytes.
+public struct PodRequests: Equatable, Sendable {
+    public let cores: Double
+    public let memoryBytes: Int64
+
+    public init(cores: Double, memoryBytes: Int64) {
+        self.cores = cores
+        self.memoryBytes = memoryBytes
+    }
+}
+
 /// ClusterDisplay turns the status report, the node list and the pod list
 /// into the panel's cluster view. The title follows `workers` the way
 /// `NodesDisplay` does: absent is unknown, empty is no other node. A server
@@ -223,6 +234,18 @@ public enum ClusterDisplay {
         }
     }
 
+    /// What the pods ask of a host: their core requests and their byte
+    /// requests, each summed over the pods that state one. The This Mac view
+    /// draws its meters from it. A byte sum past Int64 saturates there, so a
+    /// pod that requests more than any Mac has fills the meter instead of
+    /// stopping the app.
+    public static func requests(of pods: [Pod]) -> PodRequests {
+        let bytes = pods.compactMap(\.memoryRequest)
+        return PodRequests(
+            cores: pods.compactMap(\.cpuRequest).reduce(0, +),
+            memoryBytes: Quantity.sum(bytes) ?? .max)
+    }
+
     /// The title, its note, and the Mac count for a server with workers.
     static func title(_ report: StatusReport?) -> (String, String?, Int?) {
         guard let report else { return (unknownTitle, nil, nil) }
@@ -268,7 +291,7 @@ public enum ClusterDisplay {
         guard !allocatable.isEmpty, allocatable.allSatisfy({ $0 != nil }),
               let milli = Quantity.sum(allocatable.compactMap { $0 }) else { return nil }
         let total = Double(milli) / 1000
-        let used = pods.compactMap(\.cpuRequest).reduce(0, +)
+        let used = requests(of: pods).cores
         return ClusterUsage(requested: used, allocatable: total, text: "\(WorkloadsDisplay.cores(used)) of \(WorkloadsDisplay.cores(total))")
     }
 

@@ -198,8 +198,10 @@ struct MacPanel: View {
     private var pods: [Pod] { workloads.workloads?.pods ?? [] }
     /// The pods on this Mac, for the This Mac meters.
     private var macPods: [Pod] { ClusterDisplay.thisMacPods(pods, report: report, nodeCount: cluster.nodeCount) }
-    private var coresRequested: Double { macPods.compactMap(\.cpuRequest).reduce(0, +) }
-    private var memoryRequested: Int64 { macPods.compactMap(\.memoryRequest).reduce(0, +) }
+    /// What those pods request, by `ClusterDisplay.requests`.
+    private var macRequests: PodRequests { ClusterDisplay.requests(of: macPods) }
+    private var coresRequested: Double { macRequests.cores }
+    private var memoryRequested: Int64 { macRequests.memoryBytes }
 
     private var stateLine: String {
         let count = "\(pods.count) \(pods.count == 1 ? "pod" : "pods")"
