@@ -42,6 +42,12 @@ struct WorkloadsReadingTests {
         #expect(WorkloadsReading.classify(exitCode: 0, stdout: try fixture("kubectl_services_list.json")) == .cliError("kubectl returned a List, not a pod list"))
         #expect(WorkloadsReading.classify(exitCode: 0, stdout: Data("error: no cluster".utf8)) == .cliError("the pod list could not be read"))
     }
+
+    @Test("a hostile kind reaches the error text without its line breaks or format characters")
+    func hostileKind() {
+        let json = #"{"kind":"Evil\u202e\nList","items":[]}"#
+        #expect(WorkloadsReading.classify(exitCode: 0, stdout: Data(json.utf8)) == .cliError("kubectl returned a Evil List, not a pod list"))
+    }
 }
 
 @Suite("workloads display strings")

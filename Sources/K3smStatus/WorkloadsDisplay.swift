@@ -22,7 +22,9 @@ import Foundation
 public enum WorkloadsReading: Equatable, Sendable {
     /// The list decoded; it may be empty, which is a cluster with no pods.
     case listed(Workloads)
-    /// The CLI exited non-zero, or its output was not a pod list.
+    /// The CLI exited non-zero, or its output was not a pod list. The text
+    /// carries the list's decoded kind, so it is shown through
+    /// `StatusDisplay.errorText`, which also runs on the kind here.
     case cliError(String)
     /// The CLI is not installed at its absolute path.
     case binaryMissing
@@ -35,7 +37,7 @@ public enum WorkloadsReading: Equatable, Sendable {
         do {
             return .listed(try Workloads.decode(stdout))
         } catch WorkloadsDecodeError.notAPodList(let kind) {
-            return .cliError("kubectl returned a \(kind), not a pod list")
+            return .cliError("kubectl returned a \(StatusDisplay.errorText(kind)), not a pod list")
         } catch {
             return .cliError("the pod list could not be read")
         }

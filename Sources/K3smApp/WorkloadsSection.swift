@@ -30,7 +30,7 @@ struct WorkloadsSection: View {
                     switch model.reading {
                     case nil: note("Reading the pod list…")
                     case .binaryMissing: note("k3sm is not installed on this Mac.")
-                    case .cliError(let message): note(StatusDisplay.clip(message))
+                    case .cliError(let message): note(StatusDisplay.errorText(message))
                     case .listed(let w) where w.pods.isEmpty: note("No pods on this Mac. Apply a manifest with kubectl and it appears here.")
                     case .listed(let w):
                         ForEach(w.namespaces, id: \.self) { ns in
