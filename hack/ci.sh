@@ -90,7 +90,18 @@ expect_refused() {
 	[ ! -e "$out/k3sm.app" ] || { echo "FAIL: a bundle was produced: $name"; exit 1; }
 	echo "    refused: $name"
 }
-for case in symlink setuid group-writable other-writable-dir no-k3sm; do
+# A sandboxed process cannot set the setuid bit: chmod succeeds and the bit is
+# dropped, so the setuid fixture would not be setuid and its refusal check
+# would fail for the wrong reason. Probe once and skip only that case.
+payload_cases="symlink setuid group-writable other-writable-dir no-k3sm"
+touch "$tmp/setuid-probe"
+chmod 4755 "$tmp/setuid-probe"
+if [ ! -u "$tmp/setuid-probe" ]; then
+	echo "    setuid checks skipped: this sandbox strips the setuid bit"
+	payload_cases="symlink group-writable other-writable-dir no-k3sm"
+fi
+rm -f "$tmp/setuid-probe"
+for case in $payload_cases; do
 	bad="$tmp/bad-$case"
 	make_payload "$bad"
 	case "$case" in

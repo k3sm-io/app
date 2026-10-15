@@ -870,8 +870,18 @@ publish.sh --upload"
 	check "a release candidate builds the core version and keeps the tag in the image name" \
 		eval '[ "$CASE_RC" = 0 ] && logged "^build-app.sh --version 1.2.3 " && logged "k3sm_1.2.3-rc.1_darwin_arm64.dmg" && logged "^publish.sh --upload .* --repo example/k3sm\$"'
 
-	local t
-	for t in edit extra missing dsstore setuid group-writable; do
+	# A sandboxed process cannot set the setuid bit: chmod succeeds and the
+	# bit is dropped, so the setuid tamper case would test nothing. Probe
+	# once and skip only that case.
+	local t tamper_cases="edit extra missing dsstore setuid group-writable"
+	touch "$T/setuid-probe"
+	chmod 4755 "$T/setuid-probe"
+	if [ ! -u "$T/setuid-probe" ]; then
+		echo "  setuid checks skipped: this sandbox strips the setuid bit"
+		tamper_cases="edit extra missing dsstore group-writable"
+	fi
+	rm -f "$T/setuid-probe"
+	for t in $tamper_cases; do
 		full_case "tamper-$t"
 		export FAKE_APP_TAMPER="$t"
 		run_case in_fakes run_full
