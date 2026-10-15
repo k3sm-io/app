@@ -194,6 +194,21 @@ public enum ClusterDisplay {
             cores: cores, memory: memory, podsByNode: podsByNode)
     }
 
+    /// The pods the This Mac view counts: not finished, and bound to this
+    /// Mac's node (the report's own node from the `node` row). In a cluster
+    /// of one node a pod with no node name counts too, and so does every pod
+    /// when the report does not name the node; in a larger cluster neither does.
+    public static func thisMacPods(_ pods: [Pod], report: StatusReport?, nodeCount: Int) -> [Pod] {
+        let own = report.flatMap(ownNodeName)
+        let single = nodeCount <= 1
+        return pods.filter { pod in
+            guard pod.phase != "Succeeded", pod.phase != "Failed" else { return false }
+            guard let node = pod.nodeName else { return single }
+            guard let own else { return single }
+            return node == own
+        }
+    }
+
     static func title(_ report: StatusReport?) -> (String, String?) {
         guard let report else { return (unknownTitle, nil) }
         if NodeRole.detect(in: report) == .agent { return (workerTitle, nil) }

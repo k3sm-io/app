@@ -187,8 +187,10 @@ struct MacPanel: View {
     private var mode: PanelMode { PanelMode.effective(chosen: app.panelMode, nodeCount: cluster.nodeCount) }
 
     private var pods: [Pod] { workloads.workloads?.pods ?? [] }
-    private var coresRequested: Double { pods.compactMap(\.cpuRequest).reduce(0, +) }
-    private var memoryRequested: Int64 { pods.compactMap(\.memoryRequest).reduce(0, +) }
+    /// The pods on this Mac, for the This Mac meters.
+    private var macPods: [Pod] { ClusterDisplay.thisMacPods(pods, report: report, nodeCount: cluster.nodeCount) }
+    private var coresRequested: Double { macPods.compactMap(\.cpuRequest).reduce(0, +) }
+    private var memoryRequested: Int64 { macPods.compactMap(\.memoryRequest).reduce(0, +) }
 
     private var stateLine: String {
         let count = "\(pods.count) \(pods.count == 1 ? "pod" : "pods")"

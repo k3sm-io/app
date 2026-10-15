@@ -170,6 +170,31 @@ struct ClusterDisplayTests {
         #expect(got.nodes.first?.cores?.text == "3.5 of 19")
     }
 
+    struct SplitCase: Sendable, CustomTestStringConvertible {
+        let name: String
+        let node: String?
+        let nodeCount: Int
+        let want: [String]
+        var testDescription: String { name }
+    }
+
+    static let splitCases: [SplitCase] = [
+        SplitCase(name: "server of two: its own bound pods", node: "1/2 nodes ready · mac-a kubelet v1.36.2", nodeCount: 2, want: ["linux-a", "web-a", "web-b"]),
+        SplitCase(name: "worker of two: its own bound pods", node: "1/2 nodes ready · mac-b kubelet v1.36.2", nodeCount: 2, want: ["api-b"]),
+        SplitCase(name: "one node: an unscheduled pod counts", node: "1/1 nodes ready · mac-a kubelet v1.36.2", nodeCount: 1, want: ["linux-a", "pending", "web-a", "web-b"]),
+        SplitCase(name: "two nodes, own node not named: none", node: "apiserver unreachable", nodeCount: 2, want: []),
+        SplitCase(name: "one node, own node not named: every unfinished pod", node: "apiserver unreachable", nodeCount: 1, want: ["api-b", "linux-a", "pending", "web-a", "web-b"]),
+    ]
+
+    @Test("the This Mac meters count only this Mac's unfinished pods", arguments: splitCases)
+    func thisMacSplit(_ c: SplitCase) throws {
+        let (_, _, pods) = try Self.twoNodes()
+        let report = Self.report(workers: [], node: c.node, workloads: nil)
+        let got = ClusterDisplay.thisMacPods(pods, report: report, nodeCount: c.nodeCount).map(\.name).sorted()
+        #expect(got == c.want)
+        #expect(!got.contains("job-done"))
+    }
+
     @Test("the vendored status fixtures", arguments: [
         ("status_json_running.json", "This Mac is the cluster", "1/1 nodes ready · 3 running"),
         ("status_json_server-with-workers.json", "A cluster of 3 Macs", "3/3 nodes ready · 3 running"),
