@@ -99,6 +99,8 @@ struct WorkloadsSelectionTests {
         testPod("web-7c9d", namespace: "shop", image: "ghcr.io/acme/Web:2"),
         testPod("db-0", namespace: "shop", image: "postgres:16"),
         testPod("hello-native", image: "registry.local/hello:1"),
+        testPod("long", image: "registry.local/" + String(repeating: "a", count: 200) + "/hidden-tail:1"),
+        testPod("bidi\u{202E}lave", image: "registry.local/bidi:1"),
     ]
 
     struct SearchCase: Sendable, CustomTestStringConvertible {
@@ -109,13 +111,17 @@ struct WorkloadsSelectionTests {
     }
 
     @Test("the search matches a pod's name or image, ignoring case", arguments: [
-        SearchCase(name: "empty query keeps every pod", query: "", want: ["web-7c9d", "db-0", "hello-native"]),
+        SearchCase(name: "empty query keeps every pod", query: "", want: pods.map(\.name)),
         SearchCase(name: "by name", query: "DB", want: ["db-0"]),
         SearchCase(name: "by image", query: "postgres", want: ["db-0"]),
         SearchCase(name: "image case ignored", query: "acme/web", want: ["web-7c9d"]),
         SearchCase(name: "name and image both match", query: "hello", want: ["hello-native"]),
         SearchCase(name: "namespace is not searched", query: "shop", want: []),
         SearchCase(name: "no match", query: "redis", want: []),
+        SearchCase(name: "a query never spans the name and the image", query: "7c9d ghcr", want: []),
+        SearchCase(name: "the part of an image the list cuts off does not match", query: "hidden-tail", want: []),
+        SearchCase(name: "a format character the list removes is not needed to match", query: "bidilave", want: ["bidi\u{202E}lave"]),
+        SearchCase(name: "a format character in the query matches nothing shown", query: "bidi\u{202E}", want: []),
     ])
     func searchPredicate(_ c: SearchCase) {
         #expect(WorkloadsDisplay.visible(Self.pods, query: c.query).map(\.name) == c.want)

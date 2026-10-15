@@ -110,9 +110,15 @@ public enum WorkloadsDisplay {
     }
 
     /// The pods the search leaves visible: all of them for an empty query,
-    /// otherwise those whose name or image contains it, case-insensitively.
+    /// otherwise those whose name or image, each as the list shows it
+    /// (`StatusDisplay.clip`), contains it, case-insensitively. Matching the
+    /// shown text means a pod never matches on a part of its name the list
+    /// hides, and a query never spans the name and the image.
     public static func visible(_ pods: [Pod], query: String) -> [Pod] {
-        query.isEmpty ? pods : pods.filter { ($0.name + " " + $0.image).localizedCaseInsensitiveContains(query) }
+        guard !query.isEmpty else { return pods }
+        return pods.filter { pod in
+            [pod.name, pod.image].contains { StatusDisplay.clip($0).localizedCaseInsensitiveContains(query) }
+        }
     }
 
     /// What a poll does to the selection. With nothing selected it selects
