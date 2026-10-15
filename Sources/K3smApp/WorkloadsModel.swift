@@ -61,9 +61,9 @@ final class WorkloadsModel: ObservableObject {
         return w.pods.first { $0.key == selected }
     }
 
-    /// The pods the search leaves visible, by name or image.
+    /// The pods the search leaves visible, by `WorkloadsDisplay.visible`.
     func visible(_ pods: [Pod]) -> [Pod] {
-        query.isEmpty ? pods : pods.filter { ($0.name + " " + $0.image).localizedCaseInsensitiveContains(query) }
+        WorkloadsDisplay.visible(pods, query: query)
     }
 
     func select(_ pod: Pod) {
@@ -127,10 +127,13 @@ final class WorkloadsModel: ObservableObject {
         }
         load = HostLoad.read()
         readAt = Date()
-        if selected == nil, let first = workloads?.pods.first {
-            selected = first.key
+        switch WorkloadsDisplay.selection(after: selected, in: workloads?.pods) {
+        case .keep:
+            break
+        case .select(let key):
+            selected = key
             loadDetail()
-        } else if selectedPod == nil {
+        case .clear:
             selected = nil
             detailText = ""
         }
@@ -169,9 +172,4 @@ final class WorkloadsModel: ObservableObject {
             }
         }
     }
-}
-
-extension Pod {
-    /// The selection key: a pod is unique by namespace and name.
-    var key: String { "\(namespace)/\(name)" }
 }

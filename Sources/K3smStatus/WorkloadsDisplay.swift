@@ -44,6 +44,21 @@ public enum WorkloadsReading: Equatable, Sendable {
     }
 }
 
+/// SelectionChange is what a poll does to the selected pod.
+public enum SelectionChange: Equatable, Sendable {
+    /// The selected pod is still listed.
+    case keep
+    /// Select the pod with this key and load its detail.
+    case select(String)
+    /// Nothing is selected, and the detail is emptied.
+    case clear
+}
+
+extension Pod {
+    /// The selection key: a pod is unique by namespace and name.
+    public var key: String { "\(namespace)/\(name)" }
+}
+
 /// WorkloadsDisplay turns a pod into the strings the list shows: how it runs,
 /// its requests, its age. Every string from the API is clipped like status text.
 public enum WorkloadsDisplay {
@@ -83,6 +98,21 @@ public enum WorkloadsDisplay {
         case ..<172_800: return "\(Int(seconds / 3600)) h"
         default: return "\(Int(seconds / 86_400)) d"
         }
+    }
+
+    /// The pods the search leaves visible: all of them for an empty query,
+    /// otherwise those whose name or image contains it, case-insensitively.
+    public static func visible(_ pods: [Pod], query: String) -> [Pod] {
+        query.isEmpty ? pods : pods.filter { ($0.name + " " + $0.image).localizedCaseInsensitiveContains(query) }
+    }
+
+    /// What a poll does to the selection. With nothing selected it selects
+    /// the first pod of the list; a selected pod still listed stays; a pod
+    /// gone from the list, or a list that did not read, clears it.
+    public static func selection(after selected: String?, in pods: [Pod]?) -> SelectionChange {
+        if selected == nil, let first = pods?.first { return .select(first.key) }
+        if let selected, pods?.contains(where: { $0.key == selected }) == true { return .keep }
+        return .clear
     }
 
     /// The list's group header: the namespace and its pod count.
