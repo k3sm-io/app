@@ -134,34 +134,4 @@ public enum StatusDisplay {
             StatusRow(name: clip($0.name), state: clip($0.state), detail: clip($0.detail))
         }
     }
-
-    /// The most characters one line of the status item's menu shows. The menu
-    /// keeps to short stats; the full report is in the window.
-    public static let menuLineLimit = 44
-
-    /// Returns text safe for one menu line: clipped as `clip` does, then cut
-    /// to `menuLineLimit` characters, a longer line ending in a single `…`.
-    public static func menuLine(_ text: String) -> String {
-        let flat = clip(text)
-        guard flat.count > menuLineLimit else { return flat }
-        return String(flat.prefix(menuLineLimit - 1)) + "…"
-    }
-
-    /// Returns the menu's header line: `k3sm · <verdict>`, then
-    /// ` · <summary>` when the report has one, as one menu line.
-    public static func menuHeader(of report: StatusReport) -> String {
-        var header = "k3sm · " + report.verdict.word
-        if !report.summary.isEmpty {
-            header += " · " + report.summary
-        }
-        return menuLine(header)
-    }
-
-    /// Returns the menu's one stats line: `ClusterDisplay.reportStats(_:)`
-    /// joined with " · ", as one menu line, or nil when the report carries
-    /// none. No row is listed, and the panel's Mac count is not shown.
-    public static func menuStats(of report: StatusReport) -> String? {
-        let stats = ClusterDisplay.reportStats(report)
-        return stats.isEmpty ? nil : menuLine(stats.map(\.text).joined(separator: " · "))
-    }
 }

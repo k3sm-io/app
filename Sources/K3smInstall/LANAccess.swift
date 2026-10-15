@@ -17,7 +17,7 @@ limitations under the License.
 import Foundation
 import K3smStatus
 
-/// LANToggle is what the menu and the window show for the "Allow connections
+/// LANToggle is what the window shows for the "Allow connections
 /// from other devices" setting: whether the checkbox is there at all, its
 /// tri-state value, whether it can be clicked (and if not, why), the notes
 /// under it, and whether the status item carries the LAN indicator.

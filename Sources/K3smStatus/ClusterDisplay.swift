@@ -279,12 +279,6 @@ public enum ClusterDisplay {
         value > 0 ? WorkloadsDisplay.bytes(value) : "0 GB"
     }
 
-    /// The stats the report alone gives, as printed: the `node` row's ready
-    /// count, then the `workloads` row's counts. The menu's stats line.
-    public static func reportStats(_ report: StatusReport) -> [ClusterStat] {
-        nodeStats(report) + workloadStats(report)
-    }
-
     /// "a/b nodes ready" from the start of the `node` row's detail.
     static func nodeStats(_ report: StatusReport) -> [ClusterStat] {
         guard let row = report.row(named: "node") else { return [] }

@@ -101,9 +101,8 @@ rest.
 
 ## The menu
 
-The status item's menu shows the verdict line and one line of cluster stats
-(nodes ready and the pod counts, read from the full report each time the menu
-opens). The full report is in the window. Then come these actions:
+The status item's menu holds actions only; the status and the setting for
+connections from other devices are in the window. The actions:
 
 - **Stop k3sm** stops k3sm on this Mac completely, pods included, and keeps it
   stopped across restarts until you start it (`sudo k3sm stop`). Before it
@@ -111,8 +110,9 @@ opens). The full report is in the window. Then come these actions:
   them and warns that stopping halts the cluster's control plane for them. When
   it cannot tell whether any node has joined, it says so and warns anyway.
 - **Restart k3sm** restarts the k3sm daemons; pods keep running.
-- **Allow connections from other devices** is a checkbox for the LAN access
-  setting (see below).
+
+  Stop and Restart appear only on a release build of the app with a k3sm that
+  supports them (see below); otherwise the menu does not show them.
 - **Open Status in Terminal** runs `k3sm status` in a Terminal window.
 - **Open Logs** opens the node daemon's and netd's logs in Console.
 - **Write a Bug Report** opens a Terminal window that collects the k3sm and
@@ -137,14 +137,14 @@ root, not writable by anyone else, not symlinks and free of ACLs, and that
 the binary is signed by the k3sm Developer ID. It never uses the app's own copy of k3sm.
 
 These actions need a k3sm release that has `k3sm stop` (any release after
-0.1.7). With an older k3sm, or one that fails those checks, the menu leaves
-them off and the window says why; `sudo k3sm stop` and `sudo k3sm start` work
+0.1.7). With an older k3sm, or one that fails those checks, the menu does not
+show them and the window says why; `sudo k3sm stop` and `sudo k3sm start` work
 in Terminal either way. Like installing, they need an administrator account
 and a release build of the app.
 
 ## Connections from other devices
 
-The menu and the window carry a checkbox, **Allow connections from other
+The window carries a checkbox, **Allow connections from other
 devices**, with the note "Off: only this Mac and your cluster mesh". It is the
 setting `k3sm network lan` records: with it on, the NodePort, LoadBalancer and
 (on a server) ingress listeners of your workloads answer on every network
@@ -155,9 +155,8 @@ icon carries a small dot.
 The checkbox shows the recorded setting from the newest status read, and has
 three states: on, off and unknown. The status item's regular probe (`k3sm
 status daemons -o json`) carries the setting, so the checkbox and the dot
-follow a change made in Terminal within a few seconds. The full report, read
-when the menu opens and once a minute while the item shows, adds what the node
-daemon serves. It cannot be clicked
+follow a change made in Terminal within a few seconds. The full report the
+window reads adds what the node daemon serves. It cannot be clicked
 when the status could not be read, when that read is out of date, when the
 installed k3sm failed the app's trust checks, or when k3sm reports a value the
 app does not know; the reason is shown under it. A k3sm from before this
@@ -166,7 +165,7 @@ shows on with a note that nothing is recorded. If the saved setting cannot be
 used, k3sm serves it as off, and the checkbox shows off with a note that names
 `sudo k3sm network lan on` or `off` to set it again. When k3sm says the daemon
 still serves a different value, or that its last change was refused, the
-window and the menu say so; when only an administrator can read what the
+window says so; when only an administrator can read what the
 daemon serves, the note points to `sudo k3sm network lan status`. A Mac with no server or worker installed shows
 no checkbox.
 

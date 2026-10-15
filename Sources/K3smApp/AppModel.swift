@@ -327,7 +327,7 @@ final class AppModel: ObservableObject {
             trustRefusal: lanTrustRefusal, blocked: blocked)
     }
 
-    /// Flips the LAN setting from the menu or the window. The verb comes
+    /// Flips the LAN setting from the window. The verb comes
     /// from the value the user saw (`LANToggle.clickVerb`); the driver reads
     /// the status live, asks before turning it on, runs the verb's root
     /// script, and reads the status again. The checkbox then shows the value
