@@ -5,7 +5,9 @@
 bar while this Mac's k3sm node daemon is running, and opens a window for
 everything else.
 
-The source in this repository is private. The published app is free to use.
+The source in this repository is public under the Apache-2.0 licence in
+`LICENSE`. The released app is signed and notarized by the k3sm maintainers
+and is free to use.
 
 ## Two ways to install k3sm
 
@@ -239,7 +241,7 @@ the swift-testing macro plugin path; `hack/ci.sh` adds it for you.
 
 ## Licensing
 
-The source of this app is private. The k3sm CLI and runtime it installs are
-Apache-2.0 and developed in the public k3sm repositories. The governance files
-in this repository (`LICENSE`, `CONTRIBUTING.md` and the rest) are the shared
-k3sm set, kept identical across the k3sm repositories.
+The source of this app is Apache-2.0, like the k3sm CLI and runtime it
+installs, which are developed in the other public k3sm repositories. The
+governance files in this repository (`LICENSE`, `CONTRIBUTING.md` and the
+rest) are the shared k3sm set, kept identical across the k3sm repositories.
