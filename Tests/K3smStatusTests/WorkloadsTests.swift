@@ -184,6 +184,7 @@ struct ResourceNameTests {
     func arguments() throws {
         let ns = try #require(ResourceName("default")), pod = try #require(ResourceName("hello-native"))
         #expect(K3smCLI.workloadsArguments == ["kubectl", "get", "pods", "-A", "-o", "json"])
+        #expect(K3smCLI.nodesArguments == ["kubectl", "get", "nodes", "-o", "json"])
         #expect(K3smCLI.logsArguments(namespace: ns, pod: pod) == ["kubectl", "logs", "-n", "default", "hello-native", "--tail=200", "--all-containers"])
         #expect(K3smCLI.manifestArguments(namespace: ns, pod: pod) == ["kubectl", "get", "pod", "-n", "default", "hello-native", "-o", "yaml"])
         let events = K3smCLI.eventsArguments(namespace: ns, pod: pod)

@@ -158,6 +158,9 @@ public struct Pod: Equatable, Sendable {
     /// requests them, and the byte total is nil when it does not fit in Int64.
     public let cpuRequest: Double?
     public let memoryRequest: Int64?
+    /// The node the pod is bound to (`spec.nodeName`), nil until it is
+    /// scheduled or when the API served a name `ResourceName` refuses.
+    public let nodeName: String?
 
     /// The name the kubectl detail calls take, or nil when the API served a name
     /// the app refuses to put on a command line.
@@ -255,6 +258,7 @@ struct PodWire: Decodable {
             let resources: Resources?
         }
         let runtimeClassName: String?
+        let nodeName: String?
         let containers: [Container]
     }
     struct Status: Decodable {
@@ -294,6 +298,7 @@ extension Pod {
         cpuRequest = cpu.isEmpty ? nil : cpu.reduce(0, +)
         let mem = wire.spec.containers.compactMap { $0.resources?.requests?["memory"] }.compactMap(Quantity.bytes)
         memoryRequest = mem.isEmpty ? nil : Quantity.sum(mem)
+        nodeName = wire.spec.nodeName.flatMap(ResourceName.init)?.value
         let statuses = wire.status?.containerStatuses ?? []
         ready = !statuses.isEmpty && statuses.allSatisfy(\.ready)
         restarts = statuses.reduce(0) { total, status in

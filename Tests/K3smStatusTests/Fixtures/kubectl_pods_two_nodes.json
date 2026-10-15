@@ -1,0 +1,198 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "web-a",
+        "namespace": "default",
+        "uid": "web-a-uid"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "c",
+            "image": "img",
+            "resources": {
+              "requests": {
+                "cpu": "500m",
+                "memory": "256Mi"
+              }
+            }
+          }
+        ],
+        "nodeName": "mac-a"
+      },
+      "status": {
+        "phase": "Running",
+        "containerStatuses": [
+          {
+            "ready": true,
+            "restartCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "web-b",
+        "namespace": "default",
+        "uid": "web-b-uid"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "c",
+            "image": "img",
+            "resources": {
+              "requests": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            }
+          }
+        ],
+        "nodeName": "mac-a"
+      },
+      "status": {
+        "phase": "Running",
+        "containerStatuses": [
+          {
+            "ready": true,
+            "restartCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "linux-a",
+        "namespace": "default",
+        "uid": "linux-a-uid"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "c",
+            "image": "img",
+            "resources": {
+              "requests": {
+                "cpu": "2",
+                "memory": "2Gi"
+              }
+            }
+          }
+        ],
+        "nodeName": "mac-a",
+        "runtimeClassName": "vm"
+      },
+      "status": {
+        "phase": "Running",
+        "containerStatuses": [
+          {
+            "ready": true,
+            "restartCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "job-done",
+        "namespace": "default",
+        "uid": "job-done-uid"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "c",
+            "image": "img",
+            "resources": {
+              "requests": {
+                "cpu": "4",
+                "memory": "4Gi"
+              }
+            }
+          }
+        ],
+        "nodeName": "mac-a"
+      },
+      "status": {
+        "phase": "Succeeded",
+        "containerStatuses": [
+          {
+            "ready": false,
+            "restartCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "api-b",
+        "namespace": "default",
+        "uid": "api-b-uid"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "c",
+            "image": "img",
+            "resources": {
+              "requests": {
+                "cpu": "1500m",
+                "memory": "512Mi"
+              }
+            }
+          }
+        ],
+        "nodeName": "mac-b"
+      },
+      "status": {
+        "phase": "Running",
+        "containerStatuses": [
+          {
+            "ready": true,
+            "restartCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "pending",
+        "namespace": "default",
+        "uid": "pending-uid"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "c",
+            "image": "img",
+            "resources": {
+              "requests": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            }
+          }
+        ]
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    }
+  ]
+}

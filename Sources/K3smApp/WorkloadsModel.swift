@@ -18,10 +18,10 @@ import Combine
 import Foundation
 import K3smStatus
 
-/// WorkloadsModel is the console's state: the last pod list, the search, the
-/// selected pod and its detail, polled serially through the one CLI seam
-/// while the console is on screen, the way StatusPoller polls the visibility
-/// probe.
+/// WorkloadsModel is the console's state: the last pod and node lists, the
+/// search, the selected pod and its detail, polled serially through the one
+/// CLI seam while the console is on screen, the way StatusPoller polls the
+/// visibility probe.
 @MainActor
 final class WorkloadsModel: ObservableObject {
     enum Detail: String, CaseIterable, Identifiable {
@@ -34,6 +34,9 @@ final class WorkloadsModel: ObservableObject {
 
     @Published private(set) var reading: WorkloadsReading?
     @Published private(set) var readAt: Date?
+    /// The cluster's nodes from the last poll; nil when the read failed or
+    /// its output was not a node list.
+    @Published private(set) var nodes: [ClusterNode]?
     @Published var selected: String?          // a Pod.key
     @Published var query = ""
     @Published var detail: Detail = .logs
@@ -108,6 +111,18 @@ final class WorkloadsModel: ObservableObject {
             reading = .cliError("the k3sm CLI did not answer")
         case .exited(let status, let stdout):
             reading = WorkloadsReading.classify(exitCode: status, stdout: stdout)
+        }
+        let nodesOutcome = await CLIProcess.run(
+            path: K3smCLI.path,
+            arguments: K3smCLI.nodesArguments,
+            environment: environment,
+            deadline: PollSchedule.killDeadline
+        )
+        guard !Task.isCancelled else { return }
+        if case .exited(0, let stdout) = nodesOutcome {
+            nodes = try? Nodes.decode(stdout)
+        } else {
+            nodes = nil
         }
         load = HostLoad.read()
         readAt = Date()

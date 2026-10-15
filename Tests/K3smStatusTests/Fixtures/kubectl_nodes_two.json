@@ -1,0 +1,45 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {
+        "name": "mac-b",
+        "labels": {"kubernetes.io/os": "darwin", "kubernetes.io/hostname": "mac-b"}
+      },
+      "status": {
+        "addresses": [{"type": "Hostname", "address": "mac-b"}, {"type": "InternalIP", "address": "100.64.1.1"}],
+        "allocatable": {"cpu": "7500m", "memory": "6Gi", "pods": "110"},
+        "capacity": {"cpu": "8", "memory": "8Gi", "pods": "110"},
+        "conditions": [
+          {"type": "MemoryPressure", "status": "False"},
+          {"type": "Ready", "status": "False", "reason": "KubeletNotReady"}
+        ],
+        "nodeInfo": {"kubeletVersion": "v1.36.2+k3sm.0.1.6"}
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {
+        "name": "mac-a",
+        "labels": {"kubernetes.io/os": "darwin", "node-role.kubernetes.io/control-plane": "true"}
+      },
+      "status": {
+        "addresses": [{"type": "InternalIP", "address": "100.64.0.1"}],
+        "allocatable": {"cpu": "19", "memory": "60Gi", "pods": "110"},
+        "capacity": {"cpu": "20", "memory": "64Gi", "pods": "110"},
+        "conditions": [{"type": "Ready", "status": "True"}],
+        "nodeInfo": {"kubeletVersion": "v1.36.2+k3sm.0.1.7"}
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {"name": "Not_A_Name"},
+      "status": {}
+    }
+  ]
+}

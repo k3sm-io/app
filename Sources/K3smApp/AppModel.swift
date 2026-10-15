@@ -48,6 +48,13 @@ final class AppModel: ObservableObject {
     @Published var statusPanelShown = false
     /// Which section the console shows in its middle column.
     @Published var section: ConsoleSection = .workloads
+    /// The console panel's view the user chose (Cluster or This Mac), nil
+    /// until they choose; kept in the user defaults across launches.
+    /// `PanelMode.effective` decides what is shown.
+    @Published var panelMode: PanelMode? = UserDefaults.standard.string(forKey: AppModel.panelModeKey).flatMap(PanelMode.init(rawValue:)) {
+        didSet { UserDefaults.standard.set(panelMode?.rawValue, forKey: Self.panelModeKey) }
+    }
+    static let panelModeKey = "consolePanelMode"
     /// The console's own state; it polls only while the console is on screen.
     let workloads: WorkloadsModel
     @Published private(set) var report: StatusReport?

@@ -31,6 +31,9 @@ public enum K3smCLI {
     /// The workloads list: every pod on the cluster, through the CLI's bundled
     /// kubectl with the kubeconfig the CLI presets.
     public static let workloadsArguments = ["kubectl", "get", "pods", "-A", "-o", "json"]
+    /// The cluster's nodes, through the same bundled kubectl: names, Ready,
+    /// versions, addresses, capacity and allocatable.
+    public static let nodesArguments = ["kubectl", "get", "nodes", "-o", "json"]
     /// The most log lines a detail call asks for.
     public static let logTail = 200
 

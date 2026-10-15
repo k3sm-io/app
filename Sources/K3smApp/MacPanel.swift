@@ -17,13 +17,14 @@ limitations under the License.
 import K3smStatus
 import SwiftUI
 
-/// MacPanel is the left column: the machine, what the pods ask of it, the
-/// data root, the cluster's nodes and the daemons from the status report.
+/// MacPanel is the left column, scrolled. With more than one node a switch
+/// at the top picks the view: Cluster (the cluster's stats, its nodes with
+/// what their pods request, the cluster's cores and memory) or This Mac (the
+/// machine, what the pods ask of it, the data root, the nodes block). Both
+/// end with the daemons from the status report.
 struct MacPanel: View {
+    @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
-    let report: StatusReport?
-    /// This Mac's installed k3sm, as the window last read it.
-    let installed: SemanticVersion?
 
     private static let machine = HostFacts.read()
     /// The status rows the panel lists, in the report's order.
@@ -31,44 +32,159 @@ struct MacPanel: View {
     /// The state words that read as healthy; anything else is shown in amber.
     private static let healthy: Set<String> = ["running", "ok", "ready", "healthy"]
 
+    private var report: StatusReport? { app.report }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Wordmark()
-                .padding(.top, 44)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("This Mac is the cluster").font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
-                Text(verbatim: Self.machine.line).font(.system(size: 12)).foregroundStyle(.white.opacity(0.62))
-                HStack(spacing: 7) {
-                    Circle().fill(report?.verdict == .running ? Palette.okOnDark : .orange).frame(width: 8, height: 8)
-                    Text(verbatim: stateLine).font(.system(size: 12)).foregroundStyle(.white)
-                }
-                .padding(.top, 4)
-            }
-            PanelBlock("Cores requested by pods", value: "\(WorkloadsDisplay.cores(coresRequested)) of \(Self.machine.cores)") {
-                CoreGrid(cores: Self.machine.cores, performance: Self.machine.performanceCores, used: coresRequested)
-                Footnote("Squares are performance cores, circles are efficiency cores. Requests, not use.")
-            }
-            PanelBlock("Unified memory", value: "\(WorkloadsDisplay.bytes(workloads.load.memoryUsedBytes)) of \(WorkloadsDisplay.bytes(Self.machine.memoryBytes))") {
-                Meter(parts: [(Double(memoryRequested), Palette.fill), (Double(max(0, workloads.load.memoryUsedBytes - memoryRequested)), Palette.fillDim)], total: Double(Self.machine.memoryBytes))
-                Legend(rows: [("Requested by pods", Palette.fill, WorkloadsDisplay.bytes(memoryRequested)), ("macOS and apps", Palette.fillDim, WorkloadsDisplay.bytes(workloads.load.memoryUsedBytes))])
-            }
-            PanelBlock("Data root", value: "\(WorkloadsDisplay.bytes(workloads.load.dataRootUsedBytes)) of \(WorkloadsDisplay.bytes(workloads.load.dataRootSizeBytes))") {
-                Meter(parts: [(Double(workloads.load.dataRootUsedBytes), Palette.fill)], total: Double(workloads.load.dataRootSizeBytes))
-                Footnote("\(HostFacts.dataRoot), the volume it sits on")
-            }
-            if let nodes {
-                PanelBlock("Nodes", value: nodes.heading ?? "") {
-                    nodeRows(nodes)
-                }
-            }
-            Spacer()
-            daemonRows
-            Footnote("Start, stop and uninstall are behind the info button.")
+        ScrollView(.vertical) {
+            content
+                .padding([.horizontal, .bottom], 20)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding([.horizontal, .bottom], 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Palette.deep)
     }
+
+    /// The column, top to bottom: the switch, the view, then the daemons. It
+    /// scrolls, so nothing is cut off in a short window.
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Wordmark()
+                .padding(.top, 44)
+            if PanelMode.showsSwitch(nodeCount: cluster.nodeCount) {
+                Picker("", selection: Binding(get: { mode }, set: { app.panelMode = $0 })) {
+                    ForEach(PanelMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            if mode == .cluster {
+                clusterView
+            } else {
+                thisMacView
+            }
+            daemonRows
+            Footnote("Start, stop and uninstall are behind the info button.")
+        }
+    }
+
+    /// The cluster view: title and stats, one row per node, the cluster meters.
+    @ViewBuilder private var clusterView: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(verbatim: cluster.title).font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
+            if let line = cluster.line {
+                Text(verbatim: line).font(.system(size: 12)).foregroundStyle(.white.opacity(0.8)).monospacedDigit()
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let note = cluster.note {
+                Footnote(note)
+            }
+            stateRow.padding(.top, 4)
+        }
+        if cluster.nodes.isEmpty {
+            nodesBlock
+        } else {
+            PanelBlock("Nodes", value: "\(cluster.nodes.filter(\.isReady).count)/\(cluster.nodes.count) ready") {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(Array(cluster.nodes.enumerated()), id: \.offset) { _, node in
+                        clusterNodeRow(node)
+                    }
+                    if let line = cluster.podsByNode {
+                        Footnote("Running pods: \(line)")
+                    }
+                }
+            }
+        }
+        if let cores = cluster.cores {
+            PanelBlock("Cores requested", value: cores.text) {
+                Meter(parts: [(cores.requested, Palette.fill)], total: cores.allocatable)
+                Footnote("Requests of the cores the nodes offer to pods, not use.")
+            }
+        }
+        if let memory = cluster.memory {
+            PanelBlock("Memory requested", value: memory.text) {
+                Meter(parts: [(memory.requested, Palette.fill)], total: memory.allocatable)
+            }
+        }
+    }
+
+    private func clusterNodeRow(_ node: ClusterNodeRow) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 7) {
+                Circle().fill(node.isReady ? Palette.okOnDark : .orange).frame(width: 7, height: 7)
+                Text(verbatim: node.thisMac ? "\(node.name) (this Mac)" : node.name)
+                    .foregroundStyle(.white).lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Text(verbatim: node.version).foregroundStyle(.white.opacity(0.8)).monospacedDigit()
+            }
+            .font(.system(size: 12, weight: .medium))
+            Text(verbatim: "\(node.role) · \(node.ready)").font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+            if let cores = node.cores {
+                usageRow("Cores", cores)
+            }
+            if let memory = node.memory {
+                usageRow("Memory", memory)
+            }
+        }
+    }
+
+    private func usageRow(_ title: String, _ usage: ClusterUsage) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(title).foregroundStyle(.white.opacity(0.62))
+                Spacer()
+                Text(verbatim: usage.text).foregroundStyle(.white.opacity(0.8)).monospacedDigit()
+            }
+            .font(.system(size: 11))
+            Meter(parts: [(usage.requested, Palette.fill)], total: usage.allocatable, height: 6)
+        }
+    }
+
+    /// This Mac's view: the machine, the nodes block, the three meters.
+    @ViewBuilder private var thisMacView: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(verbatim: PanelMode.showsSwitch(nodeCount: cluster.nodeCount) ? ClusterDisplay.unknownTitle : cluster.title)
+                .font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
+            Text(verbatim: Self.machine.line).font(.system(size: 12)).foregroundStyle(.white.opacity(0.62))
+            stateRow.padding(.top, 4)
+        }
+        nodesBlock
+        PanelBlock("Cores requested by pods", value: "\(WorkloadsDisplay.cores(coresRequested)) of \(Self.machine.cores)") {
+            CoreGrid(cores: Self.machine.cores, performance: Self.machine.performanceCores, used: coresRequested)
+            Footnote("Squares are performance cores, circles are efficiency cores. Requests, not use.")
+        }
+        PanelBlock("Unified memory", value: "\(WorkloadsDisplay.bytes(workloads.load.memoryUsedBytes)) of \(WorkloadsDisplay.bytes(Self.machine.memoryBytes))") {
+            Meter(parts: [(Double(memoryRequested), Palette.fill), (Double(max(0, workloads.load.memoryUsedBytes - memoryRequested)), Palette.fillDim)], total: Double(Self.machine.memoryBytes))
+            Legend(rows: [("Requested by pods", Palette.fill, WorkloadsDisplay.bytes(memoryRequested)), ("macOS and apps", Palette.fillDim, WorkloadsDisplay.bytes(workloads.load.memoryUsedBytes))])
+        }
+        PanelBlock("Data root", value: "\(WorkloadsDisplay.bytes(workloads.load.dataRootUsedBytes)) of \(WorkloadsDisplay.bytes(workloads.load.dataRootSizeBytes))") {
+            Meter(parts: [(Double(workloads.load.dataRootUsedBytes), Palette.fill)], total: Double(workloads.load.dataRootSizeBytes))
+            Footnote("\(HostFacts.dataRoot), the volume it sits on")
+        }
+    }
+
+    private var stateRow: some View {
+        HStack(spacing: 7) {
+            Circle().fill(report?.verdict == .running ? Palette.okOnDark : .orange).frame(width: 8, height: 8)
+            Text(verbatim: stateLine).font(.system(size: 12)).foregroundStyle(.white)
+        }
+    }
+
+    /// The nodes block from the status report: this Mac, then `workers`.
+    @ViewBuilder private var nodesBlock: some View {
+        if let nodes {
+            PanelBlock("Nodes", value: nodes.heading ?? "") {
+                nodeRows(nodes)
+            }
+        }
+    }
+
+    /// The cluster view, re-derived from the report and the two lists.
+    private var cluster: ClusterSummary {
+        ClusterDisplay.summary(of: report, nodes: workloads.nodes, pods: workloads.workloads?.pods)
+    }
+
+    /// The view shown: the user's choice, by `PanelMode.effective`.
+    private var mode: PanelMode { PanelMode.effective(chosen: app.panelMode, nodeCount: cluster.nodeCount) }
 
     private var pods: [Pod] { workloads.workloads?.pods ?? [] }
     private var coresRequested: Double { pods.compactMap(\.cpuRequest).reduce(0, +) }
@@ -82,7 +198,7 @@ struct MacPanel: View {
 
     /// The nodes block, re-derived from each report; nil before the first read.
     private var nodes: NodesView? {
-        report.map { NodesDisplay.view(report: $0, installed: installed) }
+        report.map { NodesDisplay.view(report: $0, installed: app.installedVersion) }
     }
 
     private func nodeRows(_ nodes: NodesView) -> some View {
@@ -181,6 +297,7 @@ struct CoreGrid: View {
 struct Meter: View {
     let parts: [(Double, Color)]
     let total: Double
+    var height: CGFloat = 12
 
     var body: some View {
         GeometryReader { geo in
@@ -191,7 +308,7 @@ struct Meter: View {
                 Spacer(minLength: 0)
             }
         }
-        .frame(height: 12)
+        .frame(height: height)
         .background(Palette.deep2)
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
