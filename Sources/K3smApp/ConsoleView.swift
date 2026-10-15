@@ -24,14 +24,22 @@ enum ConsoleSection: String, CaseIterable, Identifiable {
 }
 
 /// ConsoleView is the window once k3sm is installed: this Mac on the left,
-/// the chosen section in the middle, the inspector on the right. Every string
-/// from the CLI renders verbatim and clipped. The lifecycle controls are the
-/// status panel, a popover from the info button. The console is a light
-/// design and keeps the light scheme whatever the system appearance.
+/// the chosen section in the middle, the inspector on the right unless the
+/// details button has collapsed it. Every string from the CLI renders verbatim
+/// and clipped. The lifecycle controls are the status panel, a popover from
+/// the info button. The console is a light design and keeps the light scheme
+/// whatever the system appearance.
 struct ConsoleView: View {
     @ObservedObject var app: AppModel
 
     static let minSize = CGSize(width: 1180, height: 700)
+    /// The inspector's fixed width; collapsing it lowers the minimum width by this much.
+    static let inspectorWidth: CGFloat = 320
+
+    /// The window's minimum size for the inspector's state.
+    static func minSize(inspectorShown: Bool) -> CGSize {
+        inspectorShown ? minSize : CGSize(width: minSize.width - inspectorWidth, height: minSize.height)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -43,11 +51,16 @@ struct ConsoleView: View {
                 section
             }
             .frame(minWidth: 520)
-            Divider()
-            Inspector(model: app.workloads)
-                .frame(width: 320)
+            if app.inspectorShown {
+                Divider()
+                Inspector(model: app.workloads)
+                    .frame(width: Self.inspectorWidth)
+            }
         }
-        .frame(minWidth: Self.minSize.width, minHeight: Self.minSize.height)
+        .frame(
+            minWidth: Self.minSize(inspectorShown: app.inspectorShown).width,
+            minHeight: Self.minSize(inspectorShown: app.inspectorShown).height
+        )
         .background(Color.white)
         .ignoresSafeArea()
         .preferredColorScheme(.light)
@@ -70,7 +83,8 @@ struct ConsoleView: View {
 }
 
 /// ConsoleStrip is the row above the section: the section chips, the search
-/// field, and the info button that opens the status panel.
+/// field, the details button that shows or collapses the inspector, and the
+/// info button that opens the status panel.
 struct ConsoleStrip: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
@@ -90,6 +104,14 @@ struct ConsoleStrip: View {
             }
             Spacer()
             TextField("Search", text: $workloads.query).textFieldStyle(.roundedBorder).frame(width: 180)
+            Button { app.inspectorShown.toggle() } label: {
+                Image(systemName: "sidebar.trailing").font(.system(size: 16)).foregroundStyle(Palette.navy)
+                    .opacity(app.inspectorShown ? 1 : 0.5)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("i", modifiers: [.command, .option])
+            .accessibilityLabel(app.inspectorShown ? "Hide details" : "Show details")
+            .help(app.inspectorShown ? "Hide details (Command-Option-I)" : "Show details (Command-Option-I)")
             Button { app.statusPanelShown.toggle() } label: {
                 Image(systemName: "info.circle").font(.system(size: 16)).foregroundStyle(Palette.navy)
             }

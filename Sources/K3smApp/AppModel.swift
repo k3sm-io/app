@@ -55,6 +55,13 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(panelMode?.rawValue, forKey: Self.panelModeKey) }
     }
     static let panelModeKey = "consolePanelMode"
+    /// Whether the console shows the inspector (the selected pod's logs,
+    /// events and manifest) on the right; the details button toggles it.
+    /// Kept in the user defaults across launches; shown until hidden.
+    @Published var inspectorShown: Bool = UserDefaults.standard.object(forKey: AppModel.inspectorShownKey) as? Bool ?? true {
+        didSet { UserDefaults.standard.set(inspectorShown, forKey: Self.inspectorShownKey) }
+    }
+    static let inspectorShownKey = "consoleInspectorShown"
     /// The console's own state; it polls only while the console is on screen.
     let workloads: WorkloadsModel
     @Published private(set) var report: StatusReport?

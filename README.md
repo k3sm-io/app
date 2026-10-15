@@ -86,6 +86,9 @@ turned off.
   This Mac. The panel scrolls in a short window. While the window is open the
   pod and node lists are re-read every 5 seconds and the status report is
   re-read every 30 seconds, so the panel follows nodes as they join and leave.
+- The **details button**, beside the info button above the pod list, collapses
+  the pod details on the right (logs, events and manifest) and shows them
+  again; Command-Option-I does the same, and the app remembers the choice.
 
 The app reads state only from `k3sm status -o json`, the machine interface the
 k3sm CLI documents. It runs `/Library/k3sm/k3sm` by absolute path with an
