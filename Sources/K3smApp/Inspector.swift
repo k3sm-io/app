@@ -17,8 +17,9 @@ limitations under the License.
 import K3smStatus
 import SwiftUI
 
-/// Inspector is the right column: the selected pod's facts, then its logs,
-/// events or manifest verbatim.
+/// Inspector is the right column: the selected pod's facts, the actions it
+/// offers (`PodActions`, each behind a confirmation), the last action's line,
+/// then its logs, events or manifest verbatim.
 struct Inspector: View {
     @ObservedObject var model: WorkloadsModel
 
@@ -27,6 +28,7 @@ struct Inspector: View {
             if let pod = model.selectedPod {
                 heading(pod)
                 facts(pod)
+                actions
                 detailTabs
                 ScrollView {
                     Text(verbatim: model.detailLoading ? "loading…" : model.detailText)
@@ -46,6 +48,49 @@ struct Inspector: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Palette.surface)
+        .confirmationDialog(
+            model.pendingAction?.confirmation.title ?? "",
+            isPresented: Binding(get: { model.pendingAction != nil }, set: { if !$0 { model.pendingAction = nil } }),
+            titleVisibility: .visible,
+            presenting: model.pendingAction
+        ) { request in
+            let c = request.confirmation
+            Button(c.verbTitle, role: c.destructive ? .destructive : nil) { model.runPendingAction() }
+            Button(c.cancelTitle, role: .cancel) { model.pendingAction = nil }
+        } message: { request in
+            Text(verbatim: request.confirmation.message)
+        }
+    }
+
+    /// The selected pod's actions and the last action's line; nothing for a
+    /// pod that offers none and has no line.
+    @ViewBuilder private var actions: some View {
+        let offered = model.selectedActions
+        let report = model.selectedReport
+        if !offered.isEmpty || report != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                if !offered.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(offered) { action in
+                            Button(action.title + "…") { model.ask(action) }
+                                .disabled(model.runningAction != nil)
+                        }
+                        if model.runningAction != nil {
+                            Text("running…").font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
+                        }
+                    }
+                }
+                if let report {
+                    Text(verbatim: report.text)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(report.failed ? Palette.bad : Palette.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(.horizontal, 18).padding(.vertical, 10)
+            .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
+        }
     }
 
     private func heading(_ pod: Pod) -> some View {

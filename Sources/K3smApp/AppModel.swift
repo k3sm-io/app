@@ -238,8 +238,9 @@ final class AppModel: ObservableObject {
     init(runner: any PrivilegedRunner, environment: [String: String]) {
         self.runner = runner
         self.environment = environment
-        self.workloads = WorkloadsModel(environment: environment)
-        self.teamID = SelfCheck.teamID()
+        let teamID = SelfCheck.teamID()
+        self.teamID = teamID
+        self.workloads = WorkloadsModel(environment: environment, teamID: teamID)
         self.user = SelfCheck.consoleUser()
         self.payloadVersion = SelfCheck.payloadVersion()
         var availability = SelfCheck.availability()

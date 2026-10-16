@@ -38,15 +38,17 @@ enum CLIOutcome: Sendable {
 /// CLIProcess runs the k3sm CLI by absolute path with the environment the
 /// caller built, collects at most `limit` bytes of its standard output, and
 /// kills it at the deadline, when its output passes the limit, or when the
-/// task awaiting it is cancelled. It runs on a background thread; callers
-/// await the outcome.
+/// task awaiting it is cancelled. Standard error is discarded unless the
+/// caller keeps it (`keepErrors`, a console action that reports kubectl's own
+/// failure text): it then shares the output pipe and its limit. It runs on a
+/// background thread; callers await the outcome.
 enum CLIProcess {
     /// How long to wait for the output pipe to close after the process exits.
     /// A grandchild that inherited the pipe can hold it open; the run does not
     /// wait on it past this.
     private static let drainGrace: DispatchTimeInterval = .milliseconds(500)
 
-    static func run(path: String, arguments: [String], environment: [String: String], deadline: Duration, limit: Int) async -> CLIOutcome {
+    static func run(path: String, arguments: [String], environment: [String: String], deadline: Duration, limit: Int, keepErrors: Bool = false) async -> CLIOutcome {
         guard FileManager.default.isExecutableFile(atPath: path) else {
             return .missing
         }
@@ -54,7 +56,7 @@ enum CLIProcess {
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
-                    continuation.resume(returning: runBlocking(path: path, arguments: arguments, environment: environment, deadline: deadline, limit: limit, control: control))
+                    continuation.resume(returning: runBlocking(path: path, arguments: arguments, environment: environment, deadline: deadline, limit: limit, keepErrors: keepErrors, control: control))
                 }
             }
         } onCancel: {
@@ -64,16 +66,16 @@ enum CLIProcess {
         }
     }
 
-    private static func runBlocking(path: String, arguments: [String], environment: [String: String], deadline: Duration, limit: Int, control: RunControl) -> CLIOutcome {
+    private static func runBlocking(path: String, arguments: [String], environment: [String: String], deadline: Duration, limit: Int, keepErrors: Bool, control: RunControl) -> CLIOutcome {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
         process.environment = environment
         process.currentDirectoryURL = URL(fileURLWithPath: "/")
         process.standardInput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
         let pipe = Pipe()
         process.standardOutput = pipe
+        process.standardError = keepErrors ? pipe : FileHandle.nullDevice
 
         let exited = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in

@@ -123,9 +123,24 @@ turned off.
     "Unavailable (the MLX API is not served on this cluster)", which is not a
     failure.
 
-  Every tab only reads; none of them changes anything on the cluster. The
-  app remembers the tab, each tab's search and selection, the Workloads
-  switch and the events namespace.
+  The tabs only read. The one change the console makes is the pod
+  inspector's **Restart** (below). The app remembers the tab, each tab's
+  search and selection, the Workloads switch and the events namespace.
+- **Restart…** in the pod details, shown only for a pod that has an owner (a
+  ReplicaSet, StatefulSet, DaemonSet, Job or other controller), is the
+  console's first write. After you confirm, saying the owner will recreate
+  the pod, the app runs `k3sm kubectl delete pod <pod> -n <namespace>
+  --wait=false` as your own account, by the CLI's absolute path and only
+  after checking, just then, that the installed k3sm and its directories are
+  root-owned and not writable by others and that it carries the k3sm
+  signature (a developer build of the app checks ownership only). `k3sm kubectl`
+  uses the `k3sm` context of the admin kubeconfig that `k3sm install` wrote
+  to your account (`~/.kube/config`), the same one every console read uses;
+  the app adds no credential and no privilege. The pod's containers stop at
+  once and its owner starts a replacement, which may have a new name and run
+  on another node. One line under the button says whether the delete was
+  accepted or why it failed, and the pod list is read again. A pod without
+  an owner shows no Restart, since nothing would bring it back.
 - A tab that is **reading** says so with a small butterfly, beating: in the
   middle of the tab while its first read runs, and just after the tab's name
   while a later read runs behind the list it already shows. A read that ends
