@@ -38,14 +38,23 @@ protocol TabLoading: AnyObject {
 final class TabLoader<Value: Sendable>: ObservableObject, TabLoading {
     let reader: TabReader<Value>
 
-    init(
+    convenience init(
         arguments: [String], what: String, environment: [String: String],
         decode: @escaping @Sendable (Int32, Data) -> TabResult<Value>,
         interval: @escaping @MainActor (Value?) -> Duration
     ) {
-        reader = TabReader(
-            read: { await Self.read(arguments: arguments, what: what, environment: environment, decode: decode) },
+        self.init(
+            read: {
+                let outcome = await Self.run(arguments: arguments, environment: environment)
+                return Self.result(of: outcome, what: what, decode: decode)
+            },
             interval: interval)
+    }
+
+    /// A loader whose read is made of more than one CLI run (the Models
+    /// tab's list, then discovery after a failed list), each through `run`.
+    init(read: @escaping @Sendable () async -> TabResult<Value>, interval: @escaping @MainActor (Value?) -> Duration) {
+        reader = TabReader(read: read, interval: interval)
         reader.willChange = { [weak self] in self?.objectWillChange.send() }
     }
 
@@ -66,14 +75,17 @@ final class TabLoader<Value: Sendable>: ObservableObject, TabLoading {
     func stop() { reader.stop() }
     func refresh() async { await reader.refresh() }
 
-    /// One CLI run as a tab result.
-    private nonisolated static func read(
-        arguments: [String], what: String, environment: [String: String],
-        decode: @Sendable (Int32, Data) -> TabResult<Value>
-    ) async -> TabResult<Value> {
-        let outcome = await CLIProcess.run(
+    /// One run of a fixed argument list, with the list deadline and limit.
+    nonisolated static func run(arguments: [String], environment: [String: String]) async -> CLIOutcome {
+        await CLIProcess.run(
             path: K3smCLI.path, arguments: arguments, environment: environment,
             deadline: PollSchedule.listDeadline, limit: OutputLimit.list)
+    }
+
+    /// One CLI run as a tab result.
+    nonisolated static func result(
+        of outcome: CLIOutcome, what: String, decode: (Int32, Data) -> TabResult<Value>
+    ) -> TabResult<Value> {
         switch outcome {
         case .missing:
             return .unavailable(TabLoad.notInstalled)
@@ -84,5 +96,22 @@ final class TabLoader<Value: Sendable>: ObservableObject, TabLoading {
         case .exited(let status, let stdout):
             return decode(status, stdout)
         }
+    }
+}
+
+/// TabLoaderGroup is a tab read by more than one loader (Storage: the claim
+/// list and the data volume card): started, stopped and refreshed together.
+@MainActor
+final class TabLoaderGroup: TabLoading {
+    private let members: [any TabLoading]
+
+    init(_ members: [any TabLoading]) {
+        self.members = members
+    }
+
+    func start() { members.forEach { $0.start() } }
+    func stop() { members.forEach { $0.stop() } }
+    func refresh() async {
+        for member in members { await member.refresh() }
     }
 }

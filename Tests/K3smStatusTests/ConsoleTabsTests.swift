@@ -25,7 +25,8 @@ struct ConsoleTabsTests {
     func unknownPersistedTabFallsBackToWorkloads() {
         #expect(ConsoleTabs.restore(from: nil) == .workloads)
         #expect(ConsoleTabs.restore(from: "") == .workloads)
-        #expect(ConsoleTabs.restore(from: "services") == .workloads)
+        #expect(ConsoleTabs.restore(from: "network") == .workloads)
+        #expect(ConsoleTabs.restore(from: "services") == .services)
         #expect(ConsoleTabs.restore(from: "Images") == .workloads)
         #expect(ConsoleTabs.restore(from: 3) == .workloads)
         #expect(ConsoleTabs.restore(from: "images") == .images)

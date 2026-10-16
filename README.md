@@ -88,20 +88,44 @@ turned off.
   be read. The app remembers the choice; a single-node cluster always shows
   This Mac. The panel scrolls in a short window. While the window is open the
   node list and the selected tab's list are re-read every 5 seconds (every 15
-  seconds on Images, and on Builds once the build engine is ready) and the
+  seconds on Images, Services, Storage and Models, and on Builds once the
+  build engine is ready) and the
   status report is re-read every 30 seconds, so the panel follows nodes as
   they join and leave. The pod list keeps being read every 30 seconds while
   another tab is selected, so the panel's pod figures stay current; the panel
   shows their age beside its state when that read is late. No other tab is
   read while it is not selected; when you come back to it, it shows what it
-  last read and how long ago.
+  last read and how long ago. When the cluster has an interconnect (the
+  cable network between Macs) and an administrator has armed it, the panel
+  shows an Interconnect block: how many cabled nodes are up, the segments,
+  how many pods hold an interconnect address, the nodes past its address
+  range, and that pod traffic on the cable is not encrypted.
 - The **Update** button appears at the top right of the console, beside the
   search field, when k3sm reports a newer release for the cluster. It runs
   the cluster's managed update (see [The managed update](#the-managed-update)).
-- The **tabs** above the list are Workloads (every pod, with the Mac it runs
-  on), Images (the images the nodes report holding, one row per digest; until
-  a node reports them the tab says so) and Builds (the build engine's state).
-  The app remembers the tab, and each tab's search and selection.
+- The **tabs** above the list are:
+  - **Workloads**: every pod, with the Mac it runs on. Its **Events** switch
+    shows the cluster's events instead, newest first and at most 200, with a
+    menu that picks one namespace or all of them. Events are read only while
+    that switch is on.
+  - **Images**: the images the nodes report holding, one row per digest;
+    until a node reports them the tab says so.
+  - **Builds**: the build engine's state.
+  - **Services**: every service, with its namespace, type, cluster IP and
+    ports, and the hosts of the ingresses that route to it (`*` for a rule
+    that matches any host).
+  - **Storage**: this Mac's data volume on top (from `k3sm datavol status`:
+    mounted or not, its quota, usage and free space, and any copy a
+    migration left behind), then every volume claim with its volume,
+    capacity and phase, and the volumes no claim holds.
+  - **Models**: every MLX model with its model name, phase, ready replicas
+    and endpoint. On a cluster that does not serve the MLX API the tab says
+    "Unavailable (the MLX API is not served on this cluster)", which is not a
+    failure.
+
+  Every tab only reads; none of them changes anything on the cluster. The
+  app remembers the tab, each tab's search and selection, the Workloads
+  switch and the events namespace.
 - A tab that is **reading** says so with a small butterfly, beating: in the
   middle of the tab while its first read runs, and just after the tab's name
   while a later read runs behind the list it already shows. A read that ends

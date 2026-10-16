@@ -51,6 +51,20 @@ public enum K3smCLI {
     /// The build engine: the pods and claims in its namespace, through the
     /// same bundled kubectl. A cluster without an engine lists none.
     public static let buildEngineArguments = ["kubectl", "get", "pods,pvc", "-n", "k3sm-builder", "-o", "json"]
+    /// The Services tab: every Service and Ingress, across namespaces.
+    public static let servicesArguments = ["kubectl", "get", "svc,ingress", "-A", "-o", "json"]
+    /// The Storage tab's list: every volume claim and volume.
+    public static let storageArguments = ["kubectl", "get", "pvc,pv", "-A", "-o", "json"]
+    /// The Storage tab's card: this Mac's data volume, from the CLI itself;
+    /// it needs no privilege.
+    public static let dataVolumeArguments = ["datavol", "status", "-o", "json"]
+    /// The Models tab: every MLXModel, by the resource's full name.
+    public static let modelsArguments = ["kubectl", "get", ModelsList.resource, "-A", "-o", "json"]
+    /// Whether the cluster serves the MLX API, read only after the models
+    /// list failed (`ModelsList.needsDiscovery`).
+    public static let modelsDiscoveryArguments = ["kubectl", "api-resources", "--api-group=mlx.k3sm.io", "-o", "name"]
+    /// The Events view: every Event, across namespaces.
+    public static let eventsArguments = ["kubectl", "get", "events", "-A", "-o", "json"]
     /// The most log lines a detail call asks for.
     public static let logTail = 200
 
@@ -113,6 +127,11 @@ public enum PollSchedule {
     /// The Images tab's cadence: images change only when one is pulled,
     /// loaded or removed.
     public static let imagesInterval: Duration = .seconds(15)
+    /// The cadence of the Services, Storage and Models tabs: objects that
+    /// change when someone applies a manifest.
+    public static let objectsInterval: Duration = .seconds(15)
+    /// The Events view's cadence, the pod list's own.
+    public static let eventsInterval: Duration = .seconds(5)
     /// The Builds tab's cadence once the engine is ready; until then it is
     /// read at `visibleInterval`, so a starting engine is seen when it serves.
     public static let buildsReadyInterval: Duration = .seconds(15)
@@ -144,13 +163,15 @@ public enum PollSchedule {
     /// The wait between a console tab's reads while it is selected:
     /// Workloads at `visibleInterval`, as before tabs; Images at
     /// `imagesInterval`; Builds at `visibleInterval` until the engine is
-    /// ready, then `buildsReadyInterval`. The shared node list follows the
-    /// selected tab's cadence too.
+    /// ready, then `buildsReadyInterval`; Services, Storage and Models at
+    /// `objectsInterval`. The shared node list follows the selected tab's
+    /// cadence too.
     public static func interval(for section: ConsoleSection, engineReady: Bool) -> Duration {
         switch section {
         case .workloads: return visibleInterval
         case .images: return imagesInterval
         case .builds: return engineReady ? buildsReadyInterval : visibleInterval
+        case .services, .storage, .models: return objectsInterval
         }
     }
 }

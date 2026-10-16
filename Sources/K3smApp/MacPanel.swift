@@ -67,6 +67,7 @@ struct MacPanel: View {
             } else {
                 thisMacView
             }
+            interconnectBlock
             daemonRows
             Footnote("Start, stop and uninstall are behind the info button.")
         }
@@ -185,6 +186,26 @@ struct MacPanel: View {
                 if let age = PollSchedule.panelAge(podsReadAt: workloads.readAt, now: context.date) {
                     Text(verbatim: age).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
                 }
+            }
+        }
+    }
+
+    /// The Interconnect block, only while the full report carries an armed
+    /// interconnect (`InterconnectCard`).
+    @ViewBuilder private var interconnectBlock: some View {
+        if let card = InterconnectCard.card(for: report) {
+            PanelBlock("Interconnect", value: card.medium) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(verbatim: card.nodes).foregroundStyle(.white.opacity(0.8))
+                    Text(verbatim: "\(card.segments) · \(card.pods)").foregroundStyle(.white.opacity(0.62))
+                    if let outOfRange = card.outOfRange {
+                        Text(verbatim: outOfRange).foregroundStyle(.white.opacity(0.62)).lineLimit(1).truncationMode(.tail)
+                    }
+                    if let warning = card.warning {
+                        Footnote(warning)
+                    }
+                }
+                .font(.system(size: 12))
             }
         }
     }

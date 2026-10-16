@@ -22,6 +22,9 @@ public enum ConsoleSection: String, CaseIterable, Identifiable, Sendable {
     case workloads
     case images
     case builds
+    case services
+    case storage
+    case models
 
     public var id: Self { self }
 
@@ -31,6 +34,9 @@ public enum ConsoleSection: String, CaseIterable, Identifiable, Sendable {
         case .workloads: return "Workloads"
         case .images: return "Images"
         case .builds: return "Builds"
+        case .services: return "Services"
+        case .storage: return "Storage"
+        case .models: return "Models"
         }
     }
 }
@@ -70,5 +76,39 @@ public enum ConsoleTabs {
     public static func restoreSelected(from stored: Any?) -> String? {
         guard let text = stored as? String, !text.isEmpty else { return nil }
         return StatusDisplay.clip(text)
+    }
+}
+
+/// WorkloadsView is the Workloads tab's sub-tab: its pods, or the cluster's
+/// events. The raw value is the id kept in the user defaults.
+public enum WorkloadsView: String, CaseIterable, Identifiable, Sendable {
+    case pods
+    case events
+
+    public var id: Self { self }
+
+    /// The sub-tab's label.
+    public var title: String {
+        switch self {
+        case .pods: return "Pods"
+        case .events: return "Events"
+        }
+    }
+
+    /// The key holding the chosen sub-tab.
+    public static let key = "consoleWorkloadsView"
+    /// The key holding the Events view's namespace filter ("" for all).
+    public static let namespaceKey = "consoleEventsNamespace"
+
+    /// The sub-tab a stored value names, or Pods when it names none.
+    public static func restore(from stored: Any?) -> WorkloadsView {
+        guard let raw = stored as? String, let view = WorkloadsView(rawValue: raw) else { return .pods }
+        return view
+    }
+
+    /// A stored namespace filter, clipped; nil (every namespace) when none
+    /// is stored or it is empty.
+    public static func restoreNamespace(from stored: Any?) -> String? {
+        ConsoleTabs.restoreSelected(from: stored)
     }
 }

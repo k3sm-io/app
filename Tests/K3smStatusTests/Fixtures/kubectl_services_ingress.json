@@ -1,0 +1,38 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1", "kind": "Service",
+      "metadata": {"name": "web", "namespace": "shop"},
+      "spec": {"type": "NodePort", "clusterIP": "10.43.0.20",
+               "ports": [{"port": 80, "protocol": "TCP", "nodePort": 30080, "targetPort": 8080}, {"port": 443}]}
+    },
+    {
+      "apiVersion": "v1", "kind": "Service",
+      "metadata": {"name": "kubernetes", "namespace": "default"},
+      "spec": {"type": "ClusterIP", "clusterIP": "10.43.0.1", "ports": [{"port": 443, "protocol": "TCP"}]}
+    },
+    {
+      "apiVersion": "v1", "kind": "Service",
+      "metadata": {"name": "db", "namespace": "shop"},
+      "spec": {"clusterIP": "None", "ports": [{"port": 5432, "protocol": "TCP"}]}
+    },
+    {
+      "apiVersion": "networking.k8s.io/v1", "kind": "Ingress",
+      "metadata": {"name": "front", "namespace": "shop"},
+      "spec": {
+        "rules": [
+          {"host": "shop.example.test", "http": {"paths": [{"path": "/", "pathType": "Prefix", "backend": {"service": {"name": "web", "port": {"number": 80}}}}]}},
+          {"http": {"paths": [{"path": "/x", "pathType": "Prefix", "backend": {"service": {"name": "web", "port": {"number": 80}}}}]}},
+          {"host": "api.example.test", "http": {"paths": [{"path": "/", "pathType": "Prefix", "backend": {"service": {"name": "absent", "port": {"number": 80}}}}]}}
+        ]
+      }
+    },
+    {
+      "apiVersion": "networking.k8s.io/v1", "kind": "Ingress",
+      "metadata": {"name": "other-ns", "namespace": "default"},
+      "spec": {"rules": [{"host": "elsewhere.example.test", "http": {"paths": [{"path": "/", "pathType": "Prefix", "backend": {"service": {"name": "web", "port": {"number": 80}}}}]}}]}
+    }
+  ]
+}

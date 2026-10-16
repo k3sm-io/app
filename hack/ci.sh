@@ -16,7 +16,8 @@
 #      (the release driver's refusals, checks and rehearsal, all with fakes)
 #   7. every .swift file carries the Apache-2.0 header
 #   8. every file under .github/workflows/ is dormant (fully commented out)
-#   9. the vendored status fixtures match a sibling k3sm checkout, when one exists
+#   9. the vendored status and datavol fixtures match a sibling k3sm
+#      checkout, when one exists
 #  10. the dependency supply-chain check: its self-test, then the live tree
 #
 # K3SM_SWIFTPM_DISABLE_SANDBOX=1 passes --disable-sandbox to every swift
@@ -235,6 +236,16 @@ if [ -d "$golden" ]; then
 	done
 	[ "$drift" = 0 ] || { echo "FAIL: re-copy the fixtures from $golden"; exit 1; }
 	echo "    ok (against $golden)"
+	# The Storage tab's data volume fixtures (k3sm datavol status -o json),
+	# byte for byte against k3sm's goldens of the same name.
+	dv_golden="$k3sm_dir/cmd/k3sm/testdata"
+	for f in Tests/K3smStatusTests/Fixtures/datavol_status_json_*.json; do
+		if ! cmp -s "$f" "$dv_golden/$(basename "$f")"; then
+			echo "    DRIFT: $f differs from $dv_golden/$(basename "$f")"; drift=1
+		fi
+	done
+	[ "$drift" = 0 ] || { echo "FAIL: re-copy the datavol fixtures from $dv_golden"; exit 1; }
+	echo "    ok (against $dv_golden)"
 else
 	echo "    skipped: no k3sm checkout at $k3sm_dir (set K3SM_DIR)"
 fi

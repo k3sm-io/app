@@ -194,11 +194,14 @@ public struct StatusReport: Decodable, Equatable, Sendable {
     /// object is unknown. Both the full report and the daemons probe carry it;
     /// only the full report carries the daemon's applied state.
     public let network: LANAccess
+    /// The cluster's interconnect, present only when the cluster has an
+    /// Interconnect the report could read; nil when absent or not an object.
+    public let interconnect: StatusInterconnect?
 
     public init(
         schemaVersion: Int, verdict: Verdict, role: String, summary: String, rows: [StatusRow],
         stoppedBy: StoppedBy? = nil, workers: [StatusWorker]? = nil, joinTarget: String? = nil,
-        network: LANAccess = .absentField
+        network: LANAccess = .absentField, interconnect: StatusInterconnect? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.verdict = verdict
@@ -209,10 +212,11 @@ public struct StatusReport: Decodable, Equatable, Sendable {
         self.workers = workers
         self.joinTarget = joinTarget
         self.network = network
+        self.interconnect = interconnect
     }
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, verdict, role, summary, rows, daemons, stoppedBy, workers, joinTarget, network
+        case schemaVersion, verdict, role, summary, rows, daemons, stoppedBy, workers, joinTarget, network, interconnect
     }
 
     /// The wire shape of one worker; a node without a string name makes the
@@ -253,6 +257,7 @@ public struct StatusReport: Decodable, Equatable, Sendable {
         } else {
             network = .absentField
         }
+        interconnect = (try? c.decodeIfPresent(StatusInterconnect.self, forKey: .interconnect)) ?? nil
     }
 
     /// Returns the row with the given name, if the report carries one.

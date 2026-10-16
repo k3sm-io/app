@@ -30,7 +30,7 @@ struct TabStrip: View {
     let choose: (ConsoleSection) -> Void
 
     var body: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 16) {
             ForEach(ConsoleSection.allCases) { s in
                 Button(s.title) { choose(s) }
                     .buttonStyle(ConsoleTabStyle(selected: selected == s))

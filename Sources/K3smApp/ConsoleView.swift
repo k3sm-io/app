@@ -112,11 +112,29 @@ struct ConsoleContent: View {
     @ViewBuilder
     private var section: some View {
         switch app.section {
-        case .workloads: WorkloadsSection(model: app.workloads)
+        case .workloads: WorkloadsTab(app: app)
         case .images: ImagesSection(app: app, workloads: app.workloads)
         case .builds:
             if let builds = app.builds {
                 BuildsSection(loader: builds)
+            } else {
+                Color.clear
+            }
+        case .services:
+            if let services = app.services {
+                ServicesSection(app: app, loader: services)
+            } else {
+                Color.clear
+            }
+        case .storage:
+            if let storage = app.storage, let volume = app.dataVolume {
+                StorageSection(app: app, claims: storage, volume: volume)
+            } else {
+                Color.clear
+            }
+        case .models:
+            if let models = app.models {
+                ModelsSection(app: app, loader: models)
             } else {
                 Color.clear
             }
@@ -152,9 +170,13 @@ struct ConsoleStrip: View {
             }
             switch app.section {
             case .workloads:
-                TextField("Search", text: $workloads.query).textFieldStyle(.roundedBorder).frame(width: 180)
-            case .images:
-                TextField("Search", text: $app.imagesQuery).textFieldStyle(.roundedBorder).frame(width: 180)
+                if app.workloadsView == .pods {
+                    search($workloads.query)
+                }
+            case .images: search($app.imagesQuery)
+            case .services: search($app.servicesQuery)
+            case .storage: search($app.storageQuery)
+            case .models: search($app.modelsQuery)
             case .builds:
                 EmptyView()
             }
@@ -177,5 +199,11 @@ struct ConsoleStrip: View {
         }
         .padding(.horizontal, 16).frame(height: 52)
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
+    }
+
+    /// The tab's search field: 180 pt when the strip has room, narrowing to
+    /// 100 pt before the tab labels are squeezed.
+    private func search(_ text: Binding<String>) -> some View {
+        TextField("Search", text: text).textFieldStyle(.roundedBorder).frame(minWidth: 100, idealWidth: 180, maxWidth: 180)
     }
 }

@@ -67,7 +67,39 @@ final class AppModel: ObservableObject {
                 chosen?.stop()
             }
             chosen?.start()
+            syncEvents()
         }
+    }
+    /// The Workloads tab's sub-tab (its pods or the cluster's events), kept
+    /// in the user defaults. The events are read only while this is Events,
+    /// Workloads is the selected tab and the console is on screen.
+    @Published var workloadsView: WorkloadsView = WorkloadsView.restore(
+        from: UserDefaults.standard.object(forKey: WorkloadsView.key)) {
+        didSet {
+            UserDefaults.standard.set(workloadsView.rawValue, forKey: WorkloadsView.key)
+            syncEvents()
+            waiting.changed()
+        }
+    }
+    /// The Events view's namespace filter, nil for every namespace; kept in
+    /// the user defaults.
+    @Published var eventsNamespace: String? = WorkloadsView.restoreNamespace(
+        from: UserDefaults.standard.object(forKey: WorkloadsView.namespaceKey)) {
+        didSet { UserDefaults.standard.set(eventsNamespace ?? "", forKey: WorkloadsView.namespaceKey) }
+    }
+    /// The search text of the Services, Storage and Models tabs, kept in the
+    /// user defaults like the Workloads tab's.
+    @Published var servicesQuery = ConsoleTabs.restoreQuery(
+        from: UserDefaults.standard.object(forKey: ConsoleTabs.queryKey(.services))) {
+        didSet { UserDefaults.standard.set(servicesQuery, forKey: ConsoleTabs.queryKey(.services)) }
+    }
+    @Published var storageQuery = ConsoleTabs.restoreQuery(
+        from: UserDefaults.standard.object(forKey: ConsoleTabs.queryKey(.storage))) {
+        didSet { UserDefaults.standard.set(storageQuery, forKey: ConsoleTabs.queryKey(.storage)) }
+    }
+    @Published var modelsQuery = ConsoleTabs.restoreQuery(
+        from: UserDefaults.standard.object(forKey: ConsoleTabs.queryKey(.models))) {
+        didSet { UserDefaults.standard.set(modelsQuery, forKey: ConsoleTabs.queryKey(.models)) }
     }
     /// The Images tab's search and selected row (a `NodeImage.key`), kept
     /// in the user defaults like the Workloads tab's.
@@ -81,6 +113,14 @@ final class AppModel: ObservableObject {
     }
     /// The Builds tab's engine read; nil until the tab is first selected.
     @Published private(set) var builds: TabLoader<BuildEngine>?
+    /// The Services, Storage (its claim list and the data volume card) and
+    /// Models reads, and the Workloads tab's Events read; each nil until
+    /// its tab (or sub-tab) is first selected.
+    @Published private(set) var services: TabLoader<[ServiceRow]>?
+    @Published private(set) var storage: TabLoader<[StorageRow]>?
+    @Published private(set) var dataVolume: TabLoader<DataVolume>?
+    @Published private(set) var models: TabLoader<[ModelRow]>?
+    @Published private(set) var events: TabLoader<[ClusterEvent]>?
     /// Each tab's loader, created on the tab's first selection. Images has
     /// none: it renders the shared node list.
     private var loaders: [ConsoleSection: any TabLoading] = [:]
@@ -202,9 +242,13 @@ final class AppModel: ObservableObject {
         waiting.load = { [weak self] section in
             guard let self else { return nil }
             switch section {
-            case .workloads: return self.workloads.pods?.load
+            case .workloads:
+                return self.workloadsView == .events ? self.events?.load : self.workloads.pods?.load
             case .images: return self.workloads.nodeList.load
             case .builds: return self.builds?.load
+            case .services: return self.services?.load
+            case .storage: return self.storage?.load
+            case .models: return self.models?.load
             }
         }
         waitingObservations.append(workloads.objectWillChange.sink { [weak self] _ in
@@ -338,18 +382,93 @@ final class AppModel: ObservableObject {
         case .images:
             made = nil
         case .builds:
-            let engine = TabLoader(
+            let engine = observed(TabLoader(
                 arguments: K3smCLI.buildEngineArguments, what: "build engine list", environment: environment,
                 decode: BuildEngine.tabResult(exitCode:stdout:),
-                interval: { PollSchedule.interval(for: .builds, engineReady: $0?.state == .ready) })
+                interval: { PollSchedule.interval(for: .builds, engineReady: $0?.state == .ready) }))
             builds = engine
-            waitingObservations.append(engine.objectWillChange.sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.waiting.changed() }
-            })
             made = engine
+        case .services:
+            let list = observed(TabLoader(
+                arguments: K3smCLI.servicesArguments, what: "service list", environment: environment,
+                decode: ServicesList.tabResult(exitCode:stdout:),
+                interval: { _ in PollSchedule.interval(for: .services, engineReady: false) }))
+            services = list
+            made = list
+        case .storage:
+            let claims = observed(TabLoader(
+                arguments: K3smCLI.storageArguments, what: "volume claim list", environment: environment,
+                decode: StorageList.tabResult(exitCode:stdout:),
+                interval: { _ in PollSchedule.interval(for: .storage, engineReady: false) }))
+            let volume = TabLoader(
+                arguments: K3smCLI.dataVolumeArguments, what: "data volume report", environment: environment,
+                decode: DataVolume.tabResult(exitCode:stdout:),
+                interval: { _ in PollSchedule.interval(for: .storage, engineReady: false) })
+            storage = claims
+            dataVolume = volume
+            made = TabLoaderGroup([claims, volume])
+        case .models:
+            let environment = environment
+            let list = observed(TabLoader<[ModelRow]>(
+                read: { await Self.readModels(environment: environment) },
+                interval: { _ in PollSchedule.interval(for: .models, engineReady: false) }))
+            models = list
+            made = list
         }
         loaders[section] = made
         return made
+    }
+
+    /// Forwards a loader's changes to the waiting butterflies.
+    private func observed<Value>(_ loader: TabLoader<Value>) -> TabLoader<Value> {
+        waitingObservations.append(loader.objectWillChange.sink { [weak self] _ in
+            MainActor.assumeIsolated { self?.waiting.changed() }
+        })
+        return loader
+    }
+
+    /// The Models tab's read: the list, and, only when it fails, discovery,
+    /// so a cluster without the MLX API reads as unavailable rather than
+    /// failed (`ModelsList.tabResult`).
+    private nonisolated static func readModels(environment: [String: String]) async -> TabResult<[ModelRow]> {
+        let list = await TabLoader<[ModelRow]>.run(arguments: K3smCLI.modelsArguments, environment: environment)
+        guard case .exited(let status, let stdout) = list, ModelsList.needsDiscovery(listExit: status), !Task.isCancelled else {
+            return TabLoader<[ModelRow]>.result(of: list, what: "model list") {
+                ModelsList.tabResult(listExit: $0, listStdout: $1, discovery: nil)
+            }
+        }
+        var discovery: (exit: Int32, stdout: Data)?
+        if case .exited(let code, let out) = await TabLoader<[ModelRow]>.run(
+            arguments: K3smCLI.modelsDiscoveryArguments, environment: environment) {
+            discovery = (code, out)
+        }
+        return ModelsList.tabResult(listExit: status, listStdout: stdout, discovery: discovery)
+    }
+
+    /// The Events read, created on the sub-tab's first selection.
+    private func eventsLoader() -> TabLoader<[ClusterEvent]> {
+        if let events { return events }
+        let made = observed(TabLoader(
+            arguments: K3smCLI.eventsArguments, what: "event list", environment: environment,
+            decode: EventsList.tabResult(exitCode:stdout:),
+            interval: { _ in PollSchedule.eventsInterval }))
+        events = made
+        return made
+    }
+
+    /// Whether the events are read: only while the console is on screen
+    /// with Workloads selected and its Events sub-tab chosen.
+    private var eventsWanted: Bool {
+        consoleShown && section == .workloads && workloadsView == .events
+    }
+
+    /// Starts or stops the Events read to match `eventsWanted`.
+    private func syncEvents() {
+        if eventsWanted {
+            eventsLoader().start()
+        } else {
+            events?.stop()
+        }
     }
 
     /// Starts the console's reads when it comes on screen: the shared node
@@ -362,6 +481,7 @@ final class AppModel: ObservableObject {
         workloads.nodeList.start()
         loader(for: .workloads)?.start()
         loader(for: section)?.start()
+        syncEvents()
     }
 
     /// Stops the console's reads when it leaves the screen; each tab keeps
@@ -372,6 +492,7 @@ final class AppModel: ObservableObject {
         workloads.nodeList.stop()
         loaders[.workloads]?.stop()
         loaders[section]?.stop()
+        syncEvents()
         waiting.stop()
     }
 
@@ -521,6 +642,7 @@ final class AppModel: ObservableObject {
     func refreshTabs() async {
         async let nodes: Void = workloads.nodeList.refresh()
         await loader(for: section)?.refresh()
+        if eventsWanted { await events?.refresh() }
         await nodes
     }
 
