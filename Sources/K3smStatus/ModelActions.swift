@@ -101,7 +101,7 @@ public struct ModelActionRequest: Equatable, ConsoleActionRequest {
         default:
             let message = hasCache
                 ? "k3sm deletes this model, its serving pods, its Services and its cache claim. "
-                    + "The weights volume is kept: it appears in the Storage tab as Released, and deleting it there frees the disk."
+                    + "The weights volume is kept: it appears in the Storage tab as Released, and deleting it there removes only the object, the data stays on the node's disk."
                 : "k3sm deletes this model, its serving pods and its Services. It has no cache volume, so no weights are kept."
             return ActionConfirmation(
                 title: title,

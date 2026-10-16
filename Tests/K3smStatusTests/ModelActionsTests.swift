@@ -136,7 +136,7 @@ struct ModelActionsTests {
         let delete = try #require(ModelActions.request(.delete, for: try modelRow(cache: true))).confirmation
         #expect(delete.title == "Delete mlx/qwen?")
         #expect(delete.message == "k3sm deletes this model, its serving pods, its Services and its cache claim. "
-            + "The weights volume is kept: it appears in the Storage tab as Released, and deleting it there frees the disk.")
+            + "The weights volume is kept: it appears in the Storage tab as Released, and deleting it there removes only the object, the data stays on the node's disk.")
         #expect(delete.verbTitle == "Delete")
         #expect(delete.destructive)
         let bare = try #require(ModelActions.request(.delete, for: try modelRow(cache: false))).confirmation

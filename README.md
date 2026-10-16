@@ -229,7 +229,8 @@ login** in the app's Settings turns it off or on again (see
   delete mlxmodels.mlx.k3sm.io <name> -n <namespace> --wait=false`; the
   operator removes the serving pods, the Services and the cache claim, and
   the question says the weights volume is kept and appears in the Storage
-  tab as Released, where deleting it frees the disk. The Delete key asks
+  tab as Released, where deleting it removes only the object and the data
+  stays on the node's disk until someone with root removes it. The Delete key asks
   for Delete, never for Unload. Each asks first, naming the model and the
   replica count, then reads the model's UID with `k3sm kubectl get
   mlxmodels.mlx.k3sm.io <name> -n <namespace> -o jsonpath={.metadata.uid}`
