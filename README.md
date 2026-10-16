@@ -782,11 +782,17 @@ install was given from the disk, and installs the command, its helpers, the
 daemons' plists and the launcher link again from the app's release, then
 restarts the daemons.
 
+A control-plane Mac keeps the server arguments its last install recorded,
+and its admin kubeconfig is written again for the account that record names,
+which may not be yours. A worker keeps the control plane it joins, its node
+credential and its other daemon arguments; an explicit node IP is not passed
+again, and the worker uses the address the control plane assigned it.
+
 k3sm refuses the repair, and the log says why, when no daemon plist says
 which role this Mac has (both missing, or both present), when the installed
-release is newer than the app's, when a worker's node credential is no longer
-valid (rejoin it instead), or when the installed command is signed by another
-team. The app itself does not offer Repair when nothing is installed or the
+release is newer than the app's or its version cannot be read or is not a
+release, when a worker's node credential is no longer valid (rejoin it
+instead), or when the installed command is signed by another team. The app itself does not offer Repair when nothing is installed or the
 installed k3sm is newer. A build that is not Developer ID signed shows the
 install script to run in Terminal instead.
 

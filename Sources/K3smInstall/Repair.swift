@@ -77,8 +77,25 @@ public enum RepairPolicy {
 }
 
 /// RepairConfirmation is the question asked before Repair's administrator
-/// prompt: what Repair does, and that it keeps the cluster's data. Fixed
-/// text, but for the release the app carries, which is the app's own stamp.
+/// prompt: what Repair does, what it keeps for this Mac's role, and when k3sm
+/// refuses it. Fixed text, but for the release the app carries, which is the
+/// app's own stamp.
+///
+/// What each role keeps is exactly what `k3sm install --from-staging <dir>`
+/// with no other flag carries over (k3sm `pkg/install` `ResolveInPlace`,
+/// `installedServerArgs`, `installedAgentArgs`):
+///
+/// - a server: the role, and the server arguments from its installed plist
+///   or, without one, from its arguments record; the admin kubeconfig is
+///   written again for the owner of the kubeconfig that record names;
+/// - a worker: the role, the `--server` its agent plist names, its node
+///   credential (it rejoins with no token), and every other argument on its
+///   plist except `--node-ip`, which the install renders only from its own
+///   flag; on a worker that is only an assertion of the mesh address the
+///   control plane assigns, so the worker keeps using the assigned one.
+///
+/// With the role unknown (no report, as when the command is missing) the
+/// question names both.
 public struct RepairConfirmation: Equatable, Sendable {
     public let title: String
     public let message: String
@@ -86,14 +103,30 @@ public struct RepairConfirmation: Equatable, Sendable {
     public let proceedTitle: String
     public let cancelTitle: String
 
-    public init(payload: SemanticVersion) {
+    /// What a control-plane Mac keeps.
+    public static let serverKeeps = "This Mac stays the control plane, with the server arguments its last install recorded, "
+        + "and the cluster's data is kept. The admin kubeconfig is written again for the account the server's record names, "
+        + "which may not be the account running this app."
+    /// What a worker keeps.
+    public static let agentKeeps = "This Mac stays a worker of the control plane its daemon joins, with its node credential "
+        + "and the other arguments its daemon runs with, and its data is kept. An explicit node IP it was installed with is not "
+        + "passed again: the worker uses the address the control plane assigned it."
+    /// When k3sm refuses, which the app cannot check first.
+    public static let refusals = "k3sm refuses the repair, and the log says why, when no daemon on this Mac says which role it has, "
+        + "when the installed release is newer than this app's or its version cannot be read or is not a release, "
+        + "when the installed command is signed by another team, or when a worker's node credential is no longer valid."
+
+    public init(payload: SemanticVersion, role: NodeRole?) {
         title = "Repair k3sm on this Mac?"
+        let keeps: String
+        switch role {
+        case .server: keeps = Self.serverKeeps
+        case .agent: keeps = Self.agentKeeps
+        case nil: keeps = "On a control-plane Mac: " + Self.serverKeeps + "\n\nOn a worker: " + Self.agentKeeps
+        }
         message = "k3sm \(payload), the release this app carries, is installed again over the k3sm on this Mac: "
-            + "its command, its helpers and its daemons, with the settings they were installed with. "
-            + "This Mac keeps its role, a worker keeps the cluster it joins, and the cluster's data is kept. "
-            + "The daemons restart.\n\n"
-            + "k3sm refuses the repair when no daemon on this Mac says which role it has, when the installed "
-            + "release is newer, or when a worker's node credential is no longer valid; the log then says why."
+            + "its command, its helpers, its daemons and the k3sm link, and the daemons restart.\n\n"
+            + keeps + "\n\n" + Self.refusals
         proceedTitle = "Repair"
         cancelTitle = "Cancel"
     }

@@ -308,6 +308,20 @@ accepts the held outer lock once its staging-directory checks pass.
   whose plist is gone starts a second cluster; without it, that shape is
   refused. The cost: a server whose recorded kubeconfig is gone is refused
   too, and is reinstalled from Terminal with `--user`.
+- Repair rewrites the admin kubeconfig of the user the server's arguments
+  record names (the owner of the kubeconfig the last install wrote), who may
+  not be the user clicking Repair; the confirmation says so. A worker keeps
+  its plist's `--server`, its node credential and its other agent arguments,
+  but not an explicit `--node-ip`, which the install renders only from its own
+  flag (an assertion of the mesh address the control plane assigns anyway).
+- With the command untrusted the app runs nothing, so it cannot read the
+  installed release before offering Repair: `k3sm version` and the status
+  report both need the command to pass its check, and reading the Go build
+  information out of an untrusted binary is a parser of untrusted input the
+  app does not carry. The CLI refuses an installed binary whose version
+  cannot be read or is not a release (`checkStagedVersion`, no
+  `--allow-downgrade`); Repair still shows, and its confirmation names that
+  refusal with the others the app cannot check first.
 - A purge passes `--user` because the root step runs under `env -i` and the
   CLI would otherwise have no account whose kubeconfig to clean. A plain
   uninstall passes no flag.

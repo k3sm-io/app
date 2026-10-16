@@ -162,16 +162,36 @@ struct RepairTests {
         }
     }
 
-    @Test("the confirmation says what Repair does and that the data is kept")
+    @Test("the confirmation says what Repair does and what each role keeps")
     func confirmation() {
-        let c = RepairConfirmation(payload: Self.v020)
-        #expect(c.title == "Repair k3sm on this Mac?")
-        #expect(c.proceedTitle == "Repair")
-        #expect(c.cancelTitle == "Cancel")
-        #expect(c.message.contains("k3sm 0.2.0, the release this app carries, is installed again"))
-        #expect(c.message.contains("the cluster's data is kept"))
-        #expect(c.message.contains("keeps its role"))
-        #expect(c.message.contains("refuses the repair"))
+        let server = RepairConfirmation(payload: Self.v020, role: .server)
+        #expect(server.title == "Repair k3sm on this Mac?")
+        #expect(server.proceedTitle == "Repair")
+        #expect(server.cancelTitle == "Cancel")
+        #expect(server.message == "k3sm 0.2.0, the release this app carries, is installed again over the k3sm on this Mac: "
+            + "its command, its helpers, its daemons and the k3sm link, and the daemons restart.\n\n"
+            + "This Mac stays the control plane, with the server arguments its last install recorded, "
+            + "and the cluster's data is kept. The admin kubeconfig is written again for the account the server's record names, "
+            + "which may not be the account running this app.\n\n"
+            + "k3sm refuses the repair, and the log says why, when no daemon on this Mac says which role it has, "
+            + "when the installed release is newer than this app's or its version cannot be read or is not a release, "
+            + "when the installed command is signed by another team, or when a worker's node credential is no longer valid.")
+
+        let agent = RepairConfirmation(payload: Self.v020, role: .agent)
+        #expect(agent.message.contains("\n\nThis Mac stays a worker of the control plane its daemon joins, with its node credential "
+            + "and the other arguments its daemon runs with, and its data is kept. An explicit node IP it was installed with is not "
+            + "passed again: the worker uses the address the control plane assigned it.\n\n"))
+        #expect(!agent.message.contains("control plane, with the server arguments"))
+        #expect(!agent.message.contains("kubeconfig"))
+        #expect(!server.message.contains("node credential and"))
+
+        // With the role unknown, both, each named.
+        let unknown = RepairConfirmation(payload: Self.v020, role: nil)
+        #expect(unknown.message.contains("On a control-plane Mac: " + RepairConfirmation.serverKeeps))
+        #expect(unknown.message.contains("On a worker: " + RepairConfirmation.agentKeeps))
+        for c in [server, agent, unknown] {
+            #expect(c.message.hasSuffix(RepairConfirmation.refusals))
+        }
     }
 
     @Test("a failed repair points at the log")

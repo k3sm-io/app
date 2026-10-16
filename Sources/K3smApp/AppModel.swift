@@ -611,7 +611,7 @@ final class AppModel: ObservableObject {
                 return
             }
             // No: nothing ran, and the panel goes back to idle.
-            guard Self.confirmRepair(RepairConfirmation(payload: payloadVersion)) else {
+            guard Self.confirmRepair(RepairConfirmation(payload: payloadVersion, role: role)) else {
                 finish(nil, "")
                 return
             }
