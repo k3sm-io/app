@@ -14,17 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import K3smStatus
 import SwiftUI
 
-/// ConsoleSection is one view of the cluster the console's strip can show.
-/// Adding one is a case here and a view in `ConsoleView.section`.
-enum ConsoleSection: String, CaseIterable, Identifiable {
-    case workloads = "Workloads"
-    var id: Self { self }
-}
-
 /// ConsoleView is the window once k3sm is installed: this Mac on the left,
-/// the chosen section in the middle, the inspector on the right unless the
+/// the chosen tab (`ConsoleSection`) in the middle, the inspector on the right unless the
 /// details button has collapsed it. Every string from the CLI renders verbatim
 /// and clipped. The lifecycle controls are the status panel, a popover from
 /// the info button. The console follows the system appearance; only the navy
@@ -64,12 +58,12 @@ struct ConsoleView: View {
         .background(Palette.surface)
         .ignoresSafeArea()
         .onAppear {
-            app.workloads.start()
+            app.startTabs()
             app.startReportPolling()
             app.flap.start()
         }
         .onDisappear {
-            app.workloads.stop()
+            app.stopTabs()
             app.flap.stop()
             app.stopReportPolling()
         }
@@ -79,13 +73,14 @@ struct ConsoleView: View {
     private var section: some View {
         switch app.section {
         case .workloads: WorkloadsSection(model: app.workloads)
+        case .images, .builds: Color.clear
         }
     }
 }
 
-/// ConsoleStrip is the row above the section: the section chips, the search
-/// field, the details button that shows or collapses the inspector, and the
-/// info button that opens the status panel.
+/// ConsoleStrip is the row above the tab: the tab strip, the tab's search
+/// field (on a tab with rows to search), the details button that shows or
+/// collapses the inspector, and the info button that opens the status panel.
 struct ConsoleStrip: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
@@ -97,14 +92,16 @@ struct ConsoleStrip: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            HStack(spacing: 4) {
-                ForEach(ConsoleSection.allCases) { s in
-                    Button(s.rawValue) { app.section = s }
-                        .buttonStyle(ChipStyle(selected: app.section == s))
-                }
-            }
+            TabStrip(selected: app.section) { app.section = $0 }
             Spacer()
-            TextField("Search", text: $workloads.query).textFieldStyle(.roundedBorder).frame(width: 180)
+            switch app.section {
+            case .workloads:
+                TextField("Search", text: $workloads.query).textFieldStyle(.roundedBorder).frame(width: 180)
+            case .images:
+                TextField("Search", text: $app.imagesQuery).textFieldStyle(.roundedBorder).frame(width: 180)
+            case .builds:
+                EmptyView()
+            }
             Button { app.inspectorShown.toggle() } label: {
                 Image(systemName: "sidebar.trailing").font(.system(size: 16)).foregroundStyle(Palette.navy)
                     .opacity(app.inspectorShown ? 1 : 0.5)
@@ -124,19 +121,5 @@ struct ConsoleStrip: View {
         }
         .padding(.horizontal, 16).frame(height: 52)
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
-    }
-}
-
-/// ChipStyle is a section chip: raised when selected, flat otherwise.
-struct ChipStyle: ButtonStyle {
-    let selected: Bool
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: selected ? .medium : .regular))
-            .foregroundStyle(selected ? Color.primary : Palette.ink2)
-            .padding(.horizontal, 13).padding(.vertical, 5)
-            .background(selected ? Palette.raised : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .shadow(color: .black.opacity(selected ? 0.1 : 0), radius: 1, y: 1)
     }
 }

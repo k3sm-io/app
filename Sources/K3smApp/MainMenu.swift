@@ -92,7 +92,7 @@ final class MainMenu: NSObject {
     @objc private func refresh(_ sender: Any?) {
         Task {
             await model.refresh()
-            await model.workloads.refresh()
+            await model.refreshTabs()
         }
     }
 }

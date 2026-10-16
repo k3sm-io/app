@@ -56,21 +56,21 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             }
         }
         if model.screen == .status {
-            model.workloads.start()
+            model.startTabs()
             model.startReportPolling()
             model.flap.start()
         }
         Task { await model.refresh() }
     }
 
-    /// The console polls (its pod list and the full report) only while the
+    /// The console polls (its tabs' lists and the full report) only while the
     /// window is on screen: stop both here, not only from the view's
     /// onDisappear, which an ordered-out window may never deliver.
     func windowWillClose(_ notification: Notification) {
         // The Dock subscription goes first, so stopping the flap does not
         // render one last frame that is thrown away a line later.
         dockFlap = nil
-        model.workloads.stop()
+        model.stopTabs()
         model.stopReportPolling()
         model.flap.stop()
         NSApp.applicationIconImage = nil

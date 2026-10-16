@@ -48,8 +48,36 @@ final class AppModel: ObservableObject {
     /// closes it, so a Settings… chosen on the first-run screen does not open
     /// the popover by itself once the install finishes.
     @Published var statusPanelShown = false
-    /// Which section the console shows in its middle column.
-    @Published var section: ConsoleSection = .workloads
+    /// Which tab the console shows in its middle column, kept in the user
+    /// defaults across launches (`ConsoleTabs.restore` reads it back). While
+    /// the console is on screen, choosing a tab stops the one left and starts
+    /// the one chosen.
+    @Published var section: ConsoleSection = ConsoleTabs.restore(
+        from: UserDefaults.standard.object(forKey: ConsoleTabs.sectionKey)) {
+        didSet {
+            UserDefaults.standard.set(section.rawValue, forKey: ConsoleTabs.sectionKey)
+            guard section != oldValue, consoleShown else { return }
+            loaders[oldValue]?.stop()
+            loader(for: section)?.start()
+        }
+    }
+    /// The Images tab's search and selected row (a `NodeImage.key`), kept
+    /// in the user defaults like the Workloads tab's.
+    @Published var imagesQuery = ConsoleTabs.restoreQuery(
+        from: UserDefaults.standard.object(forKey: ConsoleTabs.queryKey(.images))) {
+        didSet { UserDefaults.standard.set(imagesQuery, forKey: ConsoleTabs.queryKey(.images)) }
+    }
+    @Published var imagesSelected: String? = ConsoleTabs.restoreSelected(
+        from: UserDefaults.standard.object(forKey: ConsoleTabs.selectedKey(.images))) {
+        didSet { UserDefaults.standard.set(imagesSelected, forKey: ConsoleTabs.selectedKey(.images)) }
+    }
+    /// The Builds tab's engine read; nil until the tab is first selected.
+    @Published private(set) var builds: TabLoader<BuildEngine>?
+    /// Each tab's loader, created on the tab's first selection. Images has
+    /// none: it renders the shared node list.
+    private var loaders: [ConsoleSection: any TabLoading] = [:]
+    /// Whether the console is on screen, so a tab change starts its loader.
+    private var consoleShown = false
     /// The console panel's view the user chose (Cluster or This Mac), nil
     /// until they choose; kept in the user defaults across launches.
     /// `PanelMode.effective` decides what is shown.
@@ -127,6 +155,11 @@ final class AppModel: ObservableObject {
             availability = .disabled(reason: "k3sm could not read a non-root account name for this user, so it cannot install k3sm.")
         }
         self.availability = availability
+        // The shared node list follows the selected tab's cadence.
+        workloads.nodeList.interval = { [weak self] _ in
+            guard let self else { return PollSchedule.visibleInterval }
+            return PollSchedule.interval(for: self.section, engineReady: self.engineReady)
+        }
         // An unfinished or failed earlier run is the first thing the window
         // shows on relaunch.
         let previous = Self.readLog()
@@ -229,6 +262,54 @@ final class AppModel: ObservableObject {
             ? AgentJoinTarget.resolve(statusJoinTarget: report?.joinTarget, plist: Self.readPlist)
             : nil
         await refreshLifecycleSupport()
+    }
+
+    /// Whether the last engine read found it ready.
+    private var engineReady: Bool { builds?.value?.state == .ready }
+
+    /// The loader behind a tab, created on its first selection; nil for
+    /// Images, which renders the shared node list.
+    private func loader(for section: ConsoleSection) -> (any TabLoading)? {
+        if let existing = loaders[section] { return existing }
+        let made: (any TabLoading)?
+        switch section {
+        case .workloads:
+            made = workloads.podsLoader()
+        case .images:
+            made = nil
+        case .builds:
+            let engine = TabLoader(
+                arguments: K3smCLI.buildEngineArguments, what: "build engine list", environment: environment,
+                decode: BuildEngine.tabResult(exitCode:stdout:),
+                interval: { PollSchedule.interval(for: .builds, engineReady: $0?.state == .ready) })
+            builds = engine
+            made = engine
+        }
+        loaders[section] = made
+        return made
+    }
+
+    /// Starts the console's reads when it comes on screen: the shared node
+    /// list and the selected tab's loader. A second start is a no-op.
+    func startTabs() {
+        consoleShown = true
+        workloads.nodeList.start()
+        loader(for: section)?.start()
+    }
+
+    /// Stops the console's reads when it leaves the screen; each tab keeps
+    /// its last value.
+    func stopTabs() {
+        consoleShown = false
+        workloads.nodeList.stop()
+        loaders[section]?.stop()
+    }
+
+    /// Reads the shared node list and the selected tab now.
+    func refreshTabs() async {
+        async let nodes: Void = workloads.nodeList.refresh()
+        await loader(for: section)?.refresh()
+        await nodes
     }
 
     /// Starts re-reading the full report while the console is on screen, every

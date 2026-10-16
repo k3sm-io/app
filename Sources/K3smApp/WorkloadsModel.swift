@@ -18,12 +18,13 @@ import Combine
 import Foundation
 import K3smStatus
 
-/// WorkloadsModel is the console's state: the last pod and node lists, the
-/// search, the selected pod and its detail, polled serially through the one
-/// CLI seam while the console is on screen, the way StatusPoller polls the
-/// visibility probe. `PollGate` keeps the list reads serial: a refresh during
-/// a poll runs once more after it, and a start after a stop waits for the
-/// stopped loop to end.
+/// WorkloadsModel is the Workloads tab's state and the panel's lists: the
+/// pod list (the tab's `TabLoader`, created on the tab's first selection),
+/// the shared node list (read while the console is on screen, for the panel
+/// and the Images tab), the search, the selected pod and its detail. The
+/// search and the selection are kept in the user defaults per tab. A change
+/// in either loader is published here, so the views observing this model
+/// follow both.
 @MainActor
 final class WorkloadsModel: ObservableObject {
     enum Detail: String, CaseIterable, Identifiable {
@@ -31,29 +32,73 @@ final class WorkloadsModel: ObservableObject {
         var id: Self { self }
     }
 
-    @Published private(set) var reading: WorkloadsReading?
-    @Published private(set) var readAt: Date?
-    /// The cluster's nodes from the last poll; nil when the read failed or
-    /// its output was not a node list.
-    @Published private(set) var nodes: [ClusterNode]?
-    @Published var selected: String?          // a Pod.key
-    @Published var query = ""
+    /// The Workloads tab's pod list; nil until the tab is first selected.
+    private(set) var pods: TabLoader<Workloads>?
+    /// The shared node list: one read for the panel's nodes and the Images
+    /// tab's images, never a second per tab.
+    let nodeList: TabLoader<NodeListRead>
+    @Published var selected: String? = ConsoleTabs.restoreSelected(
+        from: UserDefaults.standard.object(forKey: ConsoleTabs.selectedKey(.workloads))) {
+        didSet { UserDefaults.standard.set(selected, forKey: ConsoleTabs.selectedKey(.workloads)) }
+    }
+    @Published var query = ConsoleTabs.restoreQuery(
+        from: UserDefaults.standard.object(forKey: ConsoleTabs.queryKey(.workloads))) {
+        didSet { UserDefaults.standard.set(query, forKey: ConsoleTabs.queryKey(.workloads)) }
+    }
     @Published var detail: Detail = .logs
     @Published private(set) var detailText = ""
     @Published private(set) var detailLoading = false
-    /// The host's memory and data-root use, read with every poll so the panel
-    /// holds no view state (the Command Line Tools have no SwiftUI macro plugin).
+    /// The host's memory and data-root use, read with every node-list read
+    /// so the panel holds no view state (the Command Line Tools have no
+    /// SwiftUI macro plugin).
     @Published private(set) var load = HostLoad.read()
 
     private let environment: [String: String]
-    private var task: Task<Void, Never>?
-    /// The loop `stop()` cancelled, until the next `start()` waits for it.
-    private var stopping: Task<Void, Never>?
-    private var gate = PollGate()
     private var detailTask: Task<Void, Never>?
+    private var forwarding: [AnyCancellable] = []
 
     init(environment: [String: String]) {
         self.environment = environment
+        nodeList = TabLoader(
+            arguments: K3smCLI.nodesArguments, what: "node list", environment: environment,
+            decode: NodeListRead.tabResult(exitCode:stdout:),
+            interval: { _ in PollSchedule.visibleInterval })
+        nodeList.onRead = { [weak self] in self?.load = HostLoad.read() }
+        forward(nodeList)
+    }
+
+    /// Creates the pod list's loader, once: on the Workloads tab's first selection.
+    func podsLoader() -> TabLoader<Workloads> {
+        if let pods { return pods }
+        let loader = TabLoader(
+            arguments: K3smCLI.workloadsArguments, what: "pod list", environment: environment,
+            decode: Workloads.tabResult(exitCode:stdout:),
+            interval: { _ in PollSchedule.interval(for: .workloads, engineReady: false) })
+        loader.onRead = { [weak self] in self?.applySelection() }
+        pods = loader
+        forward(loader)
+        objectWillChange.send()
+        return loader
+    }
+
+    /// The pod list as the Workloads tab shows it: not read yet (nil), the
+    /// CLI missing, a CLI error, or the pods.
+    var reading: WorkloadsReading? {
+        guard let pods else { return nil }
+        switch pods.load {
+        case .failed(let text): return .cliError(text)
+        case .unavailable: return .binaryMissing
+        default: return pods.value.map(WorkloadsReading.listed)
+        }
+    }
+
+    /// When the pod list was last read.
+    var readAt: Date? { pods?.readAt }
+
+    /// The cluster's nodes from the last node-list read; nil when it failed
+    /// or its output was not a node list.
+    var nodes: [ClusterNode]? {
+        nodeList.load.failedOrUnavailable ? nil : nodeList.value?.nodes
     }
 
     var workloads: Workloads? {
@@ -76,82 +121,12 @@ final class WorkloadsModel: ObservableObject {
         loadDetail()
     }
 
-    /// Starts polling while the tab is shown; a second start is a no-op. The
-    /// new loop first waits for a stopped one to end, so two loops never
-    /// overlap.
-    func start() {
-        guard task == nil else { return }
-        let previous = stopping
-        stopping = nil
-        task = Task { [weak self] in
-            await previous?.value
-            while !Task.isCancelled {
-                guard let self else { return }
-                await self.poll()
-                try? await Task.sleep(for: PollSchedule.visibleInterval)
-            }
-        }
+    private func forward(_ loader: some ObservableObject) {
+        forwarding.append(loader.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() })
     }
 
-    /// Stops polling when the tab leaves the screen. The cancelled run kills
-    /// its CLI child; the next `start()` waits for it.
-    func stop() {
-        guard let task else { return }
-        task.cancel()
-        stopping = task
-        self.task = nil
-    }
-
-    /// Reads the lists now, or, with a poll in flight, once more after it.
-    func refresh() async {
-        await poll()
-    }
-
-    /// One run through the gate, repeated while a refresh asked for another.
-    /// A cancelled run still drains the gate so it is never left held.
-    private func poll() async {
-        guard gate.begin() else { return }
-        repeat {
-            if !Task.isCancelled {
-                await pollOnce()
-            }
-        } while gate.finish()
-    }
-
-    private func pollOnce() async {
-        let outcome = await CLIProcess.run(
-            path: K3smCLI.path,
-            arguments: K3smCLI.workloadsArguments,
-            environment: environment,
-            deadline: PollSchedule.listDeadline,
-            limit: OutputLimit.list
-        )
-        guard !Task.isCancelled else { return }
-        switch outcome {
-        case .missing:
-            reading = .binaryMissing
-        case .failedToLaunch, .killed, .refused:
-            reading = .cliError("the k3sm CLI did not answer")
-        case .truncated:
-            reading = .cliError("the pod list is larger than \(OutputLimit.list >> 20) MiB")
-        case .exited(let status, let stdout):
-            reading = WorkloadsReading.classify(exitCode: status, stdout: stdout)
-        }
-        let nodesOutcome = await CLIProcess.run(
-            path: K3smCLI.path,
-            arguments: K3smCLI.nodesArguments,
-            environment: environment,
-            deadline: PollSchedule.listDeadline,
-            limit: OutputLimit.list
-        )
-        guard !Task.isCancelled else { return }
-        if case .exited(0, let stdout) = nodesOutcome {
-            nodes = try? Nodes.decode(stdout)
-        } else {
-            nodes = nil
-        }
-        load = HostLoad.read()
-        readAt = Date()
+    /// What a pod-list read does to the selection, by `WorkloadsDisplay.selection`.
+    private func applySelection() {
         switch WorkloadsDisplay.selection(after: selected, in: workloads?.pods) {
         case .keep:
             break
