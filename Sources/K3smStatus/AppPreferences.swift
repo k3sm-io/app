@@ -23,7 +23,8 @@ import Foundation
 /// take effect at once and need no administrator; anything that changes
 /// what k3sm's daemons do is a node setting instead, recorded by k3sm and
 /// read back from its status. `reset` puts every preference back; the
-/// console's remembered layout is separate, and `resetLayout` clears it.
+/// console's remembered layout is separate, and `resetLayout` clears it,
+/// the tables' column widths with it (`resetColumnWidths` clears only those).
 public struct AppPreferences: @unchecked Sendable {
     /// The boolean preferences, by user-defaults key.
     public enum Key: String, CaseIterable, Sendable {
@@ -56,10 +57,19 @@ public struct AppPreferences: @unchecked Sendable {
     /// Whether the console shows its details column.
     public static let inspectorShownKey = "consoleInspectorShown"
     /// The console's layout as the user left it: the panel's view, width
-    /// and collapsed state, and the details column. Reset Window Layout
+    /// and collapsed state, the details column, and every table's column
+    /// widths. Reset Window Layout
     /// clears these and nothing else (not the tab, the searches or the
     /// selections, which are what the user was looking at, not a layout).
     public static let layoutKeys = [panelModeKey, inspectorShownKey, PanelLayout.widthKey, PanelLayout.collapsedKey]
+        + columnKeys
+    /// Each table's column widths, one key per `ConsoleTable`.
+    public static let columnKeys = ConsoleTable.allCases.map(columnWidthsKey)
+
+    /// The key `table`'s column widths are kept under.
+    public static func columnWidthsKey(_ table: ConsoleTable) -> String {
+        "columnWidths." + table.rawValue
+    }
 
     private let defaults: UserDefaults
 
@@ -108,6 +118,26 @@ public struct AppPreferences: @unchecked Sendable {
     public func reset() {
         for key in Key.allCases { defaults.removeObject(forKey: key.rawValue) }
         defaults.removeObject(forKey: Self.settingsPaneKey)
+    }
+
+    /// The column widths kept for `layout`'s table (`ColumnWidths.restore`).
+    public func columnWidths(_ layout: TableColumns) -> ColumnWidths {
+        ColumnWidths.restore(layout, from: defaults.object(forKey: Self.columnWidthsKey(layout.table)))
+    }
+
+    /// Keeps `widths` for its table; widths all at their default store nothing.
+    public func setColumnWidths(_ widths: ColumnWidths) {
+        let key = Self.columnWidthsKey(widths.table)
+        if widths.isDefault {
+            defaults.removeObject(forKey: key)
+        } else {
+            defaults.set(widths.stored, forKey: key)
+        }
+    }
+
+    /// Puts every table's columns back to their default widths.
+    public func resetColumnWidths() {
+        for key in Self.columnKeys { defaults.removeObject(forKey: key) }
     }
 
     /// Clears the console's remembered layout (`layoutKeys`) only.

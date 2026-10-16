@@ -68,7 +68,7 @@ struct GeneralPane: View {
             Button("Reset", role: .destructive) { settings.resetLayout() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The console's panel goes back to its first width and view, shown, and the details column is shown again. Tabs, searches and selections stay.")
+            Text("The console's panel goes back to its first width and view, shown, the details column is shown again, and every table's columns go back to their first widths. Tabs, searches and selections stay.")
         }
     }
 

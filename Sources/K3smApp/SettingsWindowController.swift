@@ -109,6 +109,7 @@ final class SettingsModel: ObservableObject {
         app.inspectorShown = true
         app.consolePanelCollapsed = false
         app.consolePanelWidth = PanelLayout.restoreWidth(from: nil)
+        app.columns.resetAll()
         preferences.preferences.resetLayout()
         log.notice("settings: window layout reset")
     }

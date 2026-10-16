@@ -58,38 +58,12 @@ extension View {
     }
 }
 
-/// ObjectColumns is the one place the Services, Storage and Models lists'
-/// column widths live.
+/// ObjectColumns is the cells the Nodes, Builds, Services, Storage and
+/// Models lists share; their widths come from each table's `TableColumns`
+/// and the widths the user dragged (`ColumnsModel`).
 enum ObjectColumns {
     static let spacing: CGFloat = 12
-    static let dot: CGFloat = 16
-    static let type: CGFloat = 80
-    static let address: CGFloat = 100
-    static let ports: CGFloat = 130
-    static let hosts: CGFloat = 150
-    static let volume: CGFloat = 150
-    static let capacity: CGFloat = 66
-    static let phase: CGFloat = 80
-    static let replicas: CGFloat = 54
-
-    /// The column titles over a list; `help` gives the header's tag by
-    /// title, for a column whose unit or meaning its title does not show.
-    static func header(_ columns: [(String, CGFloat?, Alignment)], help: [String: HelpTag] = [:]) -> some View {
-        HStack(spacing: spacing) {
-            ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
-                Group {
-                    if let width = column.1 {
-                        Text(column.0).frame(width: width, alignment: column.2)
-                    } else {
-                        Text(column.0).frame(maxWidth: .infinity, alignment: column.2)
-                    }
-                }
-                .help(optional: help[column.0])
-            }
-        }
-        .font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
-        .padding(.horizontal, 20).padding(.top, 10)
-    }
+    static let dot = CGFloat(TableColumns.models.lead)
 
     /// A name over its namespace, the first column of every row.
     static func title(_ name: String, under: String) -> some View {
@@ -113,13 +87,13 @@ enum ObjectColumns {
 struct ServicesSection: View {
     @ObservedObject var app: AppModel
     @ObservedObject var loader: TabLoader<[ServiceRow]>
+    @ObservedObject var columns: ColumnsModel
 
     var body: some View {
+        let widths = columns.widths(.services)
         VStack(spacing: 0) {
-            ObjectColumns.header([("Service", nil, .leading), ("Type", ObjectColumns.type, .leading),
-                                  ("Cluster IP", ObjectColumns.address, .leading), ("Ports", ObjectColumns.ports, .leading),
-                                  ("Hosts", ObjectColumns.hosts, .leading)],
-                                 help: ["Cluster IP": Help.Services.clusterIP, "Hosts": Help.Services.hosts])
+            ColumnHeader(layout: .services, columns: columns,
+                         help: [.clusterIP: Help.Services.clusterIP, .hosts: Help.Services.hosts])
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     switch loader.load {
@@ -133,10 +107,10 @@ struct ServicesSection: View {
                             ForEach(ServicesList.visible(rows, query: app.servicesQuery), id: \.key) { row in
                                 ListRow(selected: app.isSelected(.service(row.key))) {
                                     ObjectColumns.title(row.name, under: row.namespace)
-                                    ObjectColumns.cell(row.type, width: ObjectColumns.type)
-                                    ObjectColumns.cell(row.clusterIP, width: ObjectColumns.address, mono: true)
-                                    ObjectColumns.cell(row.portsText, width: ObjectColumns.ports)
-                                    ObjectColumns.cell(row.hostsText, width: ObjectColumns.hosts)
+                                    ObjectColumns.cell(row.type, width: widths.cg(.type))
+                                    ObjectColumns.cell(row.clusterIP, width: widths.cg(.clusterIP), mono: true)
+                                    ObjectColumns.cell(row.portsText, width: widths.cg(.ports))
+                                    ObjectColumns.cell(row.hostsText, width: widths.cg(.hosts))
                                 }
                                 .selects(.service(row.key), in: app)
                             }
@@ -162,6 +136,7 @@ struct StorageSection: View {
     @ObservedObject var claims: TabLoader<[StorageRow]>
     @ObservedObject var volume: TabLoader<DataVolume>
     @ObservedObject var workloads: WorkloadsModel
+    @ObservedObject var columns: ColumnsModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -169,9 +144,8 @@ struct StorageSection: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     card.padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 6)
-                    ObjectColumns.header([("Claim", nil, .leading), ("Volume", ObjectColumns.volume, .leading),
-                                          ("Capacity", ObjectColumns.capacity, .trailing), ("Phase", ObjectColumns.phase, .leading)],
-                                         help: ["Capacity": Help.Storage.capacity, "Phase": Help.Storage.phase])
+                    ColumnHeader(layout: .storage, columns: columns,
+                                 help: [.capacity: Help.Storage.capacity, .phase: Help.Storage.phase])
                         .padding(.horizontal, -10)
                     LazyVStack(alignment: .leading, spacing: 0) { rows }
                         .padding(.vertical, 8)
@@ -188,15 +162,16 @@ struct StorageSection: View {
         case .unavailable(let reason): ListNote(text: reason)
         default:
             if let rows = claims.value {
+                let widths = columns.widths(.storage)
                 if rows.isEmpty {
                     ListNote(text: StorageList.emptyText)
                 }
                 ForEach(StorageList.visible(rows, query: app.storageQuery), id: \.key) { row in
                     ListRow(selected: app.isSelected(.claim(row.key))) {
                         ObjectColumns.title(row.claim ?? "no claim", under: row.namespace ?? (row.storageClass ?? ""))
-                        ObjectColumns.cell(row.volume ?? "", width: ObjectColumns.volume, mono: true)
-                        ObjectColumns.cell(WorkloadsDisplay.bytes(row.capacityBytes), width: ObjectColumns.capacity, alignment: .trailing)
-                        ObjectColumns.cell(row.phase, width: ObjectColumns.phase)
+                        ObjectColumns.cell(row.volume ?? "", width: widths.cg(.volume), mono: true)
+                        ObjectColumns.cell(WorkloadsDisplay.bytes(row.capacityBytes), width: widths.cg(.capacity), alignment: .trailing)
+                        ObjectColumns.cell(row.phase, width: widths.cg(.phase))
                     }
                     .selects(.claim(row.key), in: app)
                 }
@@ -259,13 +234,13 @@ struct DataVolumeCard: View {
 struct ModelsSection: View {
     @ObservedObject var app: AppModel
     @ObservedObject var loader: TabLoader<[ModelRow]>
+    @ObservedObject var columns: ColumnsModel
 
     var body: some View {
+        let widths = columns.widths(.models)
         VStack(spacing: 0) {
-            ObjectColumns.header([("", ObjectColumns.dot, .leading), ("Model", nil, .leading),
-                                  ("Phase", ObjectColumns.phase, .leading), ("Ready", ObjectColumns.replicas, .trailing),
-                                  ("Endpoint", ObjectColumns.hosts, .leading)],
-                                 help: ["Ready": Help.Models.ready, "Endpoint": Help.Models.endpoint])
+            ColumnHeader(layout: .models, columns: columns,
+                         help: [.ready: Help.Models.ready, .endpoint: Help.Models.endpoint])
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     switch loader.load {
@@ -287,9 +262,9 @@ struct ModelsSection: View {
                                             .lineLimit(1).truncationMode(.middle)
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    ObjectColumns.cell(row.phase, width: ObjectColumns.phase)
-                                    ObjectColumns.cell(row.replicasText, width: ObjectColumns.replicas, alignment: .trailing)
-                                    ObjectColumns.cell(row.endpoint ?? "", width: ObjectColumns.hosts, mono: true)
+                                    ObjectColumns.cell(row.phase, width: widths.cg(.phase))
+                                    ObjectColumns.cell(row.replicasText, width: widths.cg(.ready), alignment: .trailing)
+                                    ObjectColumns.cell(row.endpoint ?? "", width: widths.cg(.endpoint), mono: true)
                                 }
                                 .selects(.model(row.key), in: app)
                             }

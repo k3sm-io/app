@@ -50,10 +50,10 @@ struct WorkloadsTab: View {
             }
             .tabHeaderRow()
             switch app.workloadsView {
-            case .pods: WorkloadsSection(model: app.workloads, runner: app.actions)
+            case .pods: WorkloadsSection(model: app.workloads, runner: app.actions, columns: app.columns)
             case .events:
                 if let events = app.events {
-                    EventsSection(app: app, loader: events)
+                    EventsSection(app: app, loader: events, columns: app.columns)
                 } else {
                     Color.clear
                 }
@@ -80,24 +80,14 @@ struct EventsFilter: View {
     }
 }
 
-/// EventsColumns is the one place the Events list's column widths live.
+/// EventsColumns is the Events list's layout, from `TableColumns.events`
+/// and the widths the user dragged (`ColumnsModel`).
 enum EventsColumns {
-    static let dot: CGFloat = 16
-    static let age: CGFloat = 50
-    static let reason: CGFloat = 130
-    static let object: CGFloat = 170
-    static let spacing: CGFloat = 12
+    static let dot = CGFloat(TableColumns.events.lead)
+    static let spacing = CGFloat(TableColumns.events.spacing)
 
-    static var header: some View {
-        HStack(spacing: spacing) {
-            Color.clear.frame(width: dot, height: 1)
-            Text("Age").frame(width: age, alignment: .leading).help(Help.Workloads.eventAge)
-            Text("Reason").frame(width: reason, alignment: .leading)
-            Text("Object").frame(width: object, alignment: .leading)
-            Text("Message").frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
-        .padding(.horizontal, 20).padding(.top, 10)
+    static func header(_ columns: ColumnsModel) -> some View {
+        ColumnHeader(layout: .events, columns: columns, help: [.age: Help.Workloads.eventAge])
     }
 }
 
@@ -106,10 +96,11 @@ enum EventsColumns {
 struct EventsSection: View {
     @ObservedObject var app: AppModel
     @ObservedObject var loader: TabLoader<[ClusterEvent]>
+    @ObservedObject var columns: ColumnsModel
 
     var body: some View {
         VStack(spacing: 0) {
-            EventsColumns.header
+            EventsColumns.header(columns)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     switch loader.load {
@@ -122,7 +113,7 @@ struct EventsSection: View {
                                 ListNote(text: EventsList.emptyText(namespace: app.eventsNamespace))
                             }
                             ForEach(shown, id: \.key) { event in
-                                EventRow(event: event)
+                                EventRow(event: event, widths: columns.widths(.events))
                             }
                         } else {
                             ListNote(text: "Reading the events…")
@@ -140,6 +131,7 @@ struct EventsSection: View {
 /// the object it is about (with its namespace under it) and the message.
 struct EventRow: View {
     let event: ClusterEvent
+    let widths: ColumnWidths
 
     var body: some View {
         HStack(alignment: .top, spacing: EventsColumns.spacing) {
@@ -147,19 +139,19 @@ struct EventRow: View {
                 .help(Help.Inspector.healthDot)
                 .padding(.top, 4)
             Text(verbatim: WorkloadsDisplay.age(event.time)).font(.system(size: 12)).monospacedDigit()
-                .foregroundStyle(Palette.ink2).frame(width: EventsColumns.age, alignment: .leading)
+                .foregroundStyle(Palette.ink2).frame(width: widths.cg(.age), alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
                 Text(verbatim: event.reason).font(.system(size: 12.5, weight: .medium)).lineLimit(1)
                 if event.count > 1 {
                     Text(verbatim: "\(event.count) times").font(.system(size: 11)).foregroundStyle(Palette.dimText)
                 }
             }
-            .frame(width: EventsColumns.reason, alignment: .leading)
+            .frame(width: widths.cg(.reason), alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
                 Text(verbatim: event.object).font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
                 Text(verbatim: event.namespace).font(.system(size: 11)).foregroundStyle(Palette.dimText).lineLimit(1)
             }
-            .frame(width: EventsColumns.object, alignment: .leading)
+            .frame(width: widths.cg(.object), alignment: .leading)
             Text(verbatim: event.message).font(.system(size: 12)).foregroundStyle(Palette.ink2).lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

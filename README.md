@@ -409,6 +409,16 @@ login** in the app's Settings turns it off or on again (see
   minimum width follows: the panel's minimum plus the list's, or the list's
   alone while the panel is hidden. The app remembers the width and whether
   the panel is hidden.
+- Every tab's **table columns** are resizable: drag the faint line between
+  two column titles. The line on a column's far side from the name column
+  moves with the pointer, so a column after the name widens as you drag
+  left and one before it (the Events list's age, reason and object) as you
+  drag right; the name column takes the width the others leave. A column
+  goes no narrower than its title needs and no wider than its maximum, and
+  never so wide that the name column drops below its own minimum.
+  Double-click the line to put that column back to its first width. The app
+  remembers the widths for each table; View > Reset Column Widths puts every
+  table back.
 - The **tab names** above the list stay whole on one line. The window goes
   no narrower than the row above the list needs for every tab name, the
   Update button while one is offered, the search field at its narrowest and
@@ -532,8 +542,9 @@ The **General** pane:
 - **Take the Tour** brings the window forward and starts the tour, once k3sm
   is installed.
 - **Reset Window Layout…** asks, then puts the console's left panel back to
-  its first width and view, shown, and shows the details column. Tabs,
-  searches and selections stay as they are.
+  its first width and view, shown, shows the details column, and puts every
+  table's columns back to their first widths. Tabs, searches and selections
+  stay as they are.
 
 The **Network** pane holds **Allow connections from other devices** (see
 [Connections from other devices](#connections-from-other-devices)), with

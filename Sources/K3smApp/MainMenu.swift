@@ -19,8 +19,8 @@ import K3smStatus
 
 /// MainMenu is the menu bar while a window is open: the app menu with
 /// Settings (the Settings window), Edit for the search field, View for
-/// refresh, the status panel (Show Status) and hiding or showing the
-/// console's left panel, Window, and Help with the tour. The status item keeps its own menu. The delegate owns one and
+/// refresh, the status panel (Show Status), hiding or showing the
+/// console's left panel and Reset Column Widths, Window, and Help with the tour. The status item keeps its own menu. The delegate owns one and
 /// the items target it.
 @MainActor
 final class MainMenu: NSObject, NSMenuItemValidation {
@@ -79,6 +79,7 @@ final class MainMenu: NSObject, NSMenuItemValidation {
         let panel = item("Hide Panel", #selector(togglePanel(_:)), "l", help: Help.Menus.panel)
         panel.keyEquivalentModifierMask = [.command, .option]
         menu.addItem(panel)
+        menu.addItem(item("Reset Column Widths", #selector(resetColumns(_:)), "", help: Help.Menus.resetColumns))
         return menu
     }
 
@@ -125,6 +126,11 @@ final class MainMenu: NSObject, NSMenuItemValidation {
     /// the model, and the state is kept across launches.
     @objc private func togglePanel(_ sender: Any?) {
         model.consolePanelCollapsed.toggle()
+    }
+
+    /// Puts every tab's table columns back to their default widths.
+    @objc private func resetColumns(_ sender: Any?) {
+        model.columns.resetAll()
     }
 
     /// The panel item reads Hide Panel or Show Panel, and is offered only

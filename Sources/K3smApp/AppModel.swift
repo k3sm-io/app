@@ -194,6 +194,8 @@ final class AppModel: ObservableObject {
     let actions: ActionRunner
     /// The wordmark butterfly's wing beat, played while the console is up.
     let flap = FlapModel()
+    /// Every tab's table column widths, as the user dragged them.
+    let columns = ColumnsModel()
     /// Each tab's waiting butterfly, from the tabs' reads.
     let waiting = WaitingModel()
     /// Forwards the loaders' changes to `waiting`.

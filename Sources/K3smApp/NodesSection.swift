@@ -26,6 +26,7 @@ import SwiftUI
 struct NodesSection: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
+    @ObservedObject var columns: ColumnsModel
 
     private var nodeList: TabLoader<NodeListRead> { workloads.nodeList }
 
@@ -38,9 +39,8 @@ struct NodesSection: View {
                     .help(Help.Nodes.versionSummary)
                     .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 2)
             }
-            ObjectColumns.header([("Node", nil, .leading), ("Status", NodeColumns.status, .leading),
-                                  ("Version", NodeColumns.version, .leading), ("Load", NodeColumns.load, .leading)],
-                                 help: ["Status": Help.Nodes.status, "Version": Help.Nodes.version, "Load": Help.Nodes.load])
+            ColumnHeader(layout: .nodes, columns: columns,
+                         help: [.status: Help.Nodes.status, .version: Help.Nodes.version, .load: Help.Nodes.load])
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) { content }
                     .padding(.horizontal, 10).padding(.vertical, 8)
@@ -57,14 +57,15 @@ struct NodesSection: View {
             if let nodes = workloads.nodes {
                 if nodes.isEmpty { ListNote(text: NodesList.emptyText) }
                 let rows = NodesList.rows(nodes, report: app.report, metrics: workloads.metrics)
+                let widths = columns.widths(.nodes)
                 ForEach(NodesList.visible(rows, query: app.nodesQuery), id: \.key) { row in
                     ListRow(selected: app.isSelected(.node(row.key))) {
                         ObjectColumns.title(row.name, under: row.role)
                         Text(verbatim: row.status).font(.system(size: 12))
                             .foregroundStyle(row.ready ? Palette.ink2 : Palette.warn).lineLimit(1)
-                            .frame(width: NodeColumns.status, alignment: .leading)
-                        ObjectColumns.cell(row.version, width: NodeColumns.version)
-                        ObjectColumns.cell(row.load, width: NodeColumns.load)
+                            .frame(width: widths.cg(.status), alignment: .leading)
+                        ObjectColumns.cell(row.version, width: widths.cg(.version))
+                        ObjectColumns.cell(row.load, width: widths.cg(.load))
                     }
                     .selects(.node(row.key), in: app)
                 }
@@ -73,13 +74,6 @@ struct NodesSection: View {
             }
         }
     }
-}
-
-/// NodeColumns is the one place the Nodes list's column widths live.
-enum NodeColumns {
-    static let status: CGFloat = 130
-    static let version: CGFloat = 130
-    static let load: CGFloat = 160
 }
 
 /// NodeInspector is the Nodes tab's inspector: the selected node's facts and

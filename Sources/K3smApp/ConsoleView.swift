@@ -138,29 +138,29 @@ struct ConsoleContent: View {
     private var section: some View {
         switch app.section {
         case .workloads: WorkloadsTab(app: app).tourTarget(.pods, app.tour)
-        case .nodes: NodesSection(app: app, workloads: app.workloads)
-        case .images: ImagesSection(app: app, workloads: app.workloads)
+        case .nodes: NodesSection(app: app, workloads: app.workloads, columns: app.columns)
+        case .images: ImagesSection(app: app, workloads: app.workloads, columns: app.columns)
         case .builds:
             if let builds = app.builds, let history = app.buildHistory {
-                BuildsSection(app: app, loader: builds, history: history, runner: app.actions)
+                BuildsSection(app: app, loader: builds, history: history, runner: app.actions, columns: app.columns)
             } else {
                 Color.clear
             }
         case .services:
             if let services = app.services {
-                ServicesSection(app: app, loader: services)
+                ServicesSection(app: app, loader: services, columns: app.columns)
             } else {
                 Color.clear
             }
         case .storage:
             if let storage = app.storage, let volume = app.dataVolume {
-                StorageSection(app: app, claims: storage, volume: volume, workloads: app.workloads)
+                StorageSection(app: app, claims: storage, volume: volume, workloads: app.workloads, columns: app.columns)
             } else {
                 Color.clear
             }
         case .models:
             if let models = app.models {
-                ModelsSection(app: app, loader: models)
+                ModelsSection(app: app, loader: models, columns: app.columns)
             } else {
                 Color.clear
             }

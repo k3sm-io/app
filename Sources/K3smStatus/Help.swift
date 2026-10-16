@@ -53,7 +53,17 @@ public enum Help {
     public static var all: [HelpTag] {
         Strip.all + Workloads.all + Nodes.all + Images.all + Builds.all + Services.all + Storage.all + Models.all
             + Inspector.all + Actions.all + Panel.all + Popover.all + FirstRun.all + Update.all
-            + Tour.all + General.all + Network.all + Advanced.all + SettingsWindow.all + Menus.all
+            + Tour.all + General.all + Network.all + Advanced.all + SettingsWindow.all + Menus.all + Columns.all
+    }
+
+    // MARK: Table columns
+
+    /// The drag handle between two columns of every tab's table header.
+    public enum Columns {
+        public static let handle = HelpTag("Drag to resize the column; double-click to reset its width",
+                                           control: "table header: column edge")
+
+        public static let all = [handle]
     }
 
     // MARK: Console strip
@@ -561,7 +571,7 @@ public enum Help {
         public static let tourUnavailable = HelpTag("The tour needs the console, shown once k3sm is installed",
                                                     control: "general: Take the Tour (disabled)", label: "Take the Tour")
         /// Reset Window Layout…
-        public static let resetLayout = HelpTag("Put the panel and details column back as they first were",
+        public static let resetLayout = HelpTag("Put the panel, details column and table columns back as first",
                                                 control: "general: Reset Window Layout", label: "Reset Window Layout…")
 
         /// Take the Tour's tag.
@@ -662,11 +672,15 @@ public enum Help {
         /// View > Hide Panel or Show Panel.
         public static let panel = HelpTag("Hide or show the console's left panel",
                                           control: "view menu: Hide Panel", label: "Hide Panel")
+        /// View > Reset Column Widths.
+        public static let resetColumns = HelpTag("Put every table's columns back to their first widths",
+                                                 control: "view menu: Reset Column Widths", label: "Reset Column Widths")
         /// Help > Take the Tour.
         public static let tour = HelpTag(Strip.tour.text, control: "help menu: Take the Tour", label: "Take the Tour")
 
         public static var all: [HelpTag] {
-            [stop, restart, liveStatus, liveTop, openLogs, bugReport, settings, dashboard, refresh, showStatus, panel, tour]
+            [stop, restart, liveStatus, liveTop, openLogs, bugReport, settings, dashboard, refresh, showStatus, panel,
+             resetColumns, tour]
         }
     }
 }

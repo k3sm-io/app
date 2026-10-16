@@ -24,12 +24,13 @@ import SwiftUI
 struct ImagesSection: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
+    @ObservedObject var columns: ColumnsModel
 
     private var nodeList: TabLoader<NodeListRead> { workloads.nodeList }
 
     var body: some View {
         VStack(spacing: 0) {
-            ImageColumns.header
+            ColumnHeader(layout: .images, columns: columns, help: [.size: Help.Images.size, .nodes: Help.Images.nodes])
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     content
@@ -51,7 +52,7 @@ struct ImagesSection: View {
             case .listed(let images)? where images.isEmpty: note(ImagesList.emptyText)
             case .listed(let images)?:
                 ForEach(ImagesList.visible(images, query: app.imagesQuery), id: \.key) { image in
-                    ImageRow(image: image, selected: app.isSelected(.image(image.key)))
+                    ImageRow(image: image, selected: app.isSelected(.image(image.key)), widths: columns.widths(.images))
                         .selects(.image(image.key), in: app)
                 }
             }
@@ -63,30 +64,14 @@ struct ImagesSection: View {
     }
 }
 
-/// ImageColumns is the one place the Images list's column widths live.
-enum ImageColumns {
-    static let size: CGFloat = 66
-    static let nodes: CGFloat = 140
-    static let spacing: CGFloat = 12
-
-    static var header: some View {
-        HStack(spacing: spacing) {
-            Text("Image").frame(maxWidth: .infinity, alignment: .leading)
-            Text("Size").frame(width: size, alignment: .trailing).help(Help.Images.size)
-            Text("Nodes").frame(width: nodes, alignment: .leading).help(Help.Images.nodes)
-        }
-        .font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
-        .padding(.horizontal, 20).padding(.top, 10)
-    }
-}
-
 /// ImageRow is one image: its name over its digest, its size, its nodes.
 struct ImageRow: View {
     let image: NodeImage
     let selected: Bool
+    let widths: ColumnWidths
 
     var body: some View {
-        HStack(spacing: ImageColumns.spacing) {
+        HStack(spacing: CGFloat(TableColumns.images.spacing)) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(verbatim: image.title).font(.system(size: 13, weight: .medium)).lineLimit(1).truncationMode(.middle)
                 if let digest = image.digest {
@@ -96,9 +81,9 @@ struct ImageRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Text(verbatim: WorkloadsDisplay.bytes(image.sizeBytes)).font(.system(size: 12)).monospacedDigit()
-                .foregroundStyle(Palette.ink2).frame(width: ImageColumns.size, alignment: .trailing)
+                .foregroundStyle(Palette.ink2).frame(width: widths.cg(.size), alignment: .trailing)
             Text(verbatim: image.nodesText).font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
-                .lineLimit(1).truncationMode(.middle).frame(width: ImageColumns.nodes, alignment: .leading)
+                .lineLimit(1).truncationMode(.middle).frame(width: widths.cg(.nodes), alignment: .leading)
         }
         .padding(.horizontal, 10).frame(height: 44)
         .background(selected ? Palette.tint : Color.clear)

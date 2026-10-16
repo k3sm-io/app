@@ -28,6 +28,7 @@ struct BuildsSection: View {
     @ObservedObject var loader: TabLoader<BuildEngine>
     @ObservedObject var history: TabLoader<[BuildRecord]>
     @ObservedObject var runner: ActionRunner
+    @ObservedObject var columns: ColumnsModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -80,13 +81,11 @@ struct BuildsSection: View {
                     note(BuildHistory.emptyText)
                 } else {
                     VStack(spacing: 0) {
-                        ObjectColumns.header([("Image", nil, .leading), ("Status", BuildColumns.status, .leading),
-                                              ("Started", BuildColumns.started, .leading), ("Duration", BuildColumns.duration, .trailing)],
-                                             help: ["Duration": Help.Builds.duration])
+                        ColumnHeader(layout: .builds, columns: columns, help: [.duration: Help.Builds.duration])
                             .padding(.horizontal, -10)
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(records, id: \.key) { record in
-                                BuildRow(record: record, selected: app.isSelected(.build(record.key)))
+                                BuildRow(record: record, selected: app.isSelected(.build(record.key)), widths: columns.widths(.builds))
                                     .selects(.build(record.key), in: app)
                             }
                         }
@@ -103,19 +102,13 @@ struct BuildsSection: View {
     }
 }
 
-/// BuildColumns is the build history's column widths.
-enum BuildColumns {
-    static let status: CGFloat = 96
-    static let started: CGFloat = 132
-    static let duration: CGFloat = 70
-}
-
 /// BuildRow is one recorded build: its image over its record id, platform
 /// and route, its status with a dot, when it started and how long it ran.
 /// Every string was clipped by the decoder.
 struct BuildRow: View {
     let record: BuildRecord
     let selected: Bool
+    let widths: ColumnWidths
 
     var body: some View {
         ListRow(selected: selected) {
@@ -129,9 +122,9 @@ struct BuildRow: View {
                 Circle().fill(Palette.health(record.status.severity)).frame(width: 8, height: 8)
                 Text(verbatim: record.status.word).font(.system(size: 12)).foregroundStyle(Palette.ink2).lineLimit(1)
             }
-            .frame(width: BuildColumns.status, alignment: .leading)
-            ObjectColumns.cell(BuildHistory.started(record.startedAt), width: BuildColumns.started)
-            ObjectColumns.cell(BuildHistory.duration(record.duration()), width: BuildColumns.duration, alignment: .trailing)
+            .frame(width: widths.cg(.status), alignment: .leading)
+            ObjectColumns.cell(BuildHistory.started(record.startedAt), width: widths.cg(.started))
+            ObjectColumns.cell(BuildHistory.duration(record.duration()), width: widths.cg(.duration), alignment: .trailing)
         }
     }
 }

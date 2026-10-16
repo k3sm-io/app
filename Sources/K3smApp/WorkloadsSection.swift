@@ -23,10 +23,11 @@ import SwiftUI
 struct WorkloadsSection: View {
     @ObservedObject var model: WorkloadsModel
     let runner: ActionRunner
+    @ObservedObject var columns: ColumnsModel
 
     var body: some View {
         VStack(spacing: 0) {
-            PodColumns.header
+            PodColumns.header(columns)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     switch model.reading {
@@ -36,7 +37,8 @@ struct WorkloadsSection: View {
                     case .listed(let w) where w.pods.isEmpty: note("No pods on this Mac. Apply a manifest with kubectl and it appears here.")
                     case .listed(let w):
                         ForEach(w.namespaces, id: \.self) { ns in
-                            NamespaceGroup(namespace: ns, pods: model.visible(w.pods(in: ns)), model: model, runner: runner)
+                            NamespaceGroup(namespace: ns, pods: model.visible(w.pods(in: ns)), model: model, runner: runner,
+                                           widths: columns.widths(.pods))
                         }
                     }
                 }
@@ -63,6 +65,7 @@ struct NamespaceGroup: View {
     let pods: [Pod]
     @ObservedObject var model: WorkloadsModel
     let runner: ActionRunner
+    let widths: ColumnWidths
 
     var body: some View {
         if !pods.isEmpty {
@@ -73,7 +76,7 @@ struct NamespaceGroup: View {
             }
             .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 6)
             ForEach(pods, id: \.uid) { pod in
-                PodRow(pod: pod, node: model.nodeLabel(pod), selected: model.selected == pod.key)
+                PodRow(pod: pod, node: model.nodeLabel(pod), selected: model.selected == pod.key, widths: widths)
                     .contentShape(Rectangle())
                     .onTapGesture { model.select(pod) }
                     .modifier(RowActionsMenu(menu: PodActions.menu(for: pod), runner: runner) { model.select(pod) })
@@ -82,29 +85,15 @@ struct NamespaceGroup: View {
     }
 }
 
-/// PodColumns is the one place the list's column widths live: the header
-/// and every row lay out from it.
+/// PodColumns is the list's layout: the header and every row lay out from
+/// `TableColumns.pods` and the widths the user dragged (`ColumnsModel`).
 enum PodColumns {
-    static let dot: CGFloat = 16
-    static let node: CGFloat = 84
-    static let runsAs: CGFloat = 74
-    static let cores: CGFloat = 54
-    static let memory: CGFloat = 66
-    static let age: CGFloat = 50
-    static let spacing: CGFloat = 12
+    static let dot = CGFloat(TableColumns.pods.lead)
+    static let spacing = CGFloat(TableColumns.pods.spacing)
 
-    static var header: some View {
-        HStack(spacing: spacing) {
-            Color.clear.frame(width: dot, height: 1)
-            Text("Pod").frame(maxWidth: .infinity, alignment: .leading)
-            Text("Node").frame(width: node, alignment: .leading)
-            Text("Runs as").frame(width: runsAs, alignment: .leading).help(Help.Workloads.runsAs)
-            Text("Cores").frame(width: cores, alignment: .trailing).help(Help.Workloads.cores)
-            Text("Memory").frame(width: memory, alignment: .trailing).help(Help.Workloads.memory)
-            Text("Age").frame(width: age, alignment: .trailing)
-        }
-        .font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
-        .padding(.horizontal, 20).padding(.top, 10)
+    static func header(_ columns: ColumnsModel) -> some View {
+        ColumnHeader(layout: .pods, columns: columns,
+                     help: [.runsAs: Help.Workloads.runsAs, .cores: Help.Workloads.cores, .memory: Help.Workloads.memory])
     }
 }
 
@@ -114,6 +103,7 @@ struct PodRow: View {
     let pod: Pod
     let node: PodNodeLabel
     let selected: Bool
+    let widths: ColumnWidths
 
     var body: some View {
         HStack(spacing: PodColumns.spacing) {
@@ -124,15 +114,15 @@ struct PodRow: View {
                 Text(verbatim: StatusDisplay.clip(pod.image)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.dimText).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            NodeCell(label: node).frame(width: PodColumns.node, alignment: .leading)
+            NodeCell(label: node).frame(width: widths.cg(.node), alignment: .leading)
             HStack(spacing: 6) {
                 KindMark(kind: pod.kind)
                 Text(verbatim: WorkloadsDisplay.runsAs(pod.kind)).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
             }
-            .frame(width: PodColumns.runsAs, alignment: .leading)
-            figure(WorkloadsDisplay.cores(pod.cpuRequest), width: PodColumns.cores)
-            figure(WorkloadsDisplay.bytes(pod.memoryRequest), width: PodColumns.memory)
-            figure(WorkloadsDisplay.age(pod.created), width: PodColumns.age)
+            .frame(width: widths.cg(.runsAs), alignment: .leading)
+            figure(WorkloadsDisplay.cores(pod.cpuRequest), width: widths.cg(.cores))
+            figure(WorkloadsDisplay.bytes(pod.memoryRequest), width: widths.cg(.memory))
+            figure(WorkloadsDisplay.age(pod.created), width: widths.cg(.age))
         }
         .padding(.horizontal, 10).frame(height: 44)
         .background(selected ? Palette.tint : Color.clear)
