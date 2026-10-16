@@ -58,6 +58,9 @@ final class AppModel: ObservableObject {
         from: UserDefaults.standard.object(forKey: ConsoleTabs.sectionKey)) {
         didSet {
             UserDefaults.standard.set(section.rawValue, forKey: ConsoleTabs.sectionKey)
+            // The inspector follows the tab: the new tab's own selection, or
+            // nothing, never the row of the tab just left.
+            selection.switchTo(section, present: presentKeys(section))
             guard section != oldValue, consoleShown else { return }
             if oldValue != .workloads { loaders[oldValue]?.stop() }
             let chosen = loader(for: section)
@@ -101,16 +104,29 @@ final class AppModel: ObservableObject {
         from: UserDefaults.standard.object(forKey: ConsoleTabs.queryKey(.models))) {
         didSet { UserDefaults.standard.set(modelsQuery, forKey: ConsoleTabs.queryKey(.models)) }
     }
-    /// The Images tab's search and selected row (a `NodeImage.key`), kept
-    /// in the user defaults like the Workloads tab's.
+    /// The Images tab's search, kept in the user defaults like the Workloads tab's.
     @Published var imagesQuery = ConsoleTabs.restoreQuery(
         from: UserDefaults.standard.object(forKey: ConsoleTabs.queryKey(.images))) {
         didSet { UserDefaults.standard.set(imagesQuery, forKey: ConsoleTabs.queryKey(.images)) }
     }
-    @Published var imagesSelected: String? = ConsoleTabs.restoreSelected(
-        from: UserDefaults.standard.object(forKey: ConsoleTabs.selectedKey(.images))) {
-        didSet { UserDefaults.standard.set(imagesSelected, forKey: ConsoleTabs.selectedKey(.images)) }
+    /// The selected row of every tab and the active one (`ConsoleSelection`),
+    /// what the inspector shows. Each tab's row but Workloads' is kept in the
+    /// user defaults here; the Workloads row mirrors `WorkloadsModel.selected`,
+    /// which keeps its own.
+    @Published private(set) var selection = ConsoleSelection.restore(
+        active: ConsoleTabs.restore(from: UserDefaults.standard.object(forKey: ConsoleTabs.sectionKey)),
+        stored: { UserDefaults.standard.object(forKey: ConsoleTabs.selectedKey($0)) }) {
+        didSet {
+            for tab in ConsoleSection.allCases where tab != .workloads {
+                let key = selection.selection(in: tab)?.key
+                if key != oldValue.selection(in: tab)?.key {
+                    UserDefaults.standard.set(key, forKey: ConsoleTabs.selectedKey(tab))
+                }
+            }
+        }
     }
+    /// Mirrors the pod selection into `selection`.
+    private var podSelection: AnyCancellable?
     /// The Builds tab's engine read; nil until the tab is first selected.
     @Published private(set) var builds: TabLoader<BuildEngine>?
     /// The Services, Storage (its claim list and the data volume card) and
@@ -274,9 +290,20 @@ final class AppModel: ObservableObject {
         // image it names is still listed, as each pod-list read does for
         // the Workloads selection.
         workloads.onNodesRead = { [weak self] in
-            guard let self, let read = self.workloads.nodeList.value else { return }
-            let kept = ImagesList.selection(after: self.imagesSelected, in: read.images)
-            if kept != self.imagesSelected { self.imagesSelected = kept }
+            guard let self, let read = self.workloads.nodeList.value,
+                  let selected = self.selection.selection(in: .images) else { return }
+            if ImagesList.selection(after: selected.key, in: read.images) == nil { self.selection.clear(.images) }
+        }
+        // The Workloads tab's row is the pod `WorkloadsModel` selects.
+        podSelection = workloads.$selected.sink { [weak self] key in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let key {
+                    self.selection.select(.pod(key), in: .workloads)
+                } else {
+                    self.selection.clear(.workloads)
+                }
+            }
         }
         // An unfinished or failed earlier run is the first thing the window
         // shows on relaunch.
@@ -382,6 +409,36 @@ final class AppModel: ObservableObject {
         await refreshLifecycleSupport()
     }
 
+    /// Selects a row on its own tab, for the inspector.
+    func select(_ row: ConsoleRow) {
+        selection.select(row, in: row.section)
+    }
+
+    /// Whether `row` is its tab's selected row.
+    func isSelected(_ row: ConsoleRow) -> Bool {
+        selection.selection(in: row.section) == row
+    }
+
+    /// The keys a tab's last read listed, nil while it has nothing decoded
+    /// (a tab not read yet keeps its stored row until its read). Workloads
+    /// is nil: `WorkloadsModel` decides its selection.
+    private func presentKeys(_ section: ConsoleSection) -> Set<String>? {
+        switch section {
+        case .workloads: return nil
+        case .images: return workloads.nodeList.value.flatMap { InspectorDetails.keys(images: $0.images) }
+        case .builds: return builds?.value.map { _ in [InspectorDetails.engineRow] }
+        case .services: return services?.value.map { Set($0.map(\.key)) }
+        case .storage: return storage?.value.map { Set($0.map(\.key)) }
+        case .models: return models?.value.map { Set($0.map(\.key)) }
+        }
+    }
+
+    /// What a tab's read does to its selection: kept while its row is
+    /// listed, cleared otherwise, a failed read included.
+    private func retainSelection(_ section: ConsoleSection) {
+        selection.retain(section, present: presentKeys(section) ?? [])
+    }
+
     /// Whether the last engine read found it ready.
     private var engineReady: Bool { builds?.value?.state == .ready }
 
@@ -402,6 +459,7 @@ final class AppModel: ObservableObject {
                 arguments: K3smCLI.buildEngineArguments, what: "build engine list", environment: environment,
                 decode: BuildEngine.tabResult(exitCode:stdout:),
                 interval: { PollSchedule.interval(for: .builds, engineReady: $0?.state == .ready) }))
+            engine.onRead = { [weak self] in self?.retainSelection(.builds) }
             builds = engine
             made = engine
         case .services:
@@ -409,6 +467,7 @@ final class AppModel: ObservableObject {
                 arguments: K3smCLI.servicesArguments, what: "service list", environment: environment,
                 decode: ServicesList.tabResult(exitCode:stdout:),
                 interval: { _ in PollSchedule.interval(for: .services, engineReady: false) }))
+            list.onRead = { [weak self] in self?.retainSelection(.services) }
             services = list
             made = list
         case .storage:
@@ -420,6 +479,7 @@ final class AppModel: ObservableObject {
                 arguments: K3smCLI.dataVolumeArguments, what: "data volume report", environment: environment,
                 decode: DataVolume.tabResult(exitCode:stdout:),
                 interval: { _ in PollSchedule.interval(for: .storage, engineReady: false) })
+            claims.onRead = { [weak self] in self?.retainSelection(.storage) }
             storage = claims
             dataVolume = volume
             made = TabLoaderGroup([claims, volume])
@@ -428,6 +488,7 @@ final class AppModel: ObservableObject {
             let list = observed(TabLoader<[ModelRow]>(
                 read: { await Self.readModels(environment: environment) },
                 interval: { _ in PollSchedule.interval(for: .models, engineReady: false) }))
+            list.onRead = { [weak self] in self?.retainSelection(.models) }
             models = list
             made = list
         }

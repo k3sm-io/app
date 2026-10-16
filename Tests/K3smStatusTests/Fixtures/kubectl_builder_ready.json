@@ -1,0 +1,18 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1", "kind": "Pod",
+      "metadata": {"name": "k3sm-builder", "namespace": "k3sm-builder"},
+      "spec": {"nodeName": "mac-a", "containers": [{"name": "buildkitd", "image": "moby/buildkit:v0.18.2"}]},
+      "status": {"phase": "Running", "containerStatuses": [{"name": "buildkitd", "ready": true, "restartCount": 0}]}
+    },
+    {
+      "apiVersion": "v1", "kind": "PersistentVolumeClaim",
+      "metadata": {"name": "k3sm-builder", "namespace": "k3sm-builder"},
+      "spec": {"accessModes": ["ReadWriteOnce"], "resources": {"requests": {"storage": "20Gi"}}},
+      "status": {"phase": "Bound", "capacity": {"storage": "20Gi"}}
+    }
+  ]
+}

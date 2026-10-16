@@ -19,8 +19,11 @@ import SwiftUI
 
 /// BuildsSection is the Builds tab: one card for the build engine, decided by
 /// `BuildEngine`, and the build history below it. The CLI records no build
-/// history yet, so the tab says so rather than listing anything.
+/// history yet, so the tab says so rather than listing anything. The engine
+/// card is the tab's one selectable row (`InspectorDetails.engineRow`); the
+/// history's rows will be selectable beside it.
 struct BuildsSection: View {
+    @ObservedObject var app: AppModel
     @ObservedObject var loader: TabLoader<BuildEngine>
 
     static let noHistory = "No build history recorded."
@@ -45,7 +48,10 @@ struct BuildsSection: View {
         case .unavailable(let reason): note(reason)
         default:
             if let engine = loader.value {
-                EngineCard(engine: engine)
+                let row = ConsoleRow.build(InspectorDetails.engineRow)
+                EngineCard(engine: engine, selected: app.isSelected(row))
+                    .contentShape(Rectangle())
+                    .onTapGesture { app.select(row) }
             } else {
                 note("Reading the build engine…")
             }
@@ -58,10 +64,12 @@ struct BuildsSection: View {
 }
 
 /// EngineCard is the build engine at a glance: its state with a dot, the
-/// reason line, then the pod, its node and the cache claim. Every string was
+/// reason line, then the pod, its node and the cache claim, outlined in the
+/// selection blue while it is the tab's selected row. Every string was
 /// clipped by the decoder.
 struct EngineCard: View {
     let engine: BuildEngine
+    var selected = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -85,8 +93,8 @@ struct EngineCard: View {
         }
         .padding(16)
         .frame(maxWidth: 460, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.wash))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line))
+        .background(RoundedRectangle(cornerRadius: 10).fill(selected ? Palette.tint : Palette.wash))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? Palette.blue : Palette.line, lineWidth: selected ? 1.5 : 1))
     }
 
     private func fact(_ label: String, _ value: String) -> some View {

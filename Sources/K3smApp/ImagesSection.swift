@@ -51,9 +51,9 @@ struct ImagesSection: View {
             case .listed(let images)? where images.isEmpty: note(ImagesList.emptyText)
             case .listed(let images)?:
                 ForEach(ImagesList.visible(images, query: app.imagesQuery), id: \.key) { image in
-                    ImageRow(image: image, selected: app.imagesSelected == image.key)
+                    ImageRow(image: image, selected: app.isSelected(.image(image.key)))
                         .contentShape(Rectangle())
-                        .onTapGesture { app.imagesSelected = image.key }
+                        .onTapGesture { app.select(.image(image.key)) }
                 }
             }
         }

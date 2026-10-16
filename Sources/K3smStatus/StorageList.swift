@@ -32,6 +32,9 @@ public struct StorageRow: Equatable, Sendable {
     /// The claim's phase, or the volume's for a volume alone; "" when unset.
     public let phase: String
     public let storageClass: String?
+    /// The access modes ("ReadWriteOnce", …): the claim's granted ones, else
+    /// those it asks for; a volume alone's own. Clipped, in the API's order.
+    public let accessModes: [String]
 }
 
 /// StorageList decodes `K3smCLI.storageArguments`, kubectl's `List` of
@@ -69,7 +72,8 @@ public enum StorageList {
                 volume: volumeName.map(StatusDisplay.clip),
                 capacityBytes: capacity,
                 phase: StatusDisplay.clip(KubeList.string(status, "phase") ?? ""),
-                storageClass: KubeList.string(spec, "storageClassName").map(StatusDisplay.clip)))
+                storageClass: KubeList.string(spec, "storageClassName").map(StatusDisplay.clip),
+                accessModes: Self.modes(status["accessModes"]) ?? Self.modes(spec["accessModes"]) ?? []))
         }
         rows.sort { ($0.namespace ?? "", $0.claim ?? "") < ($1.namespace ?? "", $1.claim ?? "") }
         var alone: [StorageRow] = []
@@ -87,7 +91,8 @@ public enum StorageList {
                 volume: StatusDisplay.clip(name),
                 capacityBytes: quantity(KubeList.dict(spec, "capacity")),
                 phase: StatusDisplay.clip(KubeList.string(KubeList.dict(volume, "status"), "phase") ?? ""),
-                storageClass: KubeList.string(spec, "storageClassName").map(StatusDisplay.clip)))
+                storageClass: KubeList.string(spec, "storageClassName").map(StatusDisplay.clip),
+                accessModes: Self.modes(spec["accessModes"]) ?? []))
         }
         return rows + alone.sorted { ($0.volume ?? "") < ($1.volume ?? "") }
     }
@@ -104,6 +109,13 @@ public enum StorageList {
         return rows.filter { row in
             [row.namespace, row.claim, row.volume].compactMap { $0 }.contains { $0.localizedCaseInsensitiveContains(query) }
         }
+    }
+
+    /// An `accessModes` array, each string clipped; nil when it is absent,
+    /// mistyped or empty, so a claim's empty status falls back to its spec.
+    private static func modes(_ value: Any?) -> [String]? {
+        let modes = (value as? [Any] ?? []).compactMap { $0 as? String }.filter { !$0.isEmpty }.map(StatusDisplay.clip)
+        return modes.isEmpty ? nil : modes
     }
 
     /// The `storage` quantity of a capacity or requests map, as bytes.

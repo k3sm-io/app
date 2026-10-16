@@ -1,0 +1,22 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1", "kind": "Node",
+      "metadata": {"name": "mac-a"},
+      "status": {"images": [
+        {"names": ["docker.io/library/redis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "docker.io/library/redis:7"], "sizeBytes": 41943040},
+        {"names": ["registry.local/web:1.4"], "sizeBytes": 12582912}
+      ]}
+    },
+    {
+      "apiVersion": "v1", "kind": "Node",
+      "metadata": {"name": "mac-b"},
+      "status": {"images": [
+        {"names": ["docker.io/library/redis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "docker.io/library/redis:7.2"], "sizeBytes": 41943040},
+        {"names": ["docker.io/library/postgres@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"], "sizeBytes": 157286400}
+      ]}
+    }
+  ]
+}

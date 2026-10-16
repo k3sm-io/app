@@ -96,7 +96,8 @@ struct ConsoleView: View {
 }
 
 /// ConsoleContent is the split view's second pane: the strip and the chosen
-/// tab, then the inspector unless it is collapsed.
+/// tab, then the inspector (`ConsoleInspector`, following the tab) unless it
+/// is collapsed.
 struct ConsoleContent: View {
     @ObservedObject var app: AppModel
 
@@ -113,7 +114,7 @@ struct ConsoleContent: View {
             .frame(maxWidth: .infinity)
             if app.inspectorShown {
                 Divider()
-                Inspector(model: app.workloads)
+                ConsoleInspector(app: app)
                     .frame(width: ConsoleView.inspectorWidth)
                     .tourTarget(.inspector, app.tour)
             }
@@ -129,7 +130,7 @@ struct ConsoleContent: View {
         case .images: ImagesSection(app: app, workloads: app.workloads)
         case .builds:
             if let builds = app.builds {
-                BuildsSection(loader: builds)
+                BuildsSection(app: app, loader: builds)
             } else {
                 Color.clear
             }

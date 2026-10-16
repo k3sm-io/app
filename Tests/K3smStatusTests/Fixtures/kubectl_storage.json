@@ -5,13 +5,13 @@
     {
       "apiVersion": "v1", "kind": "PersistentVolumeClaim",
       "metadata": {"name": "data-db-0", "namespace": "shop"},
-      "spec": {"volumeName": "pvc-1111", "storageClassName": "local-path", "resources": {"requests": {"storage": "1Gi"}}},
-      "status": {"phase": "Bound", "capacity": {"storage": "2Gi"}}
+      "spec": {"volumeName": "pvc-1111", "storageClassName": "local-path", "accessModes": ["ReadWriteMany"], "resources": {"requests": {"storage": "1Gi"}}},
+      "status": {"phase": "Bound", "accessModes": ["ReadWriteOnce"], "capacity": {"storage": "2Gi"}}
     },
     {
       "apiVersion": "v1", "kind": "PersistentVolumeClaim",
       "metadata": {"name": "cache", "namespace": "build"},
-      "spec": {"storageClassName": "local-path", "resources": {"requests": {"storage": "512Mi"}}},
+      "spec": {"storageClassName": "local-path", "accessModes": ["ReadWriteOnce"], "resources": {"requests": {"storage": "512Mi"}}},
       "status": {"phase": "Pending"}
     },
     {
@@ -35,7 +35,7 @@
     {
       "apiVersion": "v1", "kind": "PersistentVolume",
       "metadata": {"name": "pvc-9999"},
-      "spec": {"capacity": {"storage": "8Gi"}, "claimRef": {"namespace": "gone", "name": "old"}, "storageClassName": "local-path"},
+      "spec": {"capacity": {"storage": "8Gi"}, "accessModes": ["ReadWriteOnce", "ReadOnlyMany"], "claimRef": {"namespace": "gone", "name": "old"}, "storageClassName": "local-path"},
       "status": {"phase": "Released"}
     }
   ]

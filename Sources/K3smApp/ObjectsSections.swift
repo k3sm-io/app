@@ -27,14 +27,32 @@ struct ListNote: View {
     }
 }
 
-/// ListRow is the look every console row shares: 44 pt, the tint when selected.
+/// ListRow is the look every console row shares: 44 pt, the tint and the
+/// blue bar when selected, as the pod and image rows have them.
 struct ListRow<Content: View>: View {
-    @ViewBuilder let content: () -> Content
+    let selected: Bool
+    let content: () -> Content
+
+    init(selected: Bool = false, @ViewBuilder content: @escaping () -> Content) {
+        self.selected = selected
+        self.content = content
+    }
 
     var body: some View {
         HStack(spacing: ObjectColumns.spacing, content: content)
             .padding(.horizontal, 10).frame(minHeight: 44)
+            .background(selected ? Palette.tint : Color.clear)
+            .overlay(alignment: .leading) {
+                if selected { RoundedRectangle(cornerRadius: 2).fill(Palette.blue).frame(width: 3).padding(.vertical, 9) }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+extension View {
+    /// Makes a console row select `row` on a click.
+    func selects(_ row: ConsoleRow, in app: AppModel) -> some View {
+        contentShape(Rectangle()).onTapGesture { app.select(row) }
     }
 }
 
@@ -105,13 +123,14 @@ struct ServicesSection: View {
                                 ListNote(text: ServicesList.emptyText)
                             }
                             ForEach(ServicesList.visible(rows, query: app.servicesQuery), id: \.key) { row in
-                                ListRow {
+                                ListRow(selected: app.isSelected(.service(row.key))) {
                                     ObjectColumns.title(row.name, under: row.namespace)
                                     ObjectColumns.cell(row.type, width: ObjectColumns.type)
                                     ObjectColumns.cell(row.clusterIP, width: ObjectColumns.address, mono: true)
                                     ObjectColumns.cell(row.portsText, width: ObjectColumns.ports)
                                     ObjectColumns.cell(row.hostsText, width: ObjectColumns.hosts)
                                 }
+                                .selects(.service(row.key), in: app)
                             }
                         } else {
                             ListNote(text: "Reading the services…")
@@ -160,12 +179,13 @@ struct StorageSection: View {
                     ListNote(text: StorageList.emptyText)
                 }
                 ForEach(StorageList.visible(rows, query: app.storageQuery), id: \.key) { row in
-                    ListRow {
+                    ListRow(selected: app.isSelected(.claim(row.key))) {
                         ObjectColumns.title(row.claim ?? "no claim", under: row.namespace ?? (row.storageClass ?? ""))
                         ObjectColumns.cell(row.volume ?? "", width: ObjectColumns.volume, mono: true)
                         ObjectColumns.cell(WorkloadsDisplay.bytes(row.capacityBytes), width: ObjectColumns.capacity, alignment: .trailing)
                         ObjectColumns.cell(row.phase, width: ObjectColumns.phase)
                     }
+                    .selects(.claim(row.key), in: app)
                 }
             } else {
                 ListNote(text: "Reading the volume claims…")
@@ -243,7 +263,7 @@ struct ModelsSection: View {
                                 ListNote(text: ModelsList.emptyText)
                             }
                             ForEach(ModelsList.visible(rows, query: app.modelsQuery), id: \.key) { row in
-                                ListRow {
+                                ListRow(selected: app.isSelected(.model(row.key))) {
                                     Circle().fill(Palette.health(row.severity)).frame(width: 9, height: 9).frame(width: ObjectColumns.dot)
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(verbatim: row.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
@@ -256,6 +276,7 @@ struct ModelsSection: View {
                                     ObjectColumns.cell(row.replicasText, width: ObjectColumns.replicas, alignment: .trailing)
                                     ObjectColumns.cell(row.endpoint ?? "", width: ObjectColumns.hosts, mono: true)
                                 }
+                                .selects(.model(row.key), in: app)
                             }
                         } else {
                             ListNote(text: "Reading the models…")
