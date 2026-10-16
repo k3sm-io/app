@@ -134,6 +134,28 @@ public enum K3smCLI {
         #"jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name} {.metadata.uid}{"\n"}{end}"#,
     ]
 
+    /// One MLXModel's UID, read just before a Models tab action so the
+    /// action runs only on the model the user confirmed.
+    public static func modelUIDArguments(namespace: ResourceName, model: ResourceName) -> [String] {
+        ["kubectl", "get", ModelsList.resource, model.value, "-n", namespace.value, "-o", "jsonpath={.metadata.uid}"]
+    }
+
+    /// Unloads or loads one MLXModel: one JSON merge patch that sets
+    /// `spec.replicas` and the recorded count's annotation together
+    /// (`ModelActions.patch`). The CRD has no scale subresource, so
+    /// `kubectl scale` is not an option. Nil only when the patch cannot be
+    /// serialised.
+    public static func modelScaleArguments(namespace: ResourceName, model: ResourceName, scale: ModelScale) -> [String]? {
+        guard let patch = ModelActions.patch(scale) else { return nil }
+        return ["kubectl", "patch", ModelsList.resource, model.value, "-n", namespace.value, "--type=merge", "-p", patch]
+    }
+
+    /// Deletes one MLXModel without waiting for it to go; its operator
+    /// removes what it rendered for it.
+    public static func deleteModelArguments(namespace: ResourceName, model: ResourceName) -> [String] {
+        ["kubectl", "delete", ModelsList.resource, model.value, "-n", namespace.value, "--wait=false"]
+    }
+
     /// The PATH every CLI run gets: system directories only.
     public static let systemPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 

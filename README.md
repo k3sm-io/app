@@ -142,7 +142,8 @@ login** in the app's Settings turns it off or on again (see
     failure.
 
   The tabs only read. The changes the console makes are a pod's
-  **Restart** and **Delete** a service's **Delete** and the Workloads cleanup (below). The app remembers the tab, each tab's
+  **Restart** and **Delete**, a service's **Delete**, the Workloads cleanup,
+  and a model's **Unload**, **Load** and **Delete** (below). The app remembers the tab, each tab's
   search and selection, the Workloads switch and the events namespace.
 - **Restart…** and **Delete…** in the pod details are the console's writes.
   Restart is shown only for a pod whose owner recreates it (a ReplicaSet,
@@ -205,6 +206,35 @@ login** in the app's Settings turns it off or on again (see
   kubectl delete pod <names...> -n <namespace> --wait=false` per namespace
   and leaves one line in the strip: how many were deleted, how many were
   already gone, and where and why any were not.
+- A **model**'s details and its Control-click menu offer **Unload…** while
+  it asks for replicas and **Load…** while it asks for none, never both.
+  The MLX API has no load verb and no scale subresource (`kubectl scale`
+  answers NotFound), so both are one merge patch, `k3sm kubectl patch
+  mlxmodels.mlx.k3sm.io <name> -n <namespace> --type=merge -p <patch>`.
+  Unload sets `spec.replicas` to 0 and records the count it had in the
+  model's `k3sm.io/replicas-before-unload` annotation; the operator scales
+  the serving workload to zero and the model reads Ready=False,
+  ScaledToZero. Load sets `spec.replicas` back to the recorded count (1
+  when there is no record, or it is not a whole number from 1 up) and
+  removes the annotation in the same patch. **Delete…** runs `k3sm kubectl
+  delete mlxmodels.mlx.k3sm.io <name> -n <namespace> --wait=false`; the
+  operator removes the serving pods, the Services and the cache claim, and
+  the question says the weights volume is kept and appears in the Storage
+  tab as Released, where deleting it frees the disk. The Delete key asks
+  for Delete, never for Unload. Each asks first, naming the model and the
+  replica count, then reads the model's UID with `k3sm kubectl get
+  mlxmodels.mlx.k3sm.io <name> -n <namespace> -o jsonpath={.metadata.uid}`
+  and changes nothing when the model is gone or is no longer the one you
+  clicked, with the same trust check, account and result line as Restart.
+  A serving model also offers **Copy Endpoint** (its `status.endpoint`, the
+  in-cluster address) and **Copy curl Example**, a call of its
+  `/v1/chat/completions` API as the MLX quickstart makes it from the Mac:
+  the Service's cluster IP read by `/Library/k3sm/k3sm kubectl get svc
+  <name> -n <namespace> -o jsonpath='{.spec.clusterIP}'` inside the
+  command, the port from the endpoint, and a short request naming the
+  served model. The curl example is offered only when the endpoint names
+  the model's own Service and the model is a plain repository id, since you
+  paste it into a shell.
 - The **details** on the right follow the tab. Click a row on any tab (the
   build engine's card on Builds) and its details show there: a pod's facts
   and its logs, events or manifest; an image's reference, digest, size, the

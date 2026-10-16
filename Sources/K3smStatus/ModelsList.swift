@@ -31,6 +31,16 @@ public struct ModelRow: Equatable, Sendable {
     public let replicas: Int
     /// The served endpoint (`status.endpoint`), nil before it is set.
     public let endpoint: String?
+    /// The object's UID (`metadata.uid`), "" when the list did not carry one.
+    public let uid: String
+    /// The replica count Unload recorded (the
+    /// `ModelActions.replicasAnnotation` annotation), nil when absent.
+    public let replicasBeforeUnload: String?
+    /// Whether the spec asks for a weights cache volume (`spec.cache`).
+    public let hasCache: Bool
+    /// The name and namespace as `ResourceName`s, nil when the guard refuses one.
+    let resourceName: ResourceName?
+    let namespaceName: ResourceName?
 
     /// "1/2", ready of asked for.
     public var replicasText: String { "\(readyReplicas)/\(replicas)" }
@@ -69,6 +79,8 @@ public enum ModelsList {
             let name = KubeList.name(object)
             let spec = KubeList.dict(object, "spec")
             let status = KubeList.dict(object, "status")
+            let metadata = KubeList.dict(object, "metadata")
+            let annotations = KubeList.dict(metadata, "annotations")
             return ModelRow(
                 key: StatusDisplay.clip("\(namespace)/\(name)"),
                 namespace: StatusDisplay.clip(namespace),
@@ -77,7 +89,12 @@ public enum ModelsList {
                 phase: StatusDisplay.clip(KubeList.string(status, "phase") ?? ""),
                 readyReplicas: max(0, KubeList.int(status, "readyReplicas") ?? 0),
                 replicas: max(0, KubeList.int(spec, "replicas") ?? 1),
-                endpoint: KubeList.string(status, "endpoint").map(StatusDisplay.clip))
+                endpoint: KubeList.string(status, "endpoint").map(StatusDisplay.clip),
+                uid: StatusDisplay.clip(KubeList.string(metadata, "uid") ?? ""),
+                replicasBeforeUnload: KubeList.string(annotations, ModelActions.replicasAnnotation).map(StatusDisplay.clip),
+                hasCache: spec["cache"] is [String: Any],
+                resourceName: ResourceName(name),
+                namespaceName: ResourceName(namespace))
         }
         return rows.sorted { ($0.namespace, $0.name) < ($1.namespace, $1.name) }
     }

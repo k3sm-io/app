@@ -540,7 +540,9 @@ final class AppModel: ObservableObject {
             return workloads.workloads?.pods.first { $0.key == key }.map(PodActions.menu(for:)) ?? .empty
         case .service(let key):
             return services?.value?.first { $0.key == key }.map(ServiceActions.menu(for:)) ?? .empty
-        case .image, .build, .claim, .model:
+        case .model(let key):
+            return models?.value?.first { $0.key == key }.map(ModelActions.menu(for:)) ?? .empty
+        case .image, .build, .claim:
             return .empty
         }
     }
