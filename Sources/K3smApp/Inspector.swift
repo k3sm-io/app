@@ -19,8 +19,9 @@ import SwiftUI
 
 /// Inspector is the right column: the selected pod's facts, the actions it
 /// offers (its `ActionMenu`, each asked of the shared `ActionRunner`, whose
-/// confirmation the console shows), the last action's line, then its logs,
-/// events or manifest verbatim.
+/// confirmation the console shows), the last action's line, the Summarize
+/// Logs panel when it ran on this pod, then its logs, events or manifest
+/// verbatim.
 struct Inspector: View {
     @ObservedObject var model: WorkloadsModel
     @ObservedObject var runner: ActionRunner
@@ -31,6 +32,7 @@ struct Inspector: View {
                 heading(pod)
                 facts(pod)
                 actions
+                LogSummaryPanel(summaries: model.summaries, podKey: pod.key)
                 detailTabs
                 ScrollView {
                     Text(verbatim: model.detailLoading ? "loading…" : model.detailText)

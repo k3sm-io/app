@@ -58,6 +58,8 @@ final class WorkloadsModel: ObservableObject {
     /// The live load from metrics-server: the last sample, kept while the
     /// console is away, and why there is none (`MetricsState`).
     @Published private(set) var metrics = MetricsState()
+    /// The Summarize Logs action's runner, whose panel the inspector shows.
+    let summaries: LogSummaryModel
     /// Called after each node-list read, for the Images tab's selection.
     var onNodesRead: (@MainActor () -> Void)?
     /// Called after each pod-list read, with whether it succeeded, for the
@@ -71,6 +73,7 @@ final class WorkloadsModel: ObservableObject {
 
     init(environment: [String: String]) {
         self.environment = environment
+        summaries = LogSummaryModel(environment: environment)
         nodeList = TabLoader(
             arguments: K3smCLI.nodesArguments, what: "node list", environment: environment,
             decode: NodeListRead.tabResult(exitCode:stdout:),
@@ -80,6 +83,7 @@ final class WorkloadsModel: ObservableObject {
             self?.onNodesRead?()
         }
         forward(nodeList)
+        LocalActions.summarize = { [weak summaries] in summaries?.summarize($0) }
         metricsPoller = MetricsPoller(environment: environment) { [weak self] reading, at in
             self?.metrics.apply(reading, at: at)
         }

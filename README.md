@@ -207,6 +207,27 @@ login** in the app's Settings turns it off or on again (see
   <namespace> -c <container> -- sh` in the pod's first container, and tries
   `/bin/sh` once when the container has no `sh` on its PATH (exec exits 126
   or 127).
+- For a pod in phase Running, Succeeded or Failed, the details and the
+  Control-click menu offer **Summarize Logs** (one per container, named,
+  when the pod has several). It asks nothing first and changes nothing. The
+  app checks that Apple's on-device model can run on this Mac; when it
+  cannot, it says why in plain words (this Mac is not eligible for Apple
+  Intelligence, Apple Intelligence is turned off, or the model is still
+  downloading). Otherwise it reads `k3sm kubectl logs <pod> -n <namespace>
+  -c <container> --tail=500 --timestamps`, and the same with `--previous`
+  when the container has restarted, at most 256 KiB each. It sends the
+  model as much as fits the model's context with room for the answer: the
+  newest lines, every line that looks like an error, the first few lines,
+  and the middle dropped, with the number of lines left out stated. The log
+  is quoted as data, and the model is told it is untrusted text to
+  summarize, never instructions. The model runs on this Mac through Apple's
+  Foundation Models framework; nothing leaves the Mac. One summary runs at
+  a time, with Cancel and a 60-second limit. The answer is shown as plain
+  text with the time the log covers, how many lines reached the model, the
+  line "Generated on this Mac by Apple's on-device model; check the log."
+  and Copy. It is never turned into an action, a command or a link. The
+  summary is kept per container until its log changes, so asking again
+  for an unchanged log shows it without running the model.
 - **Delete completed and failed pods…**, in the strip while Workloads shows
   its pods and some pod has finished, deletes every pod in phase Succeeded
   or Failed, or evicted. The question names how many and in which
