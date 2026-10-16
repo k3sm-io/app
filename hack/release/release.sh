@@ -230,7 +230,8 @@ signed_image_problems() {
 }
 
 # signed_app_problems <app> <team>: the mounted app is Developer ID signed for
-# <team>, stapled, and pinned to exactly <team>.
+# <team>, stapled, and both executables (k3sm-app, k3sm-mcp) pinned to
+# exactly <team>.
 signed_app_problems() {
 	local app="$1" team="$2" rc=0
 	codesign --verify --strict --deep -R="$(developer_id_requirement "$team")" "$app" >/dev/null 2>&1 ||
@@ -238,6 +239,9 @@ signed_app_problems() {
 	xcrun stapler validate "$app" >/dev/null 2>&1 || { echo "    stapler validate rejects k3sm.app"; rc=1; }
 	bash "$CHECK_TEAM_PIN" "$app/Contents/MacOS/k3sm-app" "$team" >/dev/null 2>&1 ||
 		{ echo "    k3sm.app is not pinned to exactly the Team ID $team"; rc=1; }
+	# The MCP server checks the installed CLI against its own compiled pin.
+	bash "$CHECK_TEAM_PIN" "$app/Contents/MacOS/k3sm-mcp" "$team" >/dev/null 2>&1 ||
+		{ echo "    k3sm.app's k3sm-mcp is not pinned to exactly the Team ID $team"; rc=1; }
 	return "$rc"
 }
 
@@ -719,7 +723,8 @@ v="\$(printf '%s\n' "\$*" | sed -n 's/.*pkg\/version.Version=\([^ ]*\).*/\1/p')"
 EOF
 	# build-app.sh: copies the payload and its manifest like the real one and
 	# writes an Info.plist; FAKE_APP_VERSION, FAKE_APP_BUNDLE_ID,
-	# FAKE_APP_TAMPER (edit|extra|missing|dsstore) and FAKE_APP_STAMP bend it.
+	# FAKE_APP_TAMPER (edit|extra|missing|dsstore) and FAKE_APP_STAMP bend it;
+	# FAKE_MCP_STAMP bends k3sm-mcp's stamp alone.
 	cat >"$A/build-app.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -752,6 +757,8 @@ stamp=""
 [ -z "$team" ] || stamp="k3sm-team-id-pin:$team"
 [ -z "${FAKE_APP_STAMP:-}" ] || stamp="k3sm-team-id-pin:$FAKE_APP_STAMP"
 printf 'binary\0k3sm-team-id-pin:\0%s\0' "$stamp" >"$app/Contents/MacOS/k3sm-app"
+[ -z "${FAKE_MCP_STAMP:-}" ] || stamp="k3sm-team-id-pin:$FAKE_MCP_STAMP"
+printf 'binary\0k3sm-team-id-pin:\0%s\0' "$stamp" >"$app/Contents/MacOS/k3sm-mcp"
 cp -R "$payload" "$app/Contents/Resources/payload"
 p="$app/Contents/Resources/payload"
 (cd "$p" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256) | sed 's|  \./|  |' >"$app/Contents/Resources/payload.sha256"
@@ -971,6 +978,12 @@ publish.sh --upload"
 	unset FAKE_APP_STAMP
 	check "an app pinned to another Team ID refuses before upload" \
 		eval '[ "$CASE_RC" = 3 ] && out_has "not pinned to exactly the Team ID $team" && not_logged "^publish.sh --upload"'
+	full_case wrong-mcp-pin
+	export FAKE_MCP_STAMP=ZYXWV98765
+	run_case in_fakes run_full
+	unset FAKE_MCP_STAMP
+	check "an app whose k3sm-mcp is pinned to another Team ID refuses before upload" \
+		eval '[ "$CASE_RC" = 3 ] && out_has "k3sm-mcp is not pinned to exactly the Team ID $team" && ! out_has "k3sm.app is not pinned" && not_logged "^publish.sh --upload"'
 	full_case no-newline
 	export FAKE_MANIFEST_NO_NL=1 FAKE_APP_TAMPER=edit
 	run_case in_fakes run_full
