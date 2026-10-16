@@ -43,11 +43,11 @@ struct NeedsAdminTests {
             #expect(row.rowState.tone == .notChecked)
             #expect(!row.rowState.degradesVerdict)
         }
-        // The headline and the panel lead with the CLI's own verdict word.
-        #expect(StatusDisplay.headline(report).hasPrefix("k3sm \(report.verdict.word)"))
+        // The headline is the CLI's own verdict, whatever the rows say.
+        #expect(StatusHeadline.of(report).state == StatusHeadline.word(report.verdict))
         if report.verdict == .running {
             #expect(MenuStatus.thisMac(of: report) == .ok)
-            #expect(StatusDisplay.panelStateLine(report, podCount: 2).hasPrefix("Running, 2 pods"))
+            #expect(StatusHeadline.of(report, podCount: 2).state == "Running")
         }
     }
 
@@ -57,8 +57,10 @@ struct NeedsAdminTests {
                                   rows: ["runtimed", "admin-kubeconfig", "server-args"].map(Self.adminRow))
         #expect(report.rows.allSatisfy { !$0.rowState.degradesVerdict })
         #expect(MenuStatus.thisMac(of: report) == .ok)
-        #expect(StatusDisplay.headline(report) == "k3sm running · 1/1 nodes ready · 3 checks need an administrator")
-        #expect(StatusDisplay.panelStateLine(report, podCount: 1) == "Running, 1 pod · 3 checks need an administrator")
+        let headline = StatusHeadline.of(report, podCount: 1)
+        #expect(headline.state == "Running")
+        #expect(headline.needsAdmin == 3)
+        #expect(headline.accessibilityLabel == "Running: 1/1 nodes ready, 1 pod, 3 checks need an administrator")
     }
 
     @Test("the runtimed row decodes as needs-admin with its remedy, never unknown", arguments: fullReports)
@@ -112,7 +114,10 @@ struct NeedsAdminTests {
         let report = StatusReport(schemaVersion: 1, verdict: .running, role: "server", summary: "", rows: rows)
         #expect(StatusDisplay.needsAdminCount(report) == count)
         #expect(StatusDisplay.needsAdminLine(report) == want)
-        #expect(StatusDisplay.headline(report) == (want.map { "k3sm running · " + $0 } ?? "k3sm running"))
+        let headline = StatusHeadline.of(report)
+        #expect(headline.state == "Running")
+        #expect(headline.showsLock == (count > 0))
+        #expect(headline.accessibilityLabel == (want.map { "Running, " + $0 } ?? "Running"))
     }
 
     @Test("an unrecognised future state decodes as unknown", arguments: ["needs-admin2", "sideways", "unknown", ""])
@@ -139,5 +144,54 @@ struct NeedsAdminTests {
     @Test("tones", arguments: [("running", RowTone.healthy), ("needs-admin", .notChecked), ("skip", .attention), ("unknown", .attention), ("behind", .attention), ("ahead", .healthy), ("rolling", .healthy), ("down", .attention), ("unhealthy", .attention)])
     func tones(_ word: String, _ tone: RowTone) {
         #expect(RowState(word: word).tone == tone)
+    }
+
+    @Test("the status headline is one state; the admin count is a lock, read out in full",
+          arguments: [(Verdict.running, "Running", RowTone.healthy), (.degraded, "Degraded", .attention),
+                      (.stopped, "Stopped", .notChecked), (.notInstalled, "Not installed", .notChecked),
+                      (.unknown, "Unknown", .attention), (.unrecognized("sideways"), "sideways", .attention),
+                      (.unrecognized(""), "Unknown", .attention)] as [(Verdict, String, RowTone)])
+    func statusHeadlineIsOneState(_ verdict: Verdict, _ word: String, _ tone: RowTone) {
+        let rows = (0..<4).map { Self.adminRow("r\($0)") } + [StatusRow(name: "netd", state: "running", detail: "d")]
+        let report = StatusReport(schemaVersion: 1, verdict: verdict, role: "server", summary: "1/2 nodes ready", rows: rows)
+        let headline = StatusHeadline.of(report, podCount: 9)
+        // One state, nothing else in it: no pod count, no summary, no admin count.
+        #expect(headline.state == word)
+        #expect(headline.tone == tone)
+        #expect(!headline.state.contains("administrator"))
+        #expect(!headline.state.contains("pod"))
+        #expect(!headline.state.contains("·"))
+        #expect(!headline.state.contains(","))
+        #expect(!headline.state.contains("nodes ready"))
+        // The admin count is the lock, with its count in the lock's help tag.
+        #expect(headline.showsLock)
+        #expect(headline.needsAdmin == 4)
+        #expect(Help.Status.needsAdmin(headline.needsAdmin, in: .panel).text == "Needs an administrator to read 4 checks; see the rows below")
+        #expect(Help.Status.needsAdmin(1, in: .popover).text == "Needs an administrator to read 1 check; open the checks list below")
+        // The accessibility label still carries everything.
+        #expect(headline.accessibilityLabel == "\(word): 1/2 nodes ready, 9 pods, 4 checks need an administrator")
+        // No admin rows: no lock, and nothing about it read out.
+        let clean = StatusReport(schemaVersion: 1, verdict: verdict, role: "server", summary: "", rows: [])
+        #expect(!StatusHeadline.of(clean).showsLock)
+        #expect(StatusHeadline.of(clean).accessibilityLabel == word)
+        #expect(StatusHeadline.of(clean, podCount: 1).accessibilityLabel == word + ", 1 pod")
+    }
+
+    @Test("before any report the headline is one state too")
+    func headlineBeforeAReport() {
+        let headline = StatusHeadline.of(nil, podCount: 3)
+        #expect(headline.state == StatusHeadline.notRead)
+        #expect(headline.tone == .notChecked)
+        #expect(!headline.showsLock)
+        #expect(headline.accessibilityLabel == "Not read, 3 pods")
+    }
+
+    @Test("a report's strings reach the headline clipped")
+    func headlineIsClipped() {
+        let report = StatusReport(schemaVersion: 1, verdict: .unrecognized("side\nways"), role: "server",
+                                  summary: "a\nb", rows: [])
+        let headline = StatusHeadline.of(report)
+        #expect(!headline.state.contains("\n"))
+        #expect(!headline.accessibilityLabel.contains("\n"))
     }
 }

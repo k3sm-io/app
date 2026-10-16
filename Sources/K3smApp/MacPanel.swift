@@ -227,11 +227,23 @@ struct MacPanel: View {
                         requested: memoryRequested, podsUsed: memoryUsed)
     }
 
+    /// The status as one state (`StatusHeadline`): its dot, the word, and a
+    /// lock while checks need an administrator; accessibility reads the
+    /// whole, with the pod count and the needs-admin count.
     private var stateRow: some View {
-        HStack(spacing: 7) {
-            Circle().fill(report?.verdict == .running ? Palette.okOnDark : Palette.warnOnDark).frame(width: 8, height: 8)
-                .help(Help.Panel.stateDot)
-            Text(verbatim: stateLine).font(.system(size: 12)).foregroundStyle(.white)
+        let headline = StatusHeadline.of(report, podCount: pods.count)
+        return HStack(spacing: 7) {
+            HStack(spacing: 7) {
+                Circle().fill(Palette.rowOnDark(headline.tone)).frame(width: 8, height: 8)
+                    .help(Help.Status.dot)
+                Text(verbatim: headline.state).font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
+                if headline.showsLock {
+                    Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(.white.opacity(0.62))
+                        .help(Help.Status.needsAdmin(headline.needsAdmin, in: .panel))
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: headline.accessibilityLabel))
             // The pod figures' age, once their read is late or failing.
             TimelineView(.periodic(from: .now, by: 5)) { context in
                 if let age = PollSchedule.panelAge(podsReadAt: workloads.readAt, now: context.date) {
@@ -335,8 +347,6 @@ struct MacPanel: View {
     /// The cores the node used and its pods' working sets, nil without a sample.
     private var coresUsed: Double? { MacUsage.cpuUsed(node: macNode, state: workloads.metrics) }
     private var memoryUsed: Int64? { MacUsage.podsMemoryUsed(macPods, node: macNode, state: workloads.metrics) }
-
-    private var stateLine: String { StatusDisplay.panelStateLine(report, podCount: pods.count) }
 
     /// The nodes block, re-derived from each report; nil before the first read.
     private var nodes: NodesView? {

@@ -52,7 +52,7 @@ public enum Help {
     /// Every tag in the catalog, area by area.
     public static var all: [HelpTag] {
         Strip.all + Workloads.all + Nodes.all + Images.all + Builds.all + Services.all + Storage.all + Models.all + Stats.all
-            + Inspector.all + Actions.all + Panel.all + Popover.all + Guided.all + FirstRun.all + Update.all
+            + Inspector.all + Actions.all + Status.all + Panel.all + Popover.all + Guided.all + FirstRun.all + Update.all
             + Tour.all + General.all + Network.all + Updates.all + Advanced.all + SettingsWindow.all + Menus.all + Columns.all
     }
 
@@ -468,6 +468,35 @@ public enum Help {
 
     // MARK: Mac panel
 
+    /// The status headline in the navy panel and the info button's popover:
+    /// the state's dot and the needs-admin lock.
+    public enum Status {
+        /// Where a headline is drawn, which decides where its lock points.
+        public enum Place: Sendable {
+            /// The navy panel, with the daemon rows under it.
+            case panel
+            /// The info button's popover, with All checks under it.
+            case popover
+        }
+
+        /// The dot before the state.
+        public static let dot = HelpTag("Green while k3sm runs here, amber when degraded, grey when stopped",
+                                        control: "status headline: state dot")
+
+        /// The lock beside the state while `count` checks need an
+        /// administrator: the whole of the line the lock stands for, and
+        /// where the checks are listed.
+        public static func needsAdmin(_ count: Int, in place: Place) -> HelpTag {
+            let checks = count == 1 ? "1 check" : "\(max(0, count)) checks"
+            let see = place == .panel ? "see the rows below" : "open the checks list below"
+            return HelpTag("Needs an administrator to read \(checks); \(see)", control: "status headline: needs-admin lock")
+        }
+
+        public static var all: [HelpTag] {
+            [dot, needsAdmin(1, in: .panel), needsAdmin(4, in: .panel), needsAdmin(1, in: .popover), needsAdmin(12, in: .popover)]
+        }
+    }
+
     /// The navy panel: the view switch, the tiles, the meters and the dots.
     public enum Panel {
         /// The Cluster segment of the panel's switch.
@@ -476,9 +505,6 @@ public enum Help {
         /// The This Mac segment of the panel's switch.
         public static let thisMac = HelpTag("Show this machine, its pods and its load",
                                             control: "panel: This Mac switch", label: "This Mac")
-        /// The dot before the panel's state line.
-        public static let stateDot = HelpTag("Green while k3sm runs here, amber otherwise",
-                                             control: "panel: state dot")
         /// The dot before a node's name.
         public static let nodeDot = HelpTag("Green when the node reports Ready, amber otherwise",
                                             control: "panel: node dot")
@@ -545,7 +571,7 @@ public enum Help {
                                  "data root", "pod on this Mac", "pods on this Mac", ""]
 
         public static var all: [HelpTag] {
-            [cluster, thisMac, stateDot, nodeDot, nodeCores, nodeMemory, liveCPU, liveMemory, sparkline,
+            [cluster, thisMac, nodeDot, nodeCores, nodeMemory, liveCPU, liveMemory, sparkline,
              coreGrid, memoryMeter] + tileLabels.map { tileTag(label: $0) }
                 + ["cores requested", "memory requested"].map { usedTileTag(label: $0) }
         }

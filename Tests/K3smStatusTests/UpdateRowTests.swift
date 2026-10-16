@@ -75,7 +75,8 @@ struct UpdateRowTests {
         let report = StatusReport(schemaVersion: 1, verdict: .running, role: "server", summary: "1/1 nodes ready",
                                   rows: [row])
         #expect(MenuStatus.thisMac(of: report) == .ok)
-        #expect(StatusDisplay.headline(report) == "k3sm running · 1/1 nodes ready")
+        #expect(StatusHeadline.of(report).state == "Running")
+        #expect(!StatusHeadline.of(report).showsLock)
     }
 
     @Test("ahead is its own state with the ok tone and shows its detail")

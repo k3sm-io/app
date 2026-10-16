@@ -181,6 +181,13 @@ login** in the app's Settings turns it off or on again (see
   search field, when the update plan has an update for this Mac: the
   app-carried update or the cluster's managed update (see
   [Updating](#updating)).
+- The **status** at the top of the left panel and of the status popover is
+  one state with a coloured dot: Running (green), Degraded or Unknown
+  (amber), Stopped or Not installed (grey), or a newer CLI's word as it
+  prints it. The pod count is a figure in the panel's tiles, and a lock
+  beside the state marks checks that only an administrator can run.
+  VoiceOver reads the state with the cluster's summary,
+  the pod count and how many checks need an administrator.
 - The **info button** opens the status popover: the state of this Mac (and
   who stopped k3sm, when it is stopped), only the checks that need
   attention, or "All N checks are ok." when none does, the installed
@@ -528,9 +535,10 @@ The app runs as you, not as root, so some checks are ones only an
 administrator can run (the runtime daemon's owner-only socket, for one). The
 CLI reports those rows as `needs-admin`, and the app shows them with a grey
 glyph and "needs an administrator; run sudo k3sm status". Nothing was checked
-and nothing is wrong, so these rows never count against the verdict; the
-status line says how many there are ("1 check needs an administrator"). Run
-`sudo k3sm status` in a terminal to see them checked.
+and nothing is wrong, so these rows never count against the verdict. While
+there are any, a small lock sits beside the state; its help tag says how many
+("Needs an administrator to read 1 check"). Run `sudo k3sm status` in a
+terminal to see them checked.
 
 ## The menu
 

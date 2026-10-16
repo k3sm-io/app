@@ -329,7 +329,7 @@ struct FirstRunView: View {
     }
 }
 
-/// StatusView is the popover's status: the headline, the health check's
+/// StatusView is the popover's status: the headline (one state, `StatusHeadline`), the health check's
 /// line (`HealthState.statusLine`; the whole headline without a report),
 /// the stopped-by line, only the checks that are not ok (`StatusPopover.problemRows`, or
 /// its all-ok line), the version line with the one update plan's button
@@ -344,8 +344,7 @@ struct StatusView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let report = model.report {
-                Text(verbatim: StatusDisplay.headline(report)).font(.title3).bold()
-                    .fixedSize(horizontal: false, vertical: true)
+                headline(StatusHeadline.of(report))
                 if let stopped = report.stoppedBy {
                     Text(verbatim: StatusDisplay.clip(stopped.line)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -379,6 +378,22 @@ struct StatusView: View {
                 .padding(.top, 6)
             }
         }
+    }
+
+    /// The status as one state (`StatusHeadline`): its dot, the word, and a
+    /// lock while checks need an administrator; accessibility reads the whole.
+    private func headline(_ headline: StatusHeadline) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(Palette.row(headline.tone)).frame(width: 9, height: 9)
+                .help(Help.Status.dot)
+            Text(verbatim: headline.state).font(.title3).bold()
+            if headline.showsLock {
+                Image(systemName: "lock.fill").foregroundStyle(.secondary)
+                    .help(Help.Status.needsAdmin(headline.needsAdmin, in: .popover))
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: headline.accessibilityLabel))
     }
 
     /// The checks that are not ok, each its glyph, name and state over its detail.

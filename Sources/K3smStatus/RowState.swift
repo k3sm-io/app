@@ -196,25 +196,71 @@ extension StatusDisplay {
         default: return "\(n) checks need an administrator"
         }
     }
+}
 
-    /// The window's status headline, clipped: "k3sm <verdict>", the summary
-    /// after a middle dot, then the needs-admin count. The verdict is the
-    /// CLI's word, whatever the rows say.
-    public static func headline(_ report: StatusReport) -> String {
-        var parts = ["k3sm \(report.verdict.word)"]
-        if !report.summary.isEmpty { parts.append(report.summary) }
-        if let line = needsAdminLine(report) { parts.append(line) }
-        return clip(parts.joined(separator: " · "))
+/// StatusHeadline is the status as one state: a word for the verdict
+/// ("Running", "Degraded", "Stopped", "Not installed", "Unknown", or a word
+/// this build does not know as printed, clipped) with the tone of the dot
+/// before it, and the count of checks that need an administrator, which the
+/// view shows as a lock beside the state rather than as text. The headline
+/// text is the state alone; the accessibility label carries everything the
+/// longer sentence used to: the state, the report's summary, the pod count
+/// when the view has one, and the needs-admin count.
+public struct StatusHeadline: Equatable, Sendable {
+    /// The state shown, one word or two ("Not installed").
+    public let state: String
+    /// The dot's tone: healthy while running, not checked while stopped,
+    /// not installed or not read yet, attention otherwise.
+    public let tone: RowTone
+    /// How many checks need an administrator; the lock shows while above 0.
+    public let needsAdmin: Int
+    /// What accessibility reads for the whole headline.
+    public let accessibilityLabel: String
+
+    /// Whether the view shows the needs-admin lock.
+    public var showsLock: Bool { needsAdmin > 0 }
+
+    /// The state before any report is read.
+    public static let notRead = "Not read"
+
+    /// The headline for `report`; `podCount` is the pods the view counts,
+    /// nil where it shows none. Every report-supplied part is clipped.
+    public static func of(_ report: StatusReport?, podCount: Int? = nil) -> StatusHeadline {
+        let pods = podCount.map { "\(max(0, $0)) \($0 == 1 ? "pod" : "pods")" }
+        guard let report else {
+            let label = ([notRead] + [pods].compactMap { $0 }).joined(separator: ", ")
+            return StatusHeadline(state: notRead, tone: .notChecked, needsAdmin: 0, accessibilityLabel: label)
+        }
+        let state = word(report.verdict)
+        let summary = StatusDisplay.clip(report.summary)
+        var parts = [summary.isEmpty ? state : state + ": " + summary]
+        if let pods { parts.append(pods) }
+        if let admin = StatusDisplay.needsAdminLine(report) { parts.append(admin) }
+        return StatusHeadline(state: state, tone: tone(report.verdict), needsAdmin: StatusDisplay.needsAdminCount(report),
+                              accessibilityLabel: StatusDisplay.clip(parts.joined(separator: ", ")))
     }
 
-    /// The left panel's state line, clipped: "Running, 4 pods" while the
-    /// verdict is running, else "<verdict>: <summary>", then the needs-admin
-    /// count; "Status not read, 4 pods" before any report.
-    public static func panelStateLine(_ report: StatusReport?, podCount: Int) -> String {
-        let count = "\(podCount) \(podCount == 1 ? "pod" : "pods")"
-        guard let report else { return "Status not read, \(count)" }
-        var line = report.verdict == .running ? "Running, \(count)" : "\(report.verdict.word): \(report.summary)"
-        if let admin = needsAdminLine(report) { line += " · " + admin }
-        return clip(line)
+    /// The state for a verdict; a word this build does not know is shown as
+    /// printed, clipped, and an empty one as "Unknown".
+    public static func word(_ verdict: Verdict) -> String {
+        switch verdict {
+        case .running: return "Running"
+        case .degraded: return "Degraded"
+        case .stopped: return "Stopped"
+        case .notInstalled: return "Not installed"
+        case .unknown: return "Unknown"
+        case .unrecognized(let word):
+            let shown = StatusDisplay.clip(word)
+            return shown.isEmpty ? "Unknown" : shown
+        }
+    }
+
+    /// The dot's tone for a verdict.
+    public static func tone(_ verdict: Verdict) -> RowTone {
+        switch verdict {
+        case .running: return .healthy
+        case .stopped, .notInstalled: return .notChecked
+        case .degraded, .unknown, .unrecognized: return .attention
+        }
     }
 }

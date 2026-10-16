@@ -27,7 +27,7 @@ public enum StatusPopover {
 
     /// Whether a row is a problem the popover lists: the CLI's severity is
     /// `warn` or `fail`. `ok`, `skip` (nothing to probe) and `unknown`
-    /// (could not probe) are not; the headline already counts the checks
+    /// (could not probe) are not; the headline's lock already counts the checks
     /// that need an administrator. A row with no severity word, or one this
     /// build does not know, falls back to how the row is drawn: a state
     /// drawn for attention that moves the verdict.
