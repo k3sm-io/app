@@ -9,7 +9,15 @@
 # (Contents/MacOS/k3sm-mcp).
 #
 #   --version <x.y.z>        stamps CFBundleShortVersionString and
-#                            CFBundleVersion (default 0.0.0, a developer build)
+#                            CFBundleVersion, a release build. Without it
+#                            both are 0.0.0 (a developer build: macOS takes
+#                            digits only there) and Info.plist gains
+#                            K3smBuildVersion, the pseudo-version
+#                            hack/build-version.sh computes from the checkout
+#                            (v0.0.0-0.20261016221530-2eda966a1b2c, +dirty
+#                            for a modified tree, v0.0.0-unknown outside a
+#                            git checkout). A release build carries no
+#                            K3smBuildVersion.
 #   --team-id <ID>           compiles the Developer ID Team ID the root step
 #                            pins into the binary (TeamIDPin). The build runs
 #                            from a copy of the source under .build/pinned-src
@@ -50,6 +58,7 @@ usage() {
 }
 
 VERSION=0.0.0
+RELEASE=
 TEAM_ID=
 PAYLOAD=
 OUTARG=
@@ -59,6 +68,7 @@ while [ "$#" -gt 0 ]; do
 	--version)
 		[ "$#" -ge 2 ] || usage
 		VERSION="$2"
+		RELEASE=1
 		shift 2
 		;;
 	--team-id)
@@ -101,6 +111,10 @@ if [ -n "$TEAM_ID" ] && [ -n "$BUNDLE_ID" ]; then
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_VERSION=
+if [ -z "$RELEASE" ]; then
+	BUILD_VERSION="$(bash "$ROOT/hack/build-version.sh" "$ROOT")"
+fi
 PRODUCT=K3smApp   # the SwiftPM executable product
 EXE=k3sm-app      # the bundle executable (CFBundleExecutable in Resources/Info.plist)
 MCP=k3sm-mcp      # the read-only MCP server, product and file name alike
@@ -184,12 +198,13 @@ BIN_DIR="$(cd "$SRC" && swift build ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} -c rel
 [ -x "$BIN_DIR/$PRODUCT" ] || { echo "build-app: $BIN_DIR/$PRODUCT not found" >&2; exit 1; }
 [ -x "$BIN_DIR/$MCP" ] || { echo "build-app: $BIN_DIR/$MCP not found" >&2; exit 1; }
 
-echo "==> assemble $APP (version $VERSION)"
+echo "==> assemble $APP (version $VERSION${BUILD_VERSION:+, build $BUILD_VERSION})"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
+[ -z "$BUILD_VERSION" ] || plutil -replace K3smBuildVersion -string "$BUILD_VERSION" "$APP/Contents/Info.plist"
 [ -z "$BUNDLE_ID" ] || plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$APP/Contents/Info.plist"
 cp "$BIN_DIR/$PRODUCT" "$APP/Contents/MacOS/$EXE"
 # The MCP server sits beside the app's executable, so the bundle's signature

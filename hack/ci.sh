@@ -10,10 +10,14 @@
 #   3. hack/build-app.sh into a temp dir (builds, signs and verifies the bundle;
 #      the app icon is in it and reads back with a 1024-pixel member; the
 #      MCP server is in it, sealed by the bundle's signature, and answers
-#      initialize and tools/list over stdio with only its read-only tools)
+#      initialize and tools/list over stdio with only its read-only tools;
+#      the development build's versions: 0.0.0 in both bundle keys and the
+#      checkout's pseudo-version in K3smBuildVersion and k3sm-mcp's reply),
+#      then hack/build-version.sh over fixture repositories
 #   4. shellcheck over every hack/**/*.sh
 #   5. hack/build-app.sh --payload with a fake payload: the refusals, the
-#      manifest, the version stamp; then make-dmg.sh on the result
+#      manifest, the version stamp (and no K3smBuildVersion); then
+#      make-dmg.sh on the result
 #   6. sign-and-notarize.sh refuses to run unattended; release.sh --self-test
 #      (the release driver's refusals, checks and rehearsal, all with fakes);
 #      verify-release.sh --self-test around the rehearsal app of step 5 (real
@@ -106,6 +110,54 @@ tools="$(grep -o '"name":"k3sm_[a-z_]*"' "$tmp/mcp.out" | sort -u | tr '\n' ' ')
 	|| { echo "FAIL: k3sm-mcp lists other tools: $tools"; exit 1; }
 ! grep -q '"readOnlyHint":false' "$tmp/mcp.out" || { echo "FAIL: a k3sm-mcp tool is not read-only"; exit 1; }
 echo "    ok (k3sm-mcp: signed, sealed, five read-only tools on stdio)"
+# A development build: both bundle versions stay 0.0.0 (the app's
+# developer-build rule reads that) and K3smBuildVersion carries the
+# checkout's pseudo-version, which k3sm-mcp reports as its own.
+dplist="$tmp/out/k3sm.app/Contents/Info.plist"
+for key in CFBundleShortVersionString CFBundleVersion; do
+	[ "$(plutil -extract "$key" raw "$dplist")" = 0.0.0 ] \
+		|| { echo "FAIL: a development build's $key is not 0.0.0"; exit 1; }
+done
+devver="$(plutil -extract K3smBuildVersion raw "$dplist" 2>/dev/null || true)"
+printf '%s\n' "$devver" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+-0\.[0-9]{14}-[0-9a-f]{12}(\+dirty)?' \
+	|| { echo "FAIL: a development build's K3smBuildVersion is not a pseudo-version: '$devver'"; exit 1; }
+[ "$devver" = "$(bash hack/build-version.sh)" ] \
+	|| { echo "FAIL: K3smBuildVersion '$devver' is not this checkout's pseudo-version"; exit 1; }
+grep -qF "\"version\":\"$devver\"" "$tmp/mcp.out" \
+	|| { echo "FAIL: k3sm-mcp does not report $devver"; cat "$tmp/mcp.out"; exit 1; }
+grep -qF "k3sm-mcp $devver:" "$tmp/mcp.err" || { echo "FAIL: k3sm-mcp's stderr line does not name $devver"; cat "$tmp/mcp.err"; exit 1; }
+echo "    ok (development version $devver)"
+
+echo "==> hack/build-version.sh (fixture repositories)"
+# Each case is a throwaway repository with a fixed commit time, so the
+# expected pseudo-version is exact: Go's form, the next patch after the
+# highest reachable vX.Y.Z tag, pre-release tags ignored, +dirty for changes.
+vgit() { git -C "$1" -c user.name=ci -c user.email=ci@invalid -c commit.gpgsign=false -c tag.gpgsign=false "${@:2}"; }
+vrepo="$tmp/vrepo"
+mkdir -p "$vrepo"
+vgit "$vrepo" init -q
+printf 'a\n' > "$vrepo/a"
+vgit "$vrepo" add a
+GIT_COMMITTER_DATE='2026-10-16T22:15:30Z' GIT_AUTHOR_DATE='2026-10-16T22:15:30Z' vgit "$vrepo" commit -q -m one
+vsha="$(vgit "$vrepo" rev-parse HEAD | cut -c1-12)"
+expect_version() {
+	local name="$1" dir="$2" want="$3" got
+	got="$(bash hack/build-version.sh "$dir")"
+	[ "$got" = "$want" ] || { echo "FAIL: build-version $name: got '$got', want '$want'"; exit 1; }
+	echo "    $name: $got"
+}
+expect_version "no tag" "$vrepo" "v0.0.0-0.20261016221530-$vsha"
+vgit "$vrepo" tag v0.1.7
+vgit "$vrepo" tag v0.1.10
+vgit "$vrepo" tag v0.2.0-rc.1
+vgit "$vrepo" tag not-a-version
+expect_version "highest release tag" "$vrepo" "v0.1.11-0.20261016221530-$vsha"
+printf 'b\n' > "$vrepo/b"
+expect_version "modified tree" "$vrepo" "v0.1.11-0.20261016221530-$vsha+dirty"
+mkdir -p "$vrepo/sub"
+expect_version "inside another repository" "$vrepo/sub" "v0.0.0-unknown"
+mkdir -p "$tmp/tarball"
+expect_version "outside git" "$tmp/tarball" "v0.0.0-unknown"
 
 echo "==> shellcheck (hack/**/*.sh)"
 command -v shellcheck >/dev/null || { echo "FAIL: shellcheck is not installed (brew install shellcheck)"; exit 1; }
@@ -168,6 +220,8 @@ papp="$tmp/payload-out/k3sm.app"
 	|| { echo "FAIL: CFBundleShortVersionString is not 1.2.3"; exit 1; }
 [ "$(plutil -extract CFBundleVersion raw "$papp/Contents/Info.plist")" = 1.2.3 ] \
 	|| { echo "FAIL: CFBundleVersion is not 1.2.3"; exit 1; }
+! plutil -extract K3smBuildVersion raw "$papp/Contents/Info.plist" > /dev/null 2>&1 \
+	|| { echo "FAIL: a --version build carries K3smBuildVersion"; exit 1; }
 diff -r "$fx" "$papp/Contents/Resources/payload" || { echo "FAIL: the payload copy differs from its source"; exit 1; }
 want="$( (cd "$fx" && /usr/bin/shasum -a 256 k3sm share/notes.txt) )"
 got="$(cat "$papp/Contents/Resources/payload.sha256")"

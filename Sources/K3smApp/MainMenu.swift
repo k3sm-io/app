@@ -50,7 +50,9 @@ final class MainMenu: NSObject, NSMenuItemValidation {
 
     private func appMenu() -> NSMenu {
         let menu = NSMenu(title: "k3sm")
-        menu.addItem(withTitle: "About k3sm", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let about = NSMenuItem(title: "About k3sm", action: #selector(showAbout(_:)), keyEquivalent: "")
+        about.target = self
+        menu.addItem(about)
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(openSettings(_:)), ",", help: Help.Menus.settings))
         menu.addItem(.separator())
@@ -103,6 +105,19 @@ final class MainMenu: NSObject, NSMenuItemValidation {
         item.target = self
         item.toolTip = help.text
         return item
+    }
+
+    /// The standard About panel; a development build shows its
+    /// pseudo-version there (`AppVersion.aboutPanel`) in place of 0.0.0.
+    @objc private func showAbout(_ sender: Any?) {
+        guard let panel = AppVersion(info: Bundle.main.infoDictionary).aboutPanel else {
+            NSApp.orderFrontStandardAboutPanel(sender)
+            return
+        }
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationVersion: panel.applicationVersion,
+            .version: panel.version,
+        ])
     }
 
     @objc private func startTour(_ sender: Any?) {

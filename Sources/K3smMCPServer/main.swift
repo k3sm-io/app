@@ -54,7 +54,9 @@ let reader: ClusterReader = { request in
     }
 }
 
-let version = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.0"
+// The app's own version, as the About panel shows it: a release build's
+// x.y.z, a development build's pseudo-version (AppVersion).
+let version = AppVersion(info: Bundle.main.infoDictionary).text ?? "0.0.0"
 let server = MCPServer(
     info: ServerInfo(version: version),
     tools: ClusterTools(read: reader, appVersion: Bundle.main.bundleIdentifier == nil ? nil : version),

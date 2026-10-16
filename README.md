@@ -1015,6 +1015,16 @@ hack/release/make-dmg.sh out/k3sm.app out/k3sm.dmg
 hack/ci.sh                                      # the full gate
 ```
 
+A build without `--version` is a development build. Its
+`CFBundleShortVersionString` and `CFBundleVersion` stay `0.0.0`, and it
+carries a pseudo-version in the same form k3sm's own development builds
+report, computed by `hack/build-version.sh` from the checkout: the next patch
+after the latest `vX.Y.Z` tag (or `v0.0.0`), the commit time in UTC and the
+commit's first 12 hex digits, plus `+dirty` for a modified tree, for example
+`v0.0.0-0.20261016221530-2eda966a1b2c`. A copy of the source outside a git
+checkout gets `v0.0.0-unknown`. The About panel and `k3sm-mcp` show that
+version; a release build (`--version x.y.z`) shows `x.y.z`.
+
 `hack/release/README.md` describes the release signing order. The bundle id
 is `io.k3sm.app`, and the app logs to the unified log under the same
 subsystem. With only the Command Line Tools installed, `swift test` may need
