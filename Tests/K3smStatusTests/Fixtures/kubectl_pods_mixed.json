@@ -18,7 +18,9 @@
       "apiVersion": "apps/v1",
       "kind": "ReplicaSet",
       "name": "web-7c9d4f6b8",
-      "uid": "x"
+      "uid": "x",
+      "controller": true,
+      "blockOwnerDeletion": true
      }
     ]
    },
@@ -233,7 +235,9 @@
       "apiVersion": "apps/v1",
       "kind": "StatefulSet",
       "name": "postgres",
-      "uid": "x"
+      "uid": "x",
+      "controller": true,
+      "blockOwnerDeletion": true
      }
     ]
    },

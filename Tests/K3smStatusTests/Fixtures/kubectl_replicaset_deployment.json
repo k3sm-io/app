@@ -1,0 +1,114 @@
+{
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "metadata": {
+        "annotations": {
+            "deployment.kubernetes.io/desired-replicas": "1",
+            "deployment.kubernetes.io/max-replicas": "2",
+            "deployment.kubernetes.io/revision": "1"
+        },
+        "creationTimestamp": "2026-10-13T22:07:28Z",
+        "generation": 1,
+        "labels": {
+            "app": "hello-http",
+            "pod-template-hash": "6bcddf6f77"
+        },
+        "name": "hello-http-6bcddf6f77",
+        "namespace": "default",
+        "ownerReferences": [
+            {
+                "apiVersion": "apps/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Deployment",
+                "name": "hello-http",
+                "uid": "ab1dae96-178a-4938-bbdc-6a89ab756570"
+            }
+        ],
+        "resourceVersion": "284607",
+        "uid": "2961e305-076a-4b39-b3cd-90ec70d9c463"
+    },
+    "spec": {
+        "replicas": 1,
+        "selector": {
+            "matchLabels": {
+                "app": "hello-http",
+                "pod-template-hash": "6bcddf6f77"
+            }
+        },
+        "template": {
+            "metadata": {
+                "labels": {
+                    "app": "hello-http",
+                    "pod-template-hash": "6bcddf6f77"
+                }
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "/bin/sh",
+                            "-c",
+                            "while :; do\n  printf 'HTTP/1.1 200 OK\\r\\nContent-Length: 6\\r\\nConnection: close\\r\\n\\r\\nhello\\n' \\\n    | /usr/bin/nc -l 8080 \u003e/dev/null 2\u003e\u00261 || sleep 1\ndone\n"
+                        ],
+                        "image": "native",
+                        "imagePullPolicy": "Always",
+                        "name": "hello-http",
+                        "ports": [
+                            {
+                                "containerPort": 8080,
+                                "name": "http",
+                                "protocol": "TCP"
+                            }
+                        ],
+                        "readinessProbe": {
+                            "failureThreshold": 3,
+                            "httpGet": {
+                                "path": "/",
+                                "port": "http",
+                                "scheme": "HTTP"
+                            },
+                            "initialDelaySeconds": 2,
+                            "periodSeconds": 5,
+                            "successThreshold": 1,
+                            "timeoutSeconds": 2
+                        },
+                        "resources": {
+                            "limits": {
+                                "memory": "128Mi"
+                            },
+                            "requests": {
+                                "memory": "32Mi"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File"
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "nodeSelector": {
+                    "kubernetes.io/os": "darwin"
+                },
+                "restartPolicy": "Always",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "terminationGracePeriodSeconds": 30,
+                "tolerations": [
+                    {
+                        "effect": "NoSchedule",
+                        "key": "k3sm.io/provider",
+                        "operator": "Exists"
+                    }
+                ]
+            }
+        }
+    },
+    "status": {
+        "availableReplicas": 1,
+        "fullyLabeledReplicas": 1,
+        "observedGeneration": 1,
+        "readyReplicas": 1,
+        "replicas": 1,
+        "terminatingReplicas": 0
+    }
+}

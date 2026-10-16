@@ -156,8 +156,10 @@ public struct Pod: Equatable, Sendable {
     public let ready: Bool
     public let restarts: Int
     public let ports: [Int]
-    /// The owning controller as "Kind name", or nil for a bare pod. Restart is
-    /// offered only when an owner will recreate the pod.
+    /// The pod's controller as "Kind name", what `kubectl describe` shows as
+    /// "Controlled By": the owner reference marked `controller: true`, or nil
+    /// when none is marked (a bare pod, or one with only garbage-collection
+    /// owners). Restart is offered only when that controller recreates the pod.
     public let owner: String?
     public let created: Date?
     /// Requested cores and bytes, summed over containers; nil when no container
@@ -180,6 +182,10 @@ public struct Pod: Equatable, Sendable {
     /// Each container's restart count, by container name, from the
     /// container statuses; a container without a status is absent.
     public var containerRestarts: [String: Int] = [:]
+    /// The same controller reference as a validated kind and name, nil when
+    /// there is none or it does not validate. The decoder sets it from the
+    /// reference itself, never by parsing `owner`.
+    public var ownerRef: OwnerRef?
 
     /// The name the kubectl detail calls take, or nil when the API served a name
     /// the app refuses to put on a command line.
@@ -261,12 +267,11 @@ struct PodListWire: Decodable {
 struct PodWire: Decodable {
     let kind: String?
     struct Metadata: Decodable {
-        struct Owner: Decodable { let kind: String; let name: String }
         let name: String
         let namespace: String?
         let uid: String?
         let creationTimestamp: Date?
-        let ownerReferences: [Owner]?
+        let ownerReferences: [OwnerReferenceWire]?
     }
     struct Spec: Decodable {
         struct Container: Decodable {
@@ -321,7 +326,9 @@ extension Pod {
         kind = WorkloadKind(runtimeClassName: wire.spec.runtimeClassName)
         phase = wire.status?.phase ?? ""
         ports = wire.spec.containers.flatMap { ($0.ports ?? []).map(\.containerPort) }
-        if let o = wire.metadata.ownerReferences?.first { owner = "\(o.kind) \(o.name)" } else { owner = nil }
+        let controller = OwnerReferenceWire.controller(in: wire.metadata.ownerReferences)
+        owner = controller.map { "\($0.kind) \($0.name)" }
+        ownerRef = controller.flatMap { OwnerRef(apiVersion: $0.apiVersion ?? "", kind: $0.kind, name: $0.name) }
         created = wire.metadata.creationTimestamp
         let cpu = wire.spec.containers.compactMap { $0.resources?.requests?["cpu"] }.compactMap(Quantity.cores)
         cpuRequest = cpu.isEmpty ? nil : cpu.reduce(0, +)

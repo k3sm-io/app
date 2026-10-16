@@ -247,6 +247,11 @@ public enum K3smCLI {
         follow ? ["build", "logs", "-f", id.value] : ["build", "logs", id.value]
     }
 
+    /// One ReplicaSet, to find the controller above it (`Controller`).
+    public static func replicaSetArguments(namespace: ResourceName, name: ResourceName) -> [String] {
+        ["kubectl", "get", "replicaset", name.value, "-n", namespace.value, "-o", "json"]
+    }
+
     /// The PATH every CLI run gets: system directories only.
     public static let systemPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 
