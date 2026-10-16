@@ -15,11 +15,10 @@ limitations under the License.
 */
 
 import Foundation
-import K3smStatus
 import Synchronization
 
 /// CLIOutcome is what one run of the k3sm CLI produced.
-enum CLIOutcome: Sendable {
+public enum CLIOutcome: Sendable {
     /// The CLI is not installed at its absolute path.
     case missing
     /// The CLI could not be started.
@@ -40,13 +39,13 @@ enum CLIOutcome: Sendable {
 /// kills it at the deadline, when its output passes the limit, or when the
 /// task awaiting it is cancelled. It runs on a background thread; callers
 /// await the outcome.
-enum CLIProcess {
+public enum CLIProcess {
     /// How long to wait for the output pipe to close after the process exits.
     /// A grandchild that inherited the pipe can hold it open; the run does not
     /// wait on it past this.
     private static let drainGrace: DispatchTimeInterval = .milliseconds(500)
 
-    static func run(path: String, arguments: [String], environment: [String: String], deadline: Duration, limit: Int) async -> CLIOutcome {
+    public static func run(path: String, arguments: [String], environment: [String: String], deadline: Duration, limit: Int) async -> CLIOutcome {
         guard FileManager.default.isExecutableFile(atPath: path) else {
             return .missing
         }
