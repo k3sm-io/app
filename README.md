@@ -82,10 +82,10 @@ first run, one step at a time, with the steps listed across its top:
 
 1. **Choose**: start a cluster on this Mac (it installs a k3sm server), or
    join a cluster another Mac runs (this Mac installs as a worker).
-2. **Join details** (join only): one field takes the join command pasted from
-   the server, the `sudo k3sm install --agent --server <address> --token <token>`
-   line, or just the server's address and the token from `sudo k3sm token
-   create`. The app reads the address and token out of it: extra spaces, line
+2. **Join details** (join only): one field takes the server's address and the
+   token from `sudo k3sm token create` (paste them into this field, not
+   Terminal); a pasted `--server <address> --token <token>` line is read too.
+   The app reads the address and token out of it: extra spaces, line
    breaks, quotes, `\` line continuations and a URL such as
    `https://studio.local:9345/` are fine, and anything a shell would act on
    (`;`, `|`, `&`, `$`, backquotes, redirections) is refused. Nothing in the
@@ -108,8 +108,8 @@ release build of the app. A build from source pins no Developer ID team, so
 it shows status but keeps these actions disabled and says why. Its first run
 ends at the review with the exact Terminal commands for the chosen path
 instead (the install script for a start; for a join, the script's
-download-only mode, the token written to a root-only file and the documented
-`k3sm install --agent` line), with Copy Command, Open Terminal and Check
+download-only mode, the token written to a root-only file and the
+`k3sm install --agent --server <address> --token-file <path>` line), with Copy Command, Open Terminal and Check
 Again.
 
 The app registers itself as a login item for each user on their first launch.

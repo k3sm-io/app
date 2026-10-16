@@ -163,9 +163,9 @@ struct FirstRunView: View {
 
     private var join: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("On the server Mac, run `sudo k3sm token create`, then paste its join command here, or the server's address and the token.")
+            Text(JoinHints.prompt)
                 .fixedSize(horizontal: false, vertical: true)
-            SecureField("Paste the join command", text: $model.joinPaste)
+            SecureField("Paste the address and token", text: $model.joinPaste)
                 .textFieldStyle(.roundedBorder)
             if let error = model.joinPasteError {
                 Text(verbatim: error).foregroundStyle(Palette.errorText).fixedSize(horizontal: false, vertical: true)

@@ -421,7 +421,7 @@ final class AppModel: ObservableObject {
         if running { return "Another change is running." }
         if case .disabled(let reason) = availability { return reason }
         if payloadVersion == nil { return "This build of the app carries no k3sm release, so it cannot install one." }
-        if choice == .join && !joinReady { return "Paste the join command first." }
+        if choice == .join && !joinReady { return "Paste the address and token first." }
         return nil
     }
 

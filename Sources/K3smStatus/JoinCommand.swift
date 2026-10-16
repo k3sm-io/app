@@ -64,7 +64,7 @@ public enum JoinPasteError: Error, Equatable, Sendable {
         case .unbalancedQuote:
             return "A quote in that command is not closed."
         case .notAJoinCommand:
-            return "That is not a join command. Paste the `k3sm install --agent --server … --token …` line, or the address and token."
+            return "That is not a join. Paste the server's address and the token \(JoinHints.pasteExample), as `sudo k3sm token create` prints the token on the server."
         case .missingServer:
             return "The server's address is missing. Add it, for example studio.local."
         case .missingToken:
@@ -84,8 +84,8 @@ public enum JoinPasteError: Error, Equatable, Sendable {
 }
 
 /// JoinCommandParser reads a pasted join command into a `JoinPaste`. It
-/// takes the documented `sudo k3sm install --agent --server <host> --token
-/// <token>` line or its flags alone (with `--flag=value`, single-dash flags, `\` line breaks,
+/// takes a `sudo k3sm install --agent --server <host> --token <token>` line
+/// (people write it, though the CLI's own flag is `--token-file`) or its flags alone (with `--flag=value`, single-dash flags, `\` line breaks,
 /// quotes, `K3SM_TOKEN=<token>` before the command, `#` comment lines and
 /// typographic quotes forgiven), `k3sm agent` with the same flags, or the
 /// bare address and token in either order. A server given as a URL loses its

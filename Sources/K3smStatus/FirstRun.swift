@@ -32,7 +32,7 @@ public enum FirstRunPath: String, CaseIterable, Equatable, Sendable {
     public var detail: String {
         switch self {
         case .start: return "This Mac runs the control plane and its own pods. Other Macs can join it later."
-        case .join: return "This Mac joins a cluster another Mac runs, as a worker. You need the join command from that Mac."
+        case .join: return "This Mac joins a cluster another Mac runs, as a worker. You need that Mac's address and a join token."
         }
     }
 }
@@ -41,7 +41,7 @@ public enum FirstRunPath: String, CaseIterable, Equatable, Sendable {
 public enum FirstRunStep: String, CaseIterable, Equatable, Sendable {
     /// Start a cluster, or join one.
     case choose
-    /// Join only: paste the join command (or the address and token).
+    /// Join only: paste the server's address and the join token.
     case join
     /// What will happen, and the administrator prompt (or, in a developer
     /// build, the exact Terminal command).
@@ -349,7 +349,7 @@ public enum FirstRunFlow {
                 lines.append("k3sm said: " + message)
             }
             if path == .join {
-                lines.append("A join token expires in minutes. Mint a fresh one on the server with `sudo k3sm token create`, then paste the join command again.")
+                lines.append("A join token expires in minutes. Mint a fresh one on the server with `sudo k3sm token create`, then paste the token again.")
             }
             return FirstRunFinish(succeeded: false, title: "k3sm was not installed", lines: lines, button: "Try Again")
         }
