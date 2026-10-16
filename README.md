@@ -733,8 +733,11 @@ it away. Other MCP clients take the same path as a stdio command.
 Each tool reads the way the app does: it runs the installed CLI at
 `/Library/k3sm/k3sm` by absolute path, after the same ownership and signature
 check the app makes before each run, with an environment built from your
-account rather than the agent's. It runs as you, with your kubeconfig, so it
-sees what you can see.
+account rather than the agent's. The CLI gets only `HOME`, `USER`, `LOGNAME`
+and the system `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`), so it uses your own
+`~/.kube` config and nothing from the agent's environment, such as a
+`KUBECONFIG` it sets. It runs as you, with your kubeconfig, so it sees what
+you can see.
 
 What no tool returns: a join or admin token, a kubeconfig, a key or
 certificate, a Secret's or ConfigMap's data, a pod's logs or environment.
