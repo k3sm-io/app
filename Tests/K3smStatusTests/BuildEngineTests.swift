@@ -63,6 +63,33 @@ struct BuildEngineTests {
         #expect(try BuildEngine.decode(Self.list(c.items)).state == c.want)
     }
 
+    @Test("a stranger pod or claim in the namespace is not the engine")
+    func strangerPodIsNotTheEngine() throws {
+        let stranger = Self.pod(name: "lookalike", phase: "Running", ready: true)
+        let claim = #"{"kind":"PersistentVolumeClaim","metadata":{"name":"someone-else"},"status":{"phase":"Bound"}}"#
+        let engine = try BuildEngine.decode(Self.list([stranger, claim]))
+        #expect(engine.state == .absent)
+        #expect(engine.podName == nil && engine.cache == nil)
+        let halfLabelled = Self.pod(name: "x", phase: "Running", ready: true,
+                                    extra: #","labels":{"app.kubernetes.io/name":"k3sm-builder"}"#)
+        #expect(try BuildEngine.decode(Self.list([halfLabelled])).state == .absent)
+    }
+
+    @Test("a renamed engine counts by its labels")
+    func labelledEngineCounts() throws {
+        let renamed = Self.pod(name: "builder-2", phase: "Running", ready: true,
+                               extra: #","labels":{"app.kubernetes.io/name":"k3sm-builder","k3sm.io/managed":"true"}"#)
+        let engine = try BuildEngine.decode(Self.list([renamed]))
+        #expect(engine.state == .ready)
+        #expect(engine.podName == "builder-2")
+    }
+
+    @Test("only the buildkitd container's readiness counts")
+    func onlyBuildkitdReadiness() throws {
+        let pod = #"{"kind":"Pod","metadata":{"name":"k3sm-builder"},"status":{"phase":"Running","containerStatuses":[{"name":"sidecar","ready":true,"restartCount":0}]}}"#
+        #expect(try BuildEngine.decode(Self.list([pod])).state == .pending(""))
+    }
+
     @Test("the card carries the pod, its node and the cache claim, every string clipped")
     func card() throws {
         let claim = #"{"kind":"PersistentVolumeClaim","metadata":{"name":"k3sm-builder"},"status":{"phase":"Bound","capacity":{"storage":"40Gi"}}}"#

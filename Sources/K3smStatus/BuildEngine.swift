@@ -66,13 +66,20 @@ public struct BuildCache: Equatable, Sendable {
 
 /// BuildEngine is the Builds tab's card, decided from
 /// `K3smCLI.buildEngineArguments`: the pods and claims in the engine's
-/// namespace. The engine is ready only when its pod runs and its engine
-/// container reports ready.
+/// namespace. Only the engine's own objects count, bound by its identity
+/// (`isEngine`); any other pod or claim in the namespace is ignored, so a
+/// stranger pod never makes the engine look ready. The engine is ready only
+/// when its pod runs and its `buildkitd` container reports ready.
 public struct BuildEngine: Equatable, Sendable {
     /// The pod, service and claim name the CLI gives the engine by default.
     public static let defaultName = "k3sm-builder"
     /// The engine's container in that pod.
     public static let containerName = "buildkitd"
+    /// The labels the CLI puts on every engine object (k3sm's builder spec):
+    /// the app name, and the k3sm ownership mark. An object carrying both,
+    /// under another name, is still the engine.
+    public static let nameLabel = "app.kubernetes.io/name"
+    public static let managedLabel = "k3sm.io/managed"
     /// The container waiting reasons that mean the engine will not start by itself.
     static let failingReasons: Set<String> = [
         "CrashLoopBackOff", "ErrImagePull", "ImagePullBackOff", "InvalidImageName",
@@ -99,8 +106,8 @@ public struct BuildEngine: Equatable, Sendable {
         }
         let pods = objects.filter { $0["kind"] as? String == "Pod" }.sorted { name($0) < name($1) }
         let claims = objects.filter { $0["kind"] as? String == "PersistentVolumeClaim" }.sorted { name($0) < name($1) }
-        let pod = pods.first { name($0) == defaultName } ?? pods.first
-        let claim = claims.first { name($0) == defaultName } ?? claims.first
+        let pod = pods.first { name($0) == defaultName } ?? pods.first(where: isEngine)
+        let claim = claims.first { name($0) == defaultName } ?? claims.first(where: isEngine)
         let spec = pod?["spec"] as? [String: Any] ?? [:]
         return BuildEngine(
             state: pod.map(state(of:)) ?? .absent,
@@ -121,15 +128,23 @@ public struct BuildEngine: Equatable, Sendable {
         }
     }
 
-    /// The engine pod's state: ready iff it runs and its engine container
-    /// (or, without one by that name, its first container) is ready.
+    /// Whether an object is the engine's: named by the builder's name, or
+    /// carrying its name label with k3sm's ownership mark.
+    static func isEngine(_ object: [String: Any]) -> Bool {
+        if name(object) == defaultName { return true }
+        let labels = (object["metadata"] as? [String: Any])?["labels"] as? [String: Any] ?? [:]
+        return labels[nameLabel] as? String == defaultName && labels[managedLabel] as? String == "true"
+    }
+
+    /// The engine pod's state: ready iff it runs and its `buildkitd`
+    /// container is ready; no other container's readiness counts.
     static func state(of pod: [String: Any]) -> BuildEngineState {
         let metadata = pod["metadata"] as? [String: Any] ?? [:]
         let status = pod["status"] as? [String: Any] ?? [:]
         let phase = status["phase"] as? String ?? ""
         let reason = status["reason"] as? String
         let containers = (status["containerStatuses"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }
-        let engine = containers.first { $0["name"] as? String == containerName } ?? containers.first
+        let engine = containers.first { $0["name"] as? String == containerName }
         let state = engine?["state"] as? [String: Any] ?? [:]
         let waiting = (state["waiting"] as? [String: Any])?["reason"] as? String
         let terminated = (state["terminated"] as? [String: Any])?["reason"] as? String
