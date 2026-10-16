@@ -19,8 +19,8 @@ import K3smStatus
 /// LifecycleVerb is the closed set of actions the app runs as root through
 /// the installed CLI: `k3sm stop`, `k3sm start` and `k3sm restart`, the
 /// two LAN access verbs, `k3sm network lan on` and `k3sm network lan off`,
-/// and the two managed update verbs, `k3sm update apply --yes` and
-/// `k3sm update cancel`.
+/// and the three managed update verbs, `k3sm update apply --yes`,
+/// `k3sm update cancel` and `k3sm update abort`.
 /// Nothing else, and no string from the user or the CLI, ever reaches the
 /// root script: each verb's argv is a compile-time constant
 /// (`LifecycleScriptBuilder.arguments(for:)`), and the apply adds only the
@@ -33,17 +33,18 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
     case lanOff = "lan-off"
     case updateApply = "update-apply"
     case updateCancel = "update-cancel"
+    case updateAbort = "update-abort"
 
     /// The three lifecycle verbs, which act on the node daemon's state.
     public static let lifecycleVerbs: [LifecycleVerb] = [.stop, .start, .restart]
     /// The two LAN access verbs, which change where workload listeners answer.
     public static let lanVerbs: [LifecycleVerb] = [.lanOn, .lanOff]
 
-    /// The two managed update verbs, which act on the cluster's roll.
-    public static let updateVerbs: [LifecycleVerb] = [.updateApply, .updateCancel]
+    /// The three managed update verbs, which act on the cluster's roll.
+    public static let updateVerbs: [LifecycleVerb] = [.updateApply, .updateCancel, .updateAbort]
 
     /// Whether this is one of the managed update verbs.
-    public var isUpdate: Bool { self == .updateApply || self == .updateCancel }
+    public var isUpdate: Bool { Self.updateVerbs.contains(self) }
 
     /// Whether this is one of the LAN access verbs.
     public var isLAN: Bool { self == .lanOn || self == .lanOff }
@@ -56,6 +57,7 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
         case .lanOff: return "network lan off"
         case .updateApply: return "update apply --yes"
         case .updateCancel: return "update cancel"
+        case .updateAbort: return "update abort"
         }
     }
 
@@ -69,6 +71,7 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
         case .lanOff: return "k3sm wants to stop allowing connections from other devices to the services k3sm runs on this Mac."
         case .updateApply: return "k3sm wants to update k3sm on every node of this cluster."
         case .updateCancel: return "k3sm wants to cancel the k3sm update."
+        case .updateAbort: return "k3sm wants to abort the k3sm update and release every node."
         }
     }
 
@@ -82,6 +85,7 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
         case .lanOff: return "Stop Allowing Connections"
         case .updateApply: return "Update k3sm"
         case .updateCancel: return "Cancel Update"
+        case .updateAbort: return "Abort Update"
         }
     }
 
@@ -94,7 +98,7 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .stop, .restart: return .running
         case .start: return .stopped
-        case .lanOn, .lanOff, .updateApply, .updateCancel: return nil
+        case .lanOn, .lanOff, .updateApply, .updateCancel, .updateAbort: return nil
         }
     }
 }
@@ -146,6 +150,7 @@ public enum LifecycleScriptBuilder {
         case .lanOff: return ["network", "lan", "off"]
         case .updateApply: return K3smCLI.updateApplyArguments
         case .updateCancel: return K3smCLI.updateCancelArguments
+        case .updateAbort: return K3smCLI.updateAbortArguments
         }
     }
 
@@ -248,6 +253,7 @@ public enum LifecycleOutcome {
             case .lanOff: return "Only this Mac and your cluster mesh can connect to its k3sm services now."
             case .updateApply: return "The update has started. Each node updates in turn, the server last."
             case .updateCancel: return "k3sm is cancelling the update."
+            case .updateAbort: return "k3sm ended the update. Every node keeps the release it runs now."
             }
         case .cancelled:
             return "Cancelled. Nothing was changed."

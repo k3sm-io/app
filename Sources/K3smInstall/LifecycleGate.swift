@@ -76,8 +76,12 @@ public struct LifecycleConfirmation: Equatable, Sendable {
         self.verb = verb
         update = options
         offersDowngrade = verb == .updateApply && UpdateOffer.offersDowngrade(in: report)
-        cancelIsDefault = verb == .lanOn
-        cancelTitle = verb == .updateCancel ? "Keep Updating" : "Cancel"
+        cancelIsDefault = verb == .lanOn || verb == .updateAbort
+        switch verb {
+        case .updateCancel: cancelTitle = "Keep Updating"
+        case .updateAbort: cancelTitle = "Don't Abort"
+        default: cancelTitle = "Cancel"
+        }
         switch verb {
         case .stop:
             title = "Stop k3sm on this Mac?"
@@ -112,6 +116,10 @@ public struct LifecycleConfirmation: Equatable, Sendable {
         case .updateCancel:
             title = "Cancel the update?"
             message = UpdateConfirmationText.cancel
+            warning = nil
+        case .updateAbort:
+            title = "Abort the update?"
+            message = UpdateConfirmationText.abort
             warning = nil
         }
     }

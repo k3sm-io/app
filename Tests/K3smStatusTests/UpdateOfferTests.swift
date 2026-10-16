@@ -160,7 +160,7 @@ struct UpdateOfferTests {
         let fp = try #require(f.panel)
         #expect(fp.title == "The update to v0.1.8 failed.")
         #expect(fp.detail == "mac-2: install exited 1")
-        #expect(fp.remedy == "Run k3sm update abort in Terminal, then try again.")
+        #expect(fp.remedy == "Fix the node that failed, then use Abort Update to release every node before trying again.")
         #expect(fp.showsDismiss && !fp.showsCancel)
 
         // Idle: a roll found running is followed; a finished one is not brought up.
@@ -180,6 +180,54 @@ struct UpdateOfferTests {
         none.applyStarted()
         none.applyFinished(.alreadyRolling)
         #expect(none.stage == .rolling(nil))
+    }
+
+    @Test("Abort is offered while a roll runs and after it failed, and a successful abort is followed to Cancelled")
+    func abortStates() throws {
+        let rolling = try UpdateStatus.decode(try fixture("update-status-rolling.json"))
+        let succeeded = try UpdateStatus.decode(try fixture("update-status-succeeded.json"))
+        let failed = try UpdateStatus.decode(try fixture("update-status-failed.json"))
+        // What `k3sm update abort` leaves: the same Update, now Cancelled.
+        let aborted = try UpdateStatus.decode(Data(#"{"name":"current","phase":"Cancelled","version":"v0.1.8","nodes":[{"name":"mac-2","phase":"Failed"},{"name":"mac-1","phase":"Cancelled","message":"aborted by k3sm update abort"}],"finished":true}"#.utf8))
+
+        // Not offered before a roll, while the apply's step runs, or once a roll succeeded or was cancelled.
+        #expect(!UpdateProgress().canAbort && UpdateProgress().panel == nil)
+        #expect(!UpdateProgress(stage: .applying).canAbort && UpdateProgress(stage: .applying).panel?.showsAbort == false)
+        #expect(!UpdateProgress(stage: .succeeded(succeeded)).canAbort && UpdateProgress(stage: .succeeded(succeeded)).panel?.showsAbort == false)
+        #expect(!UpdateProgress(stage: .cancelled(aborted)).canAbort && UpdateProgress(stage: .cancelled(aborted)).panel?.showsAbort == false)
+
+        // While it rolls: beside Cancel, the first progress report or not.
+        for stage in [UpdateProgress.Stage.rolling(nil), .rolling(rolling)] {
+            let p = UpdateProgress(stage: stage)
+            #expect(p.canAbort && p.panel?.showsAbort == true && p.panel?.showsCancel == true)
+        }
+        // After a failure: the recovery, with Dismiss and no Cancel.
+        var p = UpdateProgress(stage: .rolling(nil))
+        p.read(failed)
+        let fp = try #require(p.panel)
+        #expect(p.canAbort && fp.showsAbort && fp.showsDismiss && !fp.showsCancel)
+
+        // An abort that did not succeed leaves the failure on screen.
+        p.abortFinished(succeeded: false)
+        #expect(p.stage == .failed(failed))
+        // One that succeeded is followed, and the next read shows it cancelled.
+        p.abortFinished(succeeded: true)
+        #expect(p.stage == .rolling(failed) && p.readsStatus(offerShown: false))
+        p.read(aborted)
+        #expect(p.stage == .cancelled(aborted) && !p.canAbort)
+        #expect(p.panel?.title == "The update to v0.1.8 was cancelled.")
+        #expect(p.panel?.showsDismiss == true && p.panel?.showsAbort == false)
+
+        // Aborting a running roll: the next read ends it the same way.
+        var r = UpdateProgress(stage: .rolling(rolling))
+        r.abortFinished(succeeded: true)
+        #expect(r.stage == .rolling(rolling))
+        r.read(aborted)
+        #expect(r.stage == .cancelled(aborted))
+        // A finished stage is never moved back by an abort.
+        var s = UpdateProgress(stage: .succeeded(succeeded))
+        s.abortFinished(succeeded: true)
+        #expect(s.stage == .succeeded(succeeded))
     }
 
     @Test("the update status decode is tolerant of everything but the phase")
@@ -209,7 +257,7 @@ struct UpdateOfferTests {
         idle.read(none)
         #expect(idle.stage == .idle && !idle.isRolling)
         #expect(UpdateOfferTests.decide(UpdateOfferTests.behind, progress: idle) == .available(tag: "v0.1.8", disabledReason: nil))
-        // A followed roll whose Update is gone (aborted) ends with nothing shown.
+        // A followed roll whose Update is gone (deleted) ends with nothing shown.
         var following = UpdateProgress(stage: .rolling(nil))
         following.read(none)
         #expect(following.stage == .idle)
@@ -256,6 +304,7 @@ struct UpdateOfferTests {
         #expect(K3smCLI.updateStatusArguments == ["update", "status", "-o", "json"])
         #expect(K3smCLI.updateApplyArguments == ["update", "apply", "--yes"])
         #expect(K3smCLI.updateCancelArguments == ["update", "cancel"])
+        #expect(K3smCLI.updateAbortArguments == ["update", "abort"])
         #expect(PollSchedule.updateStatusInterval == .seconds(5))
     }
 }

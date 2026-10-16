@@ -20,7 +20,8 @@ import SwiftUI
 
 /// UpdateProgressPanel is the managed update's progress in the console, under
 /// the strip: the title, a detail and remedy, one row per node, and Cancel
-/// while the roll runs or Dismiss once it is over. It renders `UpdatePanel`,
+/// while the roll runs, Abort while it runs and after it failed, or Dismiss
+/// once it is over. It renders `UpdatePanel`,
 /// whose strings are already clipped; the read behind it is `AppModel`'s.
 struct UpdateProgressPanel: View {
     @ObservedObject var app: AppModel
@@ -33,11 +34,18 @@ struct UpdateProgressPanel: View {
                 Text(panel.title).font(.system(size: 13, weight: .semibold))
                 Spacer()
                 if panel.showsCancel {
-                    let reason = app.updateCancelReason
+                    let reason = app.updateActionReason
                     Button(LifecycleVerb.updateCancel.title + "…") { app.cancelUpdate() }
                         .controlSize(.small)
                         .disabled(reason != nil)
                         .help(Help.Update.cancel(reason: reason))
+                }
+                if panel.showsAbort {
+                    let reason = app.updateActionReason
+                    Button(LifecycleVerb.updateAbort.title + "…") { app.abortUpdate() }
+                        .controlSize(.small)
+                        .disabled(reason != nil)
+                        .help(Help.Update.abort(reason: reason))
                 }
                 if panel.showsDismiss {
                     Button("Dismiss") { app.dismissUpdate() }.controlSize(.small)

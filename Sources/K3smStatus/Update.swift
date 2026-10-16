@@ -283,8 +283,8 @@ public struct UpdateProgress: Equatable, Sendable {
 
     /// Takes one decoded status read. A roll not finished is under way and
     /// followed from here; a finished one ends a roll the app was following
-    /// and is ignored otherwise. No Update at all (removed by `k3sm update
-    /// abort`, say) leaves nothing to follow.
+    /// and is ignored otherwise. No Update at all (deleted by hand, say; `k3sm
+    /// update abort` keeps it, marked Cancelled) leaves nothing to follow.
     public mutating func read(_ status: UpdateStatus) {
         let following: Bool
         switch stage {
@@ -338,8 +338,30 @@ public struct UpdateProgress: Equatable, Sendable {
         return status.map { !$0.finished } ?? true
     }
 
+    /// Whether the panel offers Abort: while a roll is pending or rolling
+    /// (it ends the roll at once, where Cancel lets the current node finish),
+    /// and after a failed one, whose node stays cordoned with the update's
+    /// annotations until `k3sm update abort` releases it.
+    public var canAbort: Bool {
+        if case .failed = stage { return true }
+        return canCancel
+    }
+
+    /// The abort's root step finished. One that succeeded marked the Update
+    /// Cancelled, so the roll is followed again and the next read ends it as
+    /// cancelled (or idle, if the Update is gone); any other outcome leaves
+    /// the stage as it was.
+    public mutating func abortFinished(succeeded: Bool) {
+        guard succeeded else { return }
+        switch stage {
+        case .rolling: break
+        case .failed(let s): stage = .rolling(s)
+        case .idle, .applying, .succeeded, .cancelled: break
+        }
+    }
+
     /// The remedy a failed roll shows.
-    public static let failedRemedy = "Run k3sm update abort in Terminal, then try again."
+    public static let failedRemedy = "Fix the node that failed, then use Abort Update to release every node before trying again."
 
     /// What the window's progress panel shows, or nil when it shows none.
     public var panel: UpdatePanel? {
@@ -354,7 +376,8 @@ public struct UpdateProgress: Equatable, Sendable {
                 return (target.isEmpty ? "Updating k3sm" : "Updating to " + target) + " · " + StatusDisplay.clip(s.phase.word)
             } ?? "Updating k3sm"
             return UpdatePanel(title: title, detail: status == nil ? "Waiting for the first progress report." : nil,
-                               remedy: nil, nodes: UpdatePanel.lines(status), showsCancel: canCancel, showsDismiss: false)
+                               remedy: nil, nodes: UpdatePanel.lines(status), showsCancel: canCancel, showsAbort: canAbort,
+                               showsDismiss: false)
         case .succeeded(let s):
             return UpdatePanel(title: UpdatePanel.versioned("Updated to", s, else: "The update finished"),
                                detail: "Every node runs the new release.", remedy: nil,
@@ -362,7 +385,7 @@ public struct UpdateProgress: Equatable, Sendable {
         case .failed(let s):
             return UpdatePanel(title: UpdatePanel.versioned("The update to", s, suffix: " failed", else: "The update failed"),
                                detail: UpdatePanel.failureMessage(s), remedy: Self.failedRemedy,
-                               nodes: UpdatePanel.lines(s), showsCancel: false, showsDismiss: true)
+                               nodes: UpdatePanel.lines(s), showsCancel: false, showsAbort: true, showsDismiss: true)
         case .cancelled(let s):
             return UpdatePanel(title: UpdatePanel.versioned("The update to", s, suffix: " was cancelled", else: "The update was cancelled"),
                                detail: nil, remedy: nil, nodes: UpdatePanel.lines(s), showsCancel: false, showsDismiss: true)
@@ -379,7 +402,20 @@ public struct UpdatePanel: Equatable, Sendable {
     public let remedy: String?
     public let nodes: [UpdateNodeLine]
     public let showsCancel: Bool
+    /// Abort, while the roll runs and after it failed.
+    public let showsAbort: Bool
     public let showsDismiss: Bool
+
+    public init(title: String, detail: String?, remedy: String?, nodes: [UpdateNodeLine],
+                showsCancel: Bool, showsAbort: Bool = false, showsDismiss: Bool) {
+        self.title = title
+        self.detail = detail
+        self.remedy = remedy
+        self.nodes = nodes
+        self.showsCancel = showsCancel
+        self.showsAbort = showsAbort
+        self.showsDismiss = showsDismiss
+    }
 
     static func lines(_ status: UpdateStatus?) -> [UpdateNodeLine] {
         (status?.nodes ?? []).prefix(StatusDisplay.maxRows).map(UpdateNodeLine.init)

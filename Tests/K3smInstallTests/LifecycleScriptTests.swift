@@ -36,6 +36,7 @@ struct LifecycleScriptTests {
         .lanOff: ["network", "lan", "off"],
         .updateApply: ["update", "apply", "--yes"],
         .updateCancel: ["update", "cancel"],
+        .updateAbort: ["update", "abort"],
     ]
 
     @Test("the verb set is closed: stop, start, restart")

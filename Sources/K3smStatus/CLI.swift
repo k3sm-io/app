@@ -42,6 +42,11 @@ public enum K3smCLI {
     public static let updateApplyArguments = ["update", "apply", "--yes"]
     /// Cancels the managed update. Run only as root, like the apply.
     public static let updateCancelArguments = ["update", "cancel"]
+    /// Aborts the managed update, the recovery after a failed step: the
+    /// Update ends Cancelled, every node's `k3sm.io/update-*` annotations are
+    /// cleared, and only the update controller's own cordons are lifted. Run
+    /// only as root, like the apply.
+    public static let updateAbortArguments = ["update", "abort"]
     /// The workloads list: every pod on the cluster, through the CLI's bundled
     /// kubectl with the kubeconfig the CLI presets.
     public static let workloadsArguments = ["kubectl", "get", "pods", "-A", "-o", "json"]

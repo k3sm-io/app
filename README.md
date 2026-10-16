@@ -641,7 +641,8 @@ The **Updates** pane (see [The managed update](#the-managed-update)):
   console's Update button. It is disabled, with the reason, when no newer
   release is offered or the app cannot run the update.
 - While an update rolls, the same progress panel as in the console, with
-  **Cancel Update…**.
+  **Cancel Update…** and **Abort Update…**; after a failed update, with
+  **Abort Update…**.
 - **When updating**: **Drain each node before updating it** (off at first)
   evicts each node's pods before it updates; **Code signature** is either
   **Same signer as the installed k3sm** (the default) or the stricter
@@ -688,14 +689,35 @@ rolling, the app follows that one.
 While the update rolls, the console shows a progress panel under the tabs,
 re-read every 5 seconds with `k3sm update status -o json`: the release, the
 phase, and each node with its versions, phase and message. **Cancel Update…**
-asks first, then runs `k3sm update cancel` as root the same way. When the
-update succeeds, the panel says so and offers **Dismiss**. When it fails, it
-shows the failed node's message and "Run k3sm update abort in Terminal, then
-try again." A roll started in Terminal or from another Mac is found through
-the status report, which says when an update is rolling, and is followed the
+asks first, then runs `k3sm update cancel` as root the same way: the node
+being updated finishes, and the nodes not yet started stay on the release
+they run. When the update succeeds, the panel says so and offers
+**Dismiss**. When it fails, it shows the failed node's message and "Fix the
+node that failed, then use Abort Update to release every node before trying
+again." A roll started in Terminal or from another Mac is found through the
+status report, which says when an update is rolling, and is followed the
 same way.
 
-Like Stop and Restart, Update and Cancel need an administrator account and
+**Abort Update…** is in the panel while the update rolls and after it fails.
+It is the recovery after a failed step: a failed step leaves its node
+cordoned, with the update's annotations, until it is aborted. It asks first,
+with **Don't Abort** as the default answer, then runs `k3sm update abort` as
+root the same way. The question says what abort leaves, which is what
+`k3sm update abort` does:
+
+- the update is marked **Cancelled** and ends at once; it stays on record
+  until the next update replaces it;
+- nothing is rolled back: every node keeps the release it runs, and a node
+  that was already installing may still finish;
+- on every node, the update's `k3sm.io/update-*` annotations are cleared,
+  and the cordon the update set is lifted; a node you cordoned yourself
+  stays cordoned.
+
+After a successful abort the panel follows the update until it reads as
+cancelled, then offers **Dismiss**. If abort could not release a node, the
+CLI's message names it and the panel stays as it was.
+
+Like Stop and Restart, Update, Cancel and Abort need an administrator account and
 a release build of the app. A build from source shows them disabled, with
 the reason as their help text.
 

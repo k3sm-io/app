@@ -67,7 +67,7 @@ struct ManagedUpdateTests {
 
     @Test("the update verbs run the checked lifecycle script with the fixed argv")
     func scripts() {
-        #expect(LifecycleVerb.updateVerbs == [.updateApply, .updateCancel])
+        #expect(LifecycleVerb.updateVerbs == [.updateApply, .updateCancel, .updateAbort])
         #expect(LifecycleVerb.updateVerbs.allSatisfy { $0.isUpdate && !$0.isLAN && $0.requiredState == nil })
         let apply = LifecycleScriptBuilder.render(.updateApply, teamID: Self.team)
         #expect(apply.text.hasSuffix("exec \"$k3sm\" 'update' 'apply' '--yes'\n"))

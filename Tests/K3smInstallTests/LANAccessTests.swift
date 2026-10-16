@@ -67,9 +67,9 @@ final class LANRunner: PrivilegedRunner {
 struct LANScriptTests {
     static let team = TeamID("ABCDE12345")!
 
-    @Test("the verb set is closed: stop, start, restart, LAN on, LAN off, update apply, update cancel")
+    @Test("the verb set is closed: stop, start, restart, LAN on, LAN off, update apply, cancel and abort")
     func verbs() {
-        #expect(LifecycleVerb.allCases == [.stop, .start, .restart, .lanOn, .lanOff, .updateApply, .updateCancel])
+        #expect(LifecycleVerb.allCases == [.stop, .start, .restart, .lanOn, .lanOff, .updateApply, .updateCancel, .updateAbort])
         #expect(LifecycleVerb.lanVerbs == [.lanOn, .lanOff])
         #expect(LifecycleVerb.lanVerbs.allSatisfy { $0.isLAN })
         #expect(LifecycleVerb.lanVerbs.allSatisfy { $0.requiredState == nil })
@@ -309,10 +309,10 @@ struct LANConfirmationTests {
         #expect(c.message.contains("k3sm did not say which listeners this setting leaves alone."))
     }
 
-    @Test("Cancel is the default only for turning on")
+    @Test("answering no is the default only for turning on and for aborting an update")
     func defaults() {
         for verb in LifecycleVerb.allCases {
-            #expect(LifecycleConfirmation(verb: verb, report: LANReports.on).cancelIsDefault == (verb == .lanOn))
+            #expect(LifecycleConfirmation(verb: verb, report: LANReports.on).cancelIsDefault == (verb == .lanOn || verb == .updateAbort))
         }
     }
 }

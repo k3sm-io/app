@@ -21,6 +21,12 @@ import K3smStatus
 public enum UpdateConfirmationText {
     public static let apply = "k3sm updates the cluster one node at a time, the server last. Pods on each node restart as it updates. The window shows the progress, and the update can be cancelled from there."
     public static let cancel = "k3sm stops the update before the next node. Nodes already updated keep the release they run now."
+    /// What `k3sm update abort` leaves, as `cmd/k3sm/update.go`
+    /// (`runUpdateAbort`) does it: the Update is marked Cancelled, not
+    /// deleted; no node's release changes; every `k3sm.io/update-*`
+    /// annotation is removed, and a cordon is lifted only where the
+    /// controller's `k3sm.io/update-cordoned` says the controller set it.
+    public static let abort = "k3sm ends the update now and marks it Cancelled; it stays on record until the next update replaces it. Nothing is rolled back: every node keeps the release it runs, and a node already installing may still finish. On every node k3sm clears the update's annotations and lifts the cordon the update set. A node you cordoned yourself stays cordoned."
 }
 
 /// UpdatePrecondition decides, from a status report read just now, whether
@@ -59,7 +65,8 @@ public enum UpdateApplyAnswer: Equatable, Sendable {
 /// showed and the downgrade answer, to the administrator prompt through the
 /// checked lifecycle script. The options are frozen when `apply` is called;
 /// nothing is read from the preferences after that. The cancel asks, then runs
-/// `k3sm update cancel` the same way. Every run is a fresh prompt.
+/// `k3sm update cancel` the same way, and the abort asks, then runs `k3sm
+/// update abort` the same way. Every run is a fresh prompt.
 public struct UpdateDriver: Sendable {
     public enum Result: Equatable, Sendable {
         /// Refused before any prompt; the sentence says why.
@@ -122,6 +129,17 @@ public struct UpdateDriver: Sendable {
         guard await confirm(LifecycleConfirmation(verb: .updateCancel, report: empty)) else { return .declined }
         let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(.updateCancel, teamID: teamID), input: nil)
         return Self.classify(run, verb: .updateCancel)
+    }
+
+    /// Aborts the update: the recovery after a failed step, or the way to end
+    /// a roll at once. The question says what abort leaves
+    /// (`UpdateConfirmationText.abort`); the CLI reads the Update and the
+    /// nodes itself, so the run carries nothing but the verb.
+    public func abort() async -> Result {
+        let empty = StatusReport(schemaVersion: StatusReport.supportedSchemaVersion, verdict: .unknown, role: "", summary: "", rows: [])
+        guard await confirm(LifecycleConfirmation(verb: .updateAbort, report: empty)) else { return .declined }
+        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(.updateAbort, teamID: teamID), input: nil)
+        return Self.classify(run, verb: .updateAbort)
     }
 
     /// Reads one finished root step. An apply that exits 0 started the roll;

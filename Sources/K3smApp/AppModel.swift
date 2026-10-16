@@ -1055,13 +1055,36 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Runs `k3sm update abort` from the progress panel, through the checked
+    /// root step: while a roll runs, or after it failed.
+    func abortUpdate() {
+        guard updateProgress.canAbort, !running else { return }
+        guard let teamID else {
+            Self.alert(title: "k3sm cannot abort the update from the app", text: UpdateOffer.developerBuildReason)
+            return
+        }
+        if case .disabled(let reason) = availability {
+            Self.alert(title: "k3sm cannot abort the update from the app", text: reason)
+            return
+        }
+        Task {
+            running = true
+            let result = await updateDriver(teamID).abort()
+            running = false
+            if case .ran(_, .succeeded, _) = result { updateProgress.abortFinished(succeeded: true) }
+            finishUpdate(result, title: LifecycleVerb.updateAbort.title)
+            log.notice("update abort finished")
+            await updateStatus?.refresh()
+        }
+    }
+
     /// The Dismiss button: a finished roll leaves the window.
     func dismissUpdate() {
         updateProgress.dismiss()
     }
 
-    /// Whether the panel's Cancel can be clicked, and why not.
-    var updateCancelReason: String? {
+    /// Whether the panel's Cancel and Abort can be clicked, and why not.
+    var updateActionReason: String? {
         if teamID == nil { return UpdateOffer.developerBuildReason }
         if case .disabled(let reason) = availability { return reason }
         if running { return "Another change is running." }

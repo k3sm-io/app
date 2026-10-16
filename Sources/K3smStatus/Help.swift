@@ -662,6 +662,9 @@ public enum Help {
         /// Cancel Update…
         public static let cancel = HelpTag("Stop the roll before its next node",
                                            control: "update panel: Cancel Update", label: "Cancel Update…")
+        /// Abort Update…, while the roll runs and after it failed.
+        public static let abort = HelpTag("End the roll now and release every node; nothing rolls back",
+                                          control: "update panel: Abort Update", label: "Abort Update…")
         /// Dismiss, once the roll is over.
         public static let dismiss = HelpTag("Put this panel away; the update is over",
                                             control: "update panel: Dismiss", label: "Dismiss")
@@ -669,7 +672,10 @@ public enum Help {
         /// Cancel Update's tag: why it is disabled, or what it does.
         public static func cancel(reason: String?) -> String { reason ?? cancel.text }
 
-        public static var all: [HelpTag] { [cancel, dismiss] }
+        /// Abort Update's tag: why it is disabled, or what it does.
+        public static func abort(reason: String?) -> String { reason ?? abort.text }
+
+        public static var all: [HelpTag] { [cancel, abort, dismiss] }
     }
 
     // MARK: Tour
