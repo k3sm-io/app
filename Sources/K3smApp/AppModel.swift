@@ -248,9 +248,6 @@ final class AppModel: ObservableObject {
     /// The worker's join target: the status report's `joinTarget`, or the
     /// installed plist when the report has none.
     @Published private(set) var joinTarget: Result<ServerAddress, AgentJoinTarget.ReadError>?
-    /// The user's confirmation that every worker is updated (server only,
-    /// while the status report carries no worker versions).
-    @Published var workersConfirmed = false
     /// The uninstall form's purge checkbox.
     @Published var purge = false
     /// Whether the uninstall confirmation is showing. Held here rather than
@@ -482,31 +479,54 @@ final class AppModel: ObservableObject {
         report.flatMap(NodeRole.detect(in:))
     }
 
-    /// The update decision for this Mac, or nil when the role, the payload
-    /// or the report is unknown. The workers come from the report's `workers`
-    /// list; an absent list or a worker without a version rests on the user's
-    /// confirmation.
-    var updateDecision: UpdateDecision? {
-        guard let role, let payloadVersion else { return nil }
-        return UpdatePolicy.decide(
-            role: role, payload: payloadVersion, installed: installedVersion,
-            workers: report?.workers?.map { NodeVersion(name: $0.name, version: $0.k3smRelease) },
-            allowDowngrade: false, workersConfirmed: workersConfirmed)
+    /// What the update plan reads (`UpdatePlanFacts`): the last full report,
+    /// the managed update's progress, the two versions, the node list, the
+    /// worker's join target, and whether a root step may run now.
+    var updatePlanFacts: UpdatePlanFacts {
+        var refusal: String?
+        if running {
+            refusal = "Another change is running."
+        } else if case .disabled(let reason) = availability {
+            refusal = reason
+        }
+        let managedRefusal = lanTrustRefusal.map {
+            "The app will not run the installed k3sm as root: \($0). Use `sudo k3sm update apply` in Terminal."
+        }
+        var joinTargetReadable = true
+        if case .failure = joinTarget { joinTargetReadable = false }
+        return UpdatePlanFacts(
+            report: lanReport ?? report, progress: updateProgress, installed: installedVersion, payload: payloadVersion,
+            nodes: workloads.nodes, joinTargetReadable: joinTargetReadable, developerBuild: teamID == nil,
+            refusal: refusal, managedRefusal: managedRefusal)
     }
 
-    /// The update action the window would run, or nil when none is ready.
-    var updateAction: CopyOutAction? {
-        guard updateDecision?.verdict == .offer else { return nil }
+    /// The one update plan every Update control reads: the status item's
+    /// menu, the console strip's button, the popover's version line, the
+    /// Settings Updates pane, the node inspector and the guided panel.
+    var updatePlan: UpdatePlan { UpdatePlan.decide(updatePlanFacts) }
+
+    /// The app-carried update's copy-out for the plan's payload path, or nil
+    /// when the plan is not that path. `UpdatePolicy`, the root step's own
+    /// rollout rule, must agree (a worker any time, a server only with no
+    /// other node), and a worker needs the address it joins, read now when
+    /// the window has not read it.
+    private var payloadUpdateAction: CopyOutAction? {
+        let facts = updatePlanFacts
+        guard case .payload(let payload) = UpdatePlan.decide(facts), let role = facts.role else { return nil }
+        let decision = UpdatePolicy.decide(
+            role: role, payload: payload, installed: facts.installed,
+            workers: (lanReport ?? report)?.workers?.map { NodeVersion(name: $0.name, version: $0.k3smRelease) },
+            allowDowngrade: false)
+        guard decision.verdict == .offer else { return nil }
         switch role {
         case .server: return .update(.server)
         case .agent:
-            guard case .success(let server) = joinTarget else { return nil }
+            let target = joinTarget
+                ?? AgentJoinTarget.resolve(statusJoinTarget: (lanReport ?? report)?.joinTarget, plist: Self.readPlist)
+            guard case .success(let server) = target else { return nil }
             return .update(.agent(joinServer: server))
-        case nil: return nil
         }
     }
-
-    var canUpdate: Bool { canRunPrivileged && updateAction != nil }
     /// The uninstall the window would run.
     var uninstallAction: CopyOutAction { .uninstall(purge: purge) }
     var canUninstall: Bool { canRunPrivileged }
@@ -528,17 +548,12 @@ final class AppModel: ObservableObject {
         health.flatMap { GuidedSteps.plan(for: $0, rootStep: teamID != nil, role: role, payload: payloadVersion) }
     }
 
-    /// Why the panel's Update cannot run yet, from the same `UpdatePolicy`
-    /// decision the status popover's update follows; nil when it can.
-    var guidedUpdateBlock: GuidedUpdateBlock? {
-        guard let decision = updateDecision else { return .unknown }
-        switch decision.verdict {
-        case .offer: break
-        case .upToDate, .needsDowngradeConsent: return .notNewer
-        case .waitForWorkers: return .waitForWorkers(decision.workersToUpdate)
-        case .confirmWorkersUpdated: return .confirmWorkers
-        }
-        return updateAction == nil ? .joinTargetUnknown : nil
+    /// Why the guided panel's Update cannot run, from the one update plan;
+    /// nil when it can.
+    var guidedUpdateReason: String? {
+        let plan = updatePlan
+        if plan.isEnabled { return nil }
+        return plan.disabledReason ?? UpdatePlan.nothingToUpdate
     }
 
     /// Why the guided panel's primary button is disabled, nil when it can run.
@@ -550,8 +565,7 @@ final class AppModel: ObservableObject {
         case .start, .restart:
             if case .unavailable(let note) = lifecycleSupport { return note }
         case .update:
-            if let block = guidedUpdateBlock { return block.text }
-            if payloadVersion == nil { return GuidedUpdateBlock.unknown.text }
+            return guidedUpdateReason
         case .repair:
             return repairRefusal?.text
         case .refresh:
@@ -581,7 +595,7 @@ final class AppModel: ObservableObject {
 
     /// Runs a guided panel step through the existing path: Start and Restart
     /// through `perform` (the lifecycle driver's confirmation and the checked
-    /// root step), Update through the app-carried update, Repair through the
+    /// root step), Update through the one update plan, Repair through the
     /// same copy-out after its own confirmation, Refresh through `refresh`.
     func runGuided(_ action: GuidedAction) {
         guard !guidedRun.isRunning, !running else { return }
@@ -599,12 +613,7 @@ final class AppModel: ObservableObject {
         case .start: perform(.start, expected: .stopped, finished: finish)
         case .restart: perform(.restart, expected: .running, finished: finish)
         case .update:
-            guard let update = updateAction else {
-                finish(false, (guidedUpdateBlock ?? .unknown).text)
-                return
-            }
-            workersConfirmed = false
-            start(update, input: nil, finished: finish)
+            performUpdate(finished: finish)
         case .repair:
             guard let payloadVersion else {
                 finish(false, RepairRefusal.payloadUnknown.text)
@@ -949,23 +958,6 @@ final class AppModel: ObservableObject {
 
     // MARK: the managed update
 
-    /// The managed update the menu and the console offer, from the last full
-    /// report's `update` row and the progress. A privileged action: disabled
-    /// with the reason on a developer build, without the administrator
-    /// rights, while another change runs, or when the installed CLI failed
-    /// its trust check.
-    var updateOffer: UpdateOffer {
-        var blocked: String?
-        if running {
-            blocked = "Another change is running."
-        } else if case .disabled(let reason) = availability {
-            blocked = reason
-        } else if let why = lanTrustRefusal {
-            blocked = "The app will not run the installed k3sm as root: \(why). Use `sudo k3sm update apply` in Terminal."
-        }
-        return UpdateOffer.decide(report: lanReport, progress: updateProgress, developerBuild: teamID == nil, blocked: blocked)
-    }
-
     /// Starts or stops the update status read. While a roll is followed it
     /// reads whether or not the window is open, so the menu's "Updating…"
     /// ends when the roll does; while idle it reads only with the console on
@@ -1003,21 +995,44 @@ final class AppModel: ObservableObject {
     /// Reads the update status once, when an update is offered, so the menu
     /// finds a roll started in Terminal.
     func refreshUpdateStatus() async {
-        guard updateOffer != .hidden || UpdateOffer.rowRolling(in: lanReport) else { return }
+        guard ManagedUpdateState(report: lanReport, progress: updateProgress) != .nothingNewer
+            || UpdateOffer.rowRolling(in: lanReport) else { return }
         await updateLoader().refresh()
     }
 
-    /// Runs `k3sm update apply --yes` for the release offered, from the menu,
-    /// the console button or the Settings Updates pane, through the checked
-    /// root step, with the update options as stored at the click.
-    func performUpdate() {
-        let offer = updateOffer
-        guard case .available(let tag, let reason) = offer else { return }
-        if let reason {
-            Self.alert(title: "k3sm cannot update k3sm from the app", text: reason)
+    /// Runs the update the one plan decides, from every Update control: the
+    /// managed roll through `applyManagedUpdate`, the app-carried update of
+    /// this Mac through the copy-out. A blocked path says why and runs
+    /// nothing. `finished`, when given, hears how it ended (nil: the user
+    /// answered no and nothing ran).
+    func performUpdate(finished: ((Bool?, String) -> Void)? = nil) {
+        let plan = updatePlan
+        switch plan {
+        case .managed(let tag):
+            applyManagedUpdate(tag: tag, finished: finished)
+        case .payload:
+            guard let action = payloadUpdateAction else {
+                finished?(false, UpdateBlock.joinTargetUnknownText)
+                return
+            }
+            start(action, input: nil, finished: finished)
+        case .blocked(let block):
+            if finished == nil, block.path != nil {
+                Self.alert(title: "k3sm cannot update k3sm from the app", text: block.sentence)
+            }
+            finished?(false, block.sentence)
+        case .rolling, .none:
+            finished?(false, plan.disabledReason ?? UpdatePlan.nothingToUpdate)
+        }
+    }
+
+    /// Runs `k3sm update apply --yes` for `tag` through the checked root
+    /// step, with the update options as stored at the click.
+    private func applyManagedUpdate(tag: String, finished: ((Bool?, String) -> Void)?) {
+        guard let teamID else {
+            finished?(false, UpdateBlock.managedDeveloperBuild)
             return
         }
-        guard let teamID else { return }
         // Read once, at the click; the driver freezes them for the question
         // and the run, so a change in Settings afterwards reaches neither.
         let options = AppPreferences().updateOptions
@@ -1028,6 +1043,11 @@ final class AppModel: ObservableObject {
             let result = await updateDriver(teamID).apply(tag: tag, options: options)
             running = false
             finishUpdate(result, title: LifecycleVerb.updateApply.title)
+            switch result {
+            case .declined: finished?(nil, "")
+            case .refused(let why): finished?(false, why)
+            case .ran(let started, _, let text): finished?(started != .notStarted, text)
+            }
             log.notice("update apply finished")
             await refresh()
         }
@@ -1443,13 +1463,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Runs the update the window offers.
-    func submitUpdate() {
-        guard canUpdate, let action = updateAction else { return }
-        workersConfirmed = false
-        start(action, input: nil)
-    }
-
     /// Runs the uninstall, keeping the data unless purge is chosen.
     func submitUninstall() {
         guard canUninstall else { return }
@@ -1460,7 +1473,7 @@ final class AppModel: ObservableObject {
     /// outcome's sentence (the guided panel's progress line).
     private func start(_ action: CopyOutAction, input: Data?, finished: ((Bool?, String) -> Void)? = nil) {
         guard let teamID, let user, let payloadVersion else {
-            finished?(false, GuidedUpdateBlock.unknown.text)
+            finished?(false, UpdateBlock.roleUnknownText)
             return
         }
         let plan: CopyOutPlan

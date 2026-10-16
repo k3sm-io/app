@@ -164,9 +164,10 @@ public struct UpdatesPaneFacts: Equatable, Sendable {
     }
 }
 
-/// UpdateNowControl is the Updates pane's Update Now button: enabled only
-/// while `UpdateOffer` offers the update and nothing blocks it; otherwise
-/// disabled, with the reason its help tag carries.
+/// UpdateNowControl is the Updates pane's Update Now button (and the node
+/// inspector's Update): enabled only while the update plan (`UpdatePlan`)
+/// has a path that can run; otherwise disabled, with the reason its help tag
+/// carries: the plan's own, or with nothing to update, the `update` row's.
 public struct UpdateNowControl: Equatable, Sendable {
     public static let title = "Update Now"
 
@@ -183,22 +184,17 @@ public struct UpdateNowControl: Equatable, Sendable {
         self.reason = reason
     }
 
-    public static func decide(offer: UpdateOffer, report: StatusReport?) -> UpdateNowControl {
-        switch offer {
-        case .available(_, let reason):
-            return UpdateNowControl(enabled: reason == nil, reason: reason)
-        case .updating:
-            return UpdateNowControl(enabled: false, reason: offer.disabledReason)
-        case .hidden:
-            let reason: String
-            switch report?.row(named: "update")?.rowState {
-            case .healthy?: reason = latestReason
-            case .ahead?: reason = aheadReason
-            case .behind? where report?.row(named: "update").flatMap(UpdateOffer.latestTag(in:)) != nil:
-                reason = finishedReason
-            default: reason = unknownReason
-            }
-            return UpdateNowControl(enabled: false, reason: reason)
+    public static func decide(plan: UpdatePlan, report: StatusReport?) -> UpdateNowControl {
+        if plan.isEnabled { return UpdateNowControl(enabled: true, reason: nil) }
+        if let reason = plan.disabledReason { return UpdateNowControl(enabled: false, reason: reason) }
+        let reason: String
+        switch report?.row(named: "update")?.rowState {
+        case .healthy?: reason = latestReason
+        case .ahead?: reason = aheadReason
+        case .behind? where report?.row(named: "update").flatMap(UpdateOffer.latestTag(in:)) != nil:
+            reason = finishedReason
+        default: reason = unknownReason
         }
+        return UpdateNowControl(enabled: false, reason: reason)
     }
 }

@@ -196,13 +196,4 @@ struct GuidedStepsTests {
                 == "Failed: k3sm restart failed with exit status 1. The logs say why.")
         #expect(GuidedRun.finished(.refresh, succeeded: false, message: "").line == "Failed.")
     }
-
-    @Test("each update block says why Update waits")
-    func updateBlocks() {
-        let blocks: [GuidedUpdateBlock] = [.unknown, .waitForWorkers(["mac-b", "evil\u{202E}"]), .confirmWorkers, .joinTargetUnknown, .notNewer]
-        for block in blocks {
-            #expect(block.text.hasSuffix("."), "\(block)")
-        }
-        #expect(GuidedUpdateBlock.waitForWorkers(["mac-b", "evil\u{202E}"]).text == "Update these workers first: mac-b, evil.")
-    }
 }

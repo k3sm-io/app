@@ -17,10 +17,11 @@ limitations under the License.
 import Foundation
 
 /// NodeLifecycleAction is a change to k3sm itself on this Mac that the node
-/// inspector offers for this Mac's own node: the managed update (`k3sm update
-/// apply`, the Settings Updates pane's path), and Restart and Stop (the
-/// lifecycle verbs the menu runs). Each goes through the app's checked root
-/// step with its own confirmation; none runs on another Mac.
+/// inspector offers for this Mac's own node: Update (whatever the one update
+/// plan, `UpdatePlan`, runs: the app-carried update of this Mac or the
+/// managed roll from the server), and Restart and Stop (the lifecycle verbs
+/// the menu runs). Each goes through the app's checked root step with its
+/// own confirmation; none runs on another Mac.
 public enum NodeLifecycleAction: String, Sendable, CaseIterable, Identifiable {
     case update
     case restart
@@ -64,17 +65,18 @@ public struct NodeLifecycleOffer: Equatable, Sendable {
         "A managed update is moving the cluster to a new release and restarts each node itself. "
         + "Update, Restart and Stop return here when it finishes."
     /// This Mac is a worker behind the cluster's target: the managed update
-    /// runs on the server.
-    public static let workerBehindNote =
-        "This Mac joined as a worker, and the managed update runs on the server: update the cluster from the server's app or Settings, Updates there."
+    /// runs on the server (the update plan's `workerBehind` sentence).
+    public static let workerBehindNote = UpdateBlock.workerBehindText
 
-    /// The offer for `node`, from the node list and this Mac's report: none
-    /// for another Mac's node, or when the report names no node as this
-    /// Mac's; for this Mac's node, none while k3sm here is not running or a
-    /// managed update rolls; else Restart and Stop, with Update first when
-    /// the node is behind the cluster's target and this Mac is the server.
-    /// A cordon changes nothing here.
-    public static func decide(_ node: ClusterNode, nodes: [ClusterNode], report: StatusReport?) -> NodeLifecycleOffer {
+    /// The offer for `node`, from the node list, this Mac's report and the
+    /// update plan: none for another Mac's node, or when the report names no
+    /// node as this Mac's; for this Mac's node, none while k3sm here is not
+    /// running or a managed update rolls; else Restart and Stop, with Update
+    /// first whenever the plan has a path (enabled or not, as every other
+    /// Update control shows it), and the plan's sentence under them when it
+    /// is blocked with no path. A cordon changes nothing here.
+    public static func decide(_ node: ClusterNode, nodes: [ClusterNode], report: StatusReport?,
+                              plan: UpdatePlan) -> NodeLifecycleOffer {
         guard let own = NodesList.own(report: report).node else {
             return NodeLifecycleOffer(actions: [], note: ownNodeUnknownNote)
         }
@@ -83,14 +85,11 @@ public struct NodeLifecycleOffer: Equatable, Sendable {
         guard state == .running else {
             return NodeLifecycleOffer(actions: [], note: "k3sm on this Mac is \(state.word); start it from the menu bar item.")
         }
-        let versions = NodeVersions.decide(nodes, report: report)
-        if versions.target?.source == .roll { return NodeLifecycleOffer(actions: [], note: rollingNote) }
-        guard versions.state(of: node.name) == .behind else {
-            return NodeLifecycleOffer(actions: [.restart, .stop], note: nil)
+        if plan == .rolling || NodeVersions.decide(nodes, report: report).target?.source == .roll {
+            return NodeLifecycleOffer(actions: [], note: rollingNote)
         }
-        if let report, NodeRole.detect(in: report) == .server {
-            return NodeLifecycleOffer(actions: [.update, .restart, .stop], note: nil)
-        }
-        return NodeLifecycleOffer(actions: [.restart, .stop], note: workerBehindNote)
+        if plan.path != nil { return NodeLifecycleOffer(actions: [.update, .restart, .stop], note: nil) }
+        if case .blocked(let block) = plan { return NodeLifecycleOffer(actions: [.restart, .stop], note: block.sentence) }
+        return NodeLifecycleOffer(actions: [.restart, .stop], note: nil)
     }
 }

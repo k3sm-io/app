@@ -123,7 +123,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private func minimum() -> WindowFrame.Size {
         guard model.screen == .status else { return WindowFrame.Size(width: 0, height: 0) }
         let size = ConsoleView.minSize(inspectorShown: model.inspectorShown, panelCollapsed: model.consolePanelCollapsed,
-                                       updateTitle: model.updateOffer.buttonTitle)
+                                       updateTitle: model.updatePlan.buttonTitle)
         return WindowFrame.Size(width: Double(size.width), height: Double(size.height))
     }
 

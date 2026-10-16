@@ -27,7 +27,7 @@ import K3smStatus
 ///
 /// The menu opens with two status lines, Cluster and This Mac, each with a
 /// coloured circle and the word, then the actions: Update to <tag>… while
-/// the `update` row offers one (`UpdateOffer`; "Updating…", disabled, while a
+/// the update plan offers one (`UpdatePlan`; "Updating…", disabled, while a
 /// roll runs; shown disabled with the reason on a developer build), Stop
 /// (with the multi-node warning) and Restart, Live Status (and Live Top when the CLI has it), Open Logs, Write a Bug Report, Settings, Dashboard and Quit.
 /// Stop and Restart go through `AppModel.perform` and are shown only when
@@ -206,16 +206,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         updateUpdateItem()
     }
 
-    /// Shows the update item as `UpdateOffer` decides: hidden, offered with
-    /// its tag, disabled with the reason as its tooltip, or "Updating…";
-    /// an offered update's tooltip says what it does (`Help.Strip.update`).
+    /// Shows the update item as the one update plan (`UpdatePlan`) decides:
+    /// hidden, offered with its release, disabled with the reason as its
+    /// tooltip, or "Updating…"; an offered update's tooltip says what it
+    /// does (`Help.Strip.update`).
     private func updateUpdateItem() {
-        let offer = model.updateOffer
-        let title = offer.menuTitle
+        let plan = model.updatePlan
+        let title = plan.menuTitle
         updateItem.isHidden = title == nil
         updateItem.title = title ?? ""
-        updateItem.isEnabled = offer.isEnabled
-        updateItem.toolTip = title == nil ? nil : Help.Strip.update(offer)
+        updateItem.isEnabled = plan.isEnabled
+        updateItem.toolTip = title == nil ? nil : Help.Strip.update(plan)
         updateEnd.isHidden = title == nil || !stopItem.isHidden
     }
 

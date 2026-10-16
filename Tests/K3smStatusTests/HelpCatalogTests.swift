@@ -83,12 +83,17 @@ struct HelpCatalogTests {
 
     @Test("dynamic tags: a disabled control's reason wins, otherwise the catalog's text")
     func dynamicTags() {
-        #expect(Help.Strip.update(.available(tag: "v0.2.0", disabledReason: "Not now.")) == "Not now.")
-        #expect(Help.Strip.update(.available(tag: "v0.2.0", disabledReason: nil))
-            == "Update every node to k3sm v0.2.0, the server last")
-        #expect(HelpStandard.problems(HelpTag(Help.Strip.update(.available(tag: "v0.2.0", disabledReason: nil)),
-                                              control: "update")).isEmpty)
-        #expect(Help.Strip.update(.updating) == UpdateOffer.updating.disabledReason)
+        let notNow = UpdatePlan.blocked(.refused("Not now.", .managed(tag: "v0.2.0")))
+        #expect(Help.Strip.update(notNow) == "Not now.")
+        #expect(Help.Strip.update(.managed(tag: "v0.2.0")) == "Update every node to k3sm v0.2.0, the server last")
+        let payload = UpdatePlan.payload(SemanticVersion("0.2.0")!)
+        #expect(Help.Strip.update(payload) == "Install k3sm 0.2.0 from this app on this Mac, as an administrator")
+        for plan in [UpdatePlan.managed(tag: "v0.2.0"), payload] {
+            #expect(HelpStandard.problems(HelpTag(Help.Strip.update(plan), control: "update")).isEmpty)
+        }
+        #expect(Help.Strip.update(.rolling) == UpdatePlan.rollingReason)
+        #expect(Help.Guided.primary(.update, disabledReason: nil, plan: payload) == Help.Strip.update(payload))
+        #expect(Help.Guided.primary(.update, disabledReason: nil) == Help.Guided.update.text)
         #expect(Help.Update.cancel(reason: nil) == Help.Update.cancel.text)
         #expect(Help.Update.cancel(reason: "Wait.") == "Wait.")
         #expect(Help.General.tour(available: false) == Help.General.tourUnavailable)

@@ -332,9 +332,8 @@ struct FirstRunView: View {
 /// StatusView is the popover's status: the headline, the health check's
 /// line (`HealthState.statusLine`; the whole headline without a report),
 /// the stopped-by line, only the checks that are not ok (`StatusPopover.problemRows`, or
-/// its all-ok line), the version line with the managed update's button
-/// while the `update` row says behind (`UpdateOffer`), Start, Stop and
-/// Restart, the app-carried update when it offers one, and the full table
+/// its all-ok line), the version line with the one update plan's button
+/// (`UpdatePlan`), Start, Stop and Restart, the plan's line, and the full table
 /// with Refresh behind the "All checks" disclosure, closed by default and
 /// remembered (`AppPreferences.allChecksOpen`). The LAN switch is in
 /// Settings > Network and Uninstall in Settings > Advanced.
@@ -430,20 +429,20 @@ struct StatusView: View {
         }
     }
 
-    /// The version line, and the managed update's button while one is offered.
+    /// The version line, and the update plan's button while it has one.
     private var versionRow: some View {
-        let offer = model.updateOffer
+        let plan = model.updatePlan
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(verbatim: versionLine)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if let title = offer.buttonTitle {
+            if let title = plan.buttonTitle {
                 Spacer(minLength: 0)
                 Button(title) { model.performUpdate() }
                     .controlSize(.small)
-                    .disabled(!offer.isEnabled)
-                    .help(Help.Strip.update(offer))
+                    .disabled(!plan.isEnabled)
+                    .help(Help.Strip.update(plan))
             }
         }
     }
@@ -494,65 +493,35 @@ struct LifecycleSection: View {
     }
 }
 
-/// UpdateSection offers "Update k3sm" when the payload is newer (and shows
-/// nothing otherwise, the version line saying how the releases compare), following
-/// the rollout order: a worker any time, the control plane last, behind an
-/// explicit confirmation while the status report carries no worker versions.
+/// UpdateSection is the update plan's line under the version row's button:
+/// what Update does or why it cannot run, the datastore checks before the
+/// control plane installs the app's release, and the address a worker's
+/// app-carried update rejoins. It has no button of its own: the version
+/// row's is the popover's one Update.
 struct UpdateSection: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
+        let plan = model.updatePlan
         VStack(alignment: .leading, spacing: 8) {
-            if let decision = model.updateDecision, let payload = model.payloadVersion {
-                switch decision.verdict {
-                case .upToDate, .needsDowngradeConsent:
-                    // The version line already says how the two releases compare.
-                    EmptyView()
-                case .waitForWorkers:
-                    Text(verbatim: "Update these workers first: " + decision.workersToUpdate.map(StatusDisplay.clip).joined(separator: ", "))
-                case .confirmWorkersUpdated, .offer:
-                    if model.role == .server {
-                        serverNotes(payload: payload)
-                    }
-                    agentTarget
-                    Button("Update k3sm to " + payload.description) { model.submitUpdate() }
-                        .disabled(!model.canUpdate)
-                        .help(Help.Popover.installPayload)
+            if let line = plan.line {
+                Text(verbatim: line).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if case .payload = plan.path {
+                if model.updatePlanFacts.role == .server {
+                    Text("This Mac runs the control plane and no other node.").bold()
+                    ForEach(UpdatePolicy.serverChecks, id: \.self) { Text(verbatim: "• " + $0).font(.callout) }
                 }
+                agentTarget
             }
         }
-    }
-
-    private var unverifiedNote: String {
-        let names = model.updateDecision?.workersUnverified ?? []
-        if names.isEmpty {
-            return "k3sm cannot read the workers' versions. Update every worker first, then confirm."
-        }
-        return "These workers report no version: " + names.map(StatusDisplay.clip).joined(separator: ", ")
-            + ". Update every worker first, then confirm."
-    }
-
-    @ViewBuilder
-    private func serverNotes(payload: SemanticVersion) -> some View {
-        Text("This Mac runs the control plane, so it updates last.").bold()
-        ForEach(UpdatePolicy.serverChecks, id: \.self) { Text(verbatim: "• " + $0).font(.callout) }
-        Text(verbatim: unverifiedNote)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-        Toggle("Every worker runs k3sm " + payload.description + " or newer", isOn: $model.workersConfirmed)
-            .help(Help.Popover.workersConfirmed)
     }
 
     @ViewBuilder
     private var agentTarget: some View {
-        if model.role == .agent {
-            switch model.joinTarget {
-            case .success(let server):
-                Text(verbatim: "This worker joins " + server.description + ".").font(.callout)
-            case .failure, nil:
-                Text("The control-plane address this worker joins could not be read from its LaunchDaemon, so update it in Terminal.")
-                    .foregroundStyle(.secondary)
-            }
+        if model.updatePlanFacts.role == .agent, case .success(let server) = model.joinTarget {
+            Text(verbatim: "This worker joins " + server.description + ".").font(.callout)
         }
     }
 }

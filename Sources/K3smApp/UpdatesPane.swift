@@ -19,8 +19,9 @@ import SwiftUI
 
 /// UpdatesPane is the Settings window's Updates pane: the installed and the
 /// available release with the `update` row's state in plain words
-/// (`UpdatesPaneFacts`), Update Now (`UpdateNowControl`, the one apply path,
-/// `AppModel.performUpdate`), the roll's progress in the console's own
+/// (`UpdatesPaneFacts`), Update Now (`UpdateNowControl` over the one update
+/// plan, `UpdatePlan`, run by `AppModel.performUpdate`) with the plan's line
+/// under it, the roll's progress in the console's own
 /// panel (`UpdateProgressPanel`, with its Cancel), and the two stored
 /// options passed to `k3sm update apply` (drain and the signature policy,
 /// `UpdateOptions`, in `PreferencesStore`); allowing a downgrade is asked in
@@ -33,7 +34,8 @@ struct UpdatesPane: View {
 
     var body: some View {
         let facts = UpdatesPaneFacts.decide(report: app.lanReport, installed: app.installedVersion)
-        let control = UpdateNowControl.decide(offer: app.updateOffer, report: app.lanReport)
+        let plan = app.updatePlan
+        let control = UpdateNowControl.decide(plan: plan, report: app.lanReport)
         VStack(alignment: .leading, spacing: 18) {
             group("Releases") {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
@@ -51,8 +53,8 @@ struct UpdatesPane: View {
                     .help(Help.Updates.state)
                 Button(UpdateNowControl.title) { app.performUpdate() }
                     .disabled(!control.enabled)
-                    .help(Help.Updates.updateNow(control))
-                if let reason = control.reason { note(reason) }
+                    .help(Help.Updates.updateNow(control, plan: plan))
+                if let line = plan.line ?? control.reason { note(line) }
             }
             if let panel = app.updateProgress.panel {
                 UpdateProgressPanel(app: app, panel: panel)

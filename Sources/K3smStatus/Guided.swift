@@ -15,7 +15,8 @@ limitations under the License.
 */
 
 /// GuidedAction is a step a guided panel offers. Start and Restart run the
-/// existing lifecycle verbs, Update the existing app-carried update, Repair
+/// existing lifecycle verbs, Update whatever the one update plan
+/// (`UpdatePlan`) runs (the app-carried update or the managed roll), Repair
 /// the install again from the app's payload, all through the checked root
 /// step; Refresh reads the status again.
 public enum GuidedAction: String, CaseIterable, Equatable, Sendable {
@@ -255,37 +256,6 @@ public enum GuidedSteps {
             ],
             primary: nil, secondary: nil, terminalCommand: installScriptCommand(version: payload),
             opensLogs: false, offersRefresh: true)
-    }
-}
-
-/// GuidedUpdateBlock is why the panel's Update cannot run yet, from the same
-/// decision the status popover's update follows.
-public enum GuidedUpdateBlock: Equatable, Sendable {
-    /// The role or the release the app carries is unknown.
-    case unknown
-    /// These workers run an older release and update first.
-    case waitForWorkers([String])
-    /// The control plane updates last; the user confirms the workers first.
-    case confirmWorkers
-    /// A worker whose control-plane address could not be read.
-    case joinTargetUnknown
-    /// The release this app carries is not newer than the installed one.
-    case notNewer
-
-    /// The line the panel shows under the disabled Update.
-    public var text: String {
-        switch self {
-        case .unknown:
-            return "k3sm cannot tell this Mac's role or the release this app carries, so it cannot update from here."
-        case .waitForWorkers(let names):
-            return "Update these workers first: " + names.map(StatusDisplay.clip).joined(separator: ", ") + "."
-        case .confirmWorkers:
-            return "Confirm below that every worker already runs the new release."
-        case .joinTargetUnknown:
-            return "The control-plane address this worker joins could not be read from its LaunchDaemon, so update it in Terminal."
-        case .notNewer:
-            return "The release this app carries is not newer than the installed one, so there is nothing to update."
-        }
     }
 }
 

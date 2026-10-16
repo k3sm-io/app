@@ -65,7 +65,7 @@ prompt as the menu:
 |---|---|
 | stopped | Start k3sm |
 | partly running | Restart k3sm while the node daemon runs (netd is down); Start k3sm while the node daemon is down; Repair k3sm beside either |
-| behind the app | Update k3sm, the app-carried update; on the control plane, after the workers are confirmed |
+| behind the app | Update k3sm, which runs the one update plan (see [Updating](#updating)) |
 | ahead of the app | none: the app never installs an older k3sm over a newer one, and the panel says where to get the matching app |
 | command missing or not trusted | Repair k3sm (see Repairing below) |
 | status unreadable | Refresh, and Open Logs |
@@ -178,12 +178,13 @@ login** in the app's Settings turns it off or on again (see
   error); the app then looks again every minute. Nothing is written to
   disk; the Stats tab keeps the last hour of samples in memory.
 - The **Update** button appears at the top right of the console, beside the
-  search field, when k3sm reports a newer release for the cluster. It runs
-  the cluster's managed update (see [The managed update](#the-managed-update)).
+  search field, when the update plan has an update for this Mac: the
+  app-carried update or the cluster's managed update (see
+  [Updating](#updating)).
 - The **info button** opens the status popover: the state of this Mac (and
   who stopped k3sm, when it is stopped), only the checks that need
   attention, or "All N checks are ok." when none does, the installed
-  version with an **Update** button while k3sm reports a newer release, and
+  version with the same **Update** button and the plan's line under it, and
   Stop, Restart or Start. **All checks**, closed at first, holds every check
   and Refresh; the app remembers whether you left it open. The log of an
   install, update or uninstall shows there only while one runs or after one
@@ -344,14 +345,14 @@ login** in the app's Settings turns it off or on again (see
   error) and reports how many pods were evicted, or the error after the
   count. A drained node is cordoned, so it then offers Uncordon.
 - **Update k3sm…**, **Restart k3sm…** and **Stop k3sm…** are in the node
-  details of this Mac's own node only. Update is offered while the node is
-  behind the cluster's target and this Mac is the server; it is the
-  Settings Updates pane's managed update, with the same question and
-  options, enabled when Update Now is. Restart and Stop are the menu's, with
+  details of this Mac's own node only. Update is offered whenever the update
+  plan has an update for this Mac (see [Updating](#updating)), and runs it,
+  enabled when Update Now is. Restart and Stop are the menu's, with
   the same question (Stop says what stops, and warns when other nodes have
   joined) and administrator prompt. While a managed update rolls they wait,
-  since the update restarts each node itself. A worker behind the server is
-  updated by the server's managed update. Another Mac's node offers none of
+  since the update restarts each node itself. A worker behind the server
+  with no newer release in the app says to update it from the server's
+  managed update. Another Mac's node offers none of
   them: its details say to update it from the server's managed update or
   from the k3sm app on that Mac.
 - **Delete completed and failed pods…**, at the right end of the Pods /
@@ -532,10 +533,12 @@ until the read ends or the menu closes; with Reduce Motion on it stays still.
 The full status and the setting for connections from other devices are in the
 window. Then come the actions:
 
-- **Update to v0.1.8…** (naming the release k3sm found) appears when k3sm
-  reports a newer release for the cluster, and runs the managed update
-  (below). While an update rolls it reads **Updating…** and cannot be
-  clicked.
+- **Update to v0.1.8…** (the managed update, naming the release k3sm
+  found) or **Update This Mac to 0.1.8…** (the release the app carries)
+  appears when the update plan has one (see [Updating](#updating)), and runs
+  it. It shows disabled, with the reason as its help text, when the app
+  cannot run it now. While an update rolls it reads **Updating…** and cannot
+  be clicked.
 - **Stop k3sm** stops k3sm on this Mac completely, pods included, and keeps it
   stopped across restarts until you start it (`sudo k3sm stop`). Before it
   asks, the app reads the status again. On a server with joined nodes it names
@@ -637,9 +640,10 @@ The **Updates** pane (see [The managed update](#the-managed-update)):
   the release it rolls to), with what the check says in plain words: a newer
   release is available, the cluster runs the latest, a node runs a newer
   one, an update is rolling, or not known and why.
-- **Update Now** starts the update the same way as the menu and the
-  console's Update button. It is disabled, with the reason, when no newer
-  release is offered or the app cannot run the update.
+- **Update Now** runs the update plan, the same update as the menu and the
+  console's Update button, with the plan's line under it: what it does, or
+  why it cannot run. It is disabled, with the reason, when there is nothing
+  to update or the app cannot run the update.
 - While an update rolls, the same progress panel as in the console, with
   **Cancel Update…** and **Abort Update…**; after a failed update, with
   **Abort Update…**.
@@ -762,30 +766,49 @@ In Terminal the same setting is `sudo k3sm network lan on`, `off` and
 
 ## Updating
 
-When the app carries a newer k3sm than the one installed, the window offers
-**Update k3sm**. Updates follow the documented rollout order: worker Macs
-first, the control-plane Mac last.
+k3sm on a Mac moves to a newer release in one of two ways: the app installs
+the release it carries over this Mac's k3sm (the app-carried update), or the
+server rolls every node to the latest release (the managed update, above).
+The app decides which applies in one place, the update plan, and every
+Update control reads it: the menu, the console's Update button, the
+popover's version line, Settings > Updates, this Mac's node in the Nodes tab
+and the guided panel. No two of them offer different updates. The plan is
+one of:
 
-- On a worker the update is always available. The window names the
-  control-plane Mac the worker joins, and the update keeps it joined there.
-  The control-plane address comes from `joinTarget` in `k3sm status -o json`
-  (the host only; the CLI adds the join port). A CLI that does not report it
-  falls back to the worker's installed LaunchDaemon. Either way the address
-  must pass the same strict check as one typed into the join form.
-- On the control-plane Mac the window first lists the checks to make before
-  updating (take a snapshot with `sudo k3sm snapshot save`, leave free space
-  for the datastore migration, and note that a datastore engine change is one
-  way). The app reads the workers and their versions from the `workers` list
-  in `k3sm status -o json`. The update is offered once every worker reports
-  a k3sm version at or above the new one. While any worker is behind, the
-  window names the workers to update first and offers nothing. When the list
-  is missing, or a worker reports no version, the app cannot vouch for it: the
-  update waits until you confirm that every worker already runs the new
-  version.
+| this Mac | the plan |
+|---|---|
+| a managed update is rolling | show its progress, offer nothing new |
+| the server, and the only node, with the app carrying a newer release | the app-carried update of this Mac |
+| the server, with the server's check naming a newer release | the managed update, every node, the server last |
+| the server of a cluster with other nodes (or none known), the app newer but no newer release found yet | nothing: it updates only by the managed update |
+| a worker, with the app carrying a newer release | the app-carried update of this Mac |
+| a worker behind the server, with no newer release in the app | nothing: update the cluster from the server |
+| the app carrying an older release than the one installed | nothing: the app does not downgrade |
+| the installed k3sm reporting no release (a build from source) | nothing: there is no release to compare |
+| on the release it should run | nothing to update |
 
-The app does not downgrade. When it carries an older k3sm than the one
-installed, or the installed version cannot be read, it offers no update; a
-downgrade runs in a terminal.
+An update the app cannot run now (a build of the app that is not Developer
+ID signed, no administrator account, another change running, the installed
+k3sm failing the app's checks for the managed update, or a worker whose
+control-plane address cannot be read) is shown disabled, naming the release,
+with the reason as its help text and line.
+
+- On a worker the app-carried update names the control-plane Mac the worker
+  joins, and the update keeps it joined there. The control-plane address
+  comes from `joinTarget` in `k3sm status -o json` (the host only; the CLI
+  adds the join port). A CLI that does not report it falls back to the
+  worker's installed LaunchDaemon. Either way the address must pass the same
+  strict check as one typed into the join form.
+- On a single-node server the app-carried update first lists the checks to
+  make before updating (take a snapshot with `sudo k3sm snapshot save`, leave
+  free space for the datastore migration, and note that a datastore engine
+  change is one way). Whether the server is the only node comes from the
+  `workers` list in `k3sm status -o json`; when the list is missing, the app
+  treats the cluster as having other nodes.
+
+When it carries an older k3sm than the one installed, or the installed
+version cannot be read, the app offers no app-carried update; a downgrade
+runs in a terminal.
 
 New versions of the app arrive as a new disk image (or, later, through
 `brew upgrade --cask`). The app has no built-in downloader.

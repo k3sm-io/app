@@ -68,8 +68,8 @@ struct GuidedPanelView: View {
             if let command = plan.terminalCommand {
                 terminal(command)
             }
-            if plan.primary == .update, let block = app.guidedUpdateBlock {
-                updateBlock(block)
+            if plan.primary == .update {
+                updateLine
             }
             progress
             HStack {
@@ -85,7 +85,7 @@ struct GuidedPanelView: View {
                     let reason = app.guidedDisabledReason(action)
                     Button(action.title + (action.needsRootStep ? "…" : "")) { app.runGuided(action) }
                         .disabled(reason != nil || app.guidedRun.isRunning)
-                        .help(Help.Guided.primary(action, disabledReason: reason))
+                        .help(Help.Guided.primary(action, disabledReason: reason, plan: app.updatePlan))
                 }
                 if plan.offersRefresh {
                     Button(GuidedAction.refresh.title) { app.runGuided(.refresh) }
@@ -97,7 +97,7 @@ struct GuidedPanelView: View {
                     Button(action.title + (action.needsRootStep ? "…" : "")) { app.runGuided(action) }
                         .keyboardShortcut(.defaultAction)
                         .disabled(reason != nil || app.guidedRun.isRunning)
-                        .help(Help.Guided.primary(action, disabledReason: reason))
+                        .help(Help.Guided.primary(action, disabledReason: reason, plan: app.updatePlan))
                 }
             }
         }
@@ -127,16 +127,15 @@ struct GuidedPanelView: View {
         }
     }
 
-    /// Why Update cannot run yet; for the control plane, the confirmation
-    /// the app-carried update asks for.
+    /// The update plan's line: what Update does or why it cannot run, with
+    /// the datastore checks before the control plane installs the app's release.
     @ViewBuilder
-    private func updateBlock(_ block: GuidedUpdateBlock) -> some View {
-        Text(verbatim: block.text).font(.callout).foregroundStyle(Palette.ink2)
+    private var updateLine: some View {
+        let update = app.updatePlan
+        Text(verbatim: update.line ?? UpdatePlan.nothingToUpdate).font(.callout).foregroundStyle(Palette.ink2)
             .fixedSize(horizontal: false, vertical: true)
-        if block == .confirmWorkers, let payload = app.payloadVersion {
+        if case .payload = update, app.updatePlanFacts.role == .server {
             ForEach(UpdatePolicy.serverChecks, id: \.self) { Text(verbatim: "• " + $0).font(.callout) }
-            Toggle("Every worker runs k3sm " + payload.description + " or newer", isOn: $app.workersConfirmed)
-                .help(Help.Guided.workersConfirmed)
         }
     }
 

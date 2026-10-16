@@ -56,6 +56,7 @@ struct NodeLifecycleTests {
         let nodes: [ClusterNode]
         let selected: String
         let report: StatusReport?
+        var plan: UpdatePlan = .none
         let actions: [NodeLifecycleAction]
         let note: String?
         let nodeActions: [NodeAction]
@@ -64,21 +65,30 @@ struct NodeLifecycleTests {
 
     static let cases: [Case] = [
         Case(name: "this Mac's node behind the latest release, on the server", nodes: nodes(a: "0.1.7"), selected: "mac-a",
-             report: report(own: "mac-a", update: behind), actions: [.update, .restart, .stop], note: nil,
-             nodeActions: [.cordon, .drain]),
+             report: report(own: "mac-a", update: behind), plan: .managed(tag: "v0.1.8"), actions: [.update, .restart, .stop],
+             note: nil, nodeActions: [.cordon, .drain]),
+        Case(name: "this Mac's node, a single node behind the app", nodes: nodes(a: "0.1.7"), selected: "mac-a",
+             report: report(own: "mac-a"), plan: .payload(SemanticVersion("0.1.8")!), actions: [.update, .restart, .stop],
+             note: nil, nodeActions: [.cordon, .drain]),
+        Case(name: "this Mac's node, the roll offered in a developer build", nodes: nodes(a: "0.1.7"), selected: "mac-a",
+             report: report(own: "mac-a", update: behind), plan: .blocked(.appDeveloperBuild(.managed(tag: "v0.1.8"))),
+             actions: [.update, .restart, .stop], note: nil, nodeActions: [.cordon, .drain]),
         Case(name: "this Mac's node on the latest release", nodes: nodes(), selected: "mac-a",
              report: report(own: "mac-a", update: latest), actions: [.restart, .stop], note: nil,
              nodeActions: [.cordon, .drain]),
         Case(name: "this Mac's node, no update check, on the server's release", nodes: nodes(), selected: "mac-a",
              report: report(own: "mac-a"), actions: [.restart, .stop], note: nil, nodeActions: [.cordon, .drain]),
         Case(name: "another Mac's node, even behind", nodes: nodes(b: "0.1.7"), selected: "mac-b",
-             report: report(own: "mac-a", update: behind), actions: [], note: NodeLifecycleOffer.otherNodeNote,
+             report: report(own: "mac-a", update: behind), plan: .managed(tag: "v0.1.8"), actions: [],
+             note: NodeLifecycleOffer.otherNodeNote,
              nodeActions: [.cordon, .drain]),
         Case(name: "this Mac's node mid-roll", nodes: nodes(a: "0.1.7"), selected: "mac-a",
-             report: report(own: "mac-a", update: rolling(node: "mac-a")), actions: [], note: NodeLifecycleOffer.rollingNote,
+             report: report(own: "mac-a", update: rolling(node: "mac-a")), plan: .rolling, actions: [],
+             note: NodeLifecycleOffer.rollingNote,
              nodeActions: [.cordon, .drain]),
         Case(name: "this Mac's node while the roll updates another", nodes: nodes(b: "0.1.7"), selected: "mac-a",
-             report: report(own: "mac-a", update: rolling(node: "mac-b")), actions: [], note: NodeLifecycleOffer.rollingNote,
+             report: report(own: "mac-a", update: rolling(node: "mac-b")), plan: .rolling, actions: [],
+             note: NodeLifecycleOffer.rollingNote,
              nodeActions: [.cordon, .drain]),
         Case(name: "another node mid-roll", nodes: nodes(b: "0.1.7"), selected: "mac-b",
              report: report(own: "mac-a", update: rolling(node: "mac-b")), actions: [], note: NodeLifecycleOffer.otherNodeNote,
@@ -90,7 +100,17 @@ struct NodeLifecycleTests {
              report: report(own: "mac-a", update: latest), actions: [], note: NodeLifecycleOffer.otherNodeNote,
              nodeActions: [.uncordon, .drain]),
         Case(name: "this Mac a worker behind the server", nodes: nodes(b: "0.1.7"), selected: "mac-b",
-             report: report(own: "mac-b", role: "agent"), actions: [.restart, .stop], note: NodeLifecycleOffer.workerBehindNote,
+             report: report(own: "mac-b", role: "agent"), plan: .blocked(.workerBehind), actions: [.restart, .stop],
+             note: NodeLifecycleOffer.workerBehindNote,
+             nodeActions: [.cordon, .drain]),
+        Case(name: "this Mac a worker behind the app", nodes: nodes(b: "0.1.7"), selected: "mac-b",
+             report: report(own: "mac-b", role: "agent"), plan: .payload(SemanticVersion("0.1.8")!),
+             actions: [.update, .restart, .stop], note: nil, nodeActions: [.cordon, .drain]),
+        Case(name: "this Mac's node, the app older than the install", nodes: nodes(), selected: "mac-a",
+             report: report(own: "mac-a", update: latest),
+             plan: .blocked(.downgrade(installed: SemanticVersion("0.1.8")!, payload: SemanticVersion("0.1.7")!)),
+             actions: [.restart, .stop],
+             note: UpdateBlock.downgrade(installed: SemanticVersion("0.1.8")!, payload: SemanticVersion("0.1.7")!).sentence,
              nodeActions: [.cordon, .drain]),
         Case(name: "k3sm on this Mac stopped", nodes: nodes(), selected: "mac-a",
              report: report(own: "mac-a", daemon: "stopped"), actions: [],
@@ -101,10 +121,10 @@ struct NodeLifecycleTests {
              note: NodeLifecycleOffer.ownNodeUnknownNote, nodeActions: [.cordon, .drain]),
     ]
 
-    @Test("this Mac's node offers Update when behind, Restart and Stop; another node none, and says where", arguments: cases)
+    @Test("this Mac's node offers the update plan's Update, Restart and Stop; another node none, and says where", arguments: cases)
     func ownNodeLifecycleActions(_ c: Case) throws {
         let node = try #require(c.nodes.first { $0.name == c.selected })
-        let offer = NodeLifecycleOffer.decide(node, nodes: c.nodes, report: c.report)
+        let offer = NodeLifecycleOffer.decide(node, nodes: c.nodes, report: c.report, plan: c.plan)
         #expect(offer.actions == c.actions)
         #expect(offer.note == c.note)
         #expect(NodeActions.available(for: node) == c.nodeActions)
@@ -116,10 +136,11 @@ struct NodeLifecycleTests {
         #expect(NodeLifecycleAction.allCases.map(\.title) == ["Update k3sm…", "Restart k3sm…", "Stop k3sm…"])
         let enabled = UpdateNowControl(enabled: true, reason: nil)
         let disabled = UpdateNowControl(enabled: false, reason: UpdateNowControl.unknownReason)
-        #expect(Help.Nodes.lifecycle(.update, update: enabled) == Help.Nodes.update.text)
-        #expect(Help.Nodes.lifecycle(.update, update: disabled) == UpdateNowControl.unknownReason)
-        #expect(Help.Nodes.lifecycle(.restart, update: disabled) == Help.Nodes.restart.text)
-        #expect(Help.Nodes.lifecycle(.stop, update: disabled) == Help.Nodes.stop.text)
+        let plan = UpdatePlan.managed(tag: "v0.1.8")
+        #expect(Help.Nodes.lifecycle(.update, update: enabled, plan: plan) == Help.Strip.update(plan))
+        #expect(Help.Nodes.lifecycle(.update, update: disabled, plan: .none) == UpdateNowControl.unknownReason)
+        #expect(Help.Nodes.lifecycle(.restart, update: disabled, plan: plan) == Help.Nodes.restart.text)
+        #expect(Help.Nodes.lifecycle(.stop, update: disabled, plan: plan) == Help.Nodes.stop.text)
         for tag in [Help.Nodes.update, Help.Nodes.restart, Help.Nodes.stop] { #expect(Help.Nodes.all.contains(tag)) }
     }
 

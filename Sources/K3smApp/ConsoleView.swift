@@ -65,7 +65,7 @@ struct ConsoleView: View {
 
     var body: some View {
         let panel = MacPanel(app: app, workloads: workloads)
-        let updateTitle = app.updateOffer.buttonTitle
+        let updateTitle = app.updatePlan.buttonTitle
         let size = Self.minSize(inspectorShown: app.inspectorShown, panelCollapsed: app.consolePanelCollapsed,
                                 updateTitle: updateTitle)
         ConsoleSplit(
@@ -181,7 +181,7 @@ struct ConsoleContent: View {
 }
 
 /// ConsoleStrip is the row above the tab: the tab strip, the managed update's
-/// button while `UpdateOffer` shows one, the tab's search
+/// button while the update plan (`UpdatePlan`) shows one, the tab's search
 /// field (on a tab with rows to search), the details button that shows or
 /// collapses the inspector, the tour button, the info button that opens the
 /// status panel, and the gear that opens Settings. A tab's bulk actions are
@@ -200,14 +200,14 @@ struct ConsoleStrip: View {
             TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
                 .tourTarget(.tabs, app.tour)
             Spacer()
-            if let title = app.updateOffer.buttonTitle {
-                let offer = app.updateOffer
+            if let title = app.updatePlan.buttonTitle {
+                let plan = app.updatePlan
                 Button(title) { app.performUpdate() }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .tint(Palette.blue)
-                    .disabled(!offer.isEnabled)
-                    .help(Help.Strip.update(offer))
+                    .disabled(!plan.isEnabled)
+                    .help(Help.Strip.update(plan))
             }
             switch app.section {
             case .workloads:

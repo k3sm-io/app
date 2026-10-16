@@ -109,7 +109,7 @@ struct NodeInspector: View {
     private func lifecycleOffer() -> NodeLifecycleOffer? {
         guard let key = app.selection.selection(in: .nodes)?.key, let nodes = workloads.nodes,
               let node = nodes.first(where: { $0.name == key }) else { return nil }
-        return NodeLifecycleOffer.decide(node, nodes: nodes, report: app.report)
+        return NodeLifecycleOffer.decide(node, nodes: nodes, report: app.report, plan: app.updatePlan)
     }
 
     private func content(now: Date) -> NodeInspectorBody? {
@@ -122,8 +122,8 @@ struct NodeInspector: View {
 
 /// NodeLifecycleBlock is this Mac's own Update, Restart and Stop, each
 /// through the path the rest of the app uses: Update is
-/// `AppModel.performUpdate` (the Settings Updates pane's question and
-/// options, enabled as its Update Now is), Restart and Stop are
+/// `AppModel.performUpdate` over the one update plan (enabled as the
+/// Settings Updates pane's Update Now is), Restart and Stop are
 /// `AppModel.perform` (the menu's confirmation, with Stop's warning, and the
 /// administrator prompt). Under them, the offer's line.
 struct NodeLifecycleBlock: View {
@@ -131,19 +131,20 @@ struct NodeLifecycleBlock: View {
     let offer: NodeLifecycleOffer
 
     var body: some View {
-        let control = UpdateNowControl.decide(offer: app.updateOffer, report: app.lanReport)
+        let plan = app.updatePlan
+        let control = UpdateNowControl.decide(plan: plan, report: app.lanReport)
         VStack(alignment: .leading, spacing: 6) {
             if !offer.actions.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(offer.actions) { action in
                         Button(action.title) { run(action) }
                             .disabled(action == .update ? (!control.enabled || app.running) : !app.canRunLifecycle)
-                            .help(Help.Nodes.lifecycle(action, update: control))
+                            .help(Help.Nodes.lifecycle(action, update: control, plan: plan))
                     }
                 }
             }
-            if offer.actions.contains(.update), let reason = control.reason {
-                note(reason)
+            if offer.actions.contains(.update), let line = plan.line ?? control.reason {
+                note(line)
             }
             if let line = offer.note { note(line) }
         }

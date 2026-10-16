@@ -126,25 +126,31 @@ struct UpdatesPaneTests {
         #expect(!UpdateOffer.offersDowngrade(in: nil))
     }
 
-    @Test("Update Now is enabled only when an update is offered, and says why not")
+    @Test("Update Now is enabled only when the update plan has a path that can run, and says why not")
     func updateNow() {
-        let offered = UpdateNowControl.decide(offer: .available(tag: "v0.1.9", disabledReason: nil), report: nil)
+        let offered = UpdateNowControl.decide(plan: .managed(tag: "v0.1.9"), report: nil)
         #expect(offered == UpdateNowControl(enabled: true, reason: nil))
-        let blocked = UpdateNowControl.decide(offer: .available(tag: "v0.1.9", disabledReason: "Another change is running."), report: nil)
+        let payload = UpdateNowControl.decide(plan: .payload(SemanticVersion("0.1.9")!), report: nil)
+        #expect(payload == UpdateNowControl(enabled: true, reason: nil))
+        let blockedPlan = UpdatePlan.blocked(.refused("Another change is running.", .managed(tag: "v0.1.9")))
+        let blocked = UpdateNowControl.decide(plan: blockedPlan, report: nil)
         #expect(blocked == UpdateNowControl(enabled: false, reason: "Another change is running."))
-        let rolling = UpdateNowControl.decide(offer: .updating, report: nil)
-        #expect(!rolling.enabled && rolling.reason == UpdateOffer.updating.disabledReason)
-        #expect(UpdateNowControl.decide(offer: .hidden, report: Self.update("ok")).reason
+        let rolling = UpdateNowControl.decide(plan: .rolling, report: nil)
+        #expect(!rolling.enabled && rolling.reason == UpdatePlan.rollingReason)
+        #expect(UpdateNowControl.decide(plan: .blocked(.workerBehind), report: nil).reason == UpdateBlock.workerBehindText)
+        #expect(UpdateNowControl.decide(plan: .none, report: Self.update("ok")).reason
             == UpdateNowControl.latestReason)
-        #expect(UpdateNowControl.decide(offer: .hidden, report: Self.update("ahead")).reason
+        #expect(UpdateNowControl.decide(plan: .none, report: Self.update("ahead")).reason
             == UpdateNowControl.aheadReason)
-        #expect(UpdateNowControl.decide(offer: .hidden, report: Self.update("unknown")).reason
+        #expect(UpdateNowControl.decide(plan: .none, report: Self.update("unknown")).reason
             == UpdateNowControl.unknownReason)
-        #expect(UpdateNowControl.decide(offer: .hidden, report: nil).reason == UpdateNowControl.unknownReason)
-        #expect(UpdateNowControl.decide(offer: .hidden, report: Self.update("behind", wide: ["latest": "v0.1.9"])).reason
+        #expect(UpdateNowControl.decide(plan: .none, report: nil).reason == UpdateNowControl.unknownReason)
+        #expect(UpdateNowControl.decide(plan: .none, report: Self.update("behind", wide: ["latest": "v0.1.9"])).reason
             == UpdateNowControl.finishedReason)
         #expect(UpdateNowControl.title == "Update Now")
-        #expect(Help.Updates.updateNow(offered) == Help.Updates.updateNow.text)
-        #expect(Help.Updates.updateNow(blocked) == "Another change is running.")
+        #expect(Help.Updates.updateNow(offered, plan: .managed(tag: "v0.1.9")) == "Update every node to k3sm v0.1.9, the server last")
+        #expect(Help.Updates.updateNow(payload, plan: .payload(SemanticVersion("0.1.9")!))
+            == "Install k3sm 0.1.9 from this app on this Mac, as an administrator")
+        #expect(Help.Updates.updateNow(blocked, plan: blockedPlan) == "Another change is running.")
     }
 }

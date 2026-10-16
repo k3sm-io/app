@@ -109,18 +109,28 @@ public enum Help {
             return HelpTag(text, control: "console strip: \(section.rawValue) tab", label: section.title)
         }
 
-        /// The managed update's button (the strip's, the popover's version
-        /// row and the status item's menu): why it is disabled, or what it does.
-        public static func update(_ offer: UpdateOffer) -> String {
-            if let reason = offer.disabledReason { return reason }
-            if case .available(let tag, _) = offer {
+        /// The update button's tag when it installs the app's release on this Mac.
+        public static let updateThisMac = HelpTag("Install the release this app carries on this Mac, as an administrator",
+                                                  control: "console strip: update button, this Mac", label: "Update")
+
+        /// Every Update control's tag (the strip's button, the popover's
+        /// version row, the status item's menu, and through them the node
+        /// inspector, the Updates pane and the guided panel), from the one
+        /// `UpdatePlan`: why it is disabled, or what its path does.
+        public static func update(_ plan: UpdatePlan) -> String {
+            if let reason = plan.disabledReason { return reason }
+            switch plan.path {
+            case .managed(let tag)?:
                 return "Update every node to k3sm \(StatusDisplay.clip(tag)), the server last"
+            case .payload(let version)?:
+                return "Install k3sm \(version) from this app on this Mac, as an administrator"
+            case nil:
+                return updateAny.text
             }
-            return updateAny.text
         }
 
         public static var all: [HelpTag] {
-            [showDetails, hideDetails, tour, status, settings, updateAny] + ConsoleSection.allCases.map(tab)
+            [showDetails, hideDetails, tour, status, settings, updateAny, updateThisMac] + ConsoleSection.allCases.map(tab)
         }
     }
 
@@ -196,11 +206,11 @@ public enum Help {
         public static let stop = HelpTag("Stop this Mac's node and its pods until you start it again",
                                          control: "node inspector: Stop k3sm", label: NodeLifecycleAction.stop.title)
 
-        /// A lifecycle button's tag: Update's names why it is disabled, as
-        /// the Updates pane's Update Now does.
-        public static func lifecycle(_ action: NodeLifecycleAction, update control: UpdateNowControl) -> String {
+        /// A lifecycle button's tag: Update's is the update plan's, as the
+        /// Updates pane's Update Now is: why it is disabled, or what it does.
+        public static func lifecycle(_ action: NodeLifecycleAction, update control: UpdateNowControl, plan: UpdatePlan) -> String {
             switch action {
-            case .update: return control.reason ?? update.text
+            case .update: return control.reason ?? Strip.update(plan)
             case .restart: return restart.text
             case .stop: return stop.text
             }
@@ -535,12 +545,6 @@ public enum Help {
         /// Start k3sm…
         public static let start = HelpTag("Start this Mac's node and its pods again",
                                           control: "popover: Start", label: "Start k3sm…")
-        /// The app-carried update ("Update k3sm to <version>").
-        public static let installPayload = HelpTag("Install the k3sm release this app carries, as an administrator",
-                                                   control: "popover: app-carried update")
-        /// The confirmation that every worker already runs the new release.
-        public static let workersConfirmed = HelpTag("Confirm it first, since the control plane updates last",
-                                                     control: "popover: workers confirmation")
         /// Refresh, under All checks.
         public static let refresh = HelpTag("Read k3sm's status again (Command-R)",
                                             control: "popover: Refresh", label: "Refresh")
@@ -548,7 +552,7 @@ public enum Help {
         public static let openLoginItems = HelpTag("Open System Settings to allow k3sm at login",
                                                    control: "login approval: Open Login Items", label: "Open Login Items")
 
-        public static var all: [HelpTag] { [stop, restart, start, installPayload, workersConfirmed, refresh, openLoginItems] }
+        public static var all: [HelpTag] { [stop, restart, start, refresh, openLoginItems] }
     }
 
     // MARK: Health banner and guided panel
@@ -586,24 +590,22 @@ public enum Help {
         /// Close, which puts the panel away.
         public static let close = HelpTag("Put this panel away (Escape)",
                                           control: "guided panel: Close", label: "Close")
-        /// The workers confirmation, in the guided panel.
-        public static let workersConfirmed = HelpTag("Confirm it first, since the control plane updates last",
-                                                     control: "guided panel: workers confirmation")
 
-        /// The primary button's tag: why it is disabled, or what it does.
-        public static func primary(_ action: GuidedAction, disabledReason: String?) -> String {
+        /// The primary button's tag: why it is disabled, or what it does;
+        /// Update's is the update plan's when one is given.
+        public static func primary(_ action: GuidedAction, disabledReason: String?, plan: UpdatePlan? = nil) -> String {
             if let disabledReason { return disabledReason }
             switch action {
             case .start: return start.text
             case .restart: return restart.text
-            case .update: return update.text
+            case .update: return plan.map(Strip.update) ?? update.text
             case .repair: return repair.text
             case .refresh: return refresh.text
             }
         }
 
         public static var all: [HelpTag] {
-            [banner, start, restart, update, repair, refresh, openLogs, copyCommand, openTerminal, close, workersConfirmed]
+            [banner, start, restart, update, repair, refresh, openLogs, copyCommand, openTerminal, close]
         }
     }
 
@@ -772,8 +774,10 @@ public enum Help {
         public static let signature = HelpTag("Which code signature the new release must carry; checksums always apply",
                                               control: "updates: signature popup", label: "Code signature")
 
-        /// Update Now's tag: why it is disabled, or what it does.
-        public static func updateNow(_ control: UpdateNowControl) -> String { control.reason ?? updateNow.text }
+        /// Update Now's tag: why it is disabled, or what the update plan's path does.
+        public static func updateNow(_ control: UpdateNowControl, plan: UpdatePlan) -> String {
+            control.reason ?? (plan.path == nil ? updateNow.text : Strip.update(plan))
+        }
 
         public static var all: [HelpTag] { [installed, available, state, updateNow, drain, allowDowngrade, signature] }
     }
