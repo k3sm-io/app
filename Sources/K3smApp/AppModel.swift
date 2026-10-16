@@ -522,12 +522,14 @@ final class AppModel: ObservableObject {
 
     /// The bulk actions the selected tab's toolbar offers. The slot is there
     /// for every tab; Workloads offers the cleanup (`PodCleanup`) while it
-    /// shows its pods.
+    /// shows its pods, and Storage its volume cleanup while a volume is unused.
     var bulkActions: [ActionMenuItem] {
         switch section {
         case .workloads:
             return workloadsView == .pods ? PodCleanup.bulkActions(for: workloads.workloads?.pods) : []
-        case .images, .builds, .services, .storage, .models: return []
+        case .storage:
+            return storage?.value.flatMap(StorageActions.cleanupRequest).map { [ActionMenuItem($0)] } ?? []
+        case .images, .builds, .services, .models: return []
         }
     }
 
@@ -542,7 +544,10 @@ final class AppModel: ObservableObject {
             return services?.value?.first { $0.key == key }.map(ServiceActions.menu(for:)) ?? .empty
         case .model(let key):
             return models?.value?.first { $0.key == key }.map(ModelActions.menu(for:)) ?? .empty
-        case .image, .build, .claim:
+        case .claim(let key):
+            let pods = workloads.workloads?.pods
+            return storage?.value?.first { $0.key == key }.map { StorageActions.menu(for: $0, pods: pods) } ?? .empty
+        case .image, .build:
             return .empty
         }
     }

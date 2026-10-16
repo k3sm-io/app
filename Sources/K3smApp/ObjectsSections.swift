@@ -148,11 +148,13 @@ struct ServicesSection: View {
 
 /// StorageSection is the Storage tab: this Mac's data volume card on top,
 /// then every claim with its volume, capacity and phase, and the volumes no
-/// claim holds, decided by `StorageList` and `DataVolume`.
+/// claim holds, decided by `StorageList` and `DataVolume`. It observes the
+/// pod list too, since a claim's Delete names the pods still mounting it.
 struct StorageSection: View {
     @ObservedObject var app: AppModel
     @ObservedObject var claims: TabLoader<[StorageRow]>
     @ObservedObject var volume: TabLoader<DataVolume>
+    @ObservedObject var workloads: WorkloadsModel
 
     var body: some View {
         VStack(spacing: 0) {

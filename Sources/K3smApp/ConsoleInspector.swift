@@ -51,9 +51,7 @@ struct ConsoleInspector: View {
             }
         case .storage:
             if let storage = app.storage {
-                LoaderInspector(app: app, loader: storage, section: .storage) { rows, key in
-                    rows.first { $0.key == key }.map(InspectorDetails.claim)
-                }
+                StorageInspector(app: app, loader: storage, workloads: app.workloads)
             } else {
                 RowInspector(content: nil, empty: InspectorDetails.emptyText(.storage))
             }
@@ -85,6 +83,26 @@ struct ImageInspector: View {
               case .listed(let images)? = workloads.nodeList.value?.images,
               let image = images.first(where: { $0.key == key }) else { return nil }
         return InspectorDetails.image(image, pods: workloads.workloads?.pods)
+    }
+}
+
+/// StorageInspector is the Storage tab's inspector: the selected claim or
+/// volume from the tab's read, with the pods mounting a claim once the pod
+/// list has been read, so it observes that list too.
+struct StorageInspector: View {
+    @ObservedObject var app: AppModel
+    @ObservedObject var loader: TabLoader<[StorageRow]>
+    @ObservedObject var workloads: WorkloadsModel
+
+    var body: some View {
+        RowInspector(content: content, empty: InspectorDetails.emptyText(.storage),
+                     actions: content == nil ? nil : RowActions.selected(.storage, app: app))
+    }
+
+    private var content: InspectorBody? {
+        guard let key = app.selection.selection(in: .storage)?.key,
+              let row = loader.value?.first(where: { $0.key == key }) else { return nil }
+        return InspectorDetails.claim(row, pods: workloads.workloads?.pods)
     }
 }
 

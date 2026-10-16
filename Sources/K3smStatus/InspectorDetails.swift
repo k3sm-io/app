@@ -137,8 +137,10 @@ public enum InspectorDetails {
     }
 
     /// A claim (or a volume no claim holds): the bound volume, capacity,
-    /// access modes, class and phase.
-    public static func claim(_ row: StorageRow) -> InspectorBody {
+    /// access modes, class and phase, the volume's data directory when it
+    /// records one, and for a claim, once the pod list has been read, the
+    /// pods still mounting it (`StorageActions.mountingPods`).
+    public static func claim(_ row: StorageRow, pods: [Pod]? = nil) -> InspectorBody {
         var facts: [InspectorFact] = []
         if row.claim != nil {
             facts.append(InspectorFact("Volume", row.volume ?? "not bound", mono: true))
@@ -149,6 +151,11 @@ public enum InspectorDetails {
         facts.append(InspectorFact("Access", row.accessModes.isEmpty ? "not reported" : row.accessModes.joined(separator: ", ")))
         facts.append(InspectorFact("Class", row.storageClass ?? "none"))
         facts.append(InspectorFact("Phase", row.phase.isEmpty ? "not reported" : row.phase))
+        if let path = row.path { facts.append(InspectorFact("Path", path, mono: true)) }
+        if row.claim != nil, let pods {
+            let mounting = StorageActions.mountingPods(row, in: pods).map { StatusDisplay.clip($0.name) }
+            facts.append(InspectorFact("Mounted by", mounting.isEmpty ? "no listed pod" : mounting.joined(separator: ", ")))
+        }
         if let claim = row.claim {
             return InspectorBody(kind: "Claim", title: claim, subtitle: row.namespace, facts: facts)
         }

@@ -172,6 +172,11 @@ public struct Pod: Equatable, Sendable {
     /// The pod's own status reason (`status.reason`, "Evicted" for an
     /// evicted pod), "" when it has none.
     public var reason: String = ""
+    /// The volume claims the pod's spec mounts, by name, in its namespace: each
+    /// `persistentVolumeClaim` volume's claim, and each generic ephemeral
+    /// volume's, which Kubernetes names "<pod>-<volume>". Unclipped API
+    /// strings, compared with a claim's own name and never shown as they are.
+    public internal(set) var claims: [String] = []
 
     /// The name the kubectl detail calls take, or nil when the API served a name
     /// the app refuses to put on a command line.
@@ -269,9 +274,17 @@ struct PodWire: Decodable {
             let ports: [Port]?
             let resources: Resources?
         }
+        struct Volume: Decodable {
+            struct Claim: Decodable { let claimName: String? }
+            struct Ephemeral: Decodable {}
+            let name: String?
+            let persistentVolumeClaim: Claim?
+            let ephemeral: Ephemeral?
+        }
         let runtimeClassName: String?
         let nodeName: String?
         let containers: [Container]
+        let volumes: [Volume]?
     }
     struct Status: Decodable {
         struct ContainerStatus: Decodable {
@@ -313,6 +326,11 @@ extension Pod {
         nodeName = wire.spec.nodeName.flatMap(ResourceName.init)?.value
         containers = wire.spec.containers.map { $0.name ?? "" }
         reason = wire.status?.reason ?? ""
+        claims = (wire.spec.volumes ?? []).compactMap { volume in
+            if let claim = volume.persistentVolumeClaim?.claimName, !claim.isEmpty { return claim }
+            if volume.ephemeral != nil, let name = volume.name, !name.isEmpty { return "\(wire.metadata.name)-\(name)" }
+            return nil
+        }
         let statuses = wire.status?.containerStatuses ?? []
         ready = !statuses.isEmpty && statuses.allSatisfy(\.ready)
         restarts = statuses.reduce(0) { total, status in

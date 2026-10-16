@@ -156,6 +156,29 @@ public enum K3smCLI {
         ["kubectl", "delete", ModelsList.resource, model.value, "-n", namespace.value, "--wait=false"]
     }
 
+    /// Deletes one volume claim without waiting for it to go. Kubernetes
+    /// keeps a claim a pod still uses, as Terminating, until that pod is
+    /// gone; the volume it was bound to follows its reclaim policy.
+    public static func deleteClaimArguments(namespace: ResourceName, claim: ResourceName) -> [String] {
+        ["kubectl", "delete", "pvc", claim.value, "-n", namespace.value, "--wait=false"]
+    }
+
+    /// One claim's UID, read just before its delete so the delete runs only
+    /// on the claim the user confirmed.
+    public static func claimUIDArguments(namespace: ResourceName, claim: ResourceName) -> [String] {
+        ["kubectl", "get", "pvc", claim.value, "-n", namespace.value, "-o", "jsonpath={.metadata.uid}"]
+    }
+
+    /// Deletes volume objects without waiting for them to go. It removes the
+    /// PersistentVolume objects only; no data directory on any node.
+    public static func deleteVolumesArguments(_ volumes: [ResourceName]) -> [String] {
+        ["kubectl", "delete", "pv"] + volumes.map(\.value) + ["--wait=false"]
+    }
+
+    /// Every volume, read just before the volume cleanup so it deletes only
+    /// volumes that are still the ones confirmed and still unclaimed.
+    public static let volumesArguments = ["kubectl", "get", "pv", "-o", "json"]
+
     /// The PATH every CLI run gets: system directories only.
     public static let systemPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 

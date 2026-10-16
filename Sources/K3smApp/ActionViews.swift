@@ -124,6 +124,17 @@ struct BulkActionsSlot: View {
     }
 }
 
+/// LoaderBulkActions is a tab's bulk slot whose actions come from its own
+/// read: it observes the loader, so a new list re-offers them.
+struct LoaderBulkActions<Value: Sendable>: View {
+    @ObservedObject var app: AppModel
+    @ObservedObject var loader: TabLoader<Value>
+
+    var body: some View {
+        BulkActionsSlot(items: app.bulkActions, section: app.section, runner: app.actions)
+    }
+}
+
 /// RowActions is the inspector's actions block for one row, on every tab:
 /// a row of its local actions (copies, open in browser), which ask
 /// nothing, then a button per `ActionMenu` item (the row's context menu's list), the

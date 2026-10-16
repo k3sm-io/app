@@ -124,13 +124,15 @@ struct InspectorDetailsTests {
 
     static let claimCases: [Case] = [
         Case(name: "a bound claim with its granted access mode", key: "pvc/shop/data-db-0", header: ["Claim", "data-db-0", "shop"],
-             facts: [["Volume", "pvc-1111"], ["Capacity", "2.0 GB"], ["Access", "ReadWriteOnce"], ["Class", "local-path"], ["Phase", "Bound"]]),
+             facts: [["Volume", "pvc-1111"], ["Capacity", "2.0 GB"], ["Access", "ReadWriteOnce"], ["Class", "local-path"], ["Phase", "Bound"],
+                     ["Path", "/var/lib/k3sm/storage/shop/data-db-0"]]),
         Case(name: "an unbound claim with the mode it asks for", key: "pvc/build/cache", header: ["Claim", "cache", "build"],
              facts: [["Volume", "not bound"], ["Capacity", "512 MB"], ["Access", "ReadWriteOnce"], ["Class", "local-path"], ["Phase", "Pending"]]),
         Case(name: "a claim with no class and no modes", key: "pvc/shop/logs", header: ["Claim", "logs", "shop"],
              facts: [["Volume", "pvc-2222"], ["Capacity", "4.0 GB"], ["Access", "not reported"], ["Class", "none"], ["Phase", "Bound"]]),
         Case(name: "a volume no claim holds", key: "pv/pvc-9999", header: ["Volume", "pvc-9999", nil],
-             facts: [["Claim", "none holds it"], ["Capacity", "8.0 GB"], ["Access", "ReadWriteOnce, ReadOnlyMany"], ["Class", "local-path"], ["Phase", "Released"]]),
+             facts: [["Claim", "none holds it"], ["Capacity", "8.0 GB"], ["Access", "ReadWriteOnce, ReadOnlyMany"], ["Class", "local-path"], ["Phase", "Released"],
+                     ["Path", "/var/lib/k3sm/storage/gone/old"]]),
     ]
 
     @Test("a claim's facts", arguments: claimCases)

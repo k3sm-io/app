@@ -75,7 +75,8 @@ struct StorageListTests {
     @Test("claims decode with their volumes, capacity and phase; volumes no claim holds follow")
     func decodesClaimsAndVolumes() throws {
         let rows = try StorageList.decode(try fixture("kubectl_storage.json"))
-        #expect(rows.map(\.key) == ["pvc/build/cache", "pvc/shop/data-db-0", "pvc/shop/logs", "pv/pvc-9999"])
+        #expect(rows.map(\.key) == ["pvc/build/cache", "pvc/shop/data-db-0", "pvc/shop/logs",
+                                     "pv/pvc-6666", "pv/pvc-7777", "pv/pvc-8888", "pv/pvc-9999"])
         // Unbound: no volume, the capacity it requests.
         #expect(rows[0].volume == nil)
         #expect(rows[0].capacityBytes == 512 << 20)
@@ -87,10 +88,32 @@ struct StorageListTests {
         // No capacity on the claim: the bound volume's.
         #expect(rows[2].capacityBytes == 4 << 30)
         // A released volume whose claim is gone is a row of its own.
-        #expect(rows[3].claim == nil)
-        #expect(rows[3].namespace == nil)
-        #expect(rows[3].phase == "Released")
-        #expect(rows[3].capacityBytes == 8 << 30)
+        #expect(rows[6].claim == nil)
+        #expect(rows[6].namespace == nil)
+        #expect(rows[6].phase == "Released")
+        #expect(rows[6].capacityBytes == 8 << 30)
+        // The fields an action reads: UIDs, the API's names, path and policy.
+        #expect(rows[1].uid == "uid-claim-db")
+        #expect(rows[1].namespaceName?.value == "shop")
+        #expect(rows[1].claimName?.value == "data-db-0")
+        #expect(rows[1].path == "/var/lib/k3sm/storage/shop/data-db-0")
+        #expect(rows[1].reclaimPolicy == "Retain")
+        #expect(rows[6].uid == "uid-pv-9999")
+        #expect(rows[6].volumeName?.value == "pvc-9999")
+        #expect(rows[6].path == "/var/lib/k3sm/storage/gone/old")
+        #expect(rows[6].claimed)
+        #expect(!rows[5].claimed)
+    }
+
+    @Test("a released volume whose claim was recreated under its name is a row of its own")
+    func recreatedClaimLeavesItsOldVolumeVisible() throws {
+        let rows = try StorageList.decode(try fixture("kubectl_storage.json"))
+        // pvc-7777 names shop/logs by an older UID; pvc-2222 holds the claim now.
+        let old = try #require(rows.first { $0.key == "pv/pvc-7777" })
+        #expect(old.phase == "Released")
+        #expect(rows.first { $0.key == "pvc/shop/logs" }?.volume == "pvc-2222")
+        // A reference without a UID to a listed claim is still that claim's.
+        #expect(!rows.contains { $0.key == "pv/pvc-2222" })
     }
 
     @Test("a list of another kind fails the read")

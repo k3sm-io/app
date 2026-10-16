@@ -146,7 +146,7 @@ struct ConsoleContent: View {
             }
         case .storage:
             if let storage = app.storage, let volume = app.dataVolume {
-                StorageSection(app: app, claims: storage, volume: volume)
+                StorageSection(app: app, claims: storage, volume: volume, workloads: app.workloads)
             } else {
                 Color.clear
             }
@@ -179,7 +179,11 @@ struct ConsoleStrip: View {
             TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
                 .tourTarget(.tabs, app.tour)
             Spacer()
-            BulkActionsSlot(items: app.bulkActions, section: app.section, runner: app.actions)
+            if app.section == .storage, let storage = app.storage {
+                LoaderBulkActions(app: app, loader: storage)
+            } else {
+                BulkActionsSlot(items: app.bulkActions, section: app.section, runner: app.actions)
+            }
             if let title = app.updateOffer.buttonTitle {
                 let offer = app.updateOffer
                 Button(title) { app.performUpdate() }

@@ -151,7 +151,8 @@ login** in the app's Settings turns it off or on again (see
 
   The tabs only read. The changes the console makes are a pod's
   **Restart** and **Delete**, a service's **Delete**, the Workloads cleanup,
-  and a model's **Unload**, **Load** and **Delete** (below). The app remembers the tab, each tab's
+  a model's **Unload**, **Load** and **Delete**, and a claim's **Delete** and
+  the Storage cleanup of unused volumes (below). The app remembers the tab, each tab's
   search and selection, the Workloads switch and the events namespace.
 - **Restart…** and **Delete…** in the pod details are the console's writes.
   Restart is shown only for a pod whose owner recreates it (a ReplicaSet,
@@ -243,13 +244,39 @@ login** in the app's Settings turns it off or on again (see
   served model. The curl example is offered only when the endpoint names
   the model's own Service and the model is a plain repository id, since you
   paste it into a shell.
+- **Delete…** on a volume claim, in its details, on its row's Control-click
+  menu or with the Delete key, deletes the claim. The question names the
+  pods still mounting it (the pods in its namespace whose spec mounts it,
+  directly or as a generic ephemeral volume, that have not finished), and
+  says that Kubernetes keeps the claim, as Terminating, until they are gone.
+  It also says what happens to the data: k3sm's `local-path` class keeps
+  volumes (reclaim policy Retain), so the claim's volume stays behind as
+  Released and the data stays on the node's disk, in the directory the
+  question shows. Before the pod list has been read the question says
+  whether a pod mounts the claim is not known. After you confirm, the app
+  reads the claim's UID with `k3sm kubectl get pvc <claim> -n <namespace> -o
+  jsonpath={.metadata.uid}`, deletes nothing when the claim is gone or is
+  not the one you clicked, and otherwise runs `k3sm kubectl delete pvc
+  <claim> -n <namespace> --wait=false`, with the same trust check and
+  account as Restart. A volume no claim holds offers no row action.
+- **Delete released and unclaimed volumes…** in the Storage tab's strip,
+  shown while a volume is Released (its claim was deleted) or Available with
+  no claim reserving it, deletes those volume objects. The question gives
+  their number and names and the data directories they record, and says
+  the directories stay on disk: deleting a volume object does not remove
+  its data, and removing a directory takes root on its node, which the app
+  never does. After you confirm, the app reads every volume with `k3sm
+  kubectl get pv -o json` and deletes nothing unless each one is still
+  listed with the same UID and still unused; then it runs `k3sm kubectl
+  delete pv <volume>... --wait=false`. Its line shows in the strip.
 - The **details** on the right follow the tab. Click a row on any tab (the
   build engine's card on Builds) and its details show there: a pod's facts
   and its logs, events or manifest; an image's reference, digest, size, the
   nodes holding it and the pods using it; the build engine's state, pod,
   node and cache; a service's type, cluster IP, ports, ready endpoints and
   ingress hosts; a
-  claim's volume, capacity, access modes, class and phase; a model's model,
+  claim's volume, capacity, access modes, class, phase, the volume's data
+  directory and the pods mounting it; a model's model,
   replicas, ready replicas, phase and endpoint. The heading names the kind
   of row and the row. Each tab keeps its own selection: changing tab shows
   that tab's selected row, or "Select a service." (and so on) when it has

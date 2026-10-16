@@ -4,39 +4,60 @@
   "items": [
     {
       "apiVersion": "v1", "kind": "PersistentVolumeClaim",
-      "metadata": {"name": "data-db-0", "namespace": "shop"},
+      "metadata": {"name": "data-db-0", "namespace": "shop", "uid": "uid-claim-db"},
       "spec": {"volumeName": "pvc-1111", "storageClassName": "local-path", "accessModes": ["ReadWriteMany"], "resources": {"requests": {"storage": "1Gi"}}},
       "status": {"phase": "Bound", "accessModes": ["ReadWriteOnce"], "capacity": {"storage": "2Gi"}}
     },
     {
       "apiVersion": "v1", "kind": "PersistentVolumeClaim",
-      "metadata": {"name": "cache", "namespace": "build"},
+      "metadata": {"name": "cache", "namespace": "build", "uid": "uid-claim-cache"},
       "spec": {"storageClassName": "local-path", "accessModes": ["ReadWriteOnce"], "resources": {"requests": {"storage": "512Mi"}}},
       "status": {"phase": "Pending"}
     },
     {
       "apiVersion": "v1", "kind": "PersistentVolumeClaim",
-      "metadata": {"name": "logs", "namespace": "shop"},
+      "metadata": {"name": "logs", "namespace": "shop", "uid": "uid-claim-logs"},
       "spec": {"volumeName": "pvc-2222", "resources": {"requests": {"storage": "1Gi"}}},
       "status": {"phase": "Bound"}
     },
     {
       "apiVersion": "v1", "kind": "PersistentVolume",
-      "metadata": {"name": "pvc-1111"},
-      "spec": {"capacity": {"storage": "2Gi"}, "claimRef": {"namespace": "shop", "name": "data-db-0"}, "storageClassName": "local-path"},
+      "metadata": {"name": "pvc-1111", "uid": "uid-pv-1111"},
+      "spec": {"capacity": {"storage": "2Gi"}, "claimRef": {"namespace": "shop", "name": "data-db-0", "uid": "uid-claim-db"}, "storageClassName": "local-path",
+               "persistentVolumeReclaimPolicy": "Retain", "local": {"path": "/var/lib/k3sm/storage/shop/data-db-0"}},
       "status": {"phase": "Bound"}
     },
     {
       "apiVersion": "v1", "kind": "PersistentVolume",
-      "metadata": {"name": "pvc-2222"},
+      "metadata": {"name": "pvc-2222", "uid": "uid-pv-2222"},
       "spec": {"capacity": {"storage": "4Gi"}, "claimRef": {"namespace": "shop", "name": "logs"}},
       "status": {"phase": "Bound"}
     },
     {
       "apiVersion": "v1", "kind": "PersistentVolume",
-      "metadata": {"name": "pvc-9999"},
-      "spec": {"capacity": {"storage": "8Gi"}, "accessModes": ["ReadWriteOnce", "ReadOnlyMany"], "claimRef": {"namespace": "gone", "name": "old"}, "storageClassName": "local-path"},
+      "metadata": {"name": "pvc-9999", "uid": "uid-pv-9999"},
+      "spec": {"capacity": {"storage": "8Gi"}, "accessModes": ["ReadWriteOnce", "ReadOnlyMany"], "claimRef": {"namespace": "gone", "name": "old", "uid": "uid-claim-old"}, "storageClassName": "local-path",
+               "persistentVolumeReclaimPolicy": "Retain", "hostPath": {"path": "/var/lib/k3sm/storage/gone/old"}},
       "status": {"phase": "Released"}
+    },
+    {
+      "apiVersion": "v1", "kind": "PersistentVolume",
+      "metadata": {"name": "pvc-8888", "uid": "uid-pv-8888"},
+      "spec": {"capacity": {"storage": "1Gi"}, "storageClassName": "local-path", "persistentVolumeReclaimPolicy": "Retain"},
+      "status": {"phase": "Available"}
+    },
+    {
+      "apiVersion": "v1", "kind": "PersistentVolume",
+      "metadata": {"name": "pvc-7777", "uid": "uid-pv-7777"},
+      "spec": {"capacity": {"storage": "1Gi"}, "claimRef": {"namespace": "shop", "name": "logs", "uid": "uid-claim-logs-before"}, "storageClassName": "local-path",
+               "persistentVolumeReclaimPolicy": "Retain", "local": {"path": "/var/lib/k3sm/storage/shop/logs"}},
+      "status": {"phase": "Released"}
+    },
+    {
+      "apiVersion": "v1", "kind": "PersistentVolume",
+      "metadata": {"name": "pvc-6666", "uid": "uid-pv-6666"},
+      "spec": {"capacity": {"storage": "1Gi"}, "claimRef": {"namespace": "later", "name": "reserved"}, "storageClassName": "local-path"},
+      "status": {"phase": "Available"}
     }
   ]
 }
