@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 import AppKit
+import K3smStatus
 import SwiftUI
 
 /// Palette is the console's colours: the tokens of the design it follows,
@@ -56,6 +57,25 @@ enum Palette {
     static let warn = Color(red: 0.722, green: 0.416, blue: 0.0)
     static let bad = Color(red: 0.788, green: 0.188, blue: 0.173)
     static let unknown = Color(red: 0.616, green: 0.631, blue: 0.702)
+
+    /// A status row's glyph and text on the window's light side: green when
+    /// healthy, grey when not checked, amber when it needs attention.
+    static func row(_ tone: RowTone) -> Color {
+        switch tone {
+        case .healthy: return ok
+        case .notChecked: return unknown
+        case .attention: return warn
+        }
+    }
+
+    /// A status row's glyph and text on the dark left panel.
+    static func rowOnDark(_ tone: RowTone) -> Color {
+        switch tone {
+        case .healthy: return okOnDark
+        case .notChecked: return .white.opacity(0.55)
+        case .attention: return .orange
+        }
+    }
 
     /// The dot for a pod's health severity word; an unknown word is grey.
     static func health(_ severity: String) -> Color {

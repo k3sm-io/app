@@ -269,10 +269,11 @@ public enum StatusDisplay {
         return String(flat.prefix(maxErrorLength - 1)) + "…"
     }
 
-    /// Returns at most `maxRows` rows with every field clipped.
+    /// Returns at most `maxRows` rows with every field clipped. A
+    /// `needs-admin` row's detail is `rowDetail`'s sentence.
     public static func rows(of report: StatusReport) -> [StatusRow] {
         report.rows.prefix(maxRows).map {
-            StatusRow(name: clip($0.name), state: clip($0.state), detail: clip($0.detail))
+            StatusRow(name: clip($0.name), state: clip($0.state), detail: rowDetail($0), remedy: clip($0.remedy))
         }
     }
 }

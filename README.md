@@ -119,6 +119,14 @@ environment it builds itself. A newer CLI may print status words this app does
 not know; they are shown as printed and never stop the app from reading the
 rest.
 
+The app runs as you, not as root, so some checks are ones only an
+administrator can run (the runtime daemon's owner-only socket, for one). The
+CLI reports those rows as `needs-admin`, and the app shows them with a grey
+glyph and "needs an administrator; run sudo k3sm status". Nothing was checked
+and nothing is wrong, so these rows never count against the verdict; the
+status line says how many there are ("1 check needs an administrator"). Run
+`sudo k3sm status` in a terminal to see them checked.
+
 ## The menu
 
 The status item's menu opens with two status lines, **Cluster** and **This

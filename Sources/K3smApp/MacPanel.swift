@@ -32,8 +32,6 @@ struct MacPanel: View {
     private static let machine = HostFacts.read()
     /// The status rows the panel lists, in the report's order.
     private static let daemons: Set<String> = ["netd", "server", "agent", "apiserver", "node", "datastore"]
-    /// The state words that read as healthy; anything else is shown in amber.
-    private static let healthy: Set<String> = ["running", "ok", "ready", "healthy"]
 
     private var report: StatusReport? { app.report }
 
@@ -241,11 +239,7 @@ struct MacPanel: View {
     private var coresRequested: Double { macRequests.cores }
     private var memoryRequested: Int64 { macRequests.memoryBytes }
 
-    private var stateLine: String {
-        let count = "\(pods.count) \(pods.count == 1 ? "pod" : "pods")"
-        guard let report else { return "Status not read, \(count)" }
-        return report.verdict == .running ? "Running, \(count)" : "\(report.verdict.word): \(report.summary)"
-    }
+    private var stateLine: String { StatusDisplay.panelStateLine(report, podCount: pods.count) }
 
     /// The nodes block, re-derived from each report; nil before the first read.
     private var nodes: NodesView? {
@@ -280,7 +274,11 @@ struct MacPanel: View {
                 HStack {
                     Text(verbatim: StatusDisplay.clip(row.name)).foregroundStyle(.white.opacity(0.8))
                     Spacer()
-                    Text(verbatim: StatusDisplay.clip(row.state)).foregroundStyle(Self.healthy.contains(row.state) ? Palette.okOnDark : .orange)
+                    Image(systemName: row.rowState.tone.symbolName)
+                        .foregroundStyle(Palette.rowOnDark(row.rowState.tone))
+                        .accessibilityLabel(Text(verbatim: row.rowState.tone.word))
+                    Text(verbatim: StatusDisplay.panelText(row)).foregroundStyle(Palette.rowOnDark(row.rowState.tone))
+                        .lineLimit(1).truncationMode(.tail)
                 }
                 .font(.system(size: 12))
             }

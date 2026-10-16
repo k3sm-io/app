@@ -110,13 +110,16 @@ struct StatusView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let report = model.report {
-                Text(verbatim: StatusDisplay.clip(headline(report))).font(.title2)
+                Text(verbatim: StatusDisplay.headline(report)).font(.title2)
                 if let stopped = report.stoppedBy {
                     Text(verbatim: StatusDisplay.clip(stopped.line)).foregroundStyle(.secondary)
                 }
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
                     ForEach(Array(StatusDisplay.rows(of: report).enumerated()), id: \.offset) { _, row in
                         GridRow {
+                            Image(systemName: row.rowState.tone.symbolName)
+                                .foregroundStyle(Palette.row(row.rowState.tone))
+                                .accessibilityLabel(Text(verbatim: row.rowState.tone.word))
                             Text(verbatim: row.name).bold()
                             Text(verbatim: row.state)
                             Text(verbatim: row.detail).foregroundStyle(.secondary)
@@ -142,10 +145,6 @@ struct StatusView: View {
                 Text(verbatim: reason).foregroundStyle(.secondary)
             }
         }
-    }
-
-    private func headline(_ report: StatusReport) -> String {
-        report.summary.isEmpty ? "k3sm \(report.verdict.word)" : "k3sm \(report.verdict.word) · \(report.summary)"
     }
 
     private var versionLine: String {

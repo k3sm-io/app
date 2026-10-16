@@ -58,12 +58,29 @@ public struct StatusRow: Decodable, Equatable, Sendable {
     public let name: String
     public let state: String
     public let detail: String
+    /// The command the CLI suggests for this row, "" when it names none. A
+    /// missing or mistyped field reads as "".
+    public let remedy: String
 
-    public init(name: String, state: String, detail: String) {
+    public init(name: String, state: String, detail: String, remedy: String = "") {
         self.name = name
         self.state = state
         self.detail = detail
+        self.remedy = remedy
     }
+
+    private enum CodingKeys: String, CodingKey { case name, state, detail, remedy }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        state = try c.decode(String.self, forKey: .state)
+        detail = try c.decode(String.self, forKey: .detail)
+        remedy = (try? c.decodeIfPresent(String.self, forKey: .remedy)) ?? ""
+    }
+
+    /// The row's state word, read as what the app does with it.
+    public var rowState: RowState { RowState(word: state) }
 }
 
 /// StoppedBy is who stopped k3sm on this Mac, from the additive `stoppedBy`
