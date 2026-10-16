@@ -140,7 +140,8 @@ public enum LANSource {
         let r = probe.report
         return (StatusReport(
             schemaVersion: r.schemaVersion, verdict: r.verdict, role: r.role, summary: r.summary, rows: r.rows,
-            stoppedBy: r.stoppedBy, workers: r.workers, joinTarget: r.joinTarget, network: network), probe.at)
+            stoppedBy: r.stoppedBy, workers: r.workers, joinTarget: r.joinTarget, network: network,
+            release: r.release), probe.at)
     }
 }
 

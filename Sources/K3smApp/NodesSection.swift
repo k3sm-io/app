@@ -20,9 +20,12 @@ import SwiftUI
 /// NodesSection is the Nodes tab: every node of the shared node list (no
 /// read of its own), this Mac's first, with its role, readiness, release and
 /// its state against the cluster's target, and live load, decided by
-/// `NodesList`, under the version summary line (`NodeVersions.summary`). A
-/// row selects its node for the inspector and offers its Cordon or Uncordon
-/// as a context menu.
+/// `NodesList`, under the version summary line (`NodeVersions.summary`)
+/// and, on the server's app while a node is behind, the header's Update
+/// (`NodeUpdateControl.header`). A row selects its node for the inspector
+/// and offers its Cordon or Uncordon as a context menu, with Update for a
+/// node behind (`NodeUpdateControl.decide`). Every Update runs the one
+/// update plan through `AppModel.performUpdate`.
 struct NodesSection: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
@@ -33,11 +36,20 @@ struct NodesSection: View {
     var body: some View {
         VStack(spacing: 0) {
             if let nodes = workloads.nodes, let summary = NodeVersions.decide(nodes, report: app.report).summary {
-                Text(verbatim: StatusDisplay.clip(summary)).font(.system(size: 12)).foregroundStyle(Palette.ink2)
-                    .lineLimit(1).truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .help(Help.Nodes.versionSummary)
-                    .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 2)
+                HStack(spacing: 10) {
+                    Text(verbatim: StatusDisplay.clip(summary)).font(.system(size: 12)).foregroundStyle(Palette.ink2)
+                        .lineLimit(1).truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .help(Help.Nodes.versionSummary)
+                    if let control = NodeUpdateControl.header(nodes, versions: NodeVersions.decide(nodes, report: app.report),
+                                                              report: app.report, plan: app.updatePlan) {
+                        Button(NodeUpdateControl.title) { app.performUpdate() }
+                            .controlSize(.small)
+                            .disabled(!control.enabled || app.running)
+                            .help(Help.Nodes.updateBehind(control))
+                    }
+                }
+                .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 2)
             }
             ColumnHeader(layout: .nodes, columns: columns,
                          help: [.status: Help.Nodes.status, .version: Help.Nodes.version, .load: Help.Nodes.load])
@@ -58,6 +70,8 @@ struct NodesSection: View {
                 if nodes.isEmpty { ListNote(text: NodesList.emptyText) }
                 let rows = NodesList.rows(nodes, report: app.report, metrics: workloads.metrics)
                 let widths = columns.widths(.nodes)
+                let versions = NodeVersions.decide(nodes, report: app.report)
+                let plan = app.updatePlan
                 ForEach(NodesList.visible(rows, query: app.nodesQuery), id: \.key) { row in
                     ListRow(selected: app.isSelected(.node(row.key))) {
                         ObjectColumns.title(row.name, under: row.role)
@@ -67,12 +81,21 @@ struct NodesSection: View {
                         ObjectColumns.cell(row.version, width: widths.cg(.version))
                         ObjectColumns.cell(row.load, width: widths.cg(.load))
                     }
-                    .selects(.node(row.key), in: app)
+                    .selects(.node(row.key), in: app, extra: updateItem(row.key, nodes: nodes, versions: versions, plan: plan))
                 }
             } else {
                 ListNote(text: NodesList.readingText)
             }
         }
+    }
+
+    /// A behind node's Update in its context menu, or none.
+    private func updateItem(_ key: String, nodes: [ClusterNode], versions: NodeVersions, plan: UpdatePlan) -> [RowMenuExtra] {
+        guard let node = nodes.first(where: { $0.name == key }),
+              let control = NodeUpdateControl.decide(node, versions: versions, report: app.report, plan: plan) else { return [] }
+        return [RowMenuExtra(id: "update", title: NodeUpdateControl.title, enabled: control.enabled && !app.running) {
+            app.performUpdate()
+        }]
     }
 }
 
@@ -95,6 +118,9 @@ struct NodeInspector: View {
                                      fillsHeight: false)
                         if let offer = lifecycleOffer() {
                             NodeLifecycleBlock(app: app, offer: offer)
+                            if !offer.actions.contains(.update), let control = updateControl() {
+                                NodeUpdateBlock(app: app, control: control)
+                            }
                         }
                         NodeInspectorSections(content: body)
                     }
@@ -110,6 +136,13 @@ struct NodeInspector: View {
         guard let key = app.selection.selection(in: .nodes)?.key, let nodes = workloads.nodes,
               let node = nodes.first(where: { $0.name == key }) else { return nil }
         return NodeLifecycleOffer.decide(node, nodes: nodes, report: app.report, plan: app.updatePlan)
+    }
+
+    private func updateControl() -> NodeUpdateControl? {
+        guard let key = app.selection.selection(in: .nodes)?.key, let nodes = workloads.nodes,
+              let node = nodes.first(where: { $0.name == key }) else { return nil }
+        return NodeUpdateControl.decide(node, versions: NodeVersions.decide(nodes, report: app.report), report: app.report,
+                                        plan: app.updatePlan)
     }
 
     private func content(now: Date) -> NodeInspectorBody? {
@@ -164,6 +197,29 @@ struct NodeLifecycleBlock: View {
     private func note(_ text: String) -> some View {
         Text(verbatim: StatusDisplay.clip(text)).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// NodeUpdateBlock is a behind node's Update in its inspector, on the
+/// server's app: `AppModel.performUpdate` over the one update plan, with the
+/// plan's line (what it moves) or why it is disabled under it.
+struct NodeUpdateBlock: View {
+    @ObservedObject var app: AppModel
+    let control: NodeUpdateControl
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button(NodeUpdateControl.title) { app.performUpdate() }
+                .disabled(!control.enabled || app.running)
+                .help(Help.Nodes.updateNode(control))
+            if let line = control.reason ?? app.updatePlan.line {
+                Text(verbatim: StatusDisplay.clip(line)).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 18).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
     }
 }
 

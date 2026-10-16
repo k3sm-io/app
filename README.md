@@ -207,7 +207,10 @@ login** in the app's Settings turns it off or on again (see
     on 0.1.8", "1 node behind 0.1.8", "Updating to 0.1.8 · 1 of 3 nodes on
     it"), and the node inspector shows the node's state with both versions
     and the latest release. It renders the same node list the panel and
-    Images read, so it makes no read of its own.
+    Images read, so it makes no read of its own. On the server's app a node
+    that is behind offers **Update…** in its context menu and its details,
+    and the summary line carries one **Update…** for every node behind
+    (see [A node behind the server](#a-node-behind-the-server)).
   - **Images**: the images the nodes report holding, one row per digest;
     until a node reports them the tab says so.
   - **Builds**: the build engine's state, then your build history, newest
@@ -354,7 +357,9 @@ login** in the app's Settings turns it off or on again (see
   with no newer release in the app says to update it from the server's
   managed update. Another Mac's node offers none of
   them: its details say to update it from the server's managed update or
-  from the k3sm app on that Mac.
+  from the k3sm app on that Mac. On the server's app, another Mac's node
+  that is behind offers **Update…** there (see
+  [A node behind the server](#a-node-behind-the-server)).
 - **Delete completed and failed pods…**, at the right end of the Pods /
   Events row while Workloads shows its pods and some pod has finished, deletes every pod in phase Succeeded
   or Failed, or evicted. The question names how many and in which
@@ -730,6 +735,36 @@ Like Stop and Restart, Update, Cancel and Abort need an administrator account an
 a release build of the app. A build from source shows them disabled, with
 the reason as their help text.
 
+### A node behind the server
+
+A worker can run an older release than the server while the server's check
+names nothing newer: it joined from an older install, or the check has not
+run or could not answer. On the server's app, every node the Nodes tab marks
+behind then offers **Update…** in its context menu and its details, and the
+summary line over the list carries one **Update…** for all of them. Each runs
+the update plan, which here is the managed update pinned to the release the
+server itself runs (the `version` that `k3sm status -o json` reports):
+`/Library/k3sm/k3sm update apply --yes --version <the server's release>`,
+through the same checked root step and with the same options. k3sm's update
+controller moves every node that does not run that release and leaves the
+ones that do, the server among them, as they are.
+
+The question names the release and the nodes that will move, and offers no
+downgrade. Before it asks and again after, the app reads the status and
+refuses, with nothing run, unless this Mac is still the server, no update is
+rolling, the server still reports exactly the release the question named (the
+same text, not only an equal version), its other nodes are listed, at least one
+of them is not on that release, and none runs a newer one; and it refuses if
+the nodes that would move changed while the question was open.
+
+When the server's check names a newer release, the same buttons run the
+managed update to that release instead, which moves the node too. When the
+server runs a build from source with no release tag, a node runs a newer
+release than the server, or an update is rolling, the buttons are shown
+disabled with the reason. A worker's app offers no such button: it offers the
+app-carried update when the app carries a newer release, and otherwise says
+that the server's app updates it.
+
 ## Connections from other devices
 
 Settings > Network carries a checkbox, **Allow connections from other
@@ -776,8 +811,8 @@ the release it carries over this Mac's k3sm (the app-carried update), or the
 server rolls every node to the latest release (the managed update, above).
 The app decides which applies in one place, the update plan, and every
 Update control reads it: the menu, the console's Update button, the
-popover's version line, Settings > Updates, this Mac's node in the Nodes tab
-and the guided panel. No two of them offer different updates. The plan is
+popover's version line, Settings > Updates, this Mac's node in the Nodes tab,
+a behind node's Update on the server and the guided panel. No two of them offer different updates. The plan is
 one of:
 
 | this Mac | the plan |
@@ -785,6 +820,8 @@ one of:
 | a managed update is rolling | show its progress, offer nothing new |
 | the server, and the only node, with the app carrying a newer release | the app-carried update of this Mac |
 | the server, with the server's check naming a newer release | the managed update, every node, the server last |
+| the server, with a node behind the release the server runs | the managed update pinned to the server's release, which moves the nodes not on it ([A node behind the server](#a-node-behind-the-server)) |
+| the server, with a node behind but the server on a build with no release tag, or a node on a newer release than the server | nothing: the reason is shown |
 | the server of a cluster with other nodes (or none known), the app newer but no newer release found yet | nothing: it updates only by the managed update |
 | a worker, with the app carrying a newer release | the app-carried update of this Mac |
 | a worker behind the server, with no newer release in the app | nothing: update the cluster from the server |

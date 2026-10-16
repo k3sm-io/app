@@ -20,6 +20,15 @@ import K3smStatus
 /// the managed update's root steps.
 public enum UpdateConfirmationText {
     public static let apply = "k3sm updates the cluster one node at a time, the server last. Pods on each node restart as it updates. The window shows the progress, and the update can be cancelled from there."
+    /// The catch-up's question body: the nodes that move, the release (the
+    /// server's own), and what the roll leaves as it is (every node already
+    /// on the release, the server among them, is skipped by the controller).
+    public static func catchUp(tag: String, nodes: [String]) -> String {
+        "k3sm moves \(UpdatePath.names(nodes)) to \(StatusDisplay.clip(tag)), the release the server runs, one node at a time. "
+            + "Nodes already on it, the server too, are left as they are. Pods on each node that moves restart as it updates. "
+            + "The window shows the progress, and the update can be cancelled from there."
+    }
+
     public static let cancel = "k3sm stops the update before the next node. Nodes already updated keep the release they run now."
     /// What `k3sm update abort` leaves, as `cmd/k3sm/update.go`
     /// (`runUpdateAbort`) does it: the Update is marked Cancelled, not
@@ -63,6 +72,53 @@ public enum UpdatePrecondition {
         }
         return .proceed(pinned)
     }
+
+    /// The catch-up's check: the roll pinned to the release the server
+    /// itself runs. From the live report it must be a server with no roll
+    /// under way, whose own release (`StatusReport.release`) is a tagged
+    /// release with exactly the text `tag` (`0.1.7` or `v0.1.7+x` is not the
+    /// `v0.1.7` the server reports), whose other nodes are listed, with at
+    /// least one not on that release and none on a newer one. The pin is the
+    /// live report's own text, so `--version` carries the text re-checked.
+    public static func serverRelease(tag: String, live: StatusReport?) -> CatchUpRelease {
+        guard let live else {
+            return .refused("k3sm could not read the status of this Mac just now, so it did not start the update.")
+        }
+        if UpdateOffer.rowRolling(in: live) {
+            return .refused("An update is already rolling. The window shows its progress.")
+        }
+        guard NodeRole.detect(in: live) == .server else {
+            return .refused("This Mac no longer reports itself as the server, so it did not start the update. Nothing was changed.")
+        }
+        guard let catchUp = ClusterCatchUp.decide(report: live) else {
+            return .refused("k3sm could not list the cluster's other nodes just now, so it did not start the update. Nothing was changed.")
+        }
+        guard let now = catchUp.tag, now == tag, let pinned = ReleaseTag(now) else {
+            return .refused("The server no longer runs k3sm \(StatusDisplay.clip(tag)) as a tagged release. Nothing was changed.")
+        }
+        if !catchUp.ahead.isEmpty {
+            return .refused(UpdateBlock.nodesAhead(tag: now, nodes: catchUp.ahead).sentence + " Nothing was changed.")
+        }
+        guard !catchUp.moves.isEmpty else {
+            return .refused("Every node runs k3sm \(StatusDisplay.clip(tag)) now, so there is nothing to update. Nothing was changed.")
+        }
+        return .proceed(pinned, nodes: catchUp.moves)
+    }
+
+    /// The catch-up's verdict: the pinned release and the nodes that move.
+    public enum CatchUpRelease: Equatable, Sendable {
+        case proceed(ReleaseTag, nodes: [String])
+        case refused(String)
+    }
+}
+
+/// UpdateTarget is which release an apply is pinned to, and so which check
+/// guards it: the latest release the server's update check names (the
+/// `update` row, `UpdatePrecondition.release`), or the release the server
+/// itself runs, for the nodes behind it (`UpdatePrecondition.serverRelease`).
+public enum UpdateTarget: Equatable, Sendable {
+    case latest
+    case serverRelease
 }
 
 /// UpdateApplyAnswer is the answer to the apply's question: no, or yes with
@@ -132,7 +188,20 @@ public struct UpdateDriver: Sendable {
     /// `--version`, so a release published after the last check is not the
     /// one rolled.
     public func apply(tag: String, options: UpdateOptions = .defaults) async -> Result {
+        await apply(tag: tag, target: .latest, options: options)
+    }
+
+    /// Starts the update to `tag` pinned as `target` says. For `.latest`,
+    /// as `apply(tag:options:)`. For `.serverRelease` (the catch-up), the
+    /// live report must still say the server runs exactly `tag` with a node
+    /// not on it (`UpdatePrecondition.serverRelease`), before the question
+    /// and again after it; the question names the release and the nodes that
+    /// move, offers no downgrade, and the run is refused when the nodes that
+    /// would move changed while it was open. The script is the same apply
+    /// script, `k3sm update apply --yes` with the options and `--version tag`.
+    public func apply(tag: String, target: UpdateTarget, options: UpdateOptions = .defaults) async -> Result {
         guard ReleaseTag(tag) != nil else { return .refused(Self.invalidTagText) }
+        if target == .serverRelease { return await catchUp(tag: tag, options: options) }
         let frozen = UpdateOptions(drain: options.drain, allowDowngrade: false, signature: options.signature)
         let first = await readStatus()
         if case .refused(let why) = UpdatePrecondition.release(tag: tag, live: first) { return .refused(why) }
@@ -148,6 +217,28 @@ public struct UpdateDriver: Sendable {
         case .refused(let why): return .refused(why)
         }
         let script = LifecycleScriptBuilder.renderUpdateApply(teamID: teamID, options: confirmed, release: release)
+        let run = await runner.runAsRootReportingError(script, input: nil)
+        return Self.classify(run, verb: .updateApply)
+    }
+
+    /// The catch-up's apply: `apply(tag:target:options:)` for `.serverRelease`.
+    private func catchUp(tag: String, options: UpdateOptions) async -> Result {
+        let frozen = UpdateOptions(drain: options.drain, allowDowngrade: false, signature: options.signature)
+        let asked: [String]
+        switch UpdatePrecondition.serverRelease(tag: tag, live: await readStatus()) {
+        case .proceed(_, let nodes): asked = nodes
+        case .refused(let why): return .refused(why)
+        }
+        let question = LifecycleConfirmation(catchUp: frozen, tag: tag, nodes: asked)
+        guard case .confirmed = await confirmApply(question) else { return .declined }
+        let release: ReleaseTag
+        switch UpdatePrecondition.serverRelease(tag: tag, live: await readStatus()) {
+        case .proceed(let pinned, let nodes) where nodes == asked: release = pinned
+        case .proceed:
+            return .refused("The nodes behind k3sm \(StatusDisplay.clip(tag)) changed while the question was open. Nothing was changed.")
+        case .refused(let why): return .refused(why)
+        }
+        let script = LifecycleScriptBuilder.renderUpdateApply(teamID: teamID, options: frozen, release: release)
         let run = await runner.runAsRootReportingError(script, input: nil)
         return Self.classify(run, verb: .updateApply)
     }

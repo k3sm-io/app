@@ -172,6 +172,41 @@ public struct StatusWorker: Equatable, Sendable {
     }
 }
 
+/// StatusRelease is the report's `version` object as far as the app reads
+/// it: the release text exactly as printed (`v0.1.7`, or a developer
+/// build's `dev` or Go pseudo-version) and whether the binary was built from
+/// a modified tree. Untrusted text: it reaches the screen only clipped, and
+/// a command line only as a checked release tag.
+public struct StatusRelease: Decodable, Equatable, Sendable {
+    public let text: String
+    public let dirty: Bool
+
+    public init(text: String, dirty: Bool = false) {
+        self.text = text
+        self.dirty = dirty
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case text = "version"
+        case dirty
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = try c.decode(String.self, forKey: .text)
+        dirty = (try? c.decodeIfPresent(Bool.self, forKey: .dirty)) ?? false
+    }
+
+    /// The text when it names a tagged release a managed update can be pinned
+    /// to: a release version (`UpdateOffer.valid`, so ASCII and at most 40
+    /// characters), not a pseudo-version or a modified tree's build, from a
+    /// binary not built from a modified tree; nil otherwise (a developer build).
+    public var tag: String? {
+        guard !dirty, UpdateOffer.valid(text), let version = SemanticVersion(text), !version.isUntagged else { return nil }
+        return text
+    }
+}
+
 /// StatusReport is the decoded output of `k3sm status -o json` (rows in
 /// `rows`) or of the cheaper `k3sm status daemons -o json` probe (rows in
 /// `daemons`). Both shapes carry the same top-level fields.
@@ -203,11 +238,15 @@ public struct StatusReport: Decodable, Equatable, Sendable {
     /// The cluster's interconnect, present only when the cluster has an
     /// Interconnect the report could read; nil when absent or not an object.
     public let interconnect: StatusInterconnect?
+    /// The release of the k3sm that printed the report (`version.version`,
+    /// with `version.dirty`): on a server, the release the server runs. Nil
+    /// when the field is absent or not an object with a string version.
+    public let release: StatusRelease?
 
     public init(
         schemaVersion: Int, verdict: Verdict, role: String, summary: String, rows: [StatusRow],
         stoppedBy: StoppedBy? = nil, workers: [StatusWorker]? = nil, joinTarget: String? = nil,
-        network: LANAccess = .absentField, interconnect: StatusInterconnect? = nil
+        network: LANAccess = .absentField, interconnect: StatusInterconnect? = nil, release: StatusRelease? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.verdict = verdict
@@ -219,10 +258,12 @@ public struct StatusReport: Decodable, Equatable, Sendable {
         self.joinTarget = joinTarget
         self.network = network
         self.interconnect = interconnect
+        self.release = release
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, verdict, role, summary, rows, daemons, stoppedBy, workers, joinTarget, network, interconnect
+        case release = "version"
     }
 
     /// The wire shape of one worker; a node without a string name makes the
@@ -264,6 +305,7 @@ public struct StatusReport: Decodable, Equatable, Sendable {
             network = .absentField
         }
         interconnect = (try? c.decodeIfPresent(StatusInterconnect.self, forKey: .interconnect)) ?? nil
+        release = (try? c.decodeIfPresent(StatusRelease.self, forKey: .release)) ?? nil
     }
 
     /// Returns the row with the given name, if the report carries one.

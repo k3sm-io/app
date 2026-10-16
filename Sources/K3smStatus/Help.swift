@@ -124,6 +124,8 @@ public enum Help {
                 return "Update every node to k3sm \(StatusDisplay.clip(tag)), the server last"
             case .payload(let version)?:
                 return "Install k3sm \(version) from this app on this Mac, as an administrator"
+            case .catchUp(let tag, _)?:
+                return "Move the nodes behind to the server's k3sm \(StatusDisplay.clip(tag))"
             case nil:
                 return updateAny.text
             }
@@ -206,6 +208,24 @@ public enum Help {
         public static let stop = HelpTag("Stop this Mac's node and its pods until you start it again",
                                          control: "node inspector: Stop k3sm", label: NodeLifecycleAction.stop.title)
 
+        /// A behind node's Update…, in its inspector and the Nodes header.
+        public static let updateNode = HelpTag("Run the managed update, which moves this node, the server last",
+                                               control: "nodes: Update for a node behind", label: NodeUpdateControl.title)
+
+        /// The Nodes header's Update…, for every node behind.
+        public static let updateBehind = HelpTag("Run the managed update, which moves the nodes behind, the server last",
+                                                 control: "nodes: header Update for the nodes behind", label: NodeUpdateControl.title)
+
+        /// A behind node's Update tag: why it is disabled, or what it does.
+        public static func updateNode(_ control: NodeUpdateControl) -> String {
+            control.reason ?? updateNode.text
+        }
+
+        /// The header's Update tag: why it is disabled, or what it does.
+        public static func updateBehind(_ control: NodeUpdateControl) -> String {
+            control.reason ?? updateBehind.text
+        }
+
         /// A lifecycle button's tag: Update's is the update plan's, as the
         /// Updates pane's Update Now is: why it is disabled, or what it does.
         public static func lifecycle(_ action: NodeLifecycleAction, update control: UpdateNowControl, plan: UpdatePlan) -> String {
@@ -217,7 +237,7 @@ public enum Help {
         }
 
         public static var all: [HelpTag] { [status, version, versionSummary, versionFact, latestFact, load, liveCPU, liveMemory, sparkline,
-                                    podUsage, update, restart, stop] }
+                                    podUsage, update, restart, stop, updateNode, updateBehind] }
     }
 
     // MARK: Images tab

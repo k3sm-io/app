@@ -78,10 +78,11 @@ struct ActionConfirmationDialog: ViewModifier {
 struct RowActionsMenu: ViewModifier {
     let menu: ActionMenu
     @ObservedObject var runner: ActionRunner
+    var extra: [RowMenuExtra] = []
     let select: () -> Void
 
     func body(content: Content) -> some View {
-        if menu.isEmpty {
+        if menu.isEmpty && extra.isEmpty {
             content
         } else {
             content.contextMenu {
@@ -99,9 +100,27 @@ struct RowActionsMenu: ViewModifier {
                     }
                     .disabled(runner.busy || runner.pending != nil)
                 }
+                if !extra.isEmpty, !(menu.local.isEmpty && menu.items.isEmpty) { Divider() }
+                ForEach(extra) { item in
+                    Button(item.title) {
+                        select()
+                        item.perform()
+                    }
+                    .disabled(!item.enabled)
+                }
             }
         }
     }
+}
+
+/// RowMenuExtra is a context-menu item that does not go through the action
+/// runner: a behind node's Update, which runs the one update plan through
+/// `AppModel.performUpdate` and the checked root step.
+struct RowMenuExtra: Identifiable {
+    let id: String
+    let title: String
+    let enabled: Bool
+    let perform: @MainActor () -> Void
 }
 
 /// BulkActionsSlot is a tab's actions over many rows, at the trailing edge

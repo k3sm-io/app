@@ -1001,15 +1001,18 @@ final class AppModel: ObservableObject {
     }
 
     /// Runs the update the one plan decides, from every Update control: the
-    /// managed roll through `applyManagedUpdate`, the app-carried update of
-    /// this Mac through the copy-out. A blocked path says why and runs
+    /// managed roll through `applyManagedUpdate`, pinned to the latest release
+    /// or, for the nodes behind the server (the catch-up), to the server's own
+    /// release; the app-carried update of this Mac through the copy-out. A blocked path says why and runs
     /// nothing. `finished`, when given, hears how it ended (nil: the user
     /// answered no and nothing ran).
     func performUpdate(finished: ((Bool?, String) -> Void)? = nil) {
         let plan = updatePlan
         switch plan {
         case .managed(let tag):
-            applyManagedUpdate(tag: tag, finished: finished)
+            applyManagedUpdate(tag: tag, target: .latest, finished: finished)
+        case .catchUp(let tag, _):
+            applyManagedUpdate(tag: tag, target: .serverRelease, finished: finished)
         case .payload:
             guard let action = payloadUpdateAction else {
                 finished?(false, UpdateBlock.joinTargetUnknownText)
@@ -1027,8 +1030,9 @@ final class AppModel: ObservableObject {
     }
 
     /// Runs `k3sm update apply --yes` for `tag` through the checked root
-    /// step, with the update options as stored at the click.
-    private func applyManagedUpdate(tag: String, finished: ((Bool?, String) -> Void)?) {
+    /// step, with the update options as stored at the click, guarded by the
+    /// check `target` names.
+    private func applyManagedUpdate(tag: String, target: UpdateTarget, finished: ((Bool?, String) -> Void)?) {
         guard let teamID else {
             finished?(false, UpdateBlock.managedDeveloperBuild)
             return
@@ -1040,7 +1044,7 @@ final class AppModel: ObservableObject {
             running = true
             outcomeMessage = nil
             updateProgress.applyStarted()
-            let result = await updateDriver(teamID).apply(tag: tag, options: options)
+            let result = await updateDriver(teamID).apply(tag: tag, target: target, options: options)
             running = false
             finishUpdate(result, title: LifecycleVerb.updateApply.title)
             switch result {

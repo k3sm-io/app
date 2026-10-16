@@ -93,3 +93,65 @@ public struct NodeLifecycleOffer: Equatable, Sendable {
         return NodeLifecycleOffer(actions: [.restart, .stop], note: nil)
     }
 }
+
+/// NodeUpdateControl is the Update a node behind the cluster's release offers
+/// on the server's app: in its row's context menu and its inspector, and once
+/// for every such node on the Nodes tab's header. It runs the one update plan
+/// (`UpdatePlan`), so it is enabled only when the plan's roll moves the node:
+/// the managed roll to the latest release, which moves every node, or the
+/// catch-up pinned to the server's own release, when the node is one it
+/// moves. Otherwise it is shown disabled, with the reason. A worker's app
+/// offers none: the managed update runs on the server.
+public struct NodeUpdateControl: Equatable, Sendable {
+    public static let title = "Update…"
+
+    public let enabled: Bool
+    /// Why it is disabled; nil when enabled.
+    public let reason: String?
+
+    public init(enabled: Bool, reason: String?) {
+        self.enabled = enabled
+        self.reason = reason
+    }
+
+    /// The server's report does not list this node among those the catch-up
+    /// would move.
+    public static let notListedReason =
+        "The server's status does not list this node as one the update would move. Refresh and try again."
+    /// The node is behind a newer release the server does not run yet, and
+    /// no roll to it is on offer.
+    public static let notOfferedReason =
+        "This node runs the server's release. The server's update check has to find the newer release before the cluster can move to it."
+
+    /// The control for `node` on this Mac's app: nil unless this Mac is the
+    /// server and the node's state is behind (`versions`).
+    public static func decide(_ node: ClusterNode, versions: NodeVersions, report: StatusReport?,
+                              plan: UpdatePlan) -> NodeUpdateControl? {
+        guard report.flatMap(NodeRole.detect(in:)) == .server, versions.state(of: node.name) == .behind else { return nil }
+        return control(for: [node.name], plan: plan)
+    }
+
+    /// The header's control: nil unless this Mac is the server and a listed
+    /// node is behind; enabled when the plan's roll moves any of them.
+    public static func header(_ nodes: [ClusterNode], versions: NodeVersions, report: StatusReport?,
+                              plan: UpdatePlan) -> NodeUpdateControl? {
+        guard report.flatMap(NodeRole.detect(in:)) == .server else { return nil }
+        let behind = nodes.map(\.name).filter { versions.state(of: $0) == .behind }
+        guard !behind.isEmpty else { return nil }
+        return control(for: behind, plan: plan)
+    }
+
+    static func control(for names: [String], plan: UpdatePlan) -> NodeUpdateControl {
+        switch plan {
+        case .managed:
+            return NodeUpdateControl(enabled: true, reason: nil)
+        case .catchUp(_, let moves):
+            return names.contains(where: moves.contains) ? NodeUpdateControl(enabled: true, reason: nil)
+                : NodeUpdateControl(enabled: false, reason: notListedReason)
+        case .rolling, .blocked:
+            return NodeUpdateControl(enabled: false, reason: plan.disabledReason)
+        case .none, .payload:
+            return NodeUpdateControl(enabled: false, reason: notOfferedReason)
+        }
+    }
+}
