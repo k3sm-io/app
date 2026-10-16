@@ -28,17 +28,32 @@ final class PreferencesStore: ObservableObject {
     let preferences: AppPreferences
 
     @Published var notifyStoppedAtLogin: Bool {
-        didSet { preferences.notifyStoppedAtLogin = notifyStoppedAtLogin }
+        didSet { if !reloading { preferences.notifyStoppedAtLogin = notifyStoppedAtLogin } }
     }
     @Published var openWindowAtLogin: Bool {
-        didSet { preferences.openWindowAtLogin = openWindowAtLogin }
+        didSet { if !reloading { preferences.openWindowAtLogin = openWindowAtLogin } }
     }
     @Published var dockAnimation: Bool {
-        didSet { preferences.dockAnimation = dockAnimation }
+        didSet { if !reloading { preferences.dockAnimation = dockAnimation } }
     }
+
+    /// Set while `resetToDefaults` reads the defaults back, so nothing is
+    /// written over the removed keys.
+    private var reloading = false
 
     init(preferences: AppPreferences = AppPreferences()) {
         self.preferences = preferences
+        notifyStoppedAtLogin = preferences.notifyStoppedAtLogin
+        openWindowAtLogin = preferences.openWindowAtLogin
+        dockAnimation = preferences.dockAnimation
+    }
+
+    /// Puts every preference back (`AppPreferences.reset`) and shows the
+    /// defaults at once.
+    func resetToDefaults() {
+        preferences.reset()
+        reloading = true
+        defer { reloading = false }
         notifyStoppedAtLogin = preferences.notifyStoppedAtLogin
         openWindowAtLogin = preferences.openWindowAtLogin
         dockAnimation = preferences.dockAnimation

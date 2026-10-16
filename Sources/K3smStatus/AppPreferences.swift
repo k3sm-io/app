@@ -125,14 +125,20 @@ public struct AppPreferences: @unchecked Sendable {
 /// not built yet is not listed, never shown disabled.
 public enum SettingsPane: String, CaseIterable, Sendable {
     case general
+    /// The LAN switch.
+    case network
+    /// The bug report, the logs, Live Status, Uninstall and Reset to defaults.
+    case advanced
 
     /// The panes the window shows, in order.
-    public static let shown: [SettingsPane] = [.general]
+    public static let shown: [SettingsPane] = [.general, .network, .advanced]
 
     /// The toolbar label and the window title.
     public var title: String {
         switch self {
         case .general: "General"
+        case .network: "Network"
+        case .advanced: "Advanced"
         }
     }
 
@@ -140,6 +146,8 @@ public enum SettingsPane: String, CaseIterable, Sendable {
     public var symbol: String {
         switch self {
         case .general: "gearshape"
+        case .network: "network"
+        case .advanced: "wrench.and.screwdriver"
         }
     }
 

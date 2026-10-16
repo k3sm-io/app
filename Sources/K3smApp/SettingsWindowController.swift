@@ -21,7 +21,8 @@ import SwiftUI
 
 /// SettingsModel is the Settings window's state (no view holds any): the
 /// login item as the system reports it, Reduce Motion, whether the tour can
-/// run, and the reset confirmation; and the actions the General pane runs.
+/// run, and the two reset confirmations; and the actions the General and
+/// Advanced panes run. The Network pane and Uninstall read and act on `app`.
 @MainActor
 final class SettingsModel: ObservableObject {
     @Published private(set) var login = LoginItemDisplay.decide(status: .notRegistered, inApplications: false, error: nil)
@@ -30,9 +31,11 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var tourAvailable = false
     /// Whether the Reset Window Layout confirmation is up.
     @Published var confirmingReset = false
+    /// Whether the Reset to Defaults confirmation is up.
+    @Published var confirmingDefaults = false
 
     let preferences: PreferencesStore
-    private let app: AppModel
+    let app: AppModel
     private let showConsole: @MainActor () -> Void
     private var observers: [NSObjectProtocol] = []
     private var screen: AnyCancellable?
@@ -109,6 +112,13 @@ final class SettingsModel: ObservableObject {
         preferences.preferences.resetLayout()
         log.notice("settings: window layout reset")
     }
+
+    /// Puts every preference back to its default (`AppPreferences.reset`);
+    /// the login item, the window layout and k3sm itself are left alone.
+    func resetDefaults() {
+        preferences.resetToDefaults()
+        log.notice("settings: preferences reset to defaults")
+    }
 }
 
 /// SettingsWindowController owns the Settings window: a toolbar of panes
@@ -152,6 +162,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSToolbarDeleg
     func windowWillClose(_ notification: Notification) {
         saveFrame()
         model.confirmingReset = false
+        model.confirmingDefaults = false
         AppActivation.closed(.settings)
     }
 
@@ -235,6 +246,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSToolbarDeleg
     private static func view(for pane: SettingsPane, model: SettingsModel) -> AnyView {
         switch pane {
         case .general: AnyView(GeneralPane(settings: model, preferences: model.preferences))
+        case .network: AnyView(NetworkPane(app: model.app, nodes: model.app.workloads.nodeList))
+        case .advanced: AnyView(AdvancedPane(settings: model, app: model.app))
         }
     }
 

@@ -45,6 +45,8 @@ struct AppPreferencesTests {
         prefs.notifyStoppedAtLogin = false
         prefs.openWindowAtLogin = true
         prefs.dockAnimation = false
+        prefs.settingsPane = .advanced
+        #expect(AppPreferences(defaults: defaults).settingsPane == .advanced)
         #expect(AppPreferences(defaults: defaults).notifyStoppedAtLogin == false)
         #expect(AppPreferences(defaults: defaults).openWindowAtLogin == true)
         #expect(AppPreferences(defaults: defaults).dockAnimation == false)
@@ -52,7 +54,7 @@ struct AppPreferencesTests {
         // A value of the wrong type reads as the default, never as a failure.
         defaults.set("yes", forKey: AppPreferences.Key.dockAnimation.rawValue)
         #expect(prefs.dockAnimation == true)
-        defaults.set("network", forKey: AppPreferences.settingsPaneKey)
+        defaults.set("storage", forKey: AppPreferences.settingsPaneKey)
         #expect(prefs.settingsPane == .general)
 
         // Reset clears the preferences and leaves the remembered layout alone.
@@ -118,10 +120,12 @@ struct AppPreferencesTests {
 
     @Test("the settings panes are data, and only built panes are shown")
     func settingsPanes() {
-        #expect(SettingsPane.shown == [.general])
-        #expect(SettingsPane.general.title == "General")
-        #expect(SettingsPane.general.symbol == "gearshape")
+        #expect(SettingsPane.shown == [.general, .network, .advanced])
+        #expect(SettingsPane.shown.map(\.title) == ["General", "Network", "Advanced"])
+        #expect(SettingsPane.shown.map(\.symbol) == ["gearshape", "network", "wrench.and.screwdriver"])
         #expect(SettingsPane.restore(from: "general") == .general)
+        #expect(SettingsPane.restore(from: "network") == .network)
+        #expect(SettingsPane.restore(from: "advanced") == .advanced)
         #expect(SettingsPane.restore(from: nil) == .general)
         #expect(SettingsPane.restore(from: 3) == .general)
         // Settings keeps its own frame, apart from the console's.
