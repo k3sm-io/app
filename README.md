@@ -87,8 +87,15 @@ turned off.
   "versions differ", or "versions: some unknown" when a node's version cannot
   be read. The app remembers the choice; a single-node cluster always shows
   This Mac. The panel scrolls in a short window. While the window is open the
-  pod and node lists are re-read every 5 seconds and the status report is
-  re-read every 30 seconds, so the panel follows nodes as they join and leave.
+  node list and the selected tab's list are re-read every 5 seconds (every 15
+  seconds on Images, and on Builds once the build engine is ready) and the
+  status report is re-read every 30 seconds, so the panel follows nodes as
+  they join and leave. A tab that is not selected is not read; when you come
+  back to it, it shows what it last read and how long ago.
+- The **tabs** above the list are Workloads (every pod, with the Mac it runs
+  on), Images (the images the nodes report holding, one row per digest; until
+  a node reports them the tab says so) and Builds (the build engine's state).
+  The app remembers the tab, and each tab's search and selection.
 - The **details button**, beside the info button above the pod list, collapses
   the pod details on the right (logs, events and manifest) and shows them
   again; Command-Option-I does the same, and the app remembers the choice.

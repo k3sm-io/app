@@ -73,7 +73,13 @@ struct ConsoleView: View {
     private var section: some View {
         switch app.section {
         case .workloads: WorkloadsSection(model: app.workloads)
-        case .images, .builds: Color.clear
+        case .images: ImagesSection(app: app, workloads: app.workloads)
+        case .builds:
+            if let builds = app.builds {
+                BuildsSection(loader: builds)
+            } else {
+                Color.clear
+            }
         }
     }
 }
