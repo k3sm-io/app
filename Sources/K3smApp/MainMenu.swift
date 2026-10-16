@@ -16,19 +16,21 @@ limitations under the License.
 
 import AppKit
 
-/// MainMenu is the menu bar while the window is open: the app menu with
-/// Settings (the status panel), Edit for the search field, View for refresh
-/// and for hiding or showing the console's left panel, Window, and Help with
-/// the tour. The status item keeps its own menu. The delegate owns one and
+/// MainMenu is the menu bar while a window is open: the app menu with
+/// Settings (the Settings window), Edit for the search field, View for
+/// refresh, the status panel (Show Status) and hiding or showing the
+/// console's left panel, Window, and Help with the tour. The status item keeps its own menu. The delegate owns one and
 /// the items target it.
 @MainActor
 final class MainMenu: NSObject, NSMenuItemValidation {
     private let model: AppModel
     private let show: () -> Void
+    private let settings: () -> Void
 
-    init(model: AppModel, show: @escaping () -> Void) {
+    init(model: AppModel, show: @escaping () -> Void, settings: @escaping () -> Void) {
         self.model = model
         self.show = show
+        self.settings = settings
     }
 
     func install() {
@@ -71,6 +73,7 @@ final class MainMenu: NSObject, NSMenuItemValidation {
     private func viewMenu() -> NSMenu {
         let menu = NSMenu(title: "View")
         menu.addItem(item("Refresh", #selector(refresh(_:)), "r"))
+        menu.addItem(item("Show Status", #selector(showStatus(_:)), ""))
         menu.addItem(.separator())
         let panel = item("Hide Panel", #selector(togglePanel(_:)), "l")
         panel.keyEquivalentModifierMask = [.command, .option]
@@ -105,6 +108,12 @@ final class MainMenu: NSObject, NSMenuItemValidation {
     }
 
     @objc private func openSettings(_ sender: Any?) {
+        settings()
+    }
+
+    /// Opens the status panel (start, stop, connections, uninstall), the
+    /// popover under the console's info button.
+    @objc private func showStatus(_ sender: Any?) {
         show()
         model.statusPanelShown = true
     }

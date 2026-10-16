@@ -30,6 +30,12 @@ struct TabStripLayoutTests {
             + TabStripLayout.controlsWidth + TabStripLayout.padding
     }
 
+    @Test("the icon buttons are details, tour, info and Settings, with the gaps between them")
+    func iconButtonsCounted() {
+        #expect(TabStripLayout.iconButtons == 4)
+        #expect(TabStripLayout.controlsWidth == 4 * TabStripLayout.iconButtonWidth + 3 * TabStripLayout.itemSpacing)
+    }
+
     @Test("the six tabs fit whole at the minimum width; a longer seventh raises it; the window follows")
     func tabStripFitsAtMinimumWidth() {
         #expect(Self.titles.count == 6)

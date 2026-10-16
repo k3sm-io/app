@@ -44,8 +44,8 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var screen: Screen = .firstRun
     /// Whether the console shows the status panel (start, stop, connections,
-    /// uninstall): the info button and Settings… open it. A change of screen
-    /// closes it, so a Settings… chosen on the first-run screen does not open
+    /// uninstall): the info button and Show Status open it. A change of screen
+    /// closes it, so a Show Status chosen on the first-run screen does not open
     /// the popover by itself once the install finishes.
     @Published var statusPanelShown = false
     /// Which tab the console shows in its middle column, kept in the user
@@ -148,14 +148,14 @@ final class AppModel: ObservableObject {
     @Published var panelMode: PanelMode? = UserDefaults.standard.string(forKey: AppModel.panelModeKey).flatMap(PanelMode.init(rawValue:)) {
         didSet { UserDefaults.standard.set(panelMode?.rawValue, forKey: Self.panelModeKey) }
     }
-    static let panelModeKey = "consolePanelMode"
+    static let panelModeKey = AppPreferences.panelModeKey
     /// Whether the console shows the inspector (the selected pod's logs,
     /// events and manifest) on the right; the details button toggles it.
     /// Kept in the user defaults across launches; shown until hidden.
     @Published var inspectorShown: Bool = UserDefaults.standard.object(forKey: AppModel.inspectorShownKey) as? Bool ?? true {
         didSet { UserDefaults.standard.set(inspectorShown, forKey: Self.inspectorShownKey) }
     }
-    static let inspectorShownKey = "consoleInspectorShown"
+    static let inspectorShownKey = AppPreferences.inspectorShownKey
     /// The console panel's width as the user last dragged it, kept in the
     /// user defaults across launches and clamped on read
     /// (`PanelLayout.restoreWidth`); the split view clamps it again to what

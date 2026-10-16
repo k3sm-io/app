@@ -19,12 +19,12 @@ import Combine
 import K3smStatus
 import SwiftUI
 
-/// MainWindowController owns the one window. While it is open the app is a
-/// regular app (Dock icon, app menu, Command-Tab); when it closes the app
-/// returns to an accessory with only the status item. The window's frame
-/// and its screen are saved on every move, resize and close, and the next
-/// open (in this launch or a later one) puts it back through
-/// `WindowFrame.restore`.
+/// MainWindowController owns the console window. While it (or Settings) is
+/// open the app is a regular app (Dock icon, app menu, Command-Tab); when
+/// both are closed the app returns to an accessory with only the status
+/// item (`AppActivation`). The window's frame and its screen are saved on
+/// every move, resize and close, and the next open (in this launch or a
+/// later one) puts it back through `WindowFrame.restore`.
 @MainActor
 final class MainWindowController: NSObject, NSWindowDelegate {
     private let model: AppModel
@@ -42,14 +42,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     func show() {
         let window = self.window ?? makeWindow()
         self.window = window
-        NSApp.setActivationPolicy(.regular)
+        AppActivation.opened(.console)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
         // While the console is on screen, the Dock icon is drawn here: its
         // own tile, still, with the mark flapping on it at the wordmark's
         // angle. The first-run and install screens keep the bundle icon. A
         // frame that fails to render leaves the last good one in place.
-        dockFlap = model.$screen.combineLatest(model.flap.$angle.removeDuplicates()).sink { screen, angle in
+        // With the Dock animation turned off in Settings the mark stays flat.
+        let dockAngle = model.flap.$angle.combineLatest(PreferencesStore.shared.$dockAnimation).map { $1 ? $0 : 0 }
+        dockFlap = model.$screen.combineLatest(dockAngle.removeDuplicates()).sink { screen, angle in
             MainActor.assumeIsolated {
                 let consoleShown = screen == .status
                 let image = consoleShown ? DockIcon.image(angle: angle) : nil
@@ -83,7 +85,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         model.stopReportPolling()
         model.flap.stop()
         NSApp.applicationIconImage = nil
-        NSApp.setActivationPolicy(.accessory)
+        AppActivation.closed(.console)
     }
 
     func windowDidMove(_ notification: Notification) {

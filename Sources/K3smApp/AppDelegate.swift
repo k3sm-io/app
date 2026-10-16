@@ -40,14 +40,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let environment = SelfCheck.cliEnvironment()
         let model = AppModel(runner: AppleScriptPrivilegedRunner(), environment: environment)
         let windowController = MainWindowController(model: model)
-        let mainMenu = MainMenu(model: model) { [weak windowController] in windowController?.show() }
+        let preferences = PreferencesStore.shared
+        let settings = SettingsWindowController(model: SettingsModel(
+            app: model, preferences: preferences, showConsole: { [weak windowController] in windowController?.show() }))
+        SettingsWindowController.shared = settings
+        let mainMenu = MainMenu(model: model, show: { [weak windowController] in windowController?.show() },
+                                settings: { [weak settings] in settings?.show() })
         mainMenu.install()
-        let statusItem = StatusItemController(model: model) { [weak windowController] in windowController?.show() }
+        let statusItem = StatusItemController(model: model, openWindow: { [weak windowController] in windowController?.show() },
+                                              openSettings: { [weak settings] in settings?.show() })
         let notifier = StoppedNotifier(
             onStart: { [weak model] in model?.perform(.start, expected: .stopped) },
             onOpen: { [weak windowController] in windowController?.show() })
         notifier.install()
-        noticePending = loginLaunch
+        noticePending = preferences.preferences.checksStoppedNotice(loginLaunch: loginLaunch)
         let poller = StatusPoller(environment: environment) { [weak statusItem, weak self] reading, report in
             statusItem?.observe(reading, report: report)
             self?.poller?.itemVisible = statusItem?.wantsVisible ?? false
@@ -68,9 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeSession()
         poller.start()
         log.notice("k3sm app started")
-        // A login-item launch shows only the status item; any launch the user
-        // made (Finder, Spotlight, the Dock) shows the window.
-        if !loginLaunch {
+        // A login-item launch shows only the status item, unless Settings asks
+        // for the window at login too; any launch the user made (Finder,
+        // Spotlight, the Dock) shows the window.
+        if preferences.preferences.opensWindow(loginLaunch: loginLaunch) {
             windowController.show()
         }
     }

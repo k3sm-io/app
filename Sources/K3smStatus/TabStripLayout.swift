@@ -16,7 +16,7 @@ limitations under the License.
 
 /// TabStripLayout sizes the console's strip, the row above the tab: the tab
 /// labels, the managed update's button while one is offered, the search
-/// field at its minimum, and the three icon buttons, with the strip's gaps
+/// field at its minimum, and the four icon buttons, with the strip's gaps
 /// and padding. Widths are estimated the way `PanelLayout` estimates them,
 /// from character counts at the same conservative per-point advance, so the
 /// estimate errs wide and a label never has to wrap or shorten at the
@@ -32,8 +32,12 @@ public enum TabStripLayout {
     public static let itemSpacing: Double = 12
     /// The spacer between the tabs and the controls, at its least.
     public static let spacerMinimum: Double = 8
-    /// The details, tour and info buttons with the gaps between them.
-    public static let controlsWidth: Double = 3 * 20 + 2 * itemSpacing
+    /// The icon buttons at the strip's end: details, tour, info and Settings.
+    public static let iconButtons = 4
+    /// One icon button's width (a 16 pt symbol, estimated wide).
+    public static let iconButtonWidth: Double = 20
+    /// The icon buttons with the gaps between them.
+    public static let controlsWidth: Double = Double(iconButtons) * iconButtonWidth + Double(iconButtons - 1) * itemSpacing
     /// The search field's minimum width.
     public static let searchMinimum: Double = 100
     /// The strip's horizontal padding, both sides together.

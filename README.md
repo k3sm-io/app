@@ -62,8 +62,9 @@ release build of the app. A build from source pins no Developer ID team, so
 it shows status but keeps these actions disabled and says why.
 
 The app registers itself as a login item for each user on their first launch.
-It appears under System Settings > General > Login Items, where it can be
-turned off.
+It appears under System Settings > General > Login Items, and **Open k3sm at
+login** in the app's Settings turns it off or on again (see
+[Settings](#settings)).
 
 ## Everyday use
 
@@ -74,7 +75,8 @@ turned off.
   it from the menu bar, the app leaves it removed until the next launch.
 - The **window** opens whenever you open the app from `/Applications`,
   Spotlight or the Dock, even when k3sm is stopped, so there is always a way
-  back in. A launch at login shows only the status item. The left panel is
+  back in. A launch at login shows only the status item, unless Settings asks
+  for the window at login too. The left panel is
   headed by what this Mac is part of ("This Mac is the cluster", "Cluster"
   with the number of Macs first in its stats, or "Joined a cluster" on a
   worker). When the cluster has more than one node, a switch at the top of the
@@ -242,7 +244,7 @@ window. Then come the actions:
   opens that file for you to read. Nothing is uploaded, and it reads no
   kubeconfig, token, Secret, environment or pod manifest. Share the file
   yourself if you want to.
-- **Dashboard** and **Quit k3sm**.
+- **Settings…** (Command-comma), **Dashboard** and **Quit k3sm**.
 
 After a stop the status item disappears, because k3sm is no longer running.
 At your next login the app posts a notification, "k3sm is stopped (by you)",
@@ -272,6 +274,39 @@ These actions need a k3sm release that has `k3sm stop` (any release after
 show them and the window says why; `sudo k3sm stop` and `sudo k3sm start` work
 in Terminal either way. Like installing, they need an administrator account
 and a release build of the app.
+
+## Settings
+
+**Settings** opens from the gear at the right end of the console's strip,
+from the app menu's **Settings…** (Command-comma) and from the status item's
+menu. The window opens at the pane you last used, where you last left it.
+While it is open k3sm is in the Dock, as it is while the main window is. The
+status panel the app menu's Settings item used to open is now **View > Show
+Status**, and still hangs from the info button.
+
+Settings are yours and the app's alone: they take effect at once and need no
+administrator. Anything that changes what k3sm itself does on this Mac stays
+a k3sm setting, made through k3sm and shown as k3sm reports it.
+
+The **General** pane:
+
+- **Open k3sm at login** registers or removes the app's login item, and shows
+  what macOS reports. When macOS needs your approval it says so, with a
+  button that opens System Settings at Login Items; when macOS refuses a
+  change it shows the reason. A copy of the app that does not run from the
+  Applications folder cannot be added.
+- **Open the window when k3sm opens at login** shows the window on a launch
+  at login, not only the status item. It is off at first.
+- **Notify me at login when k3sm is stopped** posts the "k3sm is stopped"
+  notice with its Start button. It is on at first.
+- **Animate the Dock icon while the window is open** beats the wings of the
+  mark on the Dock icon. With Reduce Motion on in Accessibility settings the
+  icon is always still, and the checkbox says so.
+- **Take the Tour** brings the window forward and starts the tour, once k3sm
+  is installed.
+- **Reset Window Layout…** asks, then puts the console's left panel back to
+  its first width and view, shown, and shows the details column. Tabs,
+  searches and selections stay as they are.
 
 ## The managed update
 

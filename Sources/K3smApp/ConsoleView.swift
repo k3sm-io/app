@@ -163,7 +163,8 @@ struct ConsoleContent: View {
 /// ConsoleStrip is the row above the tab: the tab strip, the managed update's
 /// button while `UpdateOffer` shows one, the tab's search
 /// field (on a tab with rows to search), the details button that shows or
-/// collapses the inspector, and the info button that opens the status panel.
+/// collapses the inspector, the tour button, the info button that opens the
+/// status panel, and the gear that opens Settings.
 struct ConsoleStrip: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
@@ -219,10 +220,17 @@ struct ConsoleStrip: View {
             }
             .buttonStyle(.plain)
             .tourTarget(.info, app.tour)
+            .accessibilityLabel("k3sm status")
             .help("k3sm on this Mac: start, stop, connections, uninstall")
             .popover(isPresented: $app.statusPanelShown, arrowEdge: .bottom) {
                 StatusPanel(model: app).frame(width: 560)
             }
+            Button { SettingsWindowController.shared?.show() } label: {
+                Image(systemName: "gearshape").font(.system(size: 16)).foregroundStyle(Palette.navy)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Settings")
+            .help("Settings (Command-comma)")
         }
         .padding(.horizontal, 16).frame(height: CGFloat(TabStripLayout.height))
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }

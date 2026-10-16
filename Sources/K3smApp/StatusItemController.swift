@@ -29,7 +29,7 @@ import K3smStatus
 /// coloured circle and the word, then the actions: Update to <tag>… while
 /// the `update` row offers one (`UpdateOffer`; "Updating…", disabled, while a
 /// roll runs; shown disabled with the reason on a developer build), Stop
-/// (with the multi-node warning) and Restart, Live Status (and Live Top when the CLI has it), Open Logs, Write a Bug Report, Dashboard and Quit.
+/// (with the multi-node warning) and Restart, Live Status (and Live Top when the CLI has it), Open Logs, Write a Bug Report, Settings, Dashboard and Quit.
 /// Stop and Restart go through `AppModel.perform` and are shown only when
 /// the installed CLI has them; otherwise they are hidden and the window says
 /// why. The full status and the LAN setting are in the window. While LAN access
@@ -65,6 +65,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var degraded = false
     private let model: AppModel
     private let openWindow: @MainActor () -> Void
+    private let openSettings: @MainActor () -> Void
     private var supportObservation: AnyCancellable?
     /// The last report the poller read.
     private var report: StatusReport?
@@ -80,9 +81,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// Whether the rule currently wants the item shown.
     var wantsVisible: Bool { tracker.visible }
 
-    init(model: AppModel, openWindow: @escaping @MainActor () -> Void) {
+    init(model: AppModel, openWindow: @escaping @MainActor () -> Void, openSettings: @escaping @MainActor () -> Void) {
         self.model = model
         self.openWindow = openWindow
+        self.openSettings = openSettings
         super.init()
         menu.autoenablesItems = false
         menu.delegate = self
@@ -104,6 +106,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         _ = add("Open Logs", #selector(openLogsAction))
         _ = add("Write a Bug Report…", #selector(bugReportAction))
         menu.addItem(.separator())
+        _ = add("Settings…", #selector(openSettingsAction), key: ",")
         _ = add(MenuStatus.windowItemTitle, #selector(openWindowAction), key: "o")
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit k3sm", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -315,6 +318,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func openWindowAction() {
         openWindow()
+    }
+
+    @objc private func openSettingsAction() {
+        openSettings()
     }
 
     // MARK: visibility
