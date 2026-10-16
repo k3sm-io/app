@@ -83,6 +83,15 @@ public enum K3smCLI {
     public static func manifestArguments(namespace: ResourceName, pod: ResourceName) -> [String] {
         ["kubectl", "get", "pod", "-n", namespace.value, pod.value, "-o", "yaml"]
     }
+
+    /// Deletes one pod without waiting for it to go: the console's first
+    /// write, run through the same bundled kubectl and the kubeconfig the CLI
+    /// presets as every read. Only `ResourceName` values reach it, so neither
+    /// name can carry an option, a selector or a path.
+    public static func deletePodArguments(namespace: ResourceName, pod: ResourceName) -> [String] {
+        ["kubectl", "delete", "pod", pod.value, "-n", namespace.value, "--wait=false"]
+    }
+
     /// The PATH every CLI run gets: system directories only.
     public static let systemPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 
