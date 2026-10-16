@@ -17,11 +17,11 @@ limitations under the License.
 import AppKit
 
 /// MainMenu is the menu bar while the window is open: the app menu with
-/// Settings (the status panel), Edit for the search field, View for refresh,
-/// and Window. The status item keeps its own menu. The delegate owns one and
+/// Settings (the status panel), Edit for the search field, View for refresh
+/// and for hiding or showing the console's left panel, and Window. The status item keeps its own menu. The delegate owns one and
 /// the items target it.
 @MainActor
-final class MainMenu: NSObject {
+final class MainMenu: NSObject, NSMenuItemValidation {
     private let model: AppModel
     private let show: () -> Void
 
@@ -67,6 +67,10 @@ final class MainMenu: NSObject {
     private func viewMenu() -> NSMenu {
         let menu = NSMenu(title: "View")
         menu.addItem(item("Refresh", #selector(refresh(_:)), "r"))
+        menu.addItem(.separator())
+        let panel = item("Hide Panel", #selector(togglePanel(_:)), "l")
+        panel.keyEquivalentModifierMask = [.command, .option]
+        menu.addItem(panel)
         return menu
     }
 
@@ -87,6 +91,20 @@ final class MainMenu: NSObject {
     @objc private func openSettings(_ sender: Any?) {
         show()
         model.statusPanelShown = true
+    }
+
+    /// Collapses or expands the console's left panel; the split view follows
+    /// the model, and the state is kept across launches.
+    @objc private func togglePanel(_ sender: Any?) {
+        model.consolePanelCollapsed.toggle()
+    }
+
+    /// The panel item reads Hide Panel or Show Panel, and is offered only
+    /// while the console is on screen.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(togglePanel(_:)) else { return true }
+        menuItem.title = model.consolePanelCollapsed ? "Show Panel" : "Hide Panel"
+        return model.screen == .status
     }
 
     @objc private func refresh(_ sender: Any?) {

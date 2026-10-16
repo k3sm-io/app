@@ -102,6 +102,16 @@ turned off.
 - The **details button**, beside the info button above the pod list, collapses
   the pod details on the right (logs, events and manifest) and shows them
   again; Command-Option-I does the same, and the app remembers the choice.
+- The **left panel** is resizable: drag the divider between it and the list.
+  It goes no narrower than its original width and no wider than its content
+  can use (every tile in one row, or the longest node row with its meters
+  beside it). Wider, the tiles take one row and each node's meters move up
+  beside its name, so node names stop being shortened. Double-click the
+  divider, or choose View > Hide Panel (Command-Option-L), to collapse the
+  panel; do it again, or View > Show Panel, to bring it back. The window's
+  minimum width follows: the panel's minimum plus the list's, or the list's
+  alone while the panel is hidden. The app remembers the width and whether
+  the panel is hidden.
 
 The app reads state only from `k3sm status -o json`, the machine interface the
 k3sm CLI documents. It runs `/Library/k3sm/k3sm` by absolute path with an

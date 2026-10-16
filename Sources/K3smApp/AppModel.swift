@@ -100,6 +100,20 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(inspectorShown, forKey: Self.inspectorShownKey) }
     }
     static let inspectorShownKey = "consoleInspectorShown"
+    /// The console panel's width as the user last dragged it, kept in the
+    /// user defaults across launches and clamped on read
+    /// (`PanelLayout.restoreWidth`); the split view clamps it again to what
+    /// the panel's content could use (`PanelLayout.widthRange`).
+    @Published var consolePanelWidth: Double = PanelLayout.restoreWidth(
+        from: UserDefaults.standard.object(forKey: PanelLayout.widthKey)) {
+        didSet { UserDefaults.standard.set(consolePanelWidth, forKey: PanelLayout.widthKey) }
+    }
+    /// Whether the console panel is collapsed: a double-click on the divider
+    /// and View > Hide Panel (Command-Option-L) toggle it. Kept across launches.
+    @Published var consolePanelCollapsed: Bool = PanelLayout.restoreCollapsed(
+        from: UserDefaults.standard.object(forKey: PanelLayout.collapsedKey)) {
+        didSet { UserDefaults.standard.set(consolePanelCollapsed, forKey: PanelLayout.collapsedKey) }
+    }
     /// The console's own state; it polls only while the console is on screen.
     let workloads: WorkloadsModel
     /// The wordmark butterfly's wing beat, played while the console is up.

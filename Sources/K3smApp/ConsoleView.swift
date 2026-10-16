@@ -19,42 +19,55 @@ import SwiftUI
 
 /// ConsoleView is the window once k3sm is installed: this Mac on the left,
 /// the chosen tab (`ConsoleSection`) in the middle, the inspector on the right unless the
-/// details button has collapsed it. Every string from the CLI renders verbatim
-/// and clipped. The lifecycle controls are the status panel, a popover from
-/// the info button. The console follows the system appearance; only the navy
-/// Mac panel keeps its own colours.
+/// details button has collapsed it. The left panel is the first pane of a
+/// split view (`ConsoleSplit`): its divider drags between the panel's
+/// minimum and the width its content could use (`PanelLayout.widthRange`),
+/// and the panel collapses on a double-click of the divider or View > Hide
+/// Panel; both survive a relaunch on `AppModel`. Every string from the CLI
+/// renders verbatim and clipped. The lifecycle controls are the status
+/// panel, a popover from the info button. The console follows the system
+/// appearance; only the navy Mac panel keeps its own colours.
 struct ConsoleView: View {
     @ObservedObject var app: AppModel
+    @ObservedObject var workloads: WorkloadsModel
+
+    init(app: AppModel) {
+        self.app = app
+        self.workloads = app.workloads
+    }
 
     static let minSize = CGSize(width: 1180, height: 700)
     /// The inspector's fixed width; collapsing it lowers the minimum width by this much.
     static let inspectorWidth: CGFloat = 320
+    /// The split view's divider.
+    static let dividerWidth: CGFloat = 1
 
-    /// The window's minimum size for the inspector's state.
-    static func minSize(inspectorShown: Bool) -> CGSize {
-        inspectorShown ? minSize : CGSize(width: minSize.width - inspectorWidth, height: minSize.height)
+    /// The content pane's minimum width (the tabs, and the inspector when shown).
+    static func contentMinWidth(inspectorShown: Bool) -> CGFloat {
+        minSize.width - CGFloat(PanelLayout.minimum) - dividerWidth - (inspectorShown ? 0 : inspectorWidth)
+    }
+
+    /// The window's minimum size: the panel's minimum, or nothing while it
+    /// is collapsed, plus the content pane's minimum.
+    static func minSize(inspectorShown: Bool, panelCollapsed: Bool) -> CGSize {
+        let panel = panelCollapsed ? 0 : CGFloat(PanelLayout.minimum) + dividerWidth
+        return CGSize(width: panel + contentMinWidth(inspectorShown: inspectorShown), height: minSize.height)
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            MacPanel(app: app, workloads: app.workloads)
-                .frame(width: 250)
-            Divider()
-            VStack(spacing: 0) {
-                ConsoleStrip(app: app)
-                section
-            }
-            .frame(minWidth: 520)
-            if app.inspectorShown {
-                Divider()
-                Inspector(model: app.workloads)
-                    .frame(width: Self.inspectorWidth)
-            }
-        }
-        .frame(
-            minWidth: Self.minSize(inspectorShown: app.inspectorShown).width,
-            minHeight: Self.minSize(inspectorShown: app.inspectorShown).height
-        )
+        let panel = MacPanel(app: app, workloads: workloads)
+        let size = Self.minSize(inspectorShown: app.inspectorShown, panelCollapsed: app.consolePanelCollapsed)
+        ConsoleSplit(
+            app: app,
+            range: PanelLayout.widthRange(content: panel.layoutContent),
+            width: app.consolePanelWidth,
+            collapsed: app.consolePanelCollapsed,
+            contentMinimum: Double(Self.contentMinWidth(inspectorShown: app.inspectorShown)),
+            // Each pane is hosted on its own; both run under the transparent
+            // title bar, as the whole console did before the split.
+            panel: panel.ignoresSafeArea(),
+            content: ConsoleContent(app: app).ignoresSafeArea())
+        .frame(minWidth: size.width, minHeight: size.height)
         .background(Palette.surface)
         .ignoresSafeArea()
         .onAppear {
@@ -67,6 +80,29 @@ struct ConsoleView: View {
             app.flap.stop()
             app.stopReportPolling()
         }
+    }
+}
+
+/// ConsoleContent is the split view's second pane: the strip and the chosen
+/// tab, then the inspector unless it is collapsed.
+struct ConsoleContent: View {
+    @ObservedObject var app: AppModel
+
+    var body: some View {
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                ConsoleStrip(app: app)
+                section
+            }
+            .frame(maxWidth: .infinity)
+            if app.inspectorShown {
+                Divider()
+                Inspector(model: app.workloads)
+                    .frame(width: ConsoleView.inspectorWidth)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Palette.surface)
     }
 
     @ViewBuilder

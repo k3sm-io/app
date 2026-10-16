@@ -22,7 +22,9 @@ import SwiftUI
 /// cluster's figures, one compact row per node with what its pods request)
 /// or This Mac (the machine, the state, tiles with what the pods ask of it
 /// and the data root, the nodes block, the core grid and the memory meter).
-/// Both end with the daemons from the status report.
+/// Both end with the daemons from the status report. It is the left pane
+/// of the console's split view: wider than its minimum, the tiles take more
+/// columns and a node row puts its meters on its own line.
 struct MacPanel: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
@@ -80,7 +82,7 @@ struct MacPanel: View {
                 Text(verbatim: cluster.title).font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
             }
             stateRow
-            TileGrid(tiles: ClusterDisplay.tiles(for: cluster))
+            TileGrid(tiles: ClusterDisplay.tiles(for: cluster), width: shownWidth)
             if let note = cluster.note {
                 Footnote(note)
             }
@@ -100,30 +102,43 @@ struct MacPanel: View {
     }
 
     /// One node: the readiness dot, the name with a tag on this Mac's, the
-    /// role and its running pods, then its cores and memory meters side by side.
+    /// role and its running pods, then its cores and memory meters side by
+    /// side, on the same line when the panel is wide enough, under it otherwise.
     private func clusterNodeRow(_ node: ClusterNodeRow) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Circle().fill(node.isReady ? Palette.okOnDark : .orange).frame(width: 7, height: 7)
-                    .accessibilityLabel(Text(verbatim: node.ready))
-                Text(verbatim: node.name).font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
-                    .lineLimit(1).truncationMode(.middle)
-                if node.thisMac {
-                    Text("this Mac").font(.system(size: 9, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Capsule().fill(.white.opacity(0.14)))
-                        .fixedSize()
-                }
-                Text(verbatim: node.role).font(.system(size: 11)).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
-                Spacer(minLength: 4)
-                if let running = node.running {
-                    Text(verbatim: "\(running) \(running == 1 ? "pod" : "pods")").font(.system(size: 11)).monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.62)).fixedSize()
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: PanelLayout.tileSpacing) {
+                nodeHeading(node)
+                slimMeter("Cores", node.cores).frame(width: PanelLayout.meterWidth)
+                slimMeter("Memory", node.memory).frame(width: PanelLayout.meterWidth)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                nodeHeading(node)
+                HStack(spacing: 10) {
+                    slimMeter("Cores", node.cores)
+                    slimMeter("Memory", node.memory)
                 }
             }
-            HStack(spacing: 10) {
-                slimMeter("Cores", node.cores)
-                slimMeter("Memory", node.memory)
+        }
+    }
+
+    /// A node row's first part: the dot, the name, the tag, the role and the pods.
+    private func nodeHeading(_ node: ClusterNodeRow) -> some View {
+        HStack(spacing: 6) {
+            Circle().fill(node.isReady ? Palette.okOnDark : .orange).frame(width: 7, height: 7)
+                .accessibilityLabel(Text(verbatim: node.ready))
+            Text(verbatim: node.name).font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
+                .lineLimit(1).truncationMode(.middle)
+            if node.thisMac {
+                Text("this Mac").font(.system(size: 9, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(.white.opacity(0.14)))
+                    .fixedSize()
+            }
+            Text(verbatim: node.role).font(.system(size: 11)).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
+            Spacer(minLength: 4)
+            if let running = node.running {
+                Text(verbatim: "\(running) \(running == 1 ? "pod" : "pods")").font(.system(size: 11)).monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.62)).fixedSize()
             }
         }
     }
@@ -150,10 +165,7 @@ struct MacPanel: View {
             }
             Text(verbatim: Self.machine.line).font(.system(size: 12)).foregroundStyle(.white.opacity(0.62))
             stateRow
-            TileGrid(tiles: ClusterDisplay.macTiles(
-                requests: macRequests, cores: Self.machine.cores, memoryBytes: Self.machine.memoryBytes,
-                dataRootUsed: workloads.load.dataRootUsedBytes, dataRootSize: workloads.load.dataRootSizeBytes,
-                pods: macPods.count))
+            TileGrid(tiles: macTiles, width: shownWidth)
         }
         nodesBlock
         VStack(alignment: .leading, spacing: 10) {
@@ -186,6 +198,31 @@ struct MacPanel: View {
                 nodeRows(nodes)
             }
         }
+    }
+
+    /// This Mac's tiles, from its pods and the machine.
+    private var macTiles: [PanelTile] {
+        ClusterDisplay.macTiles(
+            requests: macRequests, cores: Self.machine.cores, memoryBytes: Self.machine.memoryBytes,
+            dataRootUsed: workloads.load.dataRootUsedBytes, dataRootSize: workloads.load.dataRootSizeBytes,
+            pods: macPods.count)
+    }
+
+    /// What the view shown holds, for `PanelLayout.widthRange`: its tiles,
+    /// the Cluster view's node rows and the nodes block's lines.
+    var layoutContent: PanelContent {
+        switch mode {
+        case .cluster:
+            return PanelContent(tiles: ClusterDisplay.tiles(for: cluster), nodes: cluster.nodes,
+                                lines: cluster.nodes.isEmpty ? nodes?.lines ?? [] : [])
+        case .thisMac:
+            return PanelContent(tiles: macTiles, lines: nodes?.lines ?? [])
+        }
+    }
+
+    /// The width the panel is drawn at: the user's, within the content's range.
+    private var shownWidth: Double {
+        PanelLayout.clamp(app.consolePanelWidth, to: PanelLayout.widthRange(content: layoutContent))
     }
 
     /// The cluster view, re-derived from the report and the two lists.
@@ -292,12 +329,15 @@ struct PanelBlock<Content: View>: View {
     }
 }
 
-/// TileGrid is the panel's figures in two fixed columns of tiles.
+/// TileGrid is the panel's figures in columns of tiles: two, or every tile
+/// in one row once the panel is wide enough (`PanelLayout.columns`).
 struct TileGrid: View {
     let tiles: [PanelTile]
+    let width: Double
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10, alignment: .topLeading), count: 2),
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10, alignment: .topLeading),
+                                 count: PanelLayout.columns(width: width, tiles: tiles)),
                   alignment: .leading, spacing: 10) {
             ForEach(Array(tiles.enumerated()), id: \.offset) { _, tile in
                 Tile(tile: tile)
