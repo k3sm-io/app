@@ -47,6 +47,12 @@ struct TabLoadTests {
         #expect(TabLoad.stopped(.failed("x"), readAt: t0) == .failed("x"))
     }
 
+    @Test("only a failed or impossible read counts as one")
+    func failedOrUnavailable() {
+        #expect(TabLoad.failed("x").failedOrUnavailable && TabLoad.unavailable("y").failedOrUnavailable)
+        #expect(![TabLoad.idle, .firstRead, .refreshing, .loaded(t0)].contains { $0.failedOrUnavailable })
+    }
+
     @Test("a tab says how old its read is")
     func age() {
         #expect(TabLoad.age(since: t0, now: t0.addingTimeInterval(2)) == "read just now")

@@ -44,6 +44,14 @@ public enum TabLoad: Equatable, Sendable {
     /// The read cannot be made; the text is clean for display (`clip`).
     case unavailable(String)
 
+    /// Whether the last read failed or could not be made.
+    public var failedOrUnavailable: Bool {
+        switch self {
+        case .failed, .unavailable: return true
+        default: return false
+        }
+    }
+
     /// Whether a read is running.
     public var inFlight: Bool {
         self == .firstRead || self == .refreshing

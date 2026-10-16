@@ -33,14 +33,6 @@ public enum ConsoleSection: String, CaseIterable, Identifiable, Sendable {
         case .builds: return "Builds"
         }
     }
-
-    /// Whether the tab has rows to search, so the strip shows its search field.
-    public var searchable: Bool {
-        switch self {
-        case .workloads, .images: return true
-        case .builds: return false
-        }
-    }
 }
 
 /// ConsoleTabs is how the console's tab choice, and each tab's search and
