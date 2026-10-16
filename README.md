@@ -102,6 +102,19 @@ login** in the app's Settings turns it off or on again (see
   shows an Interconnect block: how many cabled nodes are up, the segments,
   how many pods hold an interconnect address, the nodes past its address
   range, and that pod traffic on the cable is not encrypted.
+- **Live load** comes from metrics-server when the cluster runs it. While
+  the window is on screen the app reads `k3sm kubectl get --raw` of the
+  `metrics.k8s.io` node and pod lists at most every 15 seconds, one read at
+  a time, and keeps the last sample. Each node in the Cluster view, and this
+  Mac's node in the This Mac view, gets CPU and memory bars with the amount
+  used of what the node offers and the percentage, beside a small line of the
+  last few CPU samples; the pod details add the pod's CPU used (and its share
+  of the request), memory used and the sample's age. A line under the bars
+  says how old the sample is ("12 s ago"). A node or pod metrics-server has
+  no sample for reads "no metrics yet", never zero. When the cluster serves
+  no metrics API, or its APIService is not available, the bars are hidden
+  and the line says why (from the APIService's condition, or the read's
+  error); the app then looks again every minute. Nothing is stored.
 - The **Update** button appears at the top right of the console, beside the
   search field, when k3sm reports a newer release for the cluster. It runs
   the cluster's managed update (see [The managed update](#the-managed-update)).

@@ -101,9 +101,13 @@ struct MacPanel: View {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(Array(cluster.nodes.enumerated()), id: \.offset) { _, node in
                         clusterNodeRow(node)
+                        if let load = MetricsDisplay.nodeLoad(named: node.name, nodes: workloads.nodes, state: workloads.metrics) {
+                            LiveLoadRow(load: load, sparkline: MetricsDisplay.sparkline(named: node.name, nodes: workloads.nodes, state: workloads.metrics))
+                        }
                     }
                 }
                 Footnote("Requested by pods, not used.")
+                MetricsNote(state: workloads.metrics)
             }
         }
     }
@@ -177,6 +181,8 @@ struct MacPanel: View {
         .id(TourTarget.summary)
         .tourTarget(.summary, tour)
         nodesBlock
+        LiveLoadBlock(node: MetricsDisplay.thisMacNode(report: report, nodes: workloads.nodes),
+                      nodes: workloads.nodes, state: workloads.metrics)
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 10) {
                 CoreGrid(cores: Self.machine.cores, performance: Self.machine.performanceCores, used: coresRequested)

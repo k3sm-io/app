@@ -55,6 +55,9 @@ final class WorkloadsModel: ObservableObject {
     /// so the panel holds no view state (the Command Line Tools have no
     /// SwiftUI macro plugin).
     @Published private(set) var load = HostLoad.read()
+    /// The live load from metrics-server: the last sample, kept while the
+    /// console is away, and why there is none (`MetricsState`).
+    @Published private(set) var metrics = MetricsState()
     /// Called after each node-list read, for the Images tab's selection.
     var onNodesRead: (@MainActor () -> Void)?
     /// Called after each pod-list read, with whether it succeeded, for the
@@ -64,6 +67,7 @@ final class WorkloadsModel: ObservableObject {
     private let environment: [String: String]
     private var detailTask: Task<Void, Never>?
     private var forwarding: [AnyCancellable] = []
+    private var metricsPoller: MetricsPoller?
 
     init(environment: [String: String]) {
         self.environment = environment
@@ -76,6 +80,25 @@ final class WorkloadsModel: ObservableObject {
             self?.onNodesRead?()
         }
         forward(nodeList)
+        metricsPoller = MetricsPoller(environment: environment) { [weak self] reading, at in
+            self?.metrics.apply(reading, at: at)
+        }
+    }
+
+    /// Starts the metrics poll with the console; `visible` is whether the
+    /// window is on screen, asked before every read.
+    func startMetrics(visible: @escaping @MainActor () -> Bool) {
+        metricsPoller?.start(visible: visible)
+    }
+
+    /// Stops the metrics poll; the last sample stays.
+    func stopMetrics() {
+        metricsPoller?.stop()
+    }
+
+    /// The selected pod's live load rows, by `MetricsDisplay.podFacts`.
+    func loadFacts(_ pod: Pod) -> [InspectorFact] {
+        MetricsDisplay.podFacts(pod, state: metrics)
     }
 
     /// Creates the pod list's loader, once.

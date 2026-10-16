@@ -81,6 +81,7 @@ struct Inspector: View {
             fact("Namespace", pod.namespace)
             fact("Restarts", String(pod.restarts))
             if let owner = pod.owner { fact("Owned by", owner) }
+            ForEach(model.loadFacts(pod), id: \.label) { fact($0.label, $0.value) }
         }
         .padding(.horizontal, 18).padding(.vertical, 12)
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }

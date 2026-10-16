@@ -620,6 +620,7 @@ final class AppModel: ObservableObject {
         consoleShown = true
         syncUpdateReader()
         workloads.nodeList.start()
+        workloads.startMetrics { [weak self] in self?.flap.windowVisible() ?? false }
         loader(for: .workloads)?.start()
         loader(for: section)?.start()
         syncEvents()
@@ -631,6 +632,7 @@ final class AppModel: ObservableObject {
         consoleShown = false
         syncUpdateReader()
         workloads.nodeList.stop()
+        workloads.stopMetrics()
         loaders[.workloads]?.stop()
         loaders[section]?.stop()
         syncEvents()
