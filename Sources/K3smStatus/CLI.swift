@@ -30,6 +30,9 @@ public enum K3smCLI {
     public static let reportArguments = ["status", "-o", "json"]
     /// The installed version, read on launch for the update check.
     public static let versionArguments = ["version"]
+    /// The start's own time bound, read before the app runs `k3sm start`:
+    /// the CLI prints whole seconds and does nothing else (`StartTimeBound`).
+    public static let startTimeBoundArguments = ["start", "--print-time-bound"]
     /// The workloads list: every pod on the cluster, through the CLI's bundled
     /// kubectl with the kubeconfig the CLI presets.
     public static let workloadsArguments = ["kubectl", "get", "pods", "-A", "-o", "json"]

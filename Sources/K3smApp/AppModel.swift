@@ -518,7 +518,9 @@ final class AppModel: ObservableObject {
                 teamID: teamID,
                 readStatus: { await self.readFullReport() },
                 confirm: { Self.confirm($0) },
-                runner: runner)
+                runner: runner,
+                readStartTimeBound: { await self.readStartTimeBound() },
+                progress: { self.outcomeMessage = $0 })
             let result = await driver.perform(verb, expected: expected)
             running = false
             switch result {
@@ -532,10 +534,33 @@ final class AppModel: ObservableObject {
                 if outcome != .succeeded, outcome != .cancelled {
                     Self.alert(title: verb.title, text: text)
                 }
+            case .startedNotSchedulable(let text), .timedOut(let text):
+                outcomeMessage = text
+                Self.alert(title: verb.title, text: text)
             }
             log.notice("lifecycle verb finished")
             await refresh()
         }
+    }
+
+    /// Reads the start's time bound from the installed CLI, through the
+    /// trust-checked runner. A fallback is logged with its reason, which is
+    /// the app's own sentence; the CLI's output is never logged.
+    private func readStartTimeBound() async -> StartTimeBound.Reading {
+        let reading: StartTimeBound.Reading
+        switch await runCLI(K3smCLI.startTimeBoundArguments) {
+        case .exited(let status, let stdout):
+            reading = StartTimeBound.parse(exitStatus: status, stdout: stdout)
+        default:
+            reading = StartTimeBound.parse(exitStatus: nil, stdout: Data())
+        }
+        switch reading {
+        case .printed(let seconds):
+            log.notice("start time bound: \(seconds, privacy: .public) s from the CLI")
+        case .fallback(let reason):
+            log.notice("start time bound: \(StartTimeBound.fallbackSeconds, privacy: .public) s fallback: \(reason, privacy: .public)")
+        }
+        return reading
     }
 
     /// Asks before a lifecycle verb, naming it; the Stop warning is shown

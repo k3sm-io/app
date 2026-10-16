@@ -162,6 +162,16 @@ only after checking that the binary and every folder above it are owned by
 root, not writable by anyone else, not symlinks and free of ACLs, and that
 the binary is signed by the k3sm Developer ID. It never uses the app's own copy of k3sm.
 
+Before Start runs, the app asks the installed k3sm how long a start may take
+(`k3sm start --print-time-bound`) and waits that long plus 30 seconds. A k3sm
+that cannot say gets 10 minutes, and the app logs why. A start can bring the
+daemons up while the node is still cordoned, so the cluster schedules nothing
+on it yet. The window then shows "k3sm started, node not schedulable yet;
+retrying." and the app runs the start once more by itself. If the node is
+still cordoned after that, the window says so and leaves the rest to you:
+`sudo k3sm start` in Terminal finishes it. Any other failure is shown as a
+failed start, with no second try.
+
 These actions need a k3sm release that has `k3sm stop` (any release after
 0.1.7). With an older k3sm, or one that fails those checks, the menu does not
 show them and the window says why; `sudo k3sm stop` and `sudo k3sm start` work

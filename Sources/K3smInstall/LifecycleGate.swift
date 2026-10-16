@@ -119,6 +119,11 @@ public enum StopWarning {
 /// status again and refuse if it changed while the question was open, and
 /// only then hand the lifecycle script to the administrator prompt. Every
 /// run is a fresh prompt; nothing is remembered between runs.
+///
+/// Start alone reads the CLI's own time bound first and waits for the root
+/// step at most that bound plus `StartTimeBound.marginSeconds`; a start that
+/// exits still cordoned is re-run once (`StartRetry`), with no fresh status
+/// check, since the first run already changed the state the check guards.
 public struct LifecycleDriver: Sendable {
     public enum Result: Equatable, Sendable {
         /// The verb was refused before any prompt; the sentence says why.
@@ -127,23 +132,39 @@ public struct LifecycleDriver: Sendable {
         case declined
         /// The administrator prompt ran; the sentence is the outcome.
         case ran(PrivilegedOutcome, String)
+        /// A start brought the daemons up, but the Node stayed cordoned
+        /// through the automatic re-run; the sentence names the remedy.
+        case startedNotSchedulable(String)
+        /// A start ran past the app's wait; the sentence says so.
+        case timedOut(String)
     }
 
     let teamID: TeamID
     let readStatus: @Sendable () async -> StatusReport?
     let confirm: @MainActor @Sendable (LifecycleConfirmation) async -> Bool
     let runner: any PrivilegedRunner
+    let readStartTimeBound: @Sendable () async -> StartTimeBound.Reading
+    let progress: @MainActor @Sendable (String) -> Void
 
+    /// `readStartTimeBound` runs `K3smCLI.startTimeBoundArguments` and
+    /// classifies it with `StartTimeBound.parse`; `progress` receives the
+    /// sentence to show while a start is re-run.
     public init(
         teamID: TeamID,
         readStatus: @escaping @Sendable () async -> StatusReport?,
         confirm: @escaping @MainActor @Sendable (LifecycleConfirmation) async -> Bool,
-        runner: any PrivilegedRunner
+        runner: any PrivilegedRunner,
+        readStartTimeBound: @escaping @Sendable () async -> StartTimeBound.Reading = {
+            .fallback(reason: "the app did not read the start bound")
+        },
+        progress: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) {
         self.teamID = teamID
         self.readStatus = readStatus
         self.confirm = confirm
         self.runner = runner
+        self.readStartTimeBound = readStartTimeBound
+        self.progress = progress
     }
 
     public func perform(_ verb: LifecycleVerb, expected: LifecycleState) async -> Result {
@@ -160,8 +181,32 @@ public struct LifecycleDriver: Sendable {
         if case .refused(let why) = LifecyclePrecondition.check(verb, expected: expected, live: LifecycleState(report: second)) {
             return .refused(why)
         }
+        if verb == .start { return await start() }
         let outcome = await runner.runAsRoot(LifecycleScriptBuilder.render(verb, teamID: teamID), input: nil)
         return .ran(outcome, LifecycleOutcome.text(outcome, verb: verb))
+    }
+
+    /// Runs the start script under the CLI's bound, re-running it once when
+    /// it exits still cordoned.
+    private func start() async -> Result {
+        let bound = await readStartTimeBound()
+        let script = LifecycleScriptBuilder.render(.start, teamID: teamID)
+        let runner = self.runner
+        var attempt = 0
+        while true {
+            attempt += 1
+            guard let run = await Deadline.race(bound.timeout, { await runner.runAsRootReportingError(script, input: nil) }) else {
+                return .timedOut(StartRetry.timedOutText(seconds: bound.seconds + StartTimeBound.marginSeconds))
+            }
+            switch StartRetry.next(after: run, attempt: attempt) {
+            case .finished:
+                return .ran(run.outcome, LifecycleOutcome.text(run.outcome, verb: .start))
+            case .rerun:
+                await progress(StartRetry.retryingText)
+            case .notSchedulable:
+                return .startedNotSchedulable(StartRetry.notSchedulableText)
+            }
+        }
     }
 }
 
