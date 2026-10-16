@@ -229,7 +229,12 @@ window. Then come the actions:
 
   Stop and Restart appear only on a release build of the app with a k3sm that
   supports them (see below); otherwise the menu does not show them.
-- **Open Status in Terminal** runs `k3sm status` in a Terminal window.
+- **Live Status in Terminal** opens a Terminal window, titled k3sm status
+  (live), that runs `k3sm status -o wide --watch=2s`: the full status, redrawn
+  every 2 seconds. Press Control-C to stop it; the window then says it stopped.
+- **Live Top in Terminal** does the same for `k3sm status top --watch=2s`, the
+  nodes and pods by CPU and memory. It appears only when the installed k3sm
+  has that view (`k3sm status top --help` succeeds).
 - **Open Logs** opens the node daemon's and netd's logs in Console.
 - **Write a Bug Report** opens a Terminal window that collects the k3sm and
   macOS versions, the status JSON, the daemons' launchd state and the tail of

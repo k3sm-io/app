@@ -19,9 +19,9 @@ import K3smInstall
 import K3smStatus
 
 /// MenuActions are the menu's unprivileged actions. Logs open through
-/// NSWorkspace on k3sm's fixed paths, never a shell; the status view and the
-/// bug report are static `.command` files written into a fresh 0700
-/// directory and opened in Terminal.
+/// NSWorkspace on k3sm's fixed paths, never a shell; the live status and top
+/// views and the bug report are static `.command` files written into a fresh
+/// 0700 directory and opened in Terminal.
 @MainActor
 enum MenuActions {
     static let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
@@ -45,16 +45,57 @@ enum MenuActions {
         return await Task.detached { SelfCheck.installedCLITrust(team: team) }.value
     }
 
-    /// Opens `k3sm status` in Terminal, only for a CLI that passes its trust
+    /// Opens one live view in Terminal, only for a CLI that passes its trust
     /// check just now.
-    static func openStatus() {
+    static func openLive(_ view: LiveView) {
         Task {
             if case .refused(let why) = await trustNow() {
                 AppModel.alert(title: "k3sm will not run the installed k3sm", text: "It failed the app's check: \(why).")
                 return
             }
-            openCommand(StatusCommand.commandText, named: StatusCommand.commandName)
+            switch view {
+            case .status: openCommand(StatusCommand.commandText, named: StatusCommand.commandName)
+            case .top: openCommand(TopCommand.commandText, named: TopCommand.commandName)
+            }
+            log.notice("menu: opened \(view.rawValue, privacy: .public) live view")
         }
+    }
+
+    /// The Live Top answer kept for the installed CLI binary.
+    private static var topCache = LiveTopProbe.Cache()
+
+    /// Whether the installed CLI offers the top view: the kept answer for this
+    /// binary, or one `k3sm status top --help` run through the trust check.
+    /// Only the exit status is read; the output is discarded.
+    static func liveTopOffered() async -> Bool {
+        let identity = cliIdentity()
+        if let kept = topCache.offered(for: identity) {
+            return kept
+        }
+        let team = SelfCheck.teamID()
+        let environment = SelfCheck.cliEnvironment()
+        let cli = TrustedCLI<CLIOutcome>(
+            check: { await Task.detached { SelfCheck.installedCLITrust(team: team) }.value },
+            execute: { arguments in
+                await CLIProcess.run(path: K3smCLI.path, arguments: arguments, environment: environment,
+                                     deadline: PollSchedule.killDeadline, limit: OutputLimit.detail)
+            })
+        let outcome: LiveTopProbe.Outcome
+        switch await cli.run(LiveTopProbe.arguments) {
+        case .ran(.exited(let status, _)): outcome = .exited(status)
+        default: outcome = .noAnswer
+        }
+        return topCache.record(outcome, for: identity)
+    }
+
+    /// The installed CLI binary's identity, or nil when it cannot be read.
+    private static func cliIdentity() -> LiveTopProbe.Identity? {
+        var st = stat()
+        guard lstat(K3smCLI.path, &st) == 0 else { return nil }
+        return LiveTopProbe.Identity(
+            device: Int64(st.st_dev), inode: UInt64(st.st_ino), size: Int64(st.st_size),
+            modified: Int64(st.st_mtimespec.tv_sec), modifiedNanos: Int64(st.st_mtimespec.tv_nsec),
+            changed: Int64(st.st_ctimespec.tv_sec), changedNanos: Int64(st.st_ctimespec.tv_nsec))
     }
 
     /// Writes a bug report: Terminal runs the collector, which writes the

@@ -29,7 +29,7 @@ import K3smStatus
 /// coloured circle and the word, then the actions: Update to <tag>… while
 /// the `update` row offers one (`UpdateOffer`; "Updating…", disabled, while a
 /// roll runs; shown disabled with the reason on a developer build), Stop
-/// (with the multi-node warning) and Restart, Open Status, Open Logs, Write a Bug Report, Dashboard and Quit.
+/// (with the multi-node warning) and Restart, Live Status (and Live Top when the CLI has it), Open Logs, Write a Bug Report, Dashboard and Quit.
 /// Stop and Restart go through `AppModel.perform` and are shown only when
 /// the installed CLI has them; otherwise they are hidden and the window says
 /// why. The full status and the LAN setting are in the window. While LAN access
@@ -51,10 +51,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let thisMacItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var updateItem = NSMenuItem()
     /// The separator after the update item, shown only when Stop and
-    /// Restart are hidden, so the update item never runs into Open Status.
+    /// Restart are hidden, so the update item never runs into Live Status.
     private let updateEnd = NSMenuItem.separator()
     private var stopItem = NSMenuItem()
     private var restartItem = NSMenuItem()
+    /// Live Top, shown only while the installed CLI offers the view.
+    private var liveTopItem = NSMenuItem()
     /// The separator after Stop and Restart, hidden with them so the menu
     /// never starts with a rule.
     private let lifecycleEnd = NSMenuItem.separator()
@@ -96,7 +98,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         stopItem = add(LifecycleVerb.stop.title + "…", #selector(stopAction))
         restartItem = add(LifecycleVerb.restart.title + "…", #selector(restartAction))
         menu.addItem(lifecycleEnd)
-        _ = add("Open Status in Terminal", #selector(openStatusAction))
+        _ = add(LiveView.status.menuTitle, #selector(openStatusAction))
+        liveTopItem = add(LiveView.top.menuTitle, #selector(openTopAction))
+        liveTopItem.isHidden = true
         _ = add("Open Logs", #selector(openLogsAction))
         _ = add("Write a Bug Report…", #selector(bugReportAction))
         menu.addItem(.separator())
@@ -218,6 +222,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menuOpen = true
         menuReadBegan = ProcessInfo.processInfo.systemUptime
         startFrames()
+        Task { liveTopItem.isHidden = !(await MenuActions.liveTopOffered()) }
         Task {
             await model.refreshLifecycleSupport()
             let full = await model.readFullReport()
@@ -293,7 +298,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openStatusAction() {
-        MenuActions.openStatus()
+        MenuActions.openLive(.status)
+    }
+
+    @objc private func openTopAction() {
+        MenuActions.openLive(.top)
     }
 
     @objc private func openLogsAction() {

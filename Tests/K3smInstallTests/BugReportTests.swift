@@ -118,14 +118,75 @@ struct BugReportTests {
     }
 }
 
-@Suite("status command")
+@Suite("live status commands")
 struct StatusCommandTests {
-    @Test("runs the installed CLI's status, nothing else")
-    func text() throws {
-        let text = StatusCommand.commandText
-        #expect(try shell(["-n", "-c", text]).status == 0)
-        let body = text.split(separator: "\n").filter { !$0.hasPrefix("#") }
-        #expect(body == [#"exec /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" '/Library/k3sm/k3sm' status"#])
+    /// The golden script for one live view, for a CLI at `cli` (already
+    /// shell-quoted) running `arguments`.
+    static func golden(header: String, title: String, hint: String, cli: String, arguments: String, name: String) -> String {
+        """
+        #!/bin/sh
+        # \(header), opened from the k3sm app. It redraws in place until Control-C.
+        printf '\\033]0;%s\\007' '\(title) (live)'
+        echo '\(hint)'
+        trap : INT
+        /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" \(cli) \(arguments)
+        code=$?
+        trap - INT
+        printf '\\033]0;%s\\007' '\(title) (stopped)'
+        if [ "$code" -eq 0 ] || [ "$code" -eq 130 ]; then
+        \techo '\(name) stopped. Close this window, or open it again from the k3sm menu.'
+        \texit 0
+        fi
+        echo "\(name) stopped: k3sm exited with status $code."
+        exit "$code"
+
+        """
+    }
+
+    static let statusHint = "k3sm status, live: refreshes every 2 s. Control-C to stop."
+    static let topHint = "k3sm top, live: refreshes every 2 s. Control-C to stop."
+
+    @Test("both live views run the installed CLI's watch, titled, with a hint and a stopped line")
+    func statusCommandRunsWatch() throws {
+        let status = Self.golden(header: "k3sm status, live", title: "k3sm status", hint: Self.statusHint,
+                                 cli: "'/Library/k3sm/k3sm'", arguments: "status -o wide --watch=2s", name: "k3sm status")
+        let top = Self.golden(header: "k3sm top, live", title: "k3sm top", hint: Self.topHint,
+                              cli: "'/Library/k3sm/k3sm'", arguments: "status top --watch=2s", name: "k3sm top")
+        #expect(StatusCommand.commandText == status)
+        #expect(TopCommand.commandText == top)
+        #expect(StatusCommand.commandName == "k3sm-status.command")
+        #expect(TopCommand.commandName == "k3sm-top.command")
+        // A CLI path with a space or a quote stays one shell word.
+        #expect(StatusCommand.commandText(cliPath: "/Volumes/My Disk/k3sm's/k3sm") == Self.golden(
+            header: "k3sm status, live", title: "k3sm status", hint: Self.statusHint,
+            cli: #"'/Volumes/My Disk/k3sm'\''s/k3sm'"#, arguments: "status -o wide --watch=2s", name: "k3sm status"))
+        #expect(TopCommand.commandText(cliPath: "/Volumes/My Disk/k3sm") == Self.golden(
+            header: "k3sm top, live", title: "k3sm top", hint: Self.topHint,
+            cli: "'/Volumes/My Disk/k3sm'", arguments: "status top --watch=2s", name: "k3sm top"))
+        for text in [StatusCommand.commandText, TopCommand.commandText] {
+            #expect(try shell(["-n", "-c", text]).status == 0)
+        }
+    }
+
+    /// Runs one command against a stand-in CLI at a path with a space, which
+    /// prints its arguments and exits with `code`.
+    static func run(_ command: (String) -> String, code: Int32) throws -> String {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "k3sm live \(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let cli = dir.appending(path: "k3sm").path
+        try "#!/bin/sh\necho \"args: $*\"\nexit \(code)\n".write(toFile: cli, atomically: true, encoding: .utf8)
+        #expect(chmod(cli, 0o755) == 0)
+        return try shell(["-c", command(cli)]).output
+    }
+
+    @Test("the stand-in CLI gets the watch arguments, and the view says when it stopped")
+    func runsAndStops() throws {
+        let interrupted = try Self.run({ StatusCommand.commandText(cliPath: $0) }, code: 130)
+        #expect(interrupted == "\u{1B}]0;k3sm status (live)\u{07}" + Self.statusHint + "\nargs: status -o wide --watch=2s\n"
+            + "\u{1B}]0;k3sm status (stopped)\u{07}k3sm status stopped. Close this window, or open it again from the k3sm menu.\n")
+        let failed = try Self.run({ TopCommand.commandText(cliPath: $0) }, code: 2)
+        #expect(failed.hasSuffix("args: status top --watch=2s\n\u{1B}]0;k3sm top (stopped)\u{07}k3sm top stopped: k3sm exited with status 2.\n"))
     }
 }
 

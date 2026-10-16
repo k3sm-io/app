@@ -113,18 +113,60 @@ public enum BugReport {
     }
 }
 
-/// StatusCommand is the Terminal `.command` behind "Open Status": the full
-/// `k3sm status`, run as the user with the CLI's usual environment.
-public enum StatusCommand {
-    public static let commandName = "k3sm-status.command"
+/// LiveCommand is the Terminal `.command` behind one live view
+/// (`LiveView`): it titles the tab "<view> (live)" with the standard OSC 0
+/// title sequence, prints one hint line, and runs the view's watch as the
+/// user with the CLI's usual environment (`env -i`, the system PATH, the
+/// user's own HOME, USER and LOGNAME) and the quoted CLI path. The shell
+/// survives Control-C (`trap : INT`; the CLI keeps the default handler and
+/// stops) so it can retitle the tab "<view> (stopped)" and print a stopped
+/// line, then exit itself: 0 after Control-C or a clean end, the CLI's own
+/// status otherwise. Nothing in it comes from the app, the CLI or the user.
+public enum LiveCommand {
+    /// The `.command` file name for a view.
+    public static func name(_ view: LiveView) -> String {
+        "k3sm-\(view.rawValue).command"
+    }
 
-    public static var commandText: String {
-        #"""
+    /// The `.command` text for a view, for the CLI at `cliPath`.
+    public static func text(_ view: LiveView, cliPath: String = K3smCLI.path) -> String {
+        let q = ShellQuote.quote
+        precondition(view.arguments.allSatisfy { $0.allSatisfy { $0.isLetter || $0.isNumber || "-=.".contains($0) } },
+                     "fixed arguments that need no quoting")
+        return #"""
             #!/bin/sh
-            # k3sm status, opened from the k3sm app.
-            exec /usr/bin/env -i PATH=\#(K3smCLI.systemPath) HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" \#(ShellQuote.quote(K3smCLI.path)) status
+            # \#(view.name), live, opened from the k3sm app. It redraws in place until Control-C.
+            printf '\033]0;%s\007' \#(q(view.liveTitle))
+            echo \#(q(view.hint))
+            trap : INT
+            /usr/bin/env -i PATH=\#(K3smCLI.systemPath) HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" \#(q(cliPath)) \#(view.arguments.joined(separator: " "))
+            code=$?
+            trap - INT
+            printf '\033]0;%s\007' \#(q(view.stoppedTitle))
+            if [ "$code" -eq 0 ] || [ "$code" -eq 130 ]; then
+            	echo \#(q(view.stoppedLine))
+            	exit 0
+            fi
+            echo "\#(view.name) stopped: k3sm exited with status $code."
+            exit "$code"
             """# + "\n"
     }
+}
+
+/// StatusCommand is the Terminal `.command` behind "Live Status in
+/// Terminal": `k3sm status -o wide --watch=2s`.
+public enum StatusCommand {
+    public static let commandName = LiveCommand.name(.status)
+    public static var commandText: String { commandText(cliPath: K3smCLI.path) }
+    public static func commandText(cliPath: String) -> String { LiveCommand.text(.status, cliPath: cliPath) }
+}
+
+/// TopCommand is the Terminal `.command` behind "Live Top in Terminal":
+/// `k3sm status top --watch=2s`.
+public enum TopCommand {
+    public static let commandName = LiveCommand.name(.top)
+    public static var commandText: String { commandText(cliPath: K3smCLI.path) }
+    public static func commandText(cliPath: String) -> String { LiveCommand.text(.top, cliPath: cliPath) }
 }
 
 /// CommandFile writes a `.command` into a fresh 0700 directory of its own,
