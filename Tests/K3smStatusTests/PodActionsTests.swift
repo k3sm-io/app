@@ -52,6 +52,33 @@ struct PodActionsTests {
         #expect(PodActions.request(.restart, for: testPod("bare")) == nil)
     }
 
+    struct OwnerCase: Sendable, CustomTestStringConvertible {
+        let owner: String?
+        let offered: Bool
+        var testDescription: String { owner ?? "no owner" }
+    }
+
+    static let ownerCases: [OwnerCase] = [
+        OwnerCase(owner: "ReplicaSet web-5f6d", offered: true),
+        OwnerCase(owner: "StatefulSet db", offered: true),
+        OwnerCase(owner: "DaemonSet agent", offered: true),
+        OwnerCase(owner: "Node mac-1", offered: false),
+        OwnerCase(owner: "Job migrate", offered: false),
+        OwnerCase(owner: "CronJob nightly", offered: false),
+        OwnerCase(owner: "Widget w", offered: false),
+        OwnerCase(owner: "replicaset web", offered: false),
+        OwnerCase(owner: "ReplicaSet", offered: false),
+        OwnerCase(owner: " ReplicaSet web", offered: false),
+        OwnerCase(owner: nil, offered: false),
+    ]
+
+    @Test("restart is offered only when the owner recreates the pod", arguments: ownerCases)
+    func restartOnlyForRecreatingOwners(_ c: OwnerCase) {
+        let pod = c.owner.map { ownedPod(owner: $0) } ?? testPod("bare")
+        #expect(PodActions.available(for: pod) == (c.offered ? [.restart] : []))
+        #expect((PodActions.request(.restart, for: pod) != nil) == c.offered)
+    }
+
     @Test("the restart request deletes the confirmed pod without waiting")
     func restartRequestArguments() throws {
         let request = try #require(PodActions.request(.restart, for: ownedPod()))

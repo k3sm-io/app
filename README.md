@@ -126,8 +126,9 @@ turned off.
   The tabs only read. The one change the console makes is the pod
   inspector's **Restart** (below). The app remembers the tab, each tab's
   search and selection, the Workloads switch and the events namespace.
-- **Restart…** in the pod details, shown only for a pod that has an owner (a
-  ReplicaSet, StatefulSet, DaemonSet, Job or other controller), is the
+- **Restart…** in the pod details, shown only for a pod whose owner recreates
+  it (a ReplicaSet, which a Deployment's pods have, a StatefulSet or a
+  DaemonSet), is the
   console's first write. After you confirm, saying the owner will recreate
   the pod, the app runs `k3sm kubectl delete pod <pod> -n <namespace>
   --wait=false` as your own account, by the CLI's absolute path and only
@@ -139,8 +140,9 @@ turned off.
   the app adds no credential and no privilege. The pod's containers stop at
   once and its owner starts a replacement, which may have a new name and run
   on another node. One line under the button says whether the delete was
-  accepted or why it failed, and the pod list is read again. A pod without
-  an owner shows no Restart, since nothing would bring it back.
+  accepted or why it failed, and the pod list is read again. A pod with no
+  owner, or owned by a Job, a Node (a mirror pod) or any other kind, shows
+  no Restart, since nothing is sure to bring it back.
 - A tab that is **reading** says so with a small butterfly, beating: in the
   middle of the tab while its first read runs, and just after the tab's name
   while a later read runs behind the list it already shows. A read that ends

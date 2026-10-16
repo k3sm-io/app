@@ -112,9 +112,24 @@ public enum PodActionReport: Equatable, Sendable {
 /// PodActions decides which actions a pod offers, builds their requests and
 /// reports their runs.
 public enum PodActions {
+    /// The owner kinds whose controller recreates a deleted pod. A Job may
+    /// not (a finished one never does), a Node owns a mirror pod its kubelet
+    /// keeps, and any other kind is not known to recreate one.
+    public static let recreatingOwnerKinds: Set<String> = ["ReplicaSet", "StatefulSet", "DaemonSet"]
+
+    /// The kind in `Pod.owner`'s "Kind name" display string: the text before
+    /// the first space, or nil when there is none. A Kubernetes kind and an
+    /// object name carry no space, so the split is exact; app#53's decode of
+    /// the controller reference replaces this parse.
+    public static func ownerKind(_ owner: String?) -> String? {
+        guard let owner, let space = owner.firstIndex(of: " "), space != owner.startIndex else { return nil }
+        return String(owner[..<space])
+    }
+
     /// The actions offered for a pod, in button order. Restart only for a pod
-    /// with an owner, since nothing recreates a bare pod; nothing for a pod
-    /// whose name or namespace `ResourceName` refuses.
+    /// whose owner recreates it (`recreatingOwnerKinds`), since nothing brings
+    /// back a bare pod; nothing for a pod whose name or namespace
+    /// `ResourceName` refuses.
     public static func available(for pod: Pod) -> [PodAction] {
         PodAction.allCases.filter { request($0, for: pod) != nil }
     }
@@ -126,7 +141,8 @@ public enum PodActions {
         let owner = pod.owner.map(StatusDisplay.clip)
         switch action {
         case .restart:
-            guard let owner, !owner.isEmpty else { return nil }
+            guard let owner, !owner.isEmpty,
+                  let kind = ownerKind(pod.owner), recreatingOwnerKinds.contains(kind) else { return nil }
         }
         return PodActionRequest(action: action, namespace: namespace, pod: name, podKey: pod.key, owner: owner)
     }
