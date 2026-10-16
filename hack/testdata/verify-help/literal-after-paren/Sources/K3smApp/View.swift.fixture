@@ -1,0 +1,6 @@
+struct V: View {
+    var body: some View {
+        Button("Refresh") { refresh() }
+            .help(reason(for: item) ?? "Read the status again")
+    }
+}

@@ -1,0 +1,2 @@
+// The catalog may hold a literal next to a help word: .help("x") in a doc line.
+let doc = ".help(\"the catalog is exempt\")"

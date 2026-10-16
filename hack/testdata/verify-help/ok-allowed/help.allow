@@ -1,0 +1,2 @@
+# reviewed
+Sources/K3smApp/View.swift: Button("Reset", role: .destructive) { reset() } ## alert button; alerts show no help tags

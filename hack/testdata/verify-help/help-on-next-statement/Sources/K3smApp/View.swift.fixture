@@ -1,0 +1,9 @@
+struct V: View {
+    var body: some View {
+        HStack {
+            Toggle("On", isOn: $on)
+            Button("Next") { next() }
+                .help(Help.Tour.next)
+        }
+    }
+}

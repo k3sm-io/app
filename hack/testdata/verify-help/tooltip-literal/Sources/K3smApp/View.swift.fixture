@@ -1,0 +1,5 @@
+final class M {
+    func build() {
+        item.toolTip = "Open the window"
+    }
+}

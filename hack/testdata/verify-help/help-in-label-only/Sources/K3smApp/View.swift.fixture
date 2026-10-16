@@ -1,0 +1,8 @@
+struct V: View {
+    var body: some View {
+        Button { go() } label: {
+            Image(systemName: "gear").help(Help.Strip.settings)
+        }
+        .buttonStyle(.plain)
+    }
+}

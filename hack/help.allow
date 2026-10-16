@@ -1,0 +1,23 @@
+# hack/help.allow -- controls that carry no help tag, each with the reason.
+# Read by hack/verify-help.sh. One control per line:
+#   <path>: <the control's line, trimmed> ## <reason>
+# An entry needs a reason and must match a control the scan finds without a
+# help tag; a stale entry fails the gate. Keep this list short and reviewed.
+
+# The console's one confirmation dialog: macOS draws its buttons in a sheet
+# that shows no help tags, and the dialog's message already says what each does.
+Sources/K3smApp/ActionViews.swift: Button(c.verbTitle, role: c.destructive ? .destructive : nil) { runner.runPending() } ## confirmation dialog button; dialogs show no help tags
+Sources/K3smApp/ActionViews.swift: Button(c.cancelTitle, role: .cancel) { runner.cancel() } ## confirmation dialog button; dialogs show no help tags
+
+# A row's context menu: SwiftUI context-menu items show no help tag on macOS.
+# The inspector's buttons for the same actions carry the catalog's tags.
+Sources/K3smApp/ActionViews.swift: Button(item.title) { ## context menu item; macOS shows no help tag in a context menu
+Sources/K3smApp/ActionViews.swift: Button(item.title, role: item.destructive ? .destructive : nil) { ## context menu item; macOS shows no help tag in a context menu
+
+# Alert and confirmation-dialog buttons in Settings: drawn by the system
+# alert, which shows no help tags; the alert's message says what they do.
+Sources/K3smApp/AdvancedPane.swift: Button("Reset", role: .destructive) { settings.resetDefaults() } ## alert button; alerts show no help tags
+Sources/K3smApp/AdvancedPane.swift: Button("Cancel", role: .cancel) {} ## alert button; alerts show no help tags
+Sources/K3smApp/AdvancedPane.swift: Button("Uninstall", role: .destructive) { model.submitUninstall() } ## confirmation dialog button; dialogs show no help tags
+Sources/K3smApp/GeneralPane.swift: Button("Reset", role: .destructive) { settings.resetLayout() } ## alert button; alerts show no help tags
+Sources/K3smApp/GeneralPane.swift: Button("Cancel", role: .cancel) {} ## alert button; alerts show no help tags

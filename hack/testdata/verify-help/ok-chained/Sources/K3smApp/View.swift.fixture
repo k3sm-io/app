@@ -1,0 +1,31 @@
+struct V: View {
+    var body: some View {
+        VStack {
+            Button("Refresh") { refresh() }
+                .disabled(busy)
+                .help(Help.Popover.refresh)
+            Toggle("On", isOn: $on).help(Help.General.openAtLogin)
+            Button { toggle() } label: {
+                Image(systemName: "info.circle")
+            }
+            .buttonStyle(.plain)
+            // a comment inside the chain
+            .help(Help.Strip.status)
+            Picker("View", selection: $view) {
+                ForEach(views) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .help(Help.Workloads.view)
+            if shown {
+                Button("Close") { close() }.controlSize(.small)
+                    .help(Help.Inspector.summaryClose)
+            }
+            Text("A (paren) and a \"quote\" in a string")
+            // Button("Commented out") {}
+            Stepper("Count", value: $count).help(Help.Inspector.logs)
+            Menu("More") { Button("One") {}.help(Help.Tour.next) }.help(Help.Tour.back)
+            NSMenu(title: "not SwiftUI")
+            RowActionsMenu(menu: menu)
+        }
+    }
+}

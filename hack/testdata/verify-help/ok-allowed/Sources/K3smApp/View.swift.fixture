@@ -1,0 +1,7 @@
+struct V: View {
+    var body: some View {
+        Text("x").alert("Reset?", isPresented: $asking) {
+            Button("Reset", role: .destructive) { reset() }
+        }
+    }
+}

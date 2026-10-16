@@ -19,6 +19,8 @@
 #   9. the vendored status and datavol fixtures match a sibling k3sm
 #      checkout, when one exists
 #  10. the dependency supply-chain check: its self-test, then the live tree
+#  11. every control carries a catalog help tag: the check's self-test, then
+#      the live tree (hack/verify-help.sh, hack/help.allow)
 #
 # K3SM_SWIFTPM_DISABLE_SANDBOX=1 passes --disable-sandbox to every swift
 # package, build and test run. SwiftPM applies its own sandbox when it compiles
@@ -253,5 +255,9 @@ fi
 echo "==> dependency supply-chain (hack/verify-deps.sh)"
 bash hack/verify-deps.sh --self-test
 bash hack/verify-deps.sh
+
+echo "==> help tags (hack/verify-help.sh)"
+bash hack/verify-help.sh --self-test
+bash hack/verify-help.sh
 
 echo "app ci: green"

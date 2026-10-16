@@ -1,0 +1,1 @@
+Sources/K3smApp/View.swift: Button("Gone") { gone() } ## it used to be here

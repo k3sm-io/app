@@ -1,0 +1,5 @@
+struct V: View {
+    var body: some View {
+        Button("Refresh") { refresh() }.help(Help.Popover.refresh)
+    }
+}
