@@ -466,6 +466,8 @@ struct Meter: View {
     let parts: [(Double, Color)]
     let total: Double
     var height: CGFloat = 5
+    /// The track under the parts: the panel's navy, or the light surface's wash.
+    var track: Color = Palette.deep2
 
     var body: some View {
         GeometryReader { geo in
@@ -477,7 +479,7 @@ struct Meter: View {
             }
         }
         .frame(height: height)
-        .background(Palette.deep2)
+        .background(track)
         .clipShape(RoundedRectangle(cornerRadius: height / 2))
     }
 }

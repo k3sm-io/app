@@ -19,10 +19,11 @@ import Foundation
 /// ConsoleRow is one row's identity on a console tab: the kind of row (the
 /// tab it belongs to) and the key the tab's decoder gave it. The key is
 /// always a clipped string (`Pod.key`, `NodeImage.key`, `ServiceRow.key`,
-/// `StorageRow.key`, `ModelRow.key`, or `InspectorDetails.engineRow` for the
+/// `StorageRow.key`, `ModelRow.key`, `NodeRow.key`, or `InspectorDetails.engineRow` for the
 /// Builds tab's engine card), so it is safe to show and to store.
 public enum ConsoleRow: Hashable, Sendable {
     case pod(String)
+    case node(String)
     case image(String)
     case build(String)
     case service(String)
@@ -33,6 +34,7 @@ public enum ConsoleRow: Hashable, Sendable {
     public init(section: ConsoleSection, key: String) {
         switch section {
         case .workloads: self = .pod(key)
+        case .nodes: self = .node(key)
         case .images: self = .image(key)
         case .builds: self = .build(key)
         case .services: self = .service(key)
@@ -45,6 +47,7 @@ public enum ConsoleRow: Hashable, Sendable {
     public var section: ConsoleSection {
         switch self {
         case .pod: return .workloads
+        case .node: return .nodes
         case .image: return .images
         case .build: return .builds
         case .service: return .services
@@ -56,7 +59,7 @@ public enum ConsoleRow: Hashable, Sendable {
     /// The decoder's key for the row.
     public var key: String {
         switch self {
-        case .pod(let k), .image(let k), .build(let k), .service(let k), .claim(let k), .model(let k): return k
+        case .pod(let k), .node(let k), .image(let k), .build(let k), .service(let k), .claim(let k), .model(let k): return k
         }
     }
 }

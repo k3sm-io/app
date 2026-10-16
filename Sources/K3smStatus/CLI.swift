@@ -131,6 +131,21 @@ public enum K3smCLI {
         ["kubectl", "get", "pod", pod.value, "-n", namespace.value, "-o", "jsonpath={.metadata.uid}"]
     }
 
+    /// Cordon and uncordon a node: one fixed kubectl write each, the name
+    /// only as a `ResourceName`.
+    public static func cordonArguments(node: ResourceName) -> [String] {
+        ["kubectl", "cordon", node.value]
+    }
+
+    public static func uncordonArguments(node: ResourceName) -> [String] {
+        ["kubectl", "uncordon", node.value]
+    }
+
+    /// The node's UID, read just before a cordon or uncordon.
+    public static func nodeUIDArguments(node: ResourceName) -> [String] {
+        ["kubectl", "get", "node", node.value, "-o", "jsonpath={.metadata.uid}"]
+    }
+
     /// Deletes one Service without waiting for it to go, the Services tab's
     /// Delete. Only `ResourceName` values reach it.
     public static func deleteServiceArguments(namespace: ResourceName, service: ResourceName) -> [String] {
@@ -313,14 +328,14 @@ public enum PollSchedule {
     }
 
     /// The wait between a console tab's reads while it is selected:
-    /// Workloads at `visibleInterval`, as before tabs; Images at
+    /// Workloads and Nodes at `visibleInterval`, as before tabs; Images at
     /// `imagesInterval`; Builds at `visibleInterval` until the engine is
     /// ready, then `buildsReadyInterval`; Services, Storage and Models at
     /// `objectsInterval`. The shared node list follows the selected tab's
     /// cadence too.
     public static func interval(for section: ConsoleSection, engineReady: Bool) -> Duration {
         switch section {
-        case .workloads: return visibleInterval
+        case .workloads, .nodes: return visibleInterval
         case .images: return imagesInterval
         case .builds: return engineReady ? buildsReadyInterval : visibleInterval
         case .services, .storage, .models: return objectsInterval

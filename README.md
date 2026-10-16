@@ -89,7 +89,8 @@ login** in the app's Settings turns it off or on again (see
   "versions differ", or "versions: some unknown" when a node's version cannot
   be read. The app remembers the choice; a single-node cluster always shows
   This Mac. The panel scrolls in a short window. While the window is open the
-  node list and the selected tab's list are re-read every 5 seconds (every 15
+  node list and the selected tab's list are re-read every 5 seconds (Nodes
+  included; every 15
   seconds on Images, Services, Storage and Models, and on Builds once the
   build engine is ready) and the
   status report is re-read every 30 seconds, so the panel follows nodes as
@@ -131,6 +132,11 @@ login** in the app's Settings turns it off or on again (see
     shows the cluster's events instead, newest first and at most 200, with a
     menu that picks one namespace or all of them. Events are read only while
     that switch is on.
+  - **Nodes**: every node of the cluster, this Mac's first, with its role,
+    whether it is Ready (and "cordoned" when it takes no new pods), its k3sm
+    release and its live load as shares of what it offers ("8% CPU · 20%
+    memory", or "no metrics yet"). It renders the same node list the panel
+    and Images read, so it makes no read of its own.
   - **Images**: the images the nodes report holding, one row per digest;
     until a node reports them the tab says so.
   - **Builds**: the build engine's state, then your build history, newest
@@ -152,7 +158,8 @@ login** in the app's Settings turns it off or on again (see
     failure.
 
   The tabs only read. The changes the console makes are a pod's
-  **Restart** and **Delete**, a service's **Delete**, the Workloads cleanup,
+  **Restart** and **Delete**, a node's **Cordon** and **Uncordon**, a
+  service's **Delete**, the Workloads cleanup,
   a model's **Unload**, **Load** and **Delete**, a claim's **Delete**, the
   Storage cleanup of unused volumes, and the Builds tab's engine, cache and
   build actions (below). The app remembers the tab, each tab's
@@ -231,6 +238,18 @@ login** in the app's Settings turns it off or on again (see
   and Copy. It is never turned into an action, a command or a link. The
   summary is kept per container until its log changes, so asking again
   for an unchanged log shows it without running the model.
+- **Cordon…** and **Uncordon** in the node details (and on the node's row
+  when you Control-click it) are offered by the node's state: Cordon while
+  it takes new pods, Uncordon once it is cordoned. Cordon asks first: it
+  marks the node unschedulable, so no new pods are placed on it, and the pods
+  already there keep running. Uncordon only opens the node again, so it runs
+  on the click. Either first reads the node's UID (`k3sm kubectl get node
+  <name> -o jsonpath={.metadata.uid}`) and changes nothing when the node was
+  recreated under the same name since it was listed; then it runs `k3sm
+  kubectl cordon <name>` or `k3sm kubectl uncordon <name>` and leaves one
+  line under the buttons. A node whose name is not a valid Kubernetes name,
+  or that was listed without a UID, offers neither. Draining a node is not
+  in the app.
 - **Delete completed and failed pods…**, in the strip while Workloads shows
   its pods and some pod has finished, deletes every pod in phase Succeeded
   or Failed, or evicted. The question names how many and in which
@@ -320,7 +339,13 @@ login** in the app's Settings turns it off or on again (see
   other id offers no action.
 - The **details** on the right follow the tab. Click a row on any tab (on
   Builds, the engine card or a build) and its details show there: a pod's facts
-  and its logs, events or manifest; an image's reference, digest, size, the
+  and its logs, events or manifest; a node's role, readiness, whether it
+  takes new pods, kubelet and k3sm versions, addresses, capacity and
+  allocatable, its live CPU and memory bars with the last few CPU samples and
+  the sample's age ("no metrics yet" before metrics-server has sampled it),
+  its conditions (Ready first) with how long ago each last changed and why,
+  its taints, and the pods on it that have not finished with what each uses
+  now; an image's reference, digest, size, the
   nodes holding it and the pods using it; the build engine's state, pod,
   node and cache; a build's image, status, start time, duration, context,
   platform, digest or error, and record id; a service's type, cluster IP, ports, ready endpoints and
@@ -355,7 +380,8 @@ login** in the app's Settings turns it off or on again (see
   no narrower than the row above the list needs for every tab name, the
   Update button while one is offered, the search field at its narrowest and
   the buttons beside it; only a tab name longer than 24 characters would be
-  shortened, at its end.
+  shortened, at its end. With the panel and the details shown that is at
+  most 1440 points, so the window fits the narrowest Mac laptop display.
 - The **window** reopens where you left it, at its size and on its display, after a relaunch too; if that display is gone or the window would sit off the screen, it is moved onto the main display, never smaller than its minimum.
 
 The app reads state only from `k3sm status -o json`, the machine interface the

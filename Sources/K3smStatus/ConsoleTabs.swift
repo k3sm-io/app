@@ -20,6 +20,7 @@ limitations under the License.
 /// the console.
 public enum ConsoleSection: String, CaseIterable, Identifiable, Sendable {
     case workloads
+    case nodes
     case images
     case builds
     case services
@@ -32,6 +33,7 @@ public enum ConsoleSection: String, CaseIterable, Identifiable, Sendable {
     public var title: String {
         switch self {
         case .workloads: return "Workloads"
+        case .nodes: return "Nodes"
         case .images: return "Images"
         case .builds: return "Builds"
         case .services: return "Services"

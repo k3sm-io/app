@@ -392,7 +392,13 @@ struct ClusterDisplayTests {
 struct NodesTests {
     @Test("two nodes decode tolerantly, an invalid name is left out")
     func twoNodes() throws {
-        let nodes = try Nodes.decode(try fixture("kubectl_nodes_two.json"))
+        // The inspector's fields (`NodesTabTests`) are compared there; here the panel's.
+        let nodes = try Nodes.decode(try fixture("kubectl_nodes_two.json")).map {
+            ClusterNode(name: $0.name, ready: $0.ready, kubeletVersion: $0.kubeletVersion, internalIP: $0.internalIP,
+                        controlPlane: $0.controlPlane, capacityMilliCPU: $0.capacityMilliCPU,
+                        allocatableMilliCPU: $0.allocatableMilliCPU, capacityMemoryBytes: $0.capacityMemoryBytes,
+                        allocatableMemoryBytes: $0.allocatableMemoryBytes)
+        }
         #expect(nodes == [
             ClusterNode(
                 name: "mac-a", ready: true, kubeletVersion: "v1.36.2+k3sm.0.1.7", internalIP: "100.64.0.1", controlPlane: true,
@@ -412,7 +418,9 @@ struct NodesTests {
         {"kind":"NodeList","items":[{"metadata":{"name":"n1","labels":"x"},"status":{"capacity":{"cpu":"lots","memory":7},
         "allocatable":{"cpu":"-1","memory":"1e400"},"conditions":[{"type":"Ready"}],"nodeInfo":{"kubeletVersion":""},"addresses":"x"}}]}
         """
-        #expect(try Nodes.decode(Data(json.utf8)) == [ClusterNode(name: "n1", ready: false)])
+        var want = ClusterNode(name: "n1", ready: false)
+        want.conditions = [NodeCondition(type: "Ready", status: "Unknown")]
+        #expect(try Nodes.decode(Data(json.utf8)) == [want])
     }
 
     @Test("a list of another kind is refused by name", arguments: [

@@ -56,6 +56,7 @@ public enum InspectorDetails {
     public static func kind(of section: ConsoleSection) -> String {
         switch section {
         case .workloads: return "pod"
+        case .nodes: return "node"
         case .images: return "image"
         case .builds: return "build"
         case .services: return "service"

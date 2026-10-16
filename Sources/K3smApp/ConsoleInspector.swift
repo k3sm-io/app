@@ -18,7 +18,8 @@ import K3smStatus
 import SwiftUI
 
 /// ConsoleInspector is the right column, following the active tab: the
-/// pod inspector (`Inspector`) on Workloads, and on every other tab the
+/// pod inspector (`Inspector`) on Workloads, the node inspector
+/// (`NodeInspector`) on Nodes, and on every other tab the
 /// selected row's facts (`InspectorDetails`) or the line asking for a
 /// selection. A tab change shows the new tab's own selection
 /// (`ConsoleSelection`), never the row of the tab just left. Each body
@@ -31,6 +32,8 @@ struct ConsoleInspector: View {
         switch app.section {
         case .workloads:
             Inspector(model: app.workloads, runner: app.actions)
+        case .nodes:
+            NodeInspector(app: app, workloads: app.workloads)
         case .images:
             ImageInspector(app: app, workloads: app.workloads)
         case .builds:
@@ -150,6 +153,8 @@ struct RowInspector: View {
     let empty: String
     /// The row's actions and last action's line, under the heading.
     var actions: RowActions?
+    /// Whether it fills the column (false inside the node inspector's scroll).
+    var fillsHeight = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -168,13 +173,13 @@ struct RowInspector: View {
                     }
                 }
                 .padding(.horizontal, 18).padding(.vertical, 12)
-                Spacer()
+                if fillsHeight { Spacer() }
             } else {
                 Text(verbatim: empty).foregroundStyle(Palette.ink2).padding(18)
                 Spacer()
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
         .background(Palette.surface)
     }
 

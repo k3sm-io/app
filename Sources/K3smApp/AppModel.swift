@@ -104,6 +104,11 @@ final class AppModel: ObservableObject {
         from: UserDefaults.standard.object(forKey: ConsoleTabs.queryKey(.models))) {
         didSet { UserDefaults.standard.set(modelsQuery, forKey: ConsoleTabs.queryKey(.models)) }
     }
+    /// The Nodes tab's search, kept in the user defaults like the Workloads tab's.
+    @Published var nodesQuery = ConsoleTabs.restoreQuery(
+        from: UserDefaults.standard.object(forKey: ConsoleTabs.queryKey(.nodes))) {
+        didSet { UserDefaults.standard.set(nodesQuery, forKey: ConsoleTabs.queryKey(.nodes)) }
+    }
     /// The Images tab's search, kept in the user defaults like the Workloads tab's.
     @Published var imagesQuery = ConsoleTabs.restoreQuery(
         from: UserDefaults.standard.object(forKey: ConsoleTabs.queryKey(.images))) {
@@ -285,7 +290,7 @@ final class AppModel: ObservableObject {
             switch section {
             case .workloads:
                 return self.workloadsView == .events ? self.events?.load : self.workloads.pods?.load
-            case .images: return self.workloads.nodeList.load
+            case .nodes, .images: return self.workloads.nodeList.load
             case .builds: return self.builds?.load
             case .services: return self.services?.load
             case .storage: return self.storage?.load
@@ -295,12 +300,15 @@ final class AppModel: ObservableObject {
         waitingObservations.append(workloads.objectWillChange.sink { [weak self] _ in
             MainActor.assumeIsolated { self?.waiting.changed() }
         })
-        // A decoded node list keeps the Images selection only while the
-        // image it names is still listed, as each pod-list read does for
-        // the Workloads selection.
+        // A decoded node list keeps the Nodes and Images selections only
+        // while the node or image each names is still listed, as each
+        // pod-list read does for the Workloads selection.
         workloads.onNodesRead = { [weak self] in
             guard let self else { return }
-            self.actions.tabRead(.images, succeeded: !self.workloads.nodeList.load.failedOrUnavailable)
+            let failed = self.workloads.nodeList.load.failedOrUnavailable
+            self.retainSelection(.nodes)
+            self.actions.tabRead(.nodes, succeeded: !failed)
+            self.actions.tabRead(.images, succeeded: !failed)
             guard let read = self.workloads.nodeList.value,
                   let selected = self.selection.selection(in: .images) else { return }
             if ImagesList.selection(after: selected.key, in: read.images) == nil { self.selection.clear(.images) }
@@ -323,7 +331,7 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             if let loader = self.loader(for: section) {
                 await loader.refresh()
-            } else if section == .images {
+            } else if section == .images || section == .nodes {
                 await self.workloads.nodeList.refresh()
             }
         }
@@ -449,6 +457,7 @@ final class AppModel: ObservableObject {
     private func presentKeys(_ section: ConsoleSection) -> Set<String>? {
         switch section {
         case .workloads: return nil
+        case .nodes: return NodesList.keys(workloads.nodes)
         case .images: return workloads.nodeList.value.flatMap { InspectorDetails.keys(images: $0.images) }
         case .builds:
             guard let history = buildHistory?.value else { return nil }
@@ -469,7 +478,7 @@ final class AppModel: ObservableObject {
     private var engineReady: Bool { builds?.value?.state == .ready }
 
     /// The loader behind a tab, created on its first selection; nil for
-    /// Images, which renders the shared node list.
+    /// Nodes and Images, which render the shared node list.
     private func loader(for section: ConsoleSection) -> (any TabLoading)? {
         if let existing = loaders[section] { return existing }
         let made: (any TabLoading)?
@@ -478,7 +487,7 @@ final class AppModel: ObservableObject {
             let pods = workloads.podsLoader()
             pods.interval = { [weak self] _ in PollSchedule.podsInterval(selected: self?.section == .workloads) }
             made = pods
-        case .images:
+        case .nodes, .images:
             made = nil
         case .builds:
             let engine = observed(TabLoader(
@@ -560,7 +569,7 @@ final class AppModel: ObservableObject {
         case .storage:
             return storage?.value.flatMap(StorageActions.cleanupRequest).map { [ActionMenuItem($0)] } ?? []
         case .builds: return BuildActions.toolbar(builds?.value)
-        case .images, .services, .models: return []
+        case .nodes, .images, .services, .models: return []
         }
     }
 
@@ -572,6 +581,8 @@ final class AppModel: ObservableObject {
         switch row {
         case .pod(let key):
             return workloads.workloads?.pods.first { $0.key == key }.map(PodActions.menu(for:)) ?? .empty
+        case .node(let key):
+            return workloads.nodes?.first { $0.name == key }.map(NodeActions.menu(for:)) ?? .empty
         case .service(let key):
             return services?.value?.first { $0.key == key }.map(ServiceActions.menu(for:)) ?? .empty
         case .model(let key):

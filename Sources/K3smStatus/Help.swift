@@ -51,7 +51,7 @@ public struct HelpTag: Equatable, Sendable {
 public enum Help {
     /// Every tag in the catalog, area by area.
     public static var all: [HelpTag] {
-        Strip.all + Workloads.all + Images.all + Builds.all + Services.all + Storage.all + Models.all
+        Strip.all + Workloads.all + Nodes.all + Images.all + Builds.all + Services.all + Storage.all + Models.all
             + Inspector.all + Actions.all + Panel.all + Popover.all + FirstRun.all + Update.all
             + Tour.all + General.all + Network.all + Advanced.all + SettingsWindow.all + Menus.all
     }
@@ -88,6 +88,7 @@ public enum Help {
             let text: String
             switch section {
             case .workloads: text = "Show the pods and the cluster's events"
+            case .nodes: text = "Show the nodes, their load and their conditions"
             case .images: text = "Show the images the nodes hold"
             case .builds: text = "Show the build engine and the build history"
             case .services: text = "Show the services and the hosts routed to them"
@@ -140,6 +141,35 @@ public enum Help {
                                              control: "workloads: events Age column", label: "Age")
 
         public static var all: [HelpTag] { [view, namespace, cores, memory, runsAs, eventAge] }
+    }
+
+    // MARK: Nodes tab
+
+    /// The Nodes tab's columns and the node inspector's live load.
+    public enum Nodes {
+        /// The Status column header.
+        public static let status = HelpTag("Whether the kubelet reports Ready, and whether new pods may land",
+                                           control: "nodes: Status column", label: "Status")
+        /// The Version column header.
+        public static let version = HelpTag("The k3sm release inside the node's kubelet version",
+                                            control: "nodes: Version column", label: "Version")
+        /// The Load column header.
+        public static let load = HelpTag("CPU and memory used now, from metrics-server, of allocatable",
+                                         control: "nodes: Load column", label: "Load")
+        /// The inspector's live CPU bar.
+        public static let liveCPU = HelpTag("CPU the node uses now, from metrics-server, against allocatable",
+                                            control: "node inspector: live CPU bar")
+        /// The inspector's live memory bar.
+        public static let liveMemory = HelpTag("Memory the node uses now, from metrics-server, against allocatable",
+                                               control: "node inspector: live Memory bar")
+        /// The inspector's CPU sparkline.
+        public static let sparkline = HelpTag("The node's CPU over the last samples, oldest on the left",
+                                              control: "node inspector: CPU sparkline")
+        /// The inspector's per-pod usage.
+        public static let podUsage = HelpTag("CPU and memory the pod uses now, from metrics-server",
+                                             control: "node inspector: pod usage")
+
+        public static var all: [HelpTag] { [status, version, load, liveCPU, liveMemory, sparkline, podUsage] }
     }
 
     // MARK: Images tab
@@ -277,6 +307,8 @@ public enum Help {
             "builder-prune": tag("Free the cache no running build holds", "engine Prune Cache", "Prune Cache"),
             "cleanup": tag("Delete the pods that completed or failed", "workloads cleanup",
                            "Delete completed and failed pods"),
+            "node-cordon": tag("Stop new pods being placed on the node", "node Cordon", "Cordon"),
+            "node-uncordon": tag("Let new pods be placed on the node again", "node Uncordon", "Uncordon"),
             "delete-claim": tag("Delete the claim; its volume follows its reclaim policy", "claim Delete", "Delete"),
             "delete-volumes": tag("Delete volumes that no claim holds", "storage cleanup",
                                   "Delete released and unclaimed volumes"),

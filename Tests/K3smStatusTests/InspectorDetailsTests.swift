@@ -163,7 +163,7 @@ struct InspectorDetailsTests {
     @Test("each tab's empty inspector names its kind")
     func emptyText() {
         let want: [ConsoleSection: String] = [
-            .workloads: "Select a pod.", .images: "Select an image.", .builds: "Select a build.",
+            .workloads: "Select a pod.", .nodes: "Select a node.", .images: "Select an image.", .builds: "Select a build.",
             .services: "Select a service.", .storage: "Select a claim.", .models: "Select a model.",
         ]
         for section in ConsoleSection.allCases {

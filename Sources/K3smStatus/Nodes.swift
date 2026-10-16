@@ -35,6 +35,19 @@ public struct ClusterNode: Equatable, Sendable {
     public let allocatableMilliCPU: Int64?
     public let capacityMemoryBytes: Int64?
     public let allocatableMemoryBytes: Int64?
+    /// The pods the node may hold, as its capacity and allocatable say.
+    public var capacityPods: Int?
+    public var allocatablePods: Int?
+    /// The node's UID, "" when the list carried none (then it offers no action).
+    public var uid: String = ""
+    /// `spec.unschedulable`: true once the node is cordoned.
+    public var unschedulable = false
+    /// Every address the node reports, in its order.
+    public var addresses: [NodeAddress] = []
+    /// Every condition the node reports, in its order.
+    public var conditions: [NodeCondition] = []
+    /// The node's taints, in its order.
+    public var taints: [NodeTaint] = []
 
     public init(
         name: String, ready: Bool?, kubeletVersion: String? = nil, internalIP: String? = nil, controlPlane: Bool = false,
@@ -63,6 +76,60 @@ public struct ClusterNode: Equatable, Sendable {
         if controlPlane { return NodeRole.server.rawValue }
         if let ownNode, ownNode == name, !ownRole.isEmpty { return ownRole }
         return NodeRole.agent.rawValue
+    }
+}
+
+/// NodeAddress is one of a node's addresses: its type ("InternalIP",
+/// "Hostname") and the address, both clipped.
+public struct NodeAddress: Equatable, Sendable {
+    public let type: String
+    public let address: String
+
+    public init(type: String, address: String) {
+        self.type = type
+        self.address = address
+    }
+}
+
+/// NodeCondition is one of a node's conditions as the kubelet reports it:
+/// its type, status ("True", "False", "Unknown"), reason and when its
+/// status last changed. Every string is clipped.
+public struct NodeCondition: Equatable, Sendable {
+    public let type: String
+    public let status: String
+    public let reason: String?
+    public let lastTransition: Date?
+
+    public init(type: String, status: String, reason: String? = nil, lastTransition: Date? = nil) {
+        self.type = type
+        self.status = status
+        self.reason = reason
+        self.lastTransition = lastTransition
+    }
+
+    /// Whether the condition reads as healthy: Ready when True, every other
+    /// type (a pressure, NetworkUnavailable) when False.
+    public var healthy: Bool {
+        type == "Ready" ? status == "True" : status == "False"
+    }
+}
+
+/// NodeTaint is one of a node's taints: its key, value and effect, clipped.
+public struct NodeTaint: Equatable, Sendable {
+    public let key: String
+    public let value: String?
+    public let effect: String
+
+    public init(key: String, value: String? = nil, effect: String) {
+        self.key = key
+        self.value = value
+        self.effect = effect
+    }
+
+    /// The taint as kubectl writes it: "key=value:Effect", or "key:Effect".
+    public var text: String {
+        let head = value.map { "\(key)=\($0)" } ?? key
+        return effect.isEmpty ? head : "\(head):\(effect)"
     }
 }
 
@@ -111,11 +178,39 @@ public enum Nodes {
         let ip = addresses.first { ($0["type"] as? String) == "InternalIP" }?["address"] as? String
         let capacity = status["capacity"] as? [String: Any] ?? [:]
         let allocatable = status["allocatable"] as? [String: Any] ?? [:]
-        return ClusterNode(
+        let spec = item["spec"] as? [String: Any] ?? [:]
+        var node = ClusterNode(
             name: name.value, ready: ready, kubeletVersion: version, internalIP: ip,
             controlPlane: labels[controlPlaneLabel] != nil,
             capacityMilliCPU: milliCPU(capacity["cpu"]), allocatableMilliCPU: milliCPU(allocatable["cpu"]),
             capacityMemoryBytes: bytes(capacity["memory"]), allocatableMemoryBytes: bytes(allocatable["memory"]))
+        node.capacityPods = count(capacity["pods"])
+        node.allocatablePods = count(allocatable["pods"])
+        node.uid = (metadata["uid"] as? String).map(StatusDisplay.clip) ?? ""
+        node.unschedulable = KubeList.bool(spec, "unschedulable") ?? false
+        node.addresses = addresses.compactMap { address in
+            guard let value = KubeList.string(address, "address") else { return nil }
+            return NodeAddress(type: StatusDisplay.clip(KubeList.string(address, "type") ?? ""), address: StatusDisplay.clip(value))
+        }
+        node.conditions = conditions.compactMap { condition in
+            guard let type = KubeList.string(condition, "type") else { return nil }
+            return NodeCondition(
+                type: StatusDisplay.clip(type), status: StatusDisplay.clip(KubeList.string(condition, "status") ?? "Unknown"),
+                reason: KubeList.string(condition, "reason").map(StatusDisplay.clip),
+                lastTransition: KubeList.time(KubeList.string(condition, "lastTransitionTime")))
+        }
+        node.taints = KubeList.array(spec, "taints").compactMap { taint in
+            guard let key = KubeList.string(taint, "key") else { return nil }
+            return NodeTaint(key: StatusDisplay.clip(key), value: KubeList.string(taint, "value").map(StatusDisplay.clip),
+                             effect: StatusDisplay.clip(KubeList.string(taint, "effect") ?? ""))
+        }
+        return node
+    }
+
+    /// A whole, non-negative count quantity ("110"), or nil.
+    static func count(_ value: Any?) -> Int? {
+        guard let text = value as? String, let n = Int(text), n >= 0 else { return nil }
+        return n
     }
 
     /// A CPU quantity as millicores, or nil when it is not a string quantity.

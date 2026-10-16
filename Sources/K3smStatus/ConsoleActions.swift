@@ -116,6 +116,10 @@ public protocol ConsoleActionRequest: Sendable, Identifiable where ID == String 
     /// action that only reads (a dry run) or removes nothing (starting the
     /// build engine) runs on the click.
     var asksFirst: Bool { get }
+    /// Whether the action's menu item and button end in an ellipsis: true
+    /// when more is asked after the click (its confirmation, or the action
+    /// it leads to), false for one that runs on the click and leads nowhere.
+    var titleEllipsis: Bool { get }
     /// The action asked for next, built from this action's last run (a
     /// prune's dry run leads to the prune it measured, a reset's delete to
     /// its start); it asks its own confirmation when it `asksFirst`. Nil
@@ -130,6 +134,7 @@ extension ConsoleActionRequest {
     public func report(runs: [ActionRun]) -> ActionOutcome { report(runs.first ?? .noAnswer) }
     public var deadline: Duration { PollSchedule.actionDeadline }
     public var asksFirst: Bool { true }
+    public var titleEllipsis: Bool { true }
     public func next(after run: ActionRun) -> (any ConsoleActionRequest)? { nil }
 }
 
@@ -143,8 +148,9 @@ public struct ActionMenuItem: Identifiable, Sendable {
     }
 
     public var id: String { request.id }
-    /// The item's title: the verb, with an ellipsis since it asks first.
-    public var title: String { request.confirmation.verbTitle + "…" }
+    /// The item's title: the verb, with an ellipsis when more is asked
+    /// after the click (`titleEllipsis`).
+    public var title: String { request.confirmation.verbTitle + (request.titleEllipsis ? "…" : "") }
     public var destructive: Bool { request.confirmation.destructive }
     public var kind: ActionKind { request.kind }
 }

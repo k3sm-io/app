@@ -138,6 +138,7 @@ struct ConsoleContent: View {
     private var section: some View {
         switch app.section {
         case .workloads: WorkloadsTab(app: app).tourTarget(.pods, app.tour)
+        case .nodes: NodesSection(app: app, workloads: app.workloads)
         case .images: ImagesSection(app: app, workloads: app.workloads)
         case .builds:
             if let builds = app.builds, let history = app.buildHistory {
@@ -205,6 +206,7 @@ struct ConsoleStrip: View {
                 if app.workloadsView == .pods {
                     search($workloads.query)
                 }
+            case .nodes: search($app.nodesQuery)
             case .images: search($app.imagesQuery)
             case .services: search($app.servicesQuery)
             case .storage: search($app.storageQuery)
