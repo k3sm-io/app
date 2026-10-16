@@ -52,11 +52,12 @@ public enum UpdateConfirmationText {
 
     public static let cancel = "k3sm stops the update before the next node. Nodes already updated keep the release they run now."
     /// What `k3sm update abort` leaves, as `cmd/k3sm/update.go`
-    /// (`runUpdateAbort`) does it: the Update is marked Cancelled, not
-    /// deleted; no node's release changes; every `k3sm.io/update-*`
+    /// (`runUpdateAbort`) does it: an unfinished Update is marked Cancelled,
+    /// not deleted; one that already Succeeded or was Cancelled is left as it
+    /// is; with no Update, only the nodes are released; no node's release changes; every `k3sm.io/update-*`
     /// annotation is removed, and a cordon is lifted only where the
     /// controller's `k3sm.io/update-cordoned` says the controller set it.
-    public static let abort = "k3sm ends the update now and marks it Cancelled; it stays on record until the next update replaces it. Nothing is rolled back: every node keeps the release it runs, and a node already installing may still finish. On every node k3sm clears the update's annotations and lifts the cordon the update set. A node you cordoned yourself stays cordoned."
+    public static let abort = "k3sm ends the update now. An unfinished update is marked Cancelled and stays on record until the next update replaces it; one that already succeeded or was cancelled is left as it is; with no update on record, only the nodes are released. Nothing is rolled back: every node keeps the release it runs, and a node already installing may still finish. On every node k3sm clears the update's annotations and lifts the cordon the update set. A node you cordoned yourself stays cordoned."
 }
 
 /// UpdatePrecondition decides, from a status report read just now, whether

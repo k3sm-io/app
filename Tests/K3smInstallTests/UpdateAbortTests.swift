@@ -102,7 +102,8 @@ struct UpdateAbortTests {
         #expect(c.cancelTitle == "Don't Abort" && c.cancelIsDefault)
         #expect(c.warning == nil && c.update == nil && !c.offersDowngrade)
         // Each thing `runUpdateAbort` does, and does not do, is named.
-        for words in ["marks it Cancelled", "stays on record until the next update replaces it", "Nothing is rolled back",
+        for words in ["An unfinished update is marked Cancelled", "already succeeded or was cancelled is left as it is",
+                      "with no update on record, only the nodes are released", "stays on record until the next update replaces it", "Nothing is rolled back",
                       "every node keeps the release it runs", "a node already installing may still finish",
                       "clears the update's annotations", "lifts the cordon the update set", "A node you cordoned yourself stays cordoned"] {
             #expect(c.message.contains(words), "the question does not say: \(words)")
@@ -114,7 +115,7 @@ struct UpdateAbortTests {
         let runner = LANRunner()
         let asked = Questions()
         let result = await ManagedUpdateTests.driver(StatusSequence([]), runner: runner, answer: true, asked: asked).abort()
-        #expect(result == .ran(.notStarted, .succeeded, "k3sm ended the update. Nothing was rolled back: every node keeps the release it runs, and a node already installing may still finish."))
+        #expect(result == .ran(.notStarted, .succeeded, "k3sm released every node from the update, and marked an unfinished update Cancelled. Nothing was rolled back: every node keeps the release it runs, and a node already installing may still finish."))
         #expect(asked.all.map(\.title) == ["Abort the update?"])
         #expect(runner.scripts == [LifecycleScriptBuilder.render(.updateAbort, teamID: Self.team)])
 
@@ -127,7 +128,7 @@ struct UpdateAbortTests {
     func outcomes() {
         // A successful abort claims no more than the question did.
         let done = LifecycleOutcome.text(.succeeded, verb: .updateAbort)
-        #expect(done == "k3sm ended the update. Nothing was rolled back: every node keeps the release it runs, and a node already installing may still finish.")
+        #expect(done == "k3sm released every node from the update, and marked an unfinished update Cancelled. Nothing was rolled back: every node keeps the release it runs, and a node already installing may still finish.")
         for words in ["Nothing was rolled back", "every node keeps the release it runs", "a node already installing may still finish"] {
             #expect(done.contains(words) && UpdateConfirmationText.abort.lowercased().contains(words.lowercased().replacingOccurrences(of: "was", with: "is")),
                     "the outcome and the question disagree on: \(words)")

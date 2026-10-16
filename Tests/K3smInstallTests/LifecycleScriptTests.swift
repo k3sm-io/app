@@ -75,6 +75,8 @@ struct LifecycleScriptTests {
     func fixedVerbs() {
         #expect(LifecycleScriptBuilder.FixedVerb.allCases.map(\.verb) == LifecycleVerb.allCases.filter { $0 != .updateApply })
         #expect(LifecycleScriptBuilder.FixedVerb(.updateApply) == nil)
+        #expect(LifecycleScriptBuilder.FixedVerb(rawValue: "update-apply") == nil)
+        #expect(!LifecycleScriptBuilder.FixedVerb.allCases.contains { $0.rawValue == "update-apply" })
         #expect(LifecycleVerb.allCases.allSatisfy { v in LifecycleScriptBuilder.FixedVerb(v).map { $0.verb == v } ?? (v == .updateApply) })
     }
 

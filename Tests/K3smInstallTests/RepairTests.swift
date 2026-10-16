@@ -175,14 +175,17 @@ struct RepairTests {
             + "which may not be the account running this app.\n\n"
             + "k3sm refuses the repair, and the log says why, when no daemon on this Mac says which role it has, "
             + "when the installed release is newer than this app's or its version cannot be read or is not a release, "
-            + "when the installed command is signed by another team, or when a worker's node credential is no longer valid.")
+            + "when the installed command is signed by another team, or when a worker's node credential is no longer valid. "
+            + "Repair names no account, so k3sm also refuses when both daemon plists are on disk, because the role is ambiguous "
+            + "(uninstall, then install the role this Mac should have), and, on a control plane, when its arguments record names no admin "
+            + "kubeconfig, or the owner of that kubeconfig cannot be read or is root (run the install again from Terminal with --user).")
 
         let agent = RepairConfirmation(payload: Self.v020, role: .agent)
         #expect(agent.message.contains("\n\nThis Mac stays a worker of the control plane its daemon joins, with its node credential "
             + "and the other arguments its daemon runs with, and its data is kept. An explicit node IP it was installed with is not "
             + "passed again: the worker uses the address the control plane assigned it.\n\n"))
         #expect(!agent.message.contains("control plane, with the server arguments"))
-        #expect(!agent.message.contains("kubeconfig"))
+        #expect(!agent.message.contains("admin kubeconfig is written"))
         #expect(!server.message.contains("node credential and"))
 
         // With the role unknown, both, each named.
@@ -192,6 +195,41 @@ struct RepairTests {
         for c in [server, agent, unknown] {
             #expect(c.message.hasSuffix(RepairConfirmation.refusals))
         }
+    }
+
+    /// Every case the CLI refuses or keeps, read from k3sm's own source, is
+    /// named in the text the app shows before the administrator prompt.
+    @Test("the root-step questions name every case the CLI refuses or keeps",
+          .enabled(if: LifecycleScriptTests.cliDirectory != nil))
+    func rootStepConfirmationsMatchTheCLI() throws {
+        let cli = try #require(LifecycleScriptTests.cliDirectory)
+        let inplace = try String(contentsOf: cli.deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "pkg/install/inplace.go"), encoding: .utf8)
+        let update = try String(contentsOf: cli.appending(path: "update.go"), encoding: .utf8)
+
+        // Repair: the refusals a no-account repair raises.
+        #expect(inplace.contains("are on disk, so the role to update in place is ambiguous"))
+        #expect(inplace.contains("does not record which admin kubeconfig the last install wrote"))
+        #expect(inplace.contains("no way to read the owner of"))
+        #expect(inplace.contains("is unusable") && inplace.contains("u == \"root\""))
+        #expect(inplace.contains("run the install again with --user"))
+        let refusals = RepairConfirmation.refusals
+        for words in ["both daemon plists are on disk", "the role is ambiguous",
+                      "names no admin kubeconfig", "cannot be read or is root", "from Terminal with --user"] {
+            #expect(refusals.contains(words), "the repair question does not say: \(words)")
+        }
+
+        // Abort: the three cases runUpdateAbort distinguishes.
+        let abort = try #require(UpdateAbortTests.body(of: "runUpdateAbort", in: update))
+        #expect(abort.contains("case u == nil:") && abort.contains("releasing the nodes only"))
+        #expect(abort.contains("updatectl.ReasonSucceeded") && abort.contains("updatectl.ReasonCancelled") && abort.contains("left as it is"))
+        #expect(abort.contains("Marked the Update"))
+        let text = UpdateConfirmationText.abort
+        for words in ["An unfinished update is marked Cancelled", "already succeeded or was cancelled is left as it is",
+                      "with no update on record, only the nodes are released"] {
+            #expect(text.contains(words), "the abort question does not say: \(words)")
+        }
+        #expect(!text.contains("and marks it Cancelled"))
     }
 
     @Test("a failed repair points at the log")
