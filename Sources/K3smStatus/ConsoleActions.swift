@@ -95,6 +95,10 @@ public protocol ConsoleActionRequest: Sendable, Identifiable where ID == String 
     var kind: ActionKind { get }
     /// The CLI arguments the action runs.
     var arguments: [String] { get }
+    /// Every CLI run the action makes, in order; most make one, `arguments`.
+    /// The runner makes them all, whatever each one's outcome, and reports
+    /// them together through `report(runs:)`.
+    var runs: [[String]] { get }
     /// The read run just before the action, or nil when it has none.
     var precheckArguments: [String]? { get }
     /// The question asked before it runs.
@@ -104,11 +108,15 @@ public protocol ConsoleActionRequest: Sendable, Identifiable where ID == String 
     func precheck(_ run: ActionRun) -> ActionOutcome?
     /// The line shown after the action's run.
     func report(_ run: ActionRun) -> ActionOutcome
+    /// The line shown after all of `runs`, one `ActionRun` each, in order.
+    func report(runs: [ActionRun]) -> ActionOutcome
 }
 
 extension ConsoleActionRequest {
     public var precheckArguments: [String]? { nil }
     public func precheck(_ run: ActionRun) -> ActionOutcome? { nil }
+    public var runs: [[String]] { [arguments] }
+    public func report(runs: [ActionRun]) -> ActionOutcome { report(runs.first ?? .noAnswer) }
 }
 
 /// ActionMenuItem is one action a row offers, as the row's context menu,
@@ -135,6 +143,29 @@ public struct ActionMenuItem: Identifiable, Sendable {
 public enum LocalAction: Equatable, Sendable {
     case copy(String)
     case open(URL)
+    /// A shell in one container of a pod, opened in Terminal
+    /// (`PodShellCommand`), only for a CLI that passes its trust check then.
+    case openShell(PodShell)
+}
+
+/// PodShell is the one container a Terminal shell opens in: the pod, its
+/// namespace and the container, each only as a `ResourceName`.
+public struct PodShell: Equatable, Sendable {
+    public let namespace: ResourceName
+    public let pod: ResourceName
+    public let container: ResourceName
+
+    public init(namespace: ResourceName, pod: ResourceName, container: ResourceName) {
+        self.namespace = namespace
+        self.pod = pod
+        self.container = container
+    }
+
+    /// The alert shown when the installed CLI failed its trust check, so no
+    /// shell was opened; `why` passes `errorText`.
+    public static func refusedAlert(why: String) -> (title: String, text: String) {
+        ("k3sm will not run the installed k3sm", "It failed the app's check: \(StatusDisplay.errorText(why)).")
+    }
 }
 
 /// LocalMenuItem is one local action a row offers. It asks nothing first,
@@ -167,6 +198,11 @@ public struct ActionMenu: Sendable {
     }
 
     public static let empty = ActionMenu([])
+
+    /// The row key of an action over many rows (a tab's bulk action). No
+    /// row's key starts with "*", since every key is built from names
+    /// `ResourceName` or the decoders accept.
+    public static let bulkRowKey = "*bulk"
 
     public var isEmpty: Bool { items.isEmpty && local.isEmpty }
 

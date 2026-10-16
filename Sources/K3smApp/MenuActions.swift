@@ -20,7 +20,8 @@ import K3smStatus
 
 /// MenuActions are the menu's unprivileged actions. Logs open through
 /// NSWorkspace on k3sm's fixed paths, never a shell; the live status and top
-/// views and the bug report are static `.command` files written into a fresh
+/// views and the bug report are static `.command` files, and a pod's shell a
+/// `.command` built from checked names, written into a fresh
 /// 0700 directory and opened in Terminal.
 @MainActor
 enum MenuActions {
@@ -96,6 +97,21 @@ enum MenuActions {
             device: Int64(st.st_dev), inode: UInt64(st.st_ino), size: Int64(st.st_size),
             modified: Int64(st.st_mtimespec.tv_sec), modifiedNanos: Int64(st.st_mtimespec.tv_nsec),
             changed: Int64(st.st_ctimespec.tv_sec), changedNanos: Int64(st.st_ctimespec.tv_nsec))
+    }
+
+    /// Opens a shell in one container of a pod in Terminal
+    /// (`PodShellCommand`), only for a CLI that passes its trust check just
+    /// now. The CLI runs there as the user, under `env -i`.
+    static func openShell(_ shell: PodShell) {
+        Task {
+            if case .refused(let why) = await trustNow() {
+                let alert = PodShell.refusedAlert(why: why)
+                AppModel.alert(title: alert.title, text: alert.text)
+                return
+            }
+            openCommand(PodShellCommand.commandText(shell), named: PodShellCommand.commandName)
+            log.notice("console: open-shell opened")
+        }
     }
 
     /// Writes a bug report: Terminal runs the collector, which writes the

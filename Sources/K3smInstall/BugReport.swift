@@ -169,6 +169,39 @@ public enum TopCommand {
     public static func commandText(cliPath: String) -> String { LiveCommand.text(.top, cliPath: cliPath) }
 }
 
+/// PodShellCommand is the Terminal `.command` behind a pod's Open shell in
+/// Terminal: `k3sm kubectl exec -it <pod> -n <namespace> -c <container> --
+/// sh`, run as the user with the CLI's usual environment (`env -i`, the
+/// quoted absolute CLI path, as `StatusCommand`). When the container has no
+/// `sh` on its PATH (exec exits 126 or 127), it tries `/bin/sh` once. Every
+/// name is a `ResourceName`, and each is shell-quoted as well.
+public enum PodShellCommand {
+    public static let commandName = "k3sm-shell.command"
+
+    /// The exec's argv after the CLI path, for the given shell.
+    public static func arguments(_ shell: PodShell, program: String) -> [String] {
+        ["kubectl", "exec", "-it", shell.pod.value, "-n", shell.namespace.value, "-c", shell.container.value, "--", program]
+    }
+
+    public static func commandText(_ shell: PodShell) -> String {
+        let q = ShellQuote.quote
+        let run = #"/usr/bin/env -i PATH=\#(K3smCLI.systemPath) HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" \#(q(K3smCLI.path))"#
+        let first = arguments(shell, program: "sh").map(q).joined(separator: " ")
+        let fallback = arguments(shell, program: "/bin/sh").map(q).joined(separator: " ")
+        return #"""
+            #!/bin/sh
+            # A shell in a k3sm pod, opened from the k3sm app.
+            \#(run) \#(first)
+            status=$?
+            if [ "$status" -eq 126 ] || [ "$status" -eq 127 ]; then
+            	echo 'sh was not found in the container; trying /bin/sh.'
+            	exec \#(run) \#(fallback)
+            fi
+            exit "$status"
+            """# + "\n"
+    }
+}
+
 /// CommandFile writes a `.command` into a fresh 0700 directory of its own,
 /// created with `mkdtemp` under `base`, as a new 0700 file (never following
 /// or replacing an existing one), and returns its path.

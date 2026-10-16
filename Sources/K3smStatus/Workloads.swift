@@ -167,6 +167,11 @@ public struct Pod: Equatable, Sendable {
     /// The node the pod is bound to (`spec.nodeName`), nil until it is
     /// scheduled or when the API served a name `ResourceName` refuses.
     public let nodeName: String?
+    /// The containers' names, in the spec's order (an absent name is "").
+    public var containers: [String] = []
+    /// The pod's own status reason (`status.reason`, "Evicted" for an
+    /// evicted pod), "" when it has none.
+    public var reason: String = ""
 
     /// The name the kubectl detail calls take, or nil when the API served a name
     /// the app refuses to put on a command line.
@@ -259,6 +264,7 @@ struct PodWire: Decodable {
         struct Container: Decodable {
             struct Port: Decodable { let containerPort: Int }
             struct Resources: Decodable { let requests: [String: String]? }
+            let name: String?
             let image: String?
             let ports: [Port]?
             let resources: Resources?
@@ -305,6 +311,8 @@ extension Pod {
         let mem = wire.spec.containers.compactMap { $0.resources?.requests?["memory"] }.compactMap(Quantity.bytes)
         memoryRequest = mem.isEmpty ? nil : Quantity.sum(mem)
         nodeName = wire.spec.nodeName.flatMap(ResourceName.init)?.value
+        containers = wire.spec.containers.map { $0.name ?? "" }
+        reason = wire.status?.reason ?? ""
         let statuses = wire.status?.containerStatuses ?? []
         ready = !statuses.isEmpty && statuses.allSatisfy(\.ready)
         restarts = statuses.reduce(0) { total, status in

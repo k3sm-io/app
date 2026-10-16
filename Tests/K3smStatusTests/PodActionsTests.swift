@@ -224,6 +224,59 @@ struct PodDeleteTests {
     }
 }
 
+@Suite("the pod's local actions")
+struct PodLocalActionsTests {
+    @Test("copy name and copy namespace/name put the checked names on the pasteboard")
+    func copyActions() {
+        let items = PodActions.localActions(for: ownedPod())
+        #expect(items.map(\.title) == ["Copy Name", "Copy Namespace/Name"])
+        #expect(items.map(\.action) == [.copy("web-1"), .copy("shop/web-1")])
+        #expect(PodActions.menu(for: ownedPod()).local == items)
+        #expect(PodActions.localActions(for: ownedPod(name: "--all")).isEmpty)
+        #expect(PodActions.menu(for: ownedPod(name: "--all")).isEmpty)
+    }
+
+    @Test("open shell is offered only for a running pod whose first container's name passes the guard")
+    func openShellOffer() throws {
+        var running = ownedPod()
+        running.containers = ["app", "sidecar"]
+        let shell = try #require(PodActions.localActions(for: running).last)
+        #expect(shell.title == "Open Shell in Terminal")
+        let want = PodShell(namespace: try #require(ResourceName("shop")), pod: try #require(ResourceName("web-1")),
+                            container: try #require(ResourceName("app")))
+        #expect(shell.action == .openShell(want))
+        for phase in ["Pending", "Succeeded", "Failed", "Unknown", ""] {
+            let pod = Pod(name: "web-1", namespace: "shop", uid: "u", image: "", kind: .nativeProcess, phase: phase,
+                          health: .waiting(""), ready: false, restarts: 0, ports: [], owner: nil, created: nil,
+                          cpuRequest: nil, memoryRequest: nil, nodeName: nil, containers: ["app"])
+            #expect(PodActions.localActions(for: pod).count == 2, "phase \(phase)")
+        }
+        var hostile = ownedPod()
+        hostile.containers = ["--privileged"]
+        #expect(PodActions.localActions(for: hostile).count == 2)
+        #expect(PodActions.localActions(for: ownedPod()).count == 2)
+    }
+
+    @Test("a refused CLI's alert cleans the check's text")
+    func refusedAlert() {
+        let alert = PodShell.refusedAlert(why: "owned by\nmallory\u{202E}")
+        #expect(alert.title == "k3sm will not run the installed k3sm")
+        #expect(alert.text == "It failed the app's check: owned by mallory.")
+    }
+
+    @Test("the decoder keeps the container names and the pod's status reason")
+    func decodesContainersAndReason() throws {
+        let json = """
+            {"kind":"PodList","items":[{"metadata":{"name":"web-1","namespace":"shop","uid":"u1"},
+             "spec":{"containers":[{"name":"app","image":"a"},{"name":"log","image":"b"}]},
+             "status":{"phase":"Failed","reason":"Evicted"}}]}
+            """
+        let pod = try #require(try Workloads.decode(Data(json.utf8)).pods.first)
+        #expect(pod.containers == ["app", "log"])
+        #expect(pod.reason == "Evicted")
+    }
+}
+
 /// An owned pod in the shop namespace, by default the ReplicaSet's.
 private func ownedPod(name: String = "web-1", namespace: String = "shop", owner: String = "ReplicaSet web-5f6d") -> Pod {
     Pod(name: name, namespace: namespace, uid: "\(namespace)-\(name)", image: "registry.local/app:1", kind: .nativeProcess,

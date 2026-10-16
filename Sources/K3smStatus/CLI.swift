@@ -120,6 +120,20 @@ public enum K3smCLI {
         ["kubectl", "get", "service", service.value, "-n", namespace.value, "-o", "jsonpath={.metadata.uid}"]
     }
 
+    /// Deletes several pods of one namespace in one run, without waiting:
+    /// the Workloads cleanup, one run per namespace. Only `ResourceName`
+    /// values reach it.
+    public static func deletePodsArguments(namespace: ResourceName, pods: [ResourceName]) -> [String] {
+        ["kubectl", "delete", "pod"] + pods.map(\.value) + ["-n", namespace.value, "--wait=false"]
+    }
+
+    /// Every pod's "namespace/name uid", one per line, read just before the
+    /// cleanup so it deletes only the pods the user confirmed.
+    public static let podUIDsArguments = [
+        "kubectl", "get", "pods", "-A", "-o",
+        #"jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name} {.metadata.uid}{"\n"}{end}"#,
+    ]
+
     /// The PATH every CLI run gets: system directories only.
     public static let systemPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 

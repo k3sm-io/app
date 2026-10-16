@@ -190,6 +190,43 @@ struct StatusCommandTests {
     }
 }
 
+@Suite("pod shell command")
+struct PodShellCommandTests {
+    static let target = PodShell(namespace: ResourceName("shop")!, pod: ResourceName("web-1")!, container: ResourceName("app")!)
+
+    @Test("execs sh in the named container through the installed CLI, falling back to /bin/sh")
+    func podShellCommandGolden() throws {
+        let text = PodShellCommand.commandText(Self.target)
+        #expect(try shell(["-n", "-c", text]).status == 0)
+        let run = #"/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" '/Library/k3sm/k3sm'"#
+        #expect(text == """
+            #!/bin/sh
+            # A shell in a k3sm pod, opened from the k3sm app.
+            \(run) 'kubectl' 'exec' '-it' 'web-1' '-n' 'shop' '-c' 'app' '--' 'sh'
+            status=$?
+            if [ "$status" -eq 126 ] || [ "$status" -eq 127 ]; then
+            \techo 'sh was not found in the container; trying /bin/sh.'
+            \texec \(run) 'kubectl' 'exec' '-it' 'web-1' '-n' 'shop' '-c' 'app' '--' '/bin/sh'
+            fi
+            exit "$status"
+
+            """)
+        #expect(PodShellCommand.arguments(Self.target, program: "sh")
+            == ["kubectl", "exec", "-it", "web-1", "-n", "shop", "-c", "app", "--", "sh"])
+        #expect(PodShellCommand.commandName.hasSuffix(".command"))
+    }
+
+    @Test("the exec reaches the CLI as exactly that argv")
+    func argvAsTheShellSeesIt() throws {
+        // Swap the CLI for printf to see the words /bin/sh hands it.
+        let text = PodShellCommand.commandText(Self.target)
+            .replacingOccurrences(of: "'/Library/k3sm/k3sm'", with: "/usr/bin/printf '%s\\n'")
+        let out = try shell(["-c", text])
+        #expect(out.output.split(separator: "\n").map(String.init)
+            == ["kubectl", "exec", "-it", "web-1", "-n", "shop", "-c", "app", "--", "sh"])
+    }
+}
+
 @Suite("command files")
 struct CommandFileTests {
     static func base() throws -> String {

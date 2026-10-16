@@ -521,10 +521,13 @@ final class AppModel: ObservableObject {
     }
 
     /// The bulk actions the selected tab's toolbar offers. The slot is there
-    /// for every tab; no tab fills it yet.
+    /// for every tab; Workloads offers the cleanup (`PodCleanup`) while it
+    /// shows its pods.
     var bulkActions: [ActionMenuItem] {
         switch section {
-        case .workloads, .images, .builds, .services, .storage, .models: return []
+        case .workloads:
+            return workloadsView == .pods ? PodCleanup.bulkActions(for: workloads.workloads?.pods) : []
+        case .images, .builds, .services, .storage, .models: return []
         }
     }
 

@@ -19,8 +19,9 @@ import K3smStatus
 import SwiftUI
 
 /// LocalActions performs a row's `LocalAction`: the text on the general
-/// pasteboard, or the address in the default browser. Only http and https
-/// addresses are opened, though `K3smStatus` builds no other.
+/// pasteboard, the address in the default browser, or a pod's shell in
+/// Terminal (`MenuActions.openShell`). Only http and https addresses are
+/// opened, though `K3smStatus` builds no other.
 @MainActor
 enum LocalActions {
     static func perform(_ action: LocalAction) {
@@ -31,6 +32,8 @@ enum LocalActions {
         case .open(let url):
             guard url.scheme == "http" || url.scheme == "https" else { return }
             NSWorkspace.shared.open(url)
+        case .openShell(let shell):
+            MenuActions.openShell(shell)
         }
     }
 }
@@ -91,14 +94,26 @@ struct RowActionsMenu: ViewModifier {
 }
 
 /// BulkActionsSlot is a tab's toolbar slot for actions over many rows: one
-/// button per item, nothing while the tab offers none.
+/// button per item, and the last bulk action's line on this tab (its row
+/// key is `ActionMenu.bulkRowKey`) until the tab's next good read clears
+/// it; nothing while the tab offers none and has no line.
 struct BulkActionsSlot: View {
     let items: [ActionMenuItem]
+    let section: ConsoleSection
     @ObservedObject var runner: ActionRunner
 
     var body: some View {
-        if !items.isEmpty {
+        let report = runner.report(section: section, rowKey: ActionMenu.bulkRowKey)
+        if !items.isEmpty || report != nil {
             HStack(spacing: 8) {
+                if let report {
+                    Text(verbatim: report.text)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(report.failed ? Palette.bad : Palette.ink2)
+                        .lineLimit(1).truncationMode(.tail)
+                        .frame(maxWidth: 320, alignment: .trailing)
+                        .help(report.text)
+                }
                 ForEach(items) { item in
                     Button(item.title) { runner.ask(item.request) }
                         .controlSize(.small)

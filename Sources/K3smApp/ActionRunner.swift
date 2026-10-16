@@ -75,8 +75,8 @@ final class ActionRunner: ObservableObject {
     }
 
     /// Runs the confirmed action: its pre-check first, when it has one, and
-    /// the action only when the pre-check lets it; then the owning tab is
-    /// read again.
+    /// the action's runs only when the pre-check lets it, each in turn
+    /// whatever the last one's outcome; then the owning tab is read again.
     func runPending() {
         guard !busy, let request = pending else { return }
         pending = nil
@@ -95,7 +95,11 @@ final class ActionRunner: ObservableObject {
             if let check = request.precheckArguments, let refusal = request.precheck(Self.actionRun(await cli.run(check))) {
                 outcome = refusal
             } else {
-                outcome = request.report(Self.actionRun(await cli.run(request.arguments)))
+                var runs: [ActionRun] = []
+                for arguments in request.runs {
+                    runs.append(Self.actionRun(await cli.run(arguments)))
+                }
+                outcome = request.report(runs: runs)
             }
             log.notice("console: \(request.verb, privacy: .public) \(outcome.failed ? "failed" : "asked", privacy: .public)")
             guard let self else { return }

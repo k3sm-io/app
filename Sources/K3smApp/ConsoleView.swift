@@ -179,7 +179,7 @@ struct ConsoleStrip: View {
             TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
                 .tourTarget(.tabs, app.tour)
             Spacer()
-            BulkActionsSlot(items: app.bulkActions, runner: app.actions)
+            BulkActionsSlot(items: app.bulkActions, section: app.section, runner: app.actions)
             if let title = app.updateOffer.buttonTitle {
                 let offer = app.updateOffer
                 Button(title) { app.performUpdate() }

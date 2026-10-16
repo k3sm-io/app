@@ -142,7 +142,7 @@ login** in the app's Settings turns it off or on again (see
     failure.
 
   The tabs only read. The changes the console makes are a pod's
-  **Restart** and **Delete** and a service's **Delete** (below). The app remembers the tab, each tab's
+  **Restart** and **Delete** a service's **Delete** and the Workloads cleanup (below). The app remembers the tab, each tab's
   search and selection, the Workloads switch and the events namespace.
 - **Restart…** and **Delete…** in the pod details are the console's writes.
   Restart is shown only for a pod whose owner recreates it (a ReplicaSet,
@@ -188,6 +188,23 @@ login** in the app's Settings turns it off or on again (see
   account and result line as Restart. The Delete key asks for it too. The
   API server's own service (`kubernetes` in `default`) and every service in
   `kube-system` offer only the two copies: the cluster runs on them.
+- A pod's details and its Control-click menu also offer **Copy Name** and
+  **Copy Namespace/Name**, which put the text on the pasteboard, and, for a
+  pod in phase Running, **Open Shell in Terminal**: after the same check of
+  the installed k3sm it writes a `.command` file into a fresh private folder
+  and opens it in Terminal, where it runs, as your account and with the
+  same scrubbed environment as Open Status, `k3sm kubectl exec -it <pod> -n
+  <namespace> -c <container> -- sh` in the pod's first container, and tries
+  `/bin/sh` once when the container has no `sh` on its PATH (exec exits 126
+  or 127).
+- **Delete completed and failed pods…**, in the strip while Workloads shows
+  its pods and some pod has finished, deletes every pod in phase Succeeded
+  or Failed, or evicted. The question names how many and in which
+  namespaces. The app reads every pod's UID first and deletes nothing when
+  one of those names now belongs to a new pod; otherwise it runs one `k3sm
+  kubectl delete pod <names...> -n <namespace> --wait=false` per namespace
+  and leaves one line in the strip: how many were deleted, how many were
+  already gone, and where and why any were not.
 - The **details** on the right follow the tab. Click a row on any tab (the
   build engine's card on Builds) and its details show there: a pod's facts
   and its logs, events or manifest; an image's reference, digest, size, the

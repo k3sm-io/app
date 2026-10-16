@@ -136,9 +136,27 @@ public enum PodActions {
     }
 
     /// The pod's actions as its context menu, the inspector and the Delete
-    /// key show them: one list, built here once.
+    /// key show them: one list, built here once, with its local actions.
     public static func menu(for pod: Pod) -> ActionMenu {
-        ActionMenu(available(for: pod).compactMap { request($0, for: pod) })
+        ActionMenu(available(for: pod).compactMap { request($0, for: pod) }, local: localActions(for: pod))
+    }
+
+    /// The local actions a pod offers: Copy Name and Copy Namespace/Name for
+    /// any pod whose names `ResourceName` accepts, and Open Shell in
+    /// Terminal for a pod in phase Running whose first container's name it
+    /// accepts too (the container kubectl itself picks when none is named).
+    /// A pod that is not Running has no process to exec into.
+    public static func localActions(for pod: Pod) -> [LocalMenuItem] {
+        guard let namespace = pod.namespaceName, let name = pod.resourceName else { return [] }
+        var items = [
+            LocalMenuItem(id: "copy-name", title: "Copy Name", action: .copy(name.value)),
+            LocalMenuItem(id: "copy-namespace-name", title: "Copy Namespace/Name", action: .copy(namespace.value + "/" + name.value)),
+        ]
+        if pod.phase == "Running", let first = pod.containers.first, let container = ResourceName(first) {
+            items.append(LocalMenuItem(id: "open-shell", title: "Open Shell in Terminal",
+                                       action: .openShell(PodShell(namespace: namespace, pod: name, container: container))))
+        }
+        return items
     }
 
     /// What follows a delete, by the pod's owner: a controller that
