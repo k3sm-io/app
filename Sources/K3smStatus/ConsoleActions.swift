@@ -127,19 +127,48 @@ public struct ActionMenuItem: Identifiable, Sendable {
     public var kind: ActionKind { request.kind }
 }
 
-/// ActionMenu is the actions one row offers, in order. Each tab builds it
-/// with one function, and the context menu, the inspector and the Delete
-/// key all read that one value, so they cannot offer different actions.
+/// LocalAction is a row action that runs no CLI and changes nothing on the
+/// cluster: text put on the pasteboard, or a web address opened in the
+/// default browser. Its value is built and checked in `K3smStatus` (a copy
+/// from a decoded, clipped field that passed its own check; an address only
+/// http or https), so the app only performs it.
+public enum LocalAction: Equatable, Sendable {
+    case copy(String)
+    case open(URL)
+}
+
+/// LocalMenuItem is one local action a row offers. It asks nothing first,
+/// so its title has no ellipsis, and the runner never sees it.
+public struct LocalMenuItem: Identifiable, Equatable, Sendable {
+    /// Fixed per item, unique within a row's menu ("copy-ip", "open").
+    public let id: String
+    public let title: String
+    public let action: LocalAction
+
+    public init(id: String, title: String, action: LocalAction) {
+        self.id = id
+        self.title = title
+        self.action = action
+    }
+}
+
+/// ActionMenu is the actions one row offers, in order: its local actions
+/// (copies, open in browser), then the requests that run the CLI. Each tab
+/// builds it with one function, and the context menu, the inspector and the
+/// Delete key all read that one value, so they cannot offer different
+/// actions. The Delete key reads only the requests.
 public struct ActionMenu: Sendable {
     public let items: [ActionMenuItem]
+    public let local: [LocalMenuItem]
 
-    public init(_ requests: [any ConsoleActionRequest]) {
+    public init(_ requests: [any ConsoleActionRequest], local: [LocalMenuItem] = []) {
         items = requests.map(ActionMenuItem.init)
+        self.local = local
     }
 
     public static let empty = ActionMenu([])
 
-    public var isEmpty: Bool { items.isEmpty }
+    public var isEmpty: Bool { items.isEmpty && local.isEmpty }
 
     /// The action the Delete key asks for: the row's first `.delete`
     /// action, behind the same confirmation; nil when it offers none. A

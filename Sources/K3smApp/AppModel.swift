@@ -478,9 +478,9 @@ final class AppModel: ObservableObject {
             builds = reported(engine, .builds)
             made = engine
         case .services:
-            let list = observed(TabLoader(
-                arguments: K3smCLI.servicesArguments, what: "service list", environment: environment,
-                decode: ServicesList.tabResult(exitCode:stdout:),
+            let environment = environment
+            let list = observed(TabLoader<[ServiceRow]>(
+                read: { await ServicesRead.read(environment: environment) },
                 interval: { _ in PollSchedule.interval(for: .services, engineReady: false) }))
             services = reported(list, .services)
             made = list
@@ -529,13 +529,15 @@ final class AppModel: ObservableObject {
     }
 
     /// One row's actions: what its context menu, its inspector body and the
-    /// Delete key offer, the one function per kind every tab reads. Only
-    /// pods offer any yet; a tab's actions arrive as a case here.
+    /// Delete key offer, the one function per kind every tab reads. A tab's
+    /// actions arrive as a case here.
     func rowMenu(_ row: ConsoleRow) -> ActionMenu {
         switch row {
         case .pod(let key):
             return workloads.workloads?.pods.first { $0.key == key }.map(PodActions.menu(for:)) ?? .empty
-        case .image, .build, .service, .claim, .model:
+        case .service(let key):
+            return services?.value?.first { $0.key == key }.map(ServiceActions.menu(for:)) ?? .empty
+        case .image, .build, .claim, .model:
             return .empty
         }
     }

@@ -1,0 +1,48 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+      "metadata": {"name": "web-ipv4", "namespace": "shop", "labels": {"kubernetes.io/service-name": "web"}},
+      "addressType": "IPv4",
+      "endpoints": [
+        {"addresses": ["10.42.0.11"], "conditions": {"ready": true}, "targetRef": {"kind": "Pod", "namespace": "shop", "name": "web-1"}},
+        {"addresses": ["10.42.0.12"], "conditions": {}, "targetRef": {"kind": "Pod", "namespace": "shop", "name": "web-2"}},
+        {"addresses": ["10.42.0.13"], "conditions": {"ready": false, "terminating": true}, "targetRef": {"kind": "Pod", "namespace": "shop", "name": "web-3"}}
+      ]
+    },
+    {
+      "apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+      "metadata": {"name": "web-ipv6", "namespace": "shop", "labels": {"kubernetes.io/service-name": "web"}},
+      "addressType": "IPv6",
+      "endpoints": [
+        {"addresses": ["fd00::11"], "conditions": {"ready": true}, "targetRef": {"kind": "Pod", "namespace": "shop", "name": "web-1"}}
+      ]
+    },
+    {
+      "apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+      "metadata": {"name": "db-x", "namespace": "shop", "labels": {"kubernetes.io/service-name": "db"}},
+      "addressType": "IPv4",
+      "endpoints": [{"addresses": ["10.42.0.30"], "conditions": {"ready": false}}]
+    },
+    {
+      "apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+      "metadata": {"name": "kubernetes", "namespace": "default", "labels": {"kubernetes.io/service-name": "kubernetes"}},
+      "addressType": "IPv4",
+      "endpoints": [{"addresses": ["192.0.2.10"], "conditions": {"ready": true}}]
+    },
+    {
+      "apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+      "metadata": {"name": "web-elsewhere", "namespace": "default", "labels": {"kubernetes.io/service-name": "web"}},
+      "addressType": "IPv4",
+      "endpoints": [{"addresses": ["10.42.1.5"], "conditions": {"ready": true}}]
+    },
+    {
+      "apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+      "metadata": {"name": "unlabelled", "namespace": "shop"},
+      "addressType": "IPv4",
+      "endpoints": [{"addresses": ["10.42.0.99"], "conditions": {"ready": true}}]
+    }
+  ]
+}

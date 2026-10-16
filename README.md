@@ -115,7 +115,10 @@ login** in the app's Settings turns it off or on again (see
   - **Builds**: the build engine's state.
   - **Services**: every service, with its namespace, type, cluster IP and
     ports, and the hosts of the ingresses that route to it (`*` for a rule
-    that matches any host).
+    that matches any host). After each service list the tab also reads every
+    EndpointSlice (`k3sm kubectl get endpointslices -A -o json`) to count each
+    service's ready endpoints; if that read fails the count says "not
+    reported" and the list is still shown.
   - **Storage**: this Mac's data volume on top (from `k3sm datavol status`:
     mounted or not, its quota, usage and free space, and any copy a
     migration left behind), then every volume claim with its volume,
@@ -125,8 +128,8 @@ login** in the app's Settings turns it off or on again (see
     "Unavailable (the MLX API is not served on this cluster)", which is not a
     failure.
 
-  The tabs only read. The one change the console makes is the pod
-  inspector's **Restart** (below). The app remembers the tab, each tab's
+  The tabs only read. The changes the console makes are the pod
+  inspector's **Restart** and a service's **Delete** (below). The app remembers the tab, each tab's
   search and selection, the Workloads switch and the events namespace.
 - **Restart…** in the pod details, shown only for a pod whose owner recreates
   it (a ReplicaSet, which a Deployment's pods have, a StatefulSet or a
@@ -153,11 +156,31 @@ login** in the app's Settings turns it off or on again (see
   the line goes at the list's next good read after that one. A pod with no
   owner, or owned by a Job, a Node (a mirror pod) or any other kind, shows
   no Restart, since nothing is sure to bring it back.
+- A **service**'s details and its Control-click menu offer **Copy Cluster
+  IP** (not for a headless service) and **Copy DNS Name**
+  (`<name>.<namespace>.svc.cluster.local`), which put the text on the
+  pasteboard. When the service has a web address they also offer **Open in
+  Browser** and **Copy URL**: an ingress host that routes to it (the first
+  whole host name, not `*`), over https when the ingress lists that host
+  under TLS and http otherwise; or, without one, a node port on a TCP port
+  named `http` or `https` or numbered 80, 443 or 8080, opened as
+  `http://127.0.0.1:<node port>` (https for a port named `https` or numbered
+  443), since every node answers its node ports on its loopback address as
+  on its network address. **Delete…** asks first, naming the service and the
+  ingress hosts that stop answering, then reads the service's UID with
+  `k3sm kubectl get service <name> -n <namespace> -o
+  jsonpath={.metadata.uid}` and deletes nothing when the service is gone or
+  is no longer the one you clicked; otherwise it runs `k3sm kubectl delete
+  service <name> -n <namespace> --wait=false`, with the same trust check,
+  account and result line as Restart. The Delete key asks for it too. The
+  API server's own service (`kubernetes` in `default`) and every service in
+  `kube-system` offer only the two copies: the cluster runs on them.
 - The **details** on the right follow the tab. Click a row on any tab (the
   build engine's card on Builds) and its details show there: a pod's facts
   and its logs, events or manifest; an image's reference, digest, size, the
   nodes holding it and the pods using it; the build engine's state, pod,
-  node and cache; a service's type, cluster IP, ports and ingress hosts; a
+  node and cache; a service's type, cluster IP, ports, ready endpoints and
+  ingress hosts; a
   claim's volume, capacity, access modes, class and phase; a model's model,
   replicas, ready replicas, phase and endpoint. The heading names the kind
   of row and the row. Each tab keeps its own selection: changing tab shows

@@ -14,8 +14,26 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import AppKit
 import K3smStatus
 import SwiftUI
+
+/// LocalActions performs a row's `LocalAction`: the text on the general
+/// pasteboard, or the address in the default browser. Only http and https
+/// addresses are opened, though `K3smStatus` builds no other.
+@MainActor
+enum LocalActions {
+    static func perform(_ action: LocalAction) {
+        switch action {
+        case .copy(let text):
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        case .open(let url):
+            guard url.scheme == "http" || url.scheme == "https" else { return }
+            NSWorkspace.shared.open(url)
+        }
+    }
+}
 
 /// ActionConfirmationDialog is the console's one confirmation: shown while
 /// the runner holds a pending request, whichever tab, row, menu or key
@@ -53,6 +71,13 @@ struct RowActionsMenu: ViewModifier {
             content
         } else {
             content.contextMenu {
+                ForEach(menu.local) { item in
+                    Button(item.title) {
+                        select()
+                        LocalActions.perform(item.action)
+                    }
+                }
+                if !menu.local.isEmpty, !menu.items.isEmpty { Divider() }
                 ForEach(menu.items) { item in
                     Button(item.title, role: item.destructive ? .destructive : nil) {
                         select()
@@ -85,7 +110,8 @@ struct BulkActionsSlot: View {
 }
 
 /// RowActions is the inspector's actions block for one row, on every tab:
-/// a button per `ActionMenu` item (the row's context menu's list), the
+/// a row of its local actions (copies, open in browser), which ask
+/// nothing, then a button per `ActionMenu` item (the row's context menu's list), the
 /// running note, and the last action's line when it ran on this row.
 /// Nothing for a row that offers no action and has no line.
 struct RowActions: View {
@@ -105,6 +131,13 @@ struct RowActions: View {
         if !menu.isEmpty || report != nil {
             VStack(alignment: .leading, spacing: 6) {
                 if !menu.isEmpty {
+                    if !menu.local.isEmpty {
+                        HStack(spacing: 8) {
+                            ForEach(menu.local) { item in
+                                Button(item.title) { LocalActions.perform(item.action) }
+                            }
+                        }
+                    }
                     HStack(spacing: 8) {
                         ForEach(menu.items) { item in
                             Button(item.title) { runner.ask(item.request) }

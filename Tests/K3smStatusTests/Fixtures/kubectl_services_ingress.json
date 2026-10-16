@@ -4,24 +4,25 @@
   "items": [
     {
       "apiVersion": "v1", "kind": "Service",
-      "metadata": {"name": "web", "namespace": "shop"},
+      "metadata": {"name": "web", "namespace": "shop", "uid": "5a1d2c3e-0000-4000-8000-000000000020"},
       "spec": {"type": "NodePort", "clusterIP": "10.43.0.20",
-               "ports": [{"port": 80, "protocol": "TCP", "nodePort": 30080, "targetPort": 8080}, {"port": 443}]}
+               "ports": [{"name": "http", "port": 80, "protocol": "TCP", "nodePort": 30080, "targetPort": 8080}, {"name": "https", "port": 443}]}
     },
     {
       "apiVersion": "v1", "kind": "Service",
-      "metadata": {"name": "kubernetes", "namespace": "default"},
+      "metadata": {"name": "kubernetes", "namespace": "default", "uid": "5a1d2c3e-0000-4000-8000-000000000001"},
       "spec": {"type": "ClusterIP", "clusterIP": "10.43.0.1", "ports": [{"port": 443, "protocol": "TCP"}]}
     },
     {
       "apiVersion": "v1", "kind": "Service",
-      "metadata": {"name": "db", "namespace": "shop"},
+      "metadata": {"name": "db", "namespace": "shop", "uid": "5a1d2c3e-0000-4000-8000-000000000032"},
       "spec": {"clusterIP": "None", "ports": [{"port": 5432, "protocol": "TCP"}]}
     },
     {
       "apiVersion": "networking.k8s.io/v1", "kind": "Ingress",
       "metadata": {"name": "front", "namespace": "shop"},
       "spec": {
+        "tls": [{"hosts": ["shop.example.test"], "secretName": "shop-tls"}],
         "rules": [
           {"host": "shop.example.test", "http": {"paths": [{"path": "/", "pathType": "Prefix", "backend": {"service": {"name": "web", "port": {"number": 80}}}}]}},
           {"http": {"paths": [{"path": "/x", "pathType": "Prefix", "backend": {"service": {"name": "web", "port": {"number": 80}}}}]}},

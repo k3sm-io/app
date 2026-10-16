@@ -116,14 +116,24 @@ public enum InspectorDetails {
         return InspectorBody(kind: "Build engine", title: engine.podName ?? BuildEngine.defaultName, subtitle: nil, facts: facts)
     }
 
-    /// A Service: its type, cluster IP, each port, and the Ingress hosts that
-    /// route to it.
+    /// A Service: its type, cluster IP, each port, its ready endpoints, and
+    /// the Ingress hosts that route to it.
     public static func service(_ row: ServiceRow) -> InspectorBody {
         var facts = [InspectorFact("Type", row.type)]
         facts.append(InspectorFact("Cluster IP", row.clusterIP.isEmpty ? "none" : row.clusterIP, mono: true))
         facts.append(InspectorFact("Ports", row.ports.isEmpty ? "none" : row.ports.joined(separator: ", "), mono: true))
+        facts.append(InspectorFact("Endpoints", endpointsText(row)))
         facts.append(InspectorFact("Ingress hosts", row.hosts.isEmpty ? "none" : row.hosts.joined(separator: ", ")))
         return InspectorBody(kind: "Service", title: row.name, subtitle: row.namespace, facts: facts)
+    }
+
+    /// A Service's ready endpoints: "2 ready", "none ready", "not reported"
+    /// before the EndpointSlices are read, and "not used" for an
+    /// ExternalName Service, which has none by design.
+    static func endpointsText(_ row: ServiceRow) -> String {
+        if row.type == "ExternalName" { return "not used (ExternalName)" }
+        guard let count = row.endpoints else { return "not reported" }
+        return count == 0 ? "none ready" : "\(count) ready"
     }
 
     /// A claim (or a volume no claim holds): the bound volume, capacity,

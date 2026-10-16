@@ -53,6 +53,10 @@ public enum K3smCLI {
     public static let buildEngineArguments = ["kubectl", "get", "pods,pvc", "-n", "k3sm-builder", "-o", "json"]
     /// The Services tab: every Service and Ingress, across namespaces.
     public static let servicesArguments = ["kubectl", "get", "svc,ingress", "-A", "-o", "json"]
+    /// The Services tab's endpoint read: every EndpointSlice, across
+    /// namespaces, read after the service list on the tab's cadence and
+    /// counted per Service (`ServicesList.endpointCounts`).
+    public static let endpointSlicesArguments = ["kubectl", "get", "endpointslices", "-A", "-o", "json"]
     /// The Storage tab's list: every volume claim and volume.
     public static let storageArguments = ["kubectl", "get", "pvc,pv", "-A", "-o", "json"]
     /// The Storage tab's card: this Mac's data volume, from the CLI itself;
@@ -96,6 +100,18 @@ public enum K3smCLI {
     /// only on the pod the user confirmed.
     public static func podUIDArguments(namespace: ResourceName, pod: ResourceName) -> [String] {
         ["kubectl", "get", "pod", pod.value, "-n", namespace.value, "-o", "jsonpath={.metadata.uid}"]
+    }
+
+    /// Deletes one Service without waiting for it to go, the Services tab's
+    /// Delete. Only `ResourceName` values reach it.
+    public static func deleteServiceArguments(namespace: ResourceName, service: ResourceName) -> [String] {
+        ["kubectl", "delete", "service", service.value, "-n", namespace.value, "--wait=false"]
+    }
+
+    /// One Service's UID, read just before its Delete so it runs only on the
+    /// Service the user confirmed.
+    public static func serviceUIDArguments(namespace: ResourceName, service: ResourceName) -> [String] {
+        ["kubectl", "get", "service", service.value, "-n", namespace.value, "-o", "jsonpath={.metadata.uid}"]
     }
 
     /// The PATH every CLI run gets: system directories only.

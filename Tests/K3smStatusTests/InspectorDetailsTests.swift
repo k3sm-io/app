@@ -109,9 +109,9 @@ struct InspectorDetailsTests {
     static let serviceCases: [Case] = [
         Case(name: "a node port service with Ingress hosts", key: "shop/web", header: ["Service", "web", "shop"],
              facts: [["Type", "NodePort"], ["Cluster IP", "10.43.0.20"], ["Ports", "80:30080/TCP, 443/TCP"],
-                     ["Ingress hosts", "*, shop.example.test"]]),
+                     ["Endpoints", "not reported"], ["Ingress hosts", "*, shop.example.test"]]),
         Case(name: "a headless service with no Ingress", key: "shop/db", header: ["Service", "db", "shop"],
-             facts: [["Type", "ClusterIP"], ["Cluster IP", "None"], ["Ports", "5432/TCP"], ["Ingress hosts", "none"]]),
+             facts: [["Type", "ClusterIP"], ["Cluster IP", "None"], ["Ports", "5432/TCP"], ["Endpoints", "not reported"], ["Ingress hosts", "none"]]),
     ]
 
     @Test("a service's facts", arguments: serviceCases)
