@@ -50,6 +50,14 @@ public struct ActionConfirmation: Equatable, Sendable {
     }
 }
 
+/// ActionKind is what an action does to its row: deletes it, or changes it
+/// in any other way (a restart deletes a pod only for its owner to recreate
+/// it, so it is a change). Only a delete is offered on the Delete key.
+public enum ActionKind: String, Equatable, Sendable {
+    case delete
+    case change
+}
+
 /// ActionOutcome is the one line a finished action leaves: it was asked
 /// for, it failed, or a pre-check refused it so nothing ran. Its text is the
 /// app's own sentence; any CLI text in it has passed `StatusDisplay.errorText`.
@@ -83,6 +91,8 @@ public protocol ConsoleActionRequest: Sendable, Identifiable where ID == String 
     var rowKey: String { get }
     /// The action's fixed name for the app's log; it carries no cluster text.
     var verb: String { get }
+    /// Whether the action deletes its row; only a delete is on the Delete key.
+    var kind: ActionKind { get }
     /// The CLI arguments the action runs.
     var arguments: [String] { get }
     /// The read run just before the action, or nil when it has none.
@@ -114,6 +124,7 @@ public struct ActionMenuItem: Identifiable, Sendable {
     /// The item's title: the verb, with an ellipsis since it asks first.
     public var title: String { request.confirmation.verbTitle + "…" }
     public var destructive: Bool { request.confirmation.destructive }
+    public var kind: ActionKind { request.kind }
 }
 
 /// ActionMenu is the actions one row offers, in order. Each tab builds it
@@ -130,10 +141,11 @@ public struct ActionMenu: Sendable {
 
     public var isEmpty: Bool { items.isEmpty }
 
-    /// The action the Delete key asks for: the row's first destructive
-    /// action, behind the same confirmation; nil when it offers none.
+    /// The action the Delete key asks for: the row's first `.delete`
+    /// action, behind the same confirmation; nil when it offers none. A
+    /// destructive action that is not a delete (Restart) is never on the key.
     public var deleteKeyItem: ActionMenuItem? {
-        items.first(where: \.destructive)
+        items.first { $0.kind == .delete }
     }
 }
 

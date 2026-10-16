@@ -130,9 +130,10 @@ turned off.
   it (a ReplicaSet, which a Deployment's pods have, a StatefulSet or a
   DaemonSet), is the
   console's first write. The pod's row offers the same actions as the
-  details when you Control-click it, and the Delete key asks for the selected
-  pod's Restart behind the same question (not while you type in the search
-  field); a pod that offers no action has no menu, and Delete does nothing. After you confirm (the question names the
+  details when you Control-click it; a pod that offers no action has no
+  menu. The Delete key asks, behind the same question, only for an action
+  that deletes the selected row (never while you type in the search field),
+  so it does nothing on a pod today: Restart is not a delete. After you confirm (the question names the
   namespace and the pod and says the owner will recreate it), the app first
   reads the pod's UID with `k3sm kubectl get pod <pod> -n <namespace> -o
   jsonpath={.metadata.uid}` and stops, deleting nothing, when the pod is

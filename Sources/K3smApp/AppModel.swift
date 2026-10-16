@@ -547,8 +547,9 @@ final class AppModel: ObservableObject {
         return selection.current.map(rowMenu) ?? .empty
     }
 
-    /// The Delete key on the selected row: asks for its destructive action
-    /// behind the same confirmation, when it offers one. Returns whether it
+    /// The Delete key on the selected row: asks for its delete action
+    /// (`ActionMenu.deleteKeyItem`, never a Restart) behind the same
+    /// confirmation, when it offers one. Returns whether it
     /// did, so the key is consumed only then.
     func deleteKey() -> Bool {
         guard screen == .status, !actions.busy, actions.pending == nil,

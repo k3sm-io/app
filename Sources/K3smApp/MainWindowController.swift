@@ -31,7 +31,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var chrome: AnyCancellable?
     private var dockFlap: AnyCancellable?
-    /// The Delete key monitor, for the selected row's destructive action.
+    /// The Delete key monitor, for the selected row's delete action.
     private var deleteKeys: Any?
 
     init(model: AppModel) {
@@ -155,7 +155,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
         chrome = model.$screen.sink { [weak window] screen in window?.setChrome(for: screen) }
         // Delete or Forward Delete on this window asks for the selected row's
-        // destructive action behind the console's confirmation, unless text
+        // delete action behind the console's confirmation, unless text
         // is being edited, a sheet is up or the tour runs (`DeleteKey`); a
         // row with no such action leaves the key alone.
         deleteKeys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak window] event in

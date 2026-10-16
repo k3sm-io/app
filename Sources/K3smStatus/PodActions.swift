@@ -52,6 +52,13 @@ public struct PodActionRequest: Equatable, ConsoleActionRequest {
     public var section: ConsoleSection { .workloads }
     public var rowKey: String { podKey }
     public var verb: String { action.rawValue }
+    /// Restart deletes the pod only for its owner to recreate it: a change,
+    /// so it is not on the Delete key.
+    public var kind: ActionKind {
+        switch action {
+        case .restart: return .change
+        }
+    }
 
     /// The read run just before the action, whose output must be `uid`.
     public var verifyArguments: [String] {

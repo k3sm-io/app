@@ -98,7 +98,11 @@ struct ConsoleActionsTests {
         #expect(menu.items.map(\.id) == PodActions.available(for: pod).compactMap { PodActions.request($0, for: pod)?.id })
         #expect(menu.items.map(\.title) == ["Restart…"])
         #expect(menu.items.first?.request as? PodActionRequest == restart)
-        #expect(menu.deleteKeyItem?.id == restart.id)
+        // Restart is destructive but not a delete, so a row whose only
+        // destructive action is Restart puts nothing on the Delete key.
+        #expect(menu.items.first?.destructive == true)
+        #expect(menu.items.first?.kind == .change)
+        #expect(menu.deleteKeyItem == nil)
         // A pod with no action offers no menu and no Delete key.
         let bare = PodActions.menu(for: Pod(
             name: "bare", namespace: "shop", uid: "u", image: "", kind: .nativeProcess, phase: "Running", health: .running,
@@ -107,8 +111,14 @@ struct ConsoleActionsTests {
         #expect(bare.deleteKeyItem == nil)
     }
 
-    @Test("the Delete key is offered only when it cannot be someone else's key")
+    @Test("the Delete key is offered only when it cannot be someone else's key, and only for a delete")
     func deleteKeyDecision() {
+        let delete = KindRequest(id: "delete", kind: .delete)
+        let restartLike = KindRequest(id: "restart-like", kind: .change)
+        #expect(ActionMenu([restartLike]).deleteKeyItem == nil)
+        #expect(ActionMenu([restartLike, delete]).deleteKeyItem?.id == "delete")
+        #expect(ActionMenu([delete, KindRequest(id: "delete-2", kind: .delete)]).deleteKeyItem?.id == "delete")
+
         #expect(DeleteKey.matches(code: 51, commandOptionOrControl: false, editingText: false, sheetShown: false, tourShown: false))
         #expect(DeleteKey.matches(code: 117, commandOptionOrControl: false, editingText: false, sheetShown: false, tourShown: false))
         #expect(!DeleteKey.matches(code: 0, commandOptionOrControl: false, editingText: false, sheetShown: false, tourShown: false))
@@ -117,6 +127,20 @@ struct ConsoleActionsTests {
         #expect(!DeleteKey.matches(code: 51, commandOptionOrControl: false, editingText: false, sheetShown: true, tourShown: false))
         #expect(!DeleteKey.matches(code: 51, commandOptionOrControl: false, editingText: false, sheetShown: false, tourShown: true))
     }
+}
+
+/// A destructive request of a given kind, for the Delete key's lookup.
+private struct KindRequest: ConsoleActionRequest {
+    let id: String
+    let kind: ActionKind
+    var section: ConsoleSection { .workloads }
+    var rowKey: String { "shop/web-1" }
+    var verb: String { id }
+    var arguments: [String] { [] }
+    var confirmation: ActionConfirmation {
+        ActionConfirmation(title: id, message: "", verbTitle: id, cancelTitle: "Cancel", destructive: true)
+    }
+    func report(_ run: ActionRun) -> ActionOutcome { .succeeded("") }
 }
 
 private func ownedPod() -> Pod {
