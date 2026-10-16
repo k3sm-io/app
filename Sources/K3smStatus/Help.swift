@@ -53,7 +53,7 @@ public enum Help {
     public static var all: [HelpTag] {
         Strip.all + Workloads.all + Nodes.all + Images.all + Builds.all + Services.all + Storage.all + Models.all
             + Inspector.all + Actions.all + Panel.all + Popover.all + FirstRun.all + Update.all
-            + Tour.all + General.all + Network.all + Advanced.all + SettingsWindow.all + Menus.all
+            + Tour.all + General.all + Network.all + Updates.all + Advanced.all + SettingsWindow.all + Menus.all
     }
 
     // MARK: Console strip
@@ -560,6 +560,40 @@ public enum Help {
         public static var all: [HelpTag] { [lan] }
     }
 
+    // MARK: Settings: Updates
+
+    /// The Updates pane: the two versions, the state, Update Now and the
+    /// options passed to `k3sm update apply`.
+    public enum Updates {
+        /// The installed release.
+        public static let installed = HelpTag("The release the installed k3sm reports, from k3sm version",
+                                              control: "updates: installed value", label: "Installed")
+        /// The available release.
+        public static let available = HelpTag("The newest release, from the server's hourly update check",
+                                              control: "updates: available value", label: "Available")
+        /// The state line under the versions.
+        public static let state = HelpTag("The update row of k3sm status, in plain words",
+                                          control: "updates: state line")
+        /// Update Now.
+        public static let updateNow = HelpTag("Update every node to the newest release, the server last",
+                                              control: "updates: Update Now", label: UpdateNowControl.title)
+        /// Drain each node before updating it.
+        public static let drain = HelpTag("Evict each node's pods before it updates, so they move first",
+                                          control: "updates: drain checkbox", label: "Drain each node before updating it")
+        /// Allow a release older than a node runs.
+        public static let allowDowngrade = HelpTag("Let the update move a node to an older release",
+                                                   control: "updates: downgrade checkbox",
+                                                   label: "Allow a release older than a node runs")
+        /// The signature policy popup.
+        public static let signature = HelpTag("Which code signature the new release must carry; checksums always apply",
+                                              control: "updates: signature popup", label: "Code signature")
+
+        /// Update Now's tag: why it is disabled, or what it does.
+        public static func updateNow(_ control: UpdateNowControl) -> String { control.reason ?? updateNow.text }
+
+        public static var all: [HelpTag] { [installed, available, state, updateNow, drain, allowDowngrade, signature] }
+    }
+
     // MARK: Settings: Advanced
 
     /// The Advanced pane.
@@ -596,6 +630,7 @@ public enum Help {
             switch pane {
             case .general: text = "Show the login, Dock and window settings"
             case .network: text = "Show whether other devices may connect to pods"
+            case .updates: text = "Show the releases, the update button and how an update runs"
             case .advanced: text = "Show diagnostics, uninstall and the preferences reset"
             }
             return HelpTag(text, control: "settings toolbar: \(pane.rawValue)", label: pane.title)

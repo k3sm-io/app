@@ -46,8 +46,9 @@ public enum UpdatePrecondition {
 /// UpdateDriver runs one managed update verb from a click to its outcome.
 /// The apply re-reads the status and refuses unless the `update` row still
 /// offers the release the user chose, asks (naming it), re-reads and checks
-/// again, then hands `k3sm update apply --yes` to the administrator prompt
-/// through the checked lifecycle script. The cancel asks, then runs
+/// again, then hands `k3sm update apply --yes`, with the flags its
+/// `UpdateOptions` name, to the administrator prompt through the checked
+/// lifecycle script. The cancel asks, then runs
 /// `k3sm update cancel` the same way. Every run is a fresh prompt.
 public struct UpdateDriver: Sendable {
     public enum Result: Equatable, Sendable {
@@ -83,15 +84,16 @@ public struct UpdateDriver: Sendable {
         self.runner = runner
     }
 
-    /// Starts the update to `tag`, the release the user was offered.
-    public func apply(tag: String) async -> Result {
+    /// Starts the update to `tag`, the release the user was offered, with
+    /// the update's options as flags.
+    public func apply(tag: String, options: UpdateOptions = .defaults) async -> Result {
         let first = await readStatus()
         if case .refused(let why) = UpdatePrecondition.check(tag: tag, live: first) { return .refused(why) }
         guard let first else { return .refused("k3sm could not read the status of this Mac just now.") }
         guard await confirm(LifecycleConfirmation(verb: .updateApply, report: first)) else { return .declined }
         let second = await readStatus()
         if case .refused(let why) = UpdatePrecondition.check(tag: tag, live: second) { return .refused(why) }
-        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(.updateApply, teamID: teamID), input: nil)
+        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(.updateApply, teamID: teamID, update: options), input: nil)
         return Self.classify(run, verb: .updateApply)
     }
 

@@ -509,6 +509,29 @@ address this node answers on once the console has read the node list.
 Opening the pane reads the status again. A Mac with no k3sm node says it has
 no network settings.
 
+The **Updates** pane (see [The managed update](#the-managed-update)):
+
+- **Installed** and **Available**: the release the installed k3sm reports,
+  and the newest one the server's update check found (while an update rolls,
+  the release it rolls to), with what the check says in plain words: a newer
+  release is available, the cluster runs the latest, a node runs a newer
+  one, an update is rolling, or not known and why.
+- **Update Now** starts the update the same way as the menu and the
+  console's Update button. It is disabled, with the reason, when no newer
+  release is offered or the app cannot run the update.
+- While an update rolls, the same progress panel as in the console, with
+  **Cancel Update…**.
+- **When updating**: **Drain each node before updating it** (off at first)
+  evicts each node's pods before it updates; **Allow a release older than a
+  node runs** (off at first) lets the update move a node back; **Code
+  signature** is either **Same signer as the installed k3sm** (the default)
+  or **Developer ID signature required**. They apply to the next update the
+  app starts, as `k3sm update apply` flags. The release's checksum is always
+  verified.
+
+The release source the server checks is set when k3sm is installed and is
+not shown here: `k3sm status` does not report it.
+
 The **Advanced** pane:
 
 - **Write a Bug Report…**, **Live Status** and **Open Logs**, the same
@@ -525,13 +548,15 @@ A server checks for a new k3sm release at most once an hour (`sudo k3sm
 update check` checks now), and its status report says when a node runs an
 older release than the latest. The app reads only that report: it never
 contacts the network itself. While the report names a newer release, the
-menu offers **Update to <release>…** and the console shows the **Update**
-button. When every node runs the latest release, runs a newer one, or the
+menu offers **Update to <release>…**, the console shows the **Update**
+button, and Settings > Updates enables **Update Now**. When every node runs the latest release, runs a newer one, or the
 check has no answer, neither appears.
 
 Update asks first, naming the release, then shows the standard
 administrator prompt and runs `/Library/k3sm/k3sm update apply --yes`
-through the same checked root step as Stop and Start. k3sm then updates the
+through the same checked root step as Stop and Start, adding `--drain`,
+`--allow-downgrade` or `--signature required` when Settings > Updates asks
+for them. k3sm then updates the
 cluster one node at a time, the server last. If an update is already
 rolling, the app follows that one.
 

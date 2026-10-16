@@ -770,8 +770,9 @@ final class AppModel: ObservableObject {
         await updateLoader().refresh()
     }
 
-    /// Runs `k3sm update apply --yes` for the release offered, from the menu
-    /// or the console button, through the checked root step.
+    /// Runs `k3sm update apply --yes` for the release offered, from the menu,
+    /// the console button or the Settings Updates pane, through the checked
+    /// root step, with the update options as they are stored now.
     func performUpdate() {
         let offer = updateOffer
         guard case .available(let tag, let reason) = offer else { return }
@@ -784,7 +785,7 @@ final class AppModel: ObservableObject {
             running = true
             outcomeMessage = nil
             updateProgress.applyStarted()
-            let result = await updateDriver(teamID).apply(tag: tag)
+            let result = await updateDriver(teamID).apply(tag: tag, options: AppPreferences().updateOptions)
             running = false
             finishUpdate(result, title: LifecycleVerb.updateApply.title)
             log.notice("update apply finished")

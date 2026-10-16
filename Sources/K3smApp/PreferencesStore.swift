@@ -41,6 +41,17 @@ final class PreferencesStore: ObservableObject {
         didSet { if !reloading { preferences.allChecksOpen = allChecksOpen } }
     }
 
+    /// The managed update's options (`UpdateOptions`), read when the apply starts.
+    @Published var updateDrain: Bool {
+        didSet { if !reloading { preferences.updateDrain = updateDrain } }
+    }
+    @Published var updateAllowDowngrade: Bool {
+        didSet { if !reloading { preferences.updateAllowDowngrade = updateAllowDowngrade } }
+    }
+    @Published var updateSignature: UpdateSignaturePolicy {
+        didSet { if !reloading { preferences.updateSignature = updateSignature } }
+    }
+
     /// Set while `resetToDefaults` reads the defaults back, so nothing is
     /// written over the removed keys.
     private var reloading = false
@@ -51,6 +62,9 @@ final class PreferencesStore: ObservableObject {
         openWindowAtLogin = preferences.openWindowAtLogin
         dockAnimation = preferences.dockAnimation
         allChecksOpen = preferences.allChecksOpen
+        updateDrain = preferences.updateDrain
+        updateAllowDowngrade = preferences.updateAllowDowngrade
+        updateSignature = preferences.updateSignature
     }
 
     /// Puts every preference back (`AppPreferences.reset`) and shows the
@@ -63,5 +77,8 @@ final class PreferencesStore: ObservableObject {
         openWindowAtLogin = preferences.openWindowAtLogin
         dockAnimation = preferences.dockAnimation
         allChecksOpen = preferences.allChecksOpen
+        updateDrain = preferences.updateDrain
+        updateAllowDowngrade = preferences.updateAllowDowngrade
+        updateSignature = preferences.updateSignature
     }
 }

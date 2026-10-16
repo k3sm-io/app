@@ -35,6 +35,10 @@ public struct AppPreferences: @unchecked Sendable {
         case dockAnimation = "pref.dockAnimation"
         /// Open the info popover's "All checks" disclosure, as the user left it.
         case allChecksOpen = "pref.allChecksOpen"
+        /// Pass `--drain` to `k3sm update apply` (`UpdateOptions.drain`).
+        case updateDrain = "pref.updateDrain"
+        /// Pass `--allow-downgrade` to `k3sm update apply`.
+        case updateAllowDowngrade = "pref.updateAllowDowngrade"
 
         /// The value when nothing usable is stored.
         public var defaultValue: Bool {
@@ -43,10 +47,14 @@ public struct AppPreferences: @unchecked Sendable {
             case .openWindowAtLogin: false
             case .dockAnimation: true
             case .allChecksOpen: false
+            case .updateDrain: false
+            case .updateAllowDowngrade: false
             }
         }
     }
 
+    /// The update's signature policy, an `UpdateSignaturePolicy` word.
+    public static let updateSignatureKey = "pref.updateSignature"
     /// The Settings window's last pane.
     public static let settingsPaneKey = "settingsPane"
     /// The Settings window's frame and screen, a `WindowFrame.Saved` value.
@@ -97,6 +105,28 @@ public struct AppPreferences: @unchecked Sendable {
         nonmutating set { set(newValue, for: .allChecksOpen) }
     }
 
+    public var updateDrain: Bool {
+        get { bool(.updateDrain) }
+        nonmutating set { set(newValue, for: .updateDrain) }
+    }
+
+    public var updateAllowDowngrade: Bool {
+        get { bool(.updateAllowDowngrade) }
+        nonmutating set { set(newValue, for: .updateAllowDowngrade) }
+    }
+
+    /// The stored signature policy; a missing value, another type or a word
+    /// this build does not know reads as `ifSigned`, the CLI's default.
+    public var updateSignature: UpdateSignaturePolicy {
+        get { (defaults.object(forKey: Self.updateSignatureKey) as? String).flatMap(UpdateSignaturePolicy.init(rawValue:)) ?? .ifSigned }
+        nonmutating set { defaults.set(newValue.rawValue, forKey: Self.updateSignatureKey) }
+    }
+
+    /// The managed update's options as stored, read when the apply starts.
+    public var updateOptions: UpdateOptions {
+        UpdateOptions(drain: updateDrain, allowDowngrade: updateAllowDowngrade, signature: updateSignature)
+    }
+
     /// The Settings window's last pane, restored through `SettingsPane.restore`.
     public var settingsPane: SettingsPane {
         get { SettingsPane.restore(from: defaults.object(forKey: Self.settingsPaneKey)) }
@@ -107,6 +137,7 @@ public struct AppPreferences: @unchecked Sendable {
     /// default by removing what is stored.
     public func reset() {
         for key in Key.allCases { defaults.removeObject(forKey: key.rawValue) }
+        defaults.removeObject(forKey: Self.updateSignatureKey)
         defaults.removeObject(forKey: Self.settingsPaneKey)
     }
 
@@ -135,17 +166,21 @@ public enum SettingsPane: String, CaseIterable, Sendable {
     case general
     /// The LAN switch, moved here from the info popover.
     case network
+    /// The installed and available releases, Update Now, the roll's
+    /// progress and the update options.
+    case updates
     /// The bug report, the logs, Live Status, Uninstall and Reset to defaults.
     case advanced
 
     /// The panes the window shows, in order.
-    public static let shown: [SettingsPane] = [.general, .network, .advanced]
+    public static let shown: [SettingsPane] = [.general, .network, .updates, .advanced]
 
     /// The toolbar label and the window title.
     public var title: String {
         switch self {
         case .general: "General"
         case .network: "Network"
+        case .updates: "Updates"
         case .advanced: "Advanced"
         }
     }
@@ -155,6 +190,7 @@ public enum SettingsPane: String, CaseIterable, Sendable {
         switch self {
         case .general: "gearshape"
         case .network: "network"
+        case .updates: "arrow.triangle.2.circlepath"
         case .advanced: "wrench.and.screwdriver"
         }
     }

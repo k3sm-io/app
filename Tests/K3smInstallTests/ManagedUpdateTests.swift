@@ -78,6 +78,20 @@ struct ManagedUpdateTests {
         #expect(runner.scripts == [LifecycleScriptBuilder.render(.updateApply, teamID: Self.team)])
     }
 
+    @Test("the apply's options reach the root script as fixed flags; the cancel takes none")
+    func applyOptions() async {
+        let options = UpdateOptions(drain: true, allowDowngrade: false, signature: .required)
+        let script = LifecycleScriptBuilder.render(.updateApply, teamID: Self.team, update: options)
+        #expect(script.text.hasSuffix("exec \"$k3sm\" 'update' 'apply' '--yes' '--drain' '--signature' 'required'\n"))
+        #expect(LifecycleScriptBuilder.arguments(for: .updateCancel, update: options) == ["update", "cancel"])
+        #expect(LifecycleScriptBuilder.render(.updateCancel, teamID: Self.team, update: options)
+            == LifecycleScriptBuilder.render(.updateCancel, teamID: Self.team))
+        let reads = StatusSequence([Self.report(latest: "v0.1.8"), Self.report(latest: "v0.1.8")])
+        let runner = LANRunner()
+        _ = await Self.driver(reads, runner: runner, answer: true).apply(tag: "v0.1.8", options: options)
+        #expect(runner.scripts == [script])
+    }
+
     @Test("apply refuses when the live row no longer offers the tag", arguments: [
         [nil], [report(latest: nil)], [report(latest: "v0.1.8", state: "ok")], [report(latest: "v0.1.9")],
         [report(latest: "v0.1.8"), report(latest: "v0.1.8", state: "ok")],

@@ -483,7 +483,7 @@ public enum UpdateOffer: Equatable, Sendable {
         return nil
     }
 
-    private static func valid(_ tag: String) -> Bool {
+    static func valid(_ tag: String) -> Bool {
         !tag.isEmpty && tag.count <= maxTagLength && tag.allSatisfy(\.isASCII) && SemanticVersion(tag) != nil
     }
 
