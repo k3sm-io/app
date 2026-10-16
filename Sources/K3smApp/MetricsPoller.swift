@@ -16,6 +16,7 @@ limitations under the License.
 
 
 import Foundation
+import K3smHost
 import K3smStatus
 
 /// MetricsPoller reads metrics-server's node and pod samples while the

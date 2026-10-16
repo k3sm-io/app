@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 import Foundation
+import K3smHost
 import K3smStatus
 #if canImport(FoundationModels)
 import FoundationModels

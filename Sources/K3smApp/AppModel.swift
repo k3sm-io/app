@@ -16,6 +16,7 @@ limitations under the License.
 
 import AppKit
 import Combine
+import K3smHost
 import K3smInstall
 import K3smStatus
 

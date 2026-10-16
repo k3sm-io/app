@@ -16,6 +16,7 @@ limitations under the License.
 
 import Combine
 import Foundation
+import K3smHost
 import K3smStatus
 
 /// TabLoading is what the console does with any tab's loader: start it when

@@ -16,6 +16,7 @@ limitations under the License.
 
 import Combine
 import Foundation
+import K3smHost
 import K3smStatus
 
 /// WorkloadsModel is the Workloads tab's state and the panel's lists: the

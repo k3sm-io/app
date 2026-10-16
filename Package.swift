@@ -28,7 +28,10 @@ let package = Package(
     targets: [
         .target(name: "K3smStatus"),
         .target(name: "K3smInstall", dependencies: ["K3smStatus"]),
-        .executableTarget(name: "K3smApp", dependencies: ["K3smStatus", "K3smInstall"]),
+        // Runs the installed CLI after its trust check, for every reader of
+        // k3sm the package builds.
+        .target(name: "K3smHost", dependencies: ["K3smStatus", "K3smInstall"]),
+        .executableTarget(name: "K3smApp", dependencies: ["K3smStatus", "K3smInstall", "K3smHost"]),
         .testTarget(
             name: "K3smStatusTests",
             dependencies: ["K3smStatus"],

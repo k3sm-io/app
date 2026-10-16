@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 import Foundation
+import K3smHost
 import K3smStatus
 
 /// StatusPoller runs the visibility probe strictly serially: the next run

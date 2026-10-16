@@ -19,7 +19,7 @@ import K3smStatus
 import Synchronization
 
 /// CLIOutcome is what one run of the k3sm CLI produced.
-enum CLIOutcome: Sendable {
+public enum CLIOutcome: Sendable {
     /// The CLI is not installed at its absolute path.
     case missing
     /// The CLI could not be started.
@@ -41,8 +41,9 @@ enum CLIOutcome: Sendable {
 /// task awaiting it is cancelled. Standard error is discarded unless the
 /// caller keeps it (`keepErrors`, a console action that reports kubectl's own
 /// failure text): it then shares the output pipe and its limit. It runs on a
-/// background thread; callers await the outcome.
-enum CLIProcess {
+/// background thread; callers await the outcome. The app and the MCP
+/// server both run the CLI through it.
+public enum CLIProcess {
     /// How long to wait for the output pipe to close after the process exits.
     /// A grandchild that inherited the pipe can hold it open; the run does not
     /// wait on it past this.
@@ -51,7 +52,7 @@ enum CLIProcess {
     /// `onOutput`, when set, receives each chunk of output as it is read,
     /// within the limit, on the reader's thread: a build log sheet shows a
     /// following run as it goes.
-    static func run(path: String, arguments: [String], environment: [String: String], deadline: Duration, limit: Int, keepErrors: Bool = false,
+    public static func run(path: String, arguments: [String], environment: [String: String], deadline: Duration, limit: Int, keepErrors: Bool = false,
                     onOutput: (@Sendable (Data) -> Void)? = nil) async -> CLIOutcome {
         guard FileManager.default.isExecutableFile(atPath: path) else {
             return .missing
@@ -198,7 +199,7 @@ private final class RunControl: Sendable {
 
 extension Duration {
     /// The duration as a dispatch interval, at millisecond precision.
-    var dispatchInterval: DispatchTimeInterval {
+    public var dispatchInterval: DispatchTimeInterval {
         let (seconds, attoseconds) = components
         return .milliseconds(Int(seconds) * 1000 + Int(attoseconds / 1_000_000_000_000_000))
     }
