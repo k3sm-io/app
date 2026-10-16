@@ -55,6 +55,8 @@ final class WorkloadsModel: ObservableObject {
     /// so the panel holds no view state (the Command Line Tools have no
     /// SwiftUI macro plugin).
     @Published private(set) var load = HostLoad.read()
+    /// Called after each node-list read, for the Images tab's selection.
+    var onNodesRead: (@MainActor () -> Void)?
 
     private let environment: [String: String]
     private var detailTask: Task<Void, Never>?
@@ -66,7 +68,10 @@ final class WorkloadsModel: ObservableObject {
             arguments: K3smCLI.nodesArguments, what: "node list", environment: environment,
             decode: NodeListRead.tabResult(exitCode:stdout:),
             interval: { _ in PollSchedule.visibleInterval })
-        nodeList.onRead = { [weak self] in self?.load = HostLoad.read() }
+        nodeList.onRead = { [weak self] in
+            self?.load = HostLoad.read()
+            self?.onNodesRead?()
+        }
         forward(nodeList)
     }
 

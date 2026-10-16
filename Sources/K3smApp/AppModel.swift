@@ -170,6 +170,14 @@ final class AppModel: ObservableObject {
             guard let self else { return PollSchedule.visibleInterval }
             return PollSchedule.interval(for: self.section, engineReady: self.engineReady)
         }
+        // A decoded node list keeps the Images selection only while the
+        // image it names is still listed, as each pod-list read does for
+        // the Workloads selection.
+        workloads.onNodesRead = { [weak self] in
+            guard let self, let read = self.workloads.nodeList.value else { return }
+            let kept = ImagesList.selection(after: self.imagesSelected, in: read.images)
+            if kept != self.imagesSelected { self.imagesSelected = kept }
+        }
         // An unfinished or failed earlier run is the first thing the window
         // shows on relaunch.
         let previous = Self.readLog()
