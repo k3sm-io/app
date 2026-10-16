@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import Foundation
+
 /// K3smCLI is how the app invokes the k3sm CLI: one absolute path, fixed
 /// argument lists, and an environment the app builds itself. Nothing in the
 /// user's own environment (PATH, KUBECONFIG, K3SM_WORK_DIR) reaches the CLI.
@@ -102,6 +104,27 @@ public enum PollSchedule {
     /// The Builds tab's cadence once the engine is ready; until then it is
     /// read at `visibleInterval`, so a starting engine is seen when it serves.
     public static let buildsReadyInterval: Duration = .seconds(15)
+
+    /// The pod list's cadence while the console is open but another tab is
+    /// selected: the navy panel's pod counts and meters come from it, so it
+    /// keeps reading, slowly, rather than freezing.
+    public static let backgroundInterval: Duration = .seconds(30)
+
+    /// The pod list's cadence: the Workloads tab's when it is selected,
+    /// `backgroundInterval` otherwise.
+    public static func podsInterval(selected: Bool) -> Duration {
+        selected ? interval(for: .workloads, engineReady: false) : backgroundInterval
+    }
+
+    /// The age the panel shows beside its state line: the pod list's read
+    /// age once it is older than one `backgroundInterval` (a read that is
+    /// late or failing), nil while it is current or before the first read.
+    public static func panelAge(podsReadAt: Date?, now: Date = Date()) -> String? {
+        guard let podsReadAt else { return nil }
+        let late = Double(backgroundInterval.components.seconds)
+        guard now.timeIntervalSince(podsReadAt) > late else { return nil }
+        return TabLoad.age(since: podsReadAt, now: now)
+    }
 
     /// The wait between a console tab's reads while it is selected:
     /// Workloads at `visibleInterval`, as before tabs; Images at

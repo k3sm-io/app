@@ -68,6 +68,22 @@ struct CLITests {
         #expect(PollSchedule.interval(for: .builds, engineReady: true) == .seconds(15))
     }
 
+    @Test("the pod list keeps reading at the background cadence off its tab")
+    func podsBackgroundCadence() {
+        #expect(PollSchedule.backgroundInterval == .seconds(30))
+        #expect(PollSchedule.podsInterval(selected: true) == .seconds(5))
+        #expect(PollSchedule.podsInterval(selected: false) == .seconds(30))
+    }
+
+    @Test("the panel shows the pod read's age only once it is older than one background interval")
+    func panelAge() {
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        #expect(PollSchedule.panelAge(podsReadAt: nil, now: t0) == nil)
+        #expect(PollSchedule.panelAge(podsReadAt: t0, now: t0.addingTimeInterval(30)) == nil)
+        #expect(PollSchedule.panelAge(podsReadAt: t0, now: t0.addingTimeInterval(45)) == "read 45 s ago")
+        #expect(PollSchedule.panelAge(podsReadAt: t0, now: t0.addingTimeInterval(600)) == "read 10 min ago")
+    }
+
     @Test("poll cadence follows visibility")
     func cadence() {
         #expect(PollSchedule.interval(visible: true) == .seconds(5))
