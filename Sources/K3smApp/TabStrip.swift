@@ -25,7 +25,8 @@ import SwiftUI
 /// hairline the strip draws, and the label is centred in that height, which
 /// is the box `TabStripLayout.waitingMarkFrame` measures from. The tab on
 /// screen shows the 10 pt waiting butterfly for each of its later reads, at
-/// once and for at least `Waiting.labelMinimumShown`, landed at its word's
+/// once: it lands (`Perch`), perches at least `Waiting.labelMinimumShown`
+/// and takes off when the read is done. Its perch is at its word's
 /// upper-left corner: its feet on the first letter's cap top, its left edge on
 /// the label's leading edge (`TabStripLayout.waitingMarkFrame`), in the room
 /// the strip's fixed height (`TabStripLayout.height`) leaves above the labels,

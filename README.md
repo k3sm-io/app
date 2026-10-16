@@ -357,15 +357,19 @@ login** in the app's Settings turns it off or on again (see
   that tab's selected row, or "Select a service." (and so on) when it has
   none, and coming back shows the old row again only if it is still listed.
   A row that disappears from a tab's list clears its details.
-- A tab that is **reading** says so with a small butterfly, beating: in the
-  middle of the tab while its first read runs, and landed on the first
+- A tab that is **reading** says so with a small butterfly: beating in the
+  middle of the tab while its first read runs, and perched on the first
   letter of the tab's name while a later read runs behind the list it
-  already shows; the names never move to make room for it. On the tab you
-  are looking at, every refresh lands the butterfly on the name for at least
-  0.8 seconds, however quick the read. A first read that ends within 0.3
-  seconds shows nothing, and once the big butterfly appears it stays at least
-  half a second, so a quick read never flashes. With Reduce Motion on the
-  butterfly is shown still.
+  already shows; the names never move to make room for it. The perched one
+  flies in from the upper left, beating fast, and settles on the letter with
+  its wings folded upright, opening them slowly now and then; when the read
+  is done it opens its wings and flies off to the upper right, fading out.
+  On the tab you are looking at, every refresh lands the butterfly on the
+  name and keeps it there at least 0.8 seconds, however quick the read. A
+  first read that ends within 0.3 seconds shows nothing, and once the big
+  butterfly appears it stays at least half a second, so a quick read never
+  flashes. With Reduce Motion on, both are shown still and the perched one
+  appears and goes without flying.
 - The **details button**, beside the info button above the list, collapses
   the details on the right and shows them again; Command-Option-I does the same, and the app remembers the choice.
 - The **left panel** is resizable: drag the divider between it and the list.

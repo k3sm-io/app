@@ -38,7 +38,9 @@ struct WaitingButterfly: View {
 
 /// TabWaitingMark draws `section`'s waiting butterfly where `WaitingModel`
 /// puts it, when it is `placement`, and nothing otherwise. It takes no space
-/// of its own: it rides an overlay, so it replaces nothing it covers.
+/// of its own: it rides an overlay, so it replaces nothing it covers. The
+/// content mark beats with the model's flap; the label mark flies its
+/// `LabelFlight` (`PerchingButterfly`).
 struct TabWaitingMark: View {
     @ObservedObject var waiting: WaitingModel
     let section: ConsoleSection
@@ -46,10 +48,39 @@ struct TabWaitingMark: View {
 
     var body: some View {
         if waiting.marks[section] == placement {
-            WaitingButterfly(
-                flap: waiting.flap,
-                size: placement == .content ? WaitingButterfly.contentSize : WaitingButterfly.labelSize)
-            .allowsHitTesting(false)
+            if placement == .label {
+                PerchingButterfly(flight: waiting.flights[section], size: WaitingButterfly.labelSize)
+                    .allowsHitTesting(false)
+            } else {
+                WaitingButterfly(flap: waiting.flap, size: WaitingButterfly.contentSize)
+                    .allowsHitTesting(false)
+            }
         }
+    }
+}
+
+/// PerchingButterfly is the label mark in flight: on a display-rate timeline,
+/// only while it is shown, it samples `flight`'s pose (`LabelFlight.pose`) on
+/// the monotonic clock and draws the mark at that offset from its perch,
+/// tilted, its wing pair scaled narrow as they fold and hinged by the beat,
+/// at that opacity. With no flight, or under Reduce Motion, the timeline is
+/// paused and the pose is the still perched mark.
+struct PerchingButterfly: View {
+    let flight: LabelFlight?
+    let size: CGFloat
+
+    var body: some View {
+        TimelineView(.animation(paused: flight?.reduceMotion ?? true)) { _ in
+            let pose = flight?.pose(at: ProcessInfo.processInfo.systemUptime) ?? Perch.still
+            FlappingButterfly(angle: pose.beat, color: Palette.navy)
+                .scaleEffect(x: CGFloat(pose.wingScale), y: 1, anchor: .center)
+                .frame(width: size, height: size)
+                .rotationEffect(.degrees(pose.rotation), anchor: .center)
+                .offset(x: CGFloat(pose.dx), y: CGFloat(pose.dy))
+                .opacity(pose.opacity)
+        }
+        .frame(width: size, height: size)
+        .accessibilityElement()
+        .accessibilityLabel(Waiting.accessibilityLabel)
     }
 }

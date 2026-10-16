@@ -28,18 +28,20 @@ public enum WaitingMark: Equatable, Sendable {
 /// console tab and on the menu bar's status item. A tab's first read, and the
 /// status item's read, show it only past `debounce` and then keep it at least
 /// `minimumShown`, so a fast read never flashes the big mark. A later read of
-/// the tab on screen lands the small mark on its label at once and keeps it
-/// at least `labelMinimumShown`, so each refresh, however quick, reads as a
-/// brief perch rather than a flicker. The app only draws it; the timing lives
-/// here so it is tested without a GUI.
+/// the tab on screen lands the small mark on its label at once, keeps it
+/// perched at least `labelMinimumShown` from touchdown, and takes it off once
+/// the read is done, so each refresh, however quick, reads as a butterfly
+/// coming to rest and leaving rather than a flicker (`Perch` is the motion).
+/// The app only draws it; the timing lives here so it is tested without a GUI.
 public enum Waiting {
     /// How long a read runs, in seconds, before the butterfly is shown.
     public static let debounce: TimeInterval = 0.3
     /// The least time, in seconds, the content mark and the status item's
     /// frames stay once shown.
     public static let minimumShown: TimeInterval = 0.5
-    /// The least time, in seconds, the label mark stays once shown: long
-    /// enough to be seen on a refresh that takes a tenth of a second.
+    /// The least time, in seconds, the label mark stays perched, measured
+    /// from touchdown: long enough to be seen on a refresh that takes a
+    /// tenth of a second.
     public static let labelMinimumShown: TimeInterval = 0.8
     /// How long each status-item frame is held, in seconds.
     public static let menuFrameInterval: TimeInterval = 0.12
@@ -48,6 +50,19 @@ public enum Waiting {
     public static let menuAngles: [Double] = [0, 35, 70, 35]
     /// What VoiceOver says for a shown butterfly.
     public static let accessibilityLabel = "Reading"
+
+    /// labelLanding is how long the label mark takes to land, in seconds:
+    /// `Perch.landing`, or nothing under Reduce Motion, where it appears still.
+    public static func labelLanding(reduceMotion: Bool) -> TimeInterval {
+        reduceMotion ? 0 : Perch.landing
+    }
+
+    /// labelTakeOff is how long the label mark takes to leave once its read
+    /// is done and its perch has lasted: `Perch.takeOff`, or nothing under
+    /// Reduce Motion, where it disappears still.
+    public static func labelTakeOff(reduceMotion: Bool) -> TimeInterval {
+        reduceMotion ? 0 : Perch.takeOff
+    }
 
     /// shows is where a tab's butterfly is drawn, or nil while it is not.
     /// `firstReadDone` is whether the tab already had a value when the read
@@ -58,15 +73,16 @@ public enum Waiting {
     /// the tab on screen appears as soon as its read begins; every other mark
     /// appears only for a read past `debounce`. Once shown a mark stays while
     /// the read runs, so a read that starts again keeps it, and until its
-    /// minimum has passed: `labelMinimumShown` beside the label,
-    /// `minimumShown` in the content area (a time that is not a number ends
-    /// it).
+    /// minimum has passed: the landing (`labelLanding`) and then
+    /// `labelMinimumShown` beside the label, `minimumShown` in the content
+    /// area (a time that is not a number ends it). The label mark's take-off,
+    /// which follows, is `WaitingTracker`'s.
     public static func shows(firstReadDone: Bool, inFlight: Bool, elapsed: TimeInterval, shownFor: TimeInterval?,
-                             selected: Bool) -> WaitingMark? {
+                             selected: Bool, reduceMotion: Bool = false) -> WaitingMark? {
         let mark: WaitingMark = firstReadDone ? .label : .content
         let shown = visible(inFlight: inFlight, elapsed: elapsed, shownFor: shownFor,
                             after: mark == .label && selected ? 0 : debounce,
-                            minimum: mark == .label ? labelMinimumShown : minimumShown)
+                            minimum: mark == .label ? labelLanding(reduceMotion: reduceMotion) + labelMinimumShown : minimumShown)
         return shown ? mark : nil
     }
 
@@ -100,12 +116,18 @@ public enum Waiting {
 /// WaitingTracker follows one tab's reads through `Waiting.shows`: it notes
 /// when a read began, whether the tab had a value then, and when the
 /// butterfly appeared. The app feeds it the tab's `TabLoad`, whether the tab
-/// is the one on screen, and the time, on every change and on a short tick
-/// while `active`.
+/// is the one on screen, whether Reduce Motion is on, and the time, on every
+/// change and on a short tick while `active`. A label mark is a `flight`:
+/// when the mark's time is up it is not dropped but takes off, staying
+/// `Waiting.labelTakeOff` more, and a read that begins meanwhile lands a new
+/// one once the take-off ends.
 public struct WaitingTracker: Equatable, Sendable {
     private var began: TimeInterval?
     private var firstReadDone = false
     private var shownAt: TimeInterval?
+    private var shownMark: WaitingMark?
+    /// The label mark's flight while it is shown, nil otherwise.
+    public private(set) var flight: LabelFlight?
 
     public init() {}
 
@@ -114,9 +136,10 @@ public struct WaitingTracker: Equatable, Sendable {
     public var active: Bool { began != nil || shownAt != nil }
 
     /// update records `load` at `now` (seconds on a monotonic clock), with
-    /// `selected` whether the tab is on screen, and returns where the
-    /// butterfly is drawn, or nil.
-    public mutating func update(load: TabLoad, now: TimeInterval, selected: Bool) -> WaitingMark? {
+    /// `selected` whether the tab is on screen and `reduceMotion` the
+    /// system's setting, and returns where the butterfly is drawn, or nil.
+    public mutating func update(load: TabLoad, now: TimeInterval, selected: Bool,
+                                reduceMotion: Bool = false) -> WaitingMark? {
         if load.inFlight {
             if began == nil {
                 began = now
@@ -125,14 +148,34 @@ public struct WaitingTracker: Equatable, Sendable {
         } else {
             began = nil
         }
+        if let leftAt = flight?.leftAt {
+            if now - leftAt < Waiting.labelTakeOff(reduceMotion: flight?.reduceMotion ?? reduceMotion) { return .label }
+            clear()
+        }
         let mark = Waiting.shows(
             firstReadDone: firstReadDone, inFlight: load.inFlight,
-            elapsed: began.map { now - $0 } ?? 0, shownFor: shownAt.map { now - $0 }, selected: selected)
-        if mark == nil {
-            shownAt = nil
-        } else if shownAt == nil {
+            elapsed: began.map { now - $0 } ?? 0, shownFor: shownAt.map { now - $0 }, selected: selected,
+            reduceMotion: flight?.reduceMotion ?? reduceMotion)
+        guard let mark else {
+            if var leaving = flight, Waiting.labelTakeOff(reduceMotion: leaving.reduceMotion) > 0 {
+                leaving.leftAt = now
+                flight = leaving
+                return .label
+            }
+            clear()
+            return nil
+        }
+        if shownAt == nil || mark != shownMark {
             shownAt = now
+            shownMark = mark
+            flight = mark == .label ? LabelFlight(shownAt: now, leftAt: nil, reduceMotion: reduceMotion) : nil
         }
         return mark
+    }
+
+    private mutating func clear() {
+        shownAt = nil
+        shownMark = nil
+        flight = nil
     }
 }

@@ -53,19 +53,35 @@ struct WaitingTests {
     func minimumShownTime() {
         #expect(Waiting.shows(firstReadDone: false, inFlight: false, elapsed: 0, shownFor: 0.05, selected: true) == .content)
         #expect(Waiting.shows(firstReadDone: false, inFlight: false, elapsed: 0, shownFor: Waiting.minimumShown, selected: true) == nil)
-        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0, shownFor: Waiting.labelMinimumShown - 0.01, selected: true) == .label)
-        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0, shownFor: Waiting.labelMinimumShown, selected: true) == nil)
+        // The label mark's shown time counts its landing; its minimum perch is
+        // measured from touchdown.
+        let perch = Waiting.labelLanding(reduceMotion: false) + Waiting.labelMinimumShown
+        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0, shownFor: perch - 0.01, selected: true) == .label)
+        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0, shownFor: perch, selected: true) == nil)
         #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0, shownFor: .nan, selected: true) == nil)
+        // Under Reduce Motion there is no landing: the minimum is the perch alone.
+        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0, shownFor: Waiting.labelMinimumShown - 0.01,
+                              selected: true, reduceMotion: true) == .label)
+        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0, shownFor: Waiting.labelMinimumShown,
+                              selected: true, reduceMotion: true) == nil)
 
         var tracker = WaitingTracker()
         #expect(tracker.update(load: .refreshing, now: 0, selected: false) == nil)
         #expect(tracker.update(load: .refreshing, now: 0.35, selected: false) == .label)
         // The read ends 50 ms after the butterfly appeared: it stays, as a
-        // later read's mark, until the label's minimum has passed.
+        // later read's mark, until its landing and minimum perch have passed,
+        // then takes off.
         #expect(tracker.update(load: .loaded(Date()), now: 0.4, selected: false) == .label)
-        #expect(tracker.update(load: .loaded(Date()), now: 0.35 + Waiting.labelMinimumShown - 0.01, selected: false) == .label)
+        #expect(tracker.update(load: .loaded(Date()), now: 0.35 + perch - 0.01, selected: false) == .label)
+        #expect(tracker.flight?.leftAt == nil)
         #expect(tracker.active)
-        #expect(tracker.update(load: .loaded(Date()), now: 0.35 + Waiting.labelMinimumShown + 0.001, selected: false) == nil)
+        #expect(tracker.update(load: .loaded(Date()), now: 0.35 + perch + 0.001, selected: false) == .label)
+        #expect(tracker.flight?.leftAt == 0.35 + perch + 0.001)
+        #expect(tracker.update(load: .loaded(Date()), now: 0.35 + perch + Waiting.labelTakeOff(reduceMotion: false) - 0.01,
+                               selected: false) == .label)
+        #expect(tracker.update(load: .loaded(Date()), now: 0.35 + perch + Waiting.labelTakeOff(reduceMotion: false) + 0.01,
+                               selected: false) == nil)
+        #expect(tracker.flight == nil)
         #expect(!tracker.active)
     }
 
@@ -81,12 +97,14 @@ struct WaitingTests {
     /// value when the read began, how long the read ran, and then, sampled
     /// at `at` seconds after it began, where the butterfly is drawn.
     @Test("the visible tab's later read perches on its label at once and stays; a first read keeps the debounce", arguments: [
-        // A 90 ms later read shows the label mark at once and keeps it 0.8 s.
+        // A 90 ms later read lands the label mark at once (0.35 s), perches
+        // it 0.8 s from touchdown, then takes it off (0.35 s).
         (true, 0.09, 0.0, WaitingMark?.some(.label)),
         (true, 0.09, 0.05, .label),
         (true, 0.09, 0.5, .label),
-        (true, 0.09, Waiting.labelMinimumShown - 0.01, .label),
-        (true, 0.09, Waiting.labelMinimumShown + 0.005, nil),
+        (true, 0.09, 1.14, .label),
+        (true, 0.09, 1.45, .label),
+        (true, 0.09, 1.53, nil),
         // A 90 ms first read shows no content mark.
         (false, 0.09, 0.0, nil),
         (false, 0.09, 0.05, nil),
@@ -128,7 +146,50 @@ struct WaitingTests {
         #expect(tracker.update(load: .loaded(Date()), now: 0.09, selected: true) == .label)
         #expect(tracker.update(load: .refreshing, now: 0.5, selected: true) == .label)
         #expect(tracker.update(load: .refreshing, now: 2, selected: true) == .label)
-        #expect(tracker.update(load: .loaded(Date()), now: 2.1, selected: true) == nil)
+        #expect(tracker.flight?.shownAt == 0)
+        // The read ends past the minimum: it takes off at once, and is gone after the take-off.
+        #expect(tracker.update(load: .loaded(Date()), now: 2.1, selected: true) == .label)
+        #expect(tracker.flight?.leftAt == 2.1)
+        #expect(tracker.update(load: .loaded(Date()), now: 2.5, selected: true) == nil)
+    }
+
+    @Test("the label mark lands, perches at least its minimum from touchdown, and takes off after the read")
+    func labelFlightTiming() {
+        #expect(Waiting.labelLanding(reduceMotion: false) == Perch.landing)
+        #expect(Waiting.labelTakeOff(reduceMotion: false) == Perch.takeOff)
+        #expect(Waiting.labelLanding(reduceMotion: true) == 0)
+        #expect(Waiting.labelTakeOff(reduceMotion: true) == 0)
+
+        // A long read: the mark perches while it runs and takes off when it ends.
+        var tracker = WaitingTracker()
+        #expect(tracker.update(load: .refreshing, now: 0, selected: true) == .label)
+        #expect(tracker.flight == LabelFlight(shownAt: 0, leftAt: nil, reduceMotion: false))
+        #expect(tracker.flight?.phase(at: 0.2) == .landing)
+        #expect(tracker.update(load: .refreshing, now: 2.9, selected: true) == .label)
+        #expect(tracker.flight?.phase(at: 2.9) == .perched)
+        #expect(tracker.update(load: .loaded(Date()), now: 3, selected: true) == .label)
+        #expect(tracker.flight?.phase(at: 3) == .takingOff)
+        // A read that starts during the take-off lets it finish, then lands again.
+        #expect(tracker.update(load: .refreshing, now: 3.1, selected: true) == .label)
+        #expect(tracker.flight?.leftAt == 3)
+        #expect(tracker.update(load: .refreshing, now: 3.36, selected: true) == .label)
+        #expect(tracker.flight == LabelFlight(shownAt: 3.36, leftAt: nil, reduceMotion: false))
+
+        // Under Reduce Motion: shown still from the start, gone when the perch ends, no take-off.
+        var still = WaitingTracker()
+        #expect(still.update(load: .refreshing, now: 0, selected: true, reduceMotion: true) == .label)
+        #expect(still.flight?.pose(at: 0) == Perch.still)
+        #expect(still.update(load: .loaded(Date()), now: 0.1, selected: true, reduceMotion: true) == .label)
+        #expect(still.update(load: .loaded(Date()), now: Waiting.labelMinimumShown - 0.01, selected: true, reduceMotion: true) == .label)
+        #expect(still.update(load: .loaded(Date()), now: Waiting.labelMinimumShown + 0.01, selected: true, reduceMotion: true) == nil)
+        #expect(still.flight == nil)
+
+        // The content mark has no flight.
+        var content = WaitingTracker()
+        _ = content.update(load: .firstRead, now: 0, selected: true)
+        #expect(content.update(load: .firstRead, now: 0.4, selected: true) == .content)
+        #expect(content.flight == nil)
+        #expect(content.update(load: .loaded(Date()), now: 0.4 + Waiting.minimumShown, selected: true) == nil)
     }
 
     /// menuOpen, readInFlight, elapsed, shownFor, and the verdict.
