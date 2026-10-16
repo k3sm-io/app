@@ -224,7 +224,7 @@ struct ConsoleStrip: View {
                 StatusPanel(model: app).frame(width: 560)
             }
         }
-        .padding(.horizontal, 16).frame(height: 52)
+        .padding(.horizontal, 16).frame(height: CGFloat(TabStripLayout.height))
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
     }
 

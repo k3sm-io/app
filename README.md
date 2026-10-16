@@ -163,8 +163,9 @@ turned off.
   none, and coming back shows the old row again only if it is still listed.
   A row that disappears from a tab's list clears its details.
 - A tab that is **reading** says so with a small butterfly, beating: in the
-  middle of the tab while its first read runs, and just after the tab's name
-  while a later read runs behind the list it already shows. A read that ends
+  middle of the tab while its first read runs, and landed on the first
+  letter of the tab's name while a later read runs behind the list it
+  already shows; the names never move to make room for it. A read that ends
   within 0.3 seconds shows nothing, and once the butterfly appears it stays at
   least half a second, so a quick read never flashes. With Reduce Motion on
   the butterfly is shown still.

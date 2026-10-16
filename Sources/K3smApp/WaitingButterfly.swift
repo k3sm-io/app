@@ -25,7 +25,7 @@ struct WaitingButterfly: View {
 
     /// The 14 pt mark centred in a tab's content during its first read.
     static let contentSize: CGFloat = 14
-    /// The 10 pt mark beside a tab's label during a later read.
+    /// The 10 pt mark landed on a tab's label during a later read.
     static let labelSize: CGFloat = 10
 
     var body: some View {

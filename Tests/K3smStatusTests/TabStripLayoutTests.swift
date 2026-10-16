@@ -89,4 +89,41 @@ struct TabStripLayoutTests {
         #expect(TabStripLayout.contentMinimumWidth(strip: 0, inspectorShown: false)
             == TabStripLayout.windowFloor - PanelLayout.minimum - TabStripLayout.dividerWidth - TabStripLayout.inspectorWidth)
     }
+
+    @Test("a tab's waiting butterfly stands on its label's first capital, at the word's leading edge, inside the strip")
+    func tabWaitingMarkSitsAboveTheLabel() {
+        // The system font's metrics at 13, 11 and 17 pt (size, ascent, descent, cap height).
+        let fonts: [(size: Double, ascent: Double, descent: Double, cap: Double)] = [
+            (13, 12.38, 3.14, 9.17), (11, 10.47, 2.66, 7.76), (17, 16.19, 4.10, 11.99),
+        ]
+        for font in fonts {
+            let mark = TabStripLayout.waitingMarkFrame(ascent: font.ascent, descent: font.descent,
+                                                       capHeight: font.cap, markSize: 10)
+            let lineTop = (TabStripLayout.height - (font.ascent + font.descent)) / 2
+            let capTop = lineTop + font.ascent - font.cap
+
+            // Its feet are on the first letter's cap top, so it is wholly above the letters.
+            #expect(abs(mark.footY - capTop) <= 1)
+            #expect(mark.maxY - capTop < 1)
+            // Its centre is over the first letter, measured from the label's leading edge
+            // (each title's first letter at the strip's per-character estimate).
+            for title in Self.titles + ["Interconnects and links"] {
+                let firstLetter = TabStripLayout.labelWidth(String(title.prefix(1)), fontSize: font.size)
+                #expect(mark.midX > 0)
+                #expect(mark.midX <= firstLetter)
+            }
+            // Inside the strip's fixed height, never clipped at its top.
+            #expect(mark.minY >= 0)
+            #expect(mark.maxY <= TabStripLayout.height)
+            #expect(mark.size == 10)
+            // It never reaches back over the previous tab's label, which ends a tab gap before this one.
+            #expect(mark.minX >= 0)
+            #expect(mark.minX > -TabStripLayout.tabSpacing)
+        }
+
+        // The mark takes no width: the strip's minimum is the tabs and their spacing, as before.
+        let tabs = TabStripLayout.tabsWidth(labels: Self.titles)
+        let labels = Self.titles.map { TabStripLayout.labelWidth($0) }.reduce(0, +)
+        #expect(abs(tabs - (labels + Double(Self.titles.count - 1) * TabStripLayout.tabSpacing)) < 1e-9)
+    }
 }

@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import AppKit
 import K3smStatus
 import SwiftUI
 
@@ -22,8 +23,11 @@ import SwiftUI
 /// surface: text, and a 2 pt underline on the strip's hairline under the
 /// selected tab. It fills the strip's height so the underline sits on the
 /// hairline the strip draws. A tab whose later read runs past
-/// `Waiting.debounce` shows the 10 pt waiting butterfly just after its label,
-/// in the gap to the next tab, so no label moves. Each label is one line at
+/// `Waiting.debounce` shows the 10 pt waiting butterfly landed at its word's
+/// upper-left corner: its feet on the first letter's cap top, its left edge on
+/// the label's leading edge (`TabStripLayout.waitingMarkFrame`), in the room
+/// the strip's fixed height (`TabStripLayout.height`) leaves above the labels,
+/// so no label moves and the strip never grows. Each label is one line at
 /// its own width, never wrapped; only one past `TabStripLayout.labelCap`
 /// characters is shortened, at its tail. The window's minimum width keeps
 /// room for every label (`TabStripLayout.minimumWidth`).
@@ -44,13 +48,22 @@ struct TabStrip: View {
                     .buttonStyle(ConsoleTabStyle(selected: selected == s))
                     .accessibilityLabel(s.title)
                     .accessibilityAddTraits(selected == s ? .isSelected : [])
-                    .overlay(alignment: .trailing) {
-                        TabWaitingMark(waiting: waiting, section: s, placement: .label).offset(x: 14)
+                    .overlay(alignment: .topLeading) {
+                        TabWaitingMark(waiting: waiting, section: s, placement: .label)
+                            .offset(x: CGFloat(Self.markFrame.minX), y: CGFloat(Self.markFrame.minY))
                     }
             }
         }
         .frame(maxHeight: .infinity)
     }
+
+    /// Where a tab's waiting butterfly lands, from the labels' font metrics.
+    private static let markFrame: MarkFrame = {
+        let font = NSFont.systemFont(ofSize: CGFloat(TabStripLayout.fontSize), weight: .medium)
+        return TabStripLayout.waitingMarkFrame(ascent: Double(font.ascender), descent: Double(-font.descender),
+                                               capHeight: Double(font.capHeight),
+                                               markSize: Double(WaitingButterfly.labelSize))
+    }()
 }
 
 /// ConsoleTabStyle is one tab of the console's strip: primary text and a

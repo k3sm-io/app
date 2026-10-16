@@ -44,6 +44,14 @@ public enum TabStripLayout {
     public static let buttonFontSize: Double = 11
     /// The update button's padding around its title, both sides together.
     public static let buttonPadding: Double = 24
+    /// The strip's height, fixed: the labels sit at its middle with room
+    /// above them for a tab's waiting butterfly, so the mark never clips and
+    /// the strip never grows or shifts when it appears or goes.
+    public static let height: Double = 52
+    /// The waiting butterfly's lowest point (the tips of its lower wings,
+    /// where it stands) as a fraction of its frame's height from the top:
+    /// the lowest y of the path in the app's `Butterfly` shape.
+    public static let markFoot: Double = 0.9267
 
     /// The window's minimum width before the strip decided it, with the
     /// panel and the inspector shown.
@@ -52,6 +60,23 @@ public enum TabStripLayout {
     public static let inspectorWidth: Double = 320
     /// The divider beside the panel, and the one beside the inspector.
     public static let dividerWidth: Double = 1
+
+    /// waitingMarkFrame is where a tab's waiting butterfly is drawn, in the
+    /// tab's own box: `stripHeight` tall, its one-line label centred
+    /// vertically in it and starting at the box's leading edge. The label's
+    /// font gives `ascent`, `descent` (both positive) and `capHeight`. The
+    /// mark, `markSize` square, lands at the word's upper-left corner: its
+    /// feet (`markFoot`) rest on the cap top of the label's first letter and
+    /// its left edge is the label's leading edge, so its body is over that
+    /// letter's left side and it never reaches back over the gap before the
+    /// tab. It takes no width, so the gaps between labels are the tabs'
+    /// spacing alone.
+    public static func waitingMarkFrame(ascent: Double, descent: Double, capHeight: Double,
+                                        markSize: Double, stripHeight: Double = Self.height) -> MarkFrame {
+        let lineTop = (stripHeight - (ascent + descent)) / 2
+        let capTop = lineTop + ascent - capHeight
+        return MarkFrame(minX: 0, minY: capTop - markSize * markFoot, size: markSize)
+    }
 
     /// `label` as the strip draws it: whole up to `labelCap` characters,
     /// otherwise its first `labelCap - 1` characters and an ellipsis.
@@ -105,4 +130,23 @@ public enum TabStripLayout {
         let panel = panelCollapsed ? 0 : PanelLayout.minimum + dividerWidth
         return panel + contentMinimumWidth(strip: strip, inspectorShown: inspectorShown)
     }
+}
+
+/// MarkFrame is a square mark's frame in its tab's box, origin at the box's
+/// top left, y growing downward.
+public struct MarkFrame: Equatable, Sendable {
+    public let minX: Double
+    public let minY: Double
+    public let size: Double
+
+    public init(minX: Double, minY: Double, size: Double) {
+        self.minX = minX
+        self.minY = minY
+        self.size = size
+    }
+
+    public var midX: Double { minX + size / 2 }
+    public var maxY: Double { minY + size }
+    /// Where the mark stands: `TabStripLayout.markFoot` down its frame.
+    public var footY: Double { minY + size * TabStripLayout.markFoot }
 }
