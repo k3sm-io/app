@@ -21,9 +21,12 @@ import SwiftUI
 /// the navy panel's own strip (`PanelTabStyle`) carried onto the light
 /// surface: text, and a 2 pt underline on the strip's hairline under the
 /// selected tab. It fills the strip's height so the underline sits on the
-/// hairline the strip draws.
+/// hairline the strip draws. A tab whose later read runs past
+/// `Waiting.debounce` shows the 10 pt waiting butterfly just after its label,
+/// in the gap to the next tab, so no label moves.
 struct TabStrip: View {
     let selected: ConsoleSection
+    let waiting: WaitingModel
     let choose: (ConsoleSection) -> Void
 
     var body: some View {
@@ -32,6 +35,9 @@ struct TabStrip: View {
                 Button(s.title) { choose(s) }
                     .buttonStyle(ConsoleTabStyle(selected: selected == s))
                     .accessibilityAddTraits(selected == s ? .isSelected : [])
+                    .overlay(alignment: .trailing) {
+                        TabWaitingMark(waiting: waiting, section: s, placement: .label).offset(x: 14)
+                    }
             }
         }
         .frame(maxHeight: .infinity)

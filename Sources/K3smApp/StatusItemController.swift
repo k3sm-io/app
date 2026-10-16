@@ -31,7 +31,10 @@ import K3smStatus
 /// Stop and Restart go through `AppModel.perform` and are shown only when
 /// the installed CLI has them; otherwise they are hidden and the window says
 /// why. The full status and the LAN setting are in the window. While LAN access
-/// is on, the status item's icon carries a small dot.
+/// is on, the status item's icon carries a small dot. While the menu is open
+/// and its full status read runs past `Waiting.debounce`, the icon's wings
+/// beat (`Waiting.menuFrame`), badges and all, on a timer that also fires
+/// while the menu tracks.
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private static let autosaveName = "io.k3sm.app.status"
@@ -57,6 +60,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var supportObservation: AnyCancellable?
     /// The last report the poller read.
     private var report: StatusReport?
+    /// The waiting animation's state: whether the menu is open, when its full
+    /// read began (nil once it ended), when the frames began (nil while
+    /// still), the frame timer, and the wing angle the icon shows.
+    private var menuOpen = false
+    private var menuReadBegan: TimeInterval?
+    private var framesBegan: TimeInterval?
+    private var frameTimer: Timer?
+    private var wingAngle = 0.0
 
     /// Whether the rule currently wants the item shown.
     var wantsVisible: Bool { tracker.visible }
@@ -123,7 +134,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     /// Shows the degraded mark and the LAN dot on the icon.
     private func updateIcon() {
-        item?.button?.image = Self.icon(degraded: degraded, lan: model.lanToggle().showsIndicator)
+        item?.button?.image = Self.icon(degraded: degraded, lan: model.lanToggle().showsIndicator, wingAngle: wingAngle)
     }
 
     private func add(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
@@ -177,11 +188,60 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// they show the last read.
     func menuWillOpen(_ menu: NSMenu) {
         updateLifecycleItems(model.lifecycleSupport)
+        menuOpen = true
+        menuReadBegan = ProcessInfo.processInfo.systemUptime
+        startFrames()
         Task {
             await model.refreshLifecycleSupport()
             let full = await model.readFullReport()
+            menuReadBegan = nil
+            stepFrames()
             showStatusLine(clusterItem, MenuStatus.clusterLabel, MenuStatus.cluster(of: full))
             showStatusLine(thisMacItem, MenuStatus.thisMacLabel, MenuStatus.thisMac(of: full, readFailed: full == nil))
+        }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        menuOpen = false
+        stepFrames()
+    }
+
+    // MARK: waiting animation
+
+    /// Starts the frame timer in the common modes, so it fires while the
+    /// menu tracks. A second start is a no-op.
+    private func startFrames() {
+        guard frameTimer == nil else { return }
+        let timer = Timer(timeInterval: Waiting.menuFrameInterval / 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stepFrames() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        frameTimer = timer
+    }
+
+    /// Shows the frame `Waiting` decides now, or the still icon and no timer
+    /// once the read has ended (and the minimum shown time passed) or the
+    /// menu closed.
+    private func stepFrames() {
+        let now = ProcessInfo.processInfo.systemUptime
+        let animates = Waiting.menuAnimates(
+            menuOpen: menuOpen, readInFlight: menuReadBegan != nil,
+            elapsed: menuReadBegan.map { now - $0 } ?? 0, shownFor: framesBegan.map { now - $0 })
+        var angle = 0.0
+        if animates {
+            let began = framesBegan ?? now
+            framesBegan = began
+            angle = Waiting.menuFrame(at: now - began, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        } else {
+            framesBegan = nil
+            if !menuOpen || menuReadBegan == nil {
+                frameTimer?.invalidate()
+                frameTimer = nil
+            }
+        }
+        if angle != wingAngle {
+            wingAngle = angle
+            updateIcon()
         }
     }
 
@@ -265,8 +325,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// The status item's icon: the butterfly mark, with a triangle at its
     /// top right when degraded and a dot at its lower right with `lan`
     /// (other devices can connect to this Mac's workloads).
-    private static func icon(degraded: Bool, lan: Bool) -> NSImage? {
+    private static func icon(degraded: Bool, lan: Bool, wingAngle: Double) -> NSImage? {
         let label = (degraded ? "k3sm degraded" : "k3sm") + (lan ? ", connections from other devices allowed" : "")
-        return ButterflyImage.statusIcon(degraded: degraded, lan: lan, label: label)
+        return ButterflyImage.statusIcon(degraded: degraded, lan: lan, label: label, wingAngle: wingAngle)
     }
 }

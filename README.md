@@ -99,6 +99,12 @@ turned off.
   on), Images (the images the nodes report holding, one row per digest; until
   a node reports them the tab says so) and Builds (the build engine's state).
   The app remembers the tab, and each tab's search and selection.
+- A tab that is **reading** says so with a small butterfly, beating: in the
+  middle of the tab while its first read runs, and just after the tab's name
+  while a later read runs behind the list it already shows. A read that ends
+  within 0.3 seconds shows nothing, and once the butterfly appears it stays at
+  least half a second, so a quick read never flashes. With Reduce Motion on
+  the butterfly is shown still.
 - The **details button**, beside the info button above the pod list, collapses
   the pod details on the right (logs, events and manifest) and shows them
   again; Command-Option-I does the same, and the app remembers the choice.
@@ -135,8 +141,11 @@ down (red) or unknown (grey). This Mac follows k3sm's verdict on this Mac.
 Cluster reads the nodes-ready count: ok when every node is ready, degraded
 when some are, down when none is or the API server cannot be reached. Both
 come from the full status read each time the menu opens, and This Mac also
-follows the regular probe. The full status and the setting for connections
-from other devices are in the window. Then come the actions:
+follows the regular probe. While that read runs past 0.3 seconds with the menu
+open, the butterfly in the menu bar beats its wings (still with its badges)
+until the read ends or the menu closes; with Reduce Motion on it stays still.
+The full status and the setting for connections from other devices are in the
+window. Then come the actions:
 
 - **Stop k3sm** stops k3sm on this Mac completely, pods included, and keeps it
   stopped across restarts until you start it (`sudo k3sm stop`). Before it

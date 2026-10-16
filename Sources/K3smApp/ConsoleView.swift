@@ -93,6 +93,7 @@ struct ConsoleContent: View {
             VStack(spacing: 0) {
                 ConsoleStrip(app: app)
                 section
+                    .overlay { TabWaitingMark(waiting: app.waiting, section: app.section, placement: .content) }
             }
             .frame(maxWidth: .infinity)
             if app.inspectorShown {
@@ -134,7 +135,7 @@ struct ConsoleStrip: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            TabStrip(selected: app.section) { app.section = $0 }
+            TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
             Spacer()
             switch app.section {
             case .workloads:

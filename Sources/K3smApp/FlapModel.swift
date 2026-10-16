@@ -23,6 +23,10 @@ import K3smStatus
 /// The window controller starts and stops it with the console's polls, so
 /// nothing runs while the window is closed. Between
 /// beats no timer fires but the one that ends the rest.
+///
+/// A second instance plays the waiting butterfly (`startContinuous`): beats
+/// back to back with no rest while a read runs, the wings flat under Reduce
+/// Motion.
 @MainActor
 final class FlapModel: ObservableObject {
     /// The wings' hinge angle in degrees; 0 is flat.
@@ -36,6 +40,8 @@ final class FlapModel: ObservableObject {
     private var frameTimer: Timer?
     private var frames: [Double] = []
     private var frameIndex = 0
+    /// Whether the beats run back to back (`startContinuous`).
+    private var continuous = false
     /// When the last beat ended, on the system's monotonic uptime clock; nil
     /// before the first.
     private var lastBeatEnded: TimeInterval?
@@ -46,8 +52,19 @@ final class FlapModel: ObservableObject {
         rest()
     }
 
+    /// startContinuous plays beats back to back, with no rest, until `stop`;
+    /// under Reduce Motion the wings stay flat, checked at the start and at
+    /// each beat's end. A start while running is a no-op.
+    func startContinuous() {
+        guard !continuous, restTimer == nil, frameTimer == nil else { return }
+        continuous = true
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        play()
+    }
+
     /// stop cancels any beat and leaves the wings flat.
     func stop() {
+        continuous = false
         restTimer?.invalidate()
         restTimer = nil
         frameTimer?.invalidate()
@@ -97,6 +114,15 @@ final class FlapModel: ObservableObject {
     }
 
     private func step() {
+        if continuous, frameIndex >= frames.count {
+            frameIndex = 0
+            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                frameTimer?.invalidate()
+                frameTimer = nil
+                angle = 0
+                return
+            }
+        }
         guard frameIndex < frames.count else {
             frameTimer?.invalidate()
             frameTimer = nil

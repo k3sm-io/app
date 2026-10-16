@@ -30,18 +30,30 @@ enum ButterflyImage {
     static let dotSize: CGFloat = 6
 
     /// statusIcon is the mark with a triangle at the top right when
-    /// `degraded` and a dot at the bottom right when `lan`. The drawing runs
-    /// at the target's backing scale, so it stays crisp on every display.
-    static func statusIcon(degraded: Bool, lan: Bool, label: String) -> NSImage {
+    /// `degraded` and a dot at the bottom right when `lan`. `wingAngle`, in
+    /// degrees, turns each wing about the body as the window's flapping mark
+    /// does, drawn as the wing's flat projection (its width times the angle's
+    /// cosine); at 0 it is the still mark. The badges are drawn at every
+    /// angle. The drawing runs at the target's backing scale, so it stays
+    /// crisp on every display.
+    static func statusIcon(degraded: Bool, lan: Bool, label: String, wingAngle: Double = 0) -> NSImage {
         let size = NSSize(width: canvas, height: canvas)
         // A flipped canvas matches the path's coordinates (y grows down).
         let image = NSImage(size: size, flipped: true) { _ in
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
             let inset = (canvas - markSize) / 2
             let rect = CGRect(x: inset, y: inset, width: markSize, height: markSize)
-            ctx.addPath(Butterfly().path(in: rect).cgPath)
+            let mark = Butterfly().path(in: rect).cgPath
             ctx.setFillColor(NSColor.black.cgColor)
+            // Both wings turn by the same angle about the body, so their
+            // projection is the whole mark narrowed about the centre line.
+            ctx.saveGState()
+            ctx.translateBy(x: rect.midX, y: 0)
+            ctx.scaleBy(x: CGFloat(cos(wingAngle * .pi / 180)), y: 1)
+            ctx.translateBy(x: -rect.midX, y: 0)
+            ctx.addPath(mark)
             ctx.fillPath()
+            ctx.restoreGState()
             if degraded {
                 badge(ctx, triangle(in: CGRect(x: canvas - badgeSize, y: 0, width: badgeSize, height: badgeSize)))
             }

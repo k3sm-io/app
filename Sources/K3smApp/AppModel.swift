@@ -118,6 +118,10 @@ final class AppModel: ObservableObject {
     let workloads: WorkloadsModel
     /// The wordmark butterfly's wing beat, played while the console is up.
     let flap = FlapModel()
+    /// Each tab's waiting butterfly, from the tabs' reads.
+    let waiting = WaitingModel()
+    /// Forwards the loaders' changes to `waiting`.
+    private var waitingObservations: [AnyCancellable] = []
     @Published private(set) var report: StatusReport? {
         didSet { workloads.ownNode = WorkloadsDisplay.ownNode(in: report) }
     }
@@ -184,6 +188,19 @@ final class AppModel: ObservableObject {
             guard let self else { return PollSchedule.visibleInterval }
             return PollSchedule.interval(for: self.section, engineReady: self.engineReady)
         }
+        // The waiting butterflies follow each tab's own read: the pod list,
+        // the shared node list (Images) and the engine read (Builds).
+        waiting.load = { [weak self] section in
+            guard let self else { return nil }
+            switch section {
+            case .workloads: return self.workloads.pods?.load
+            case .images: return self.workloads.nodeList.load
+            case .builds: return self.builds?.load
+            }
+        }
+        waitingObservations.append(workloads.objectWillChange.sink { [weak self] _ in
+            MainActor.assumeIsolated { self?.waiting.changed() }
+        })
         // A decoded node list keeps the Images selection only while the
         // image it names is still listed, as each pod-list read does for
         // the Workloads selection.
@@ -317,6 +334,9 @@ final class AppModel: ObservableObject {
                 decode: BuildEngine.tabResult(exitCode:stdout:),
                 interval: { PollSchedule.interval(for: .builds, engineReady: $0?.state == .ready) })
             builds = engine
+            waitingObservations.append(engine.objectWillChange.sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.waiting.changed() }
+            })
             made = engine
         }
         loaders[section] = made
@@ -341,6 +361,7 @@ final class AppModel: ObservableObject {
         workloads.nodeList.stop()
         loaders[.workloads]?.stop()
         loaders[section]?.stop()
+        waiting.stop()
     }
 
     /// Reads the shared node list and the selected tab now.
