@@ -90,8 +90,11 @@ turned off.
   node list and the selected tab's list are re-read every 5 seconds (every 15
   seconds on Images, and on Builds once the build engine is ready) and the
   status report is re-read every 30 seconds, so the panel follows nodes as
-  they join and leave. A tab that is not selected is not read; when you come
-  back to it, it shows what it last read and how long ago.
+  they join and leave. The pod list keeps being read every 30 seconds while
+  another tab is selected, so the panel's pod figures stay current; the panel
+  shows their age beside its state when that read is late. No other tab is
+  read while it is not selected; when you come back to it, it shows what it
+  last read and how long ago.
 - The **tabs** above the list are Workloads (every pod, with the Mac it runs
   on), Images (the images the nodes report holding, one row per digest; until
   a node reports them the tab says so) and Builds (the build engine's state).

@@ -170,6 +170,12 @@ struct MacPanel: View {
         HStack(spacing: 7) {
             Circle().fill(report?.verdict == .running ? Palette.okOnDark : .orange).frame(width: 8, height: 8)
             Text(verbatim: stateLine).font(.system(size: 12)).foregroundStyle(.white)
+            // The pod figures' age, once their read is late or failing.
+            TimelineView(.periodic(from: .now, by: 5)) { context in
+                if let age = PollSchedule.panelAge(podsReadAt: workloads.readAt, now: context.date) {
+                    Text(verbatim: age).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+                }
+            }
         }
     }
 

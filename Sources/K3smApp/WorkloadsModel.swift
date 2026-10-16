@@ -19,7 +19,8 @@ import Foundation
 import K3smStatus
 
 /// WorkloadsModel is the Workloads tab's state and the panel's lists: the
-/// pod list (the tab's `TabLoader`, created on the tab's first selection),
+/// pod list (the tab's `TabLoader`, created when the console first comes on
+/// screen, since the panel's pod figures come from it too),
 /// the shared node list (read while the console is on screen, for the panel
 /// and the Images tab), the search, the selected pod and its detail. The
 /// search and the selection are kept in the user defaults per tab. A change
@@ -32,7 +33,7 @@ final class WorkloadsModel: ObservableObject {
         var id: Self { self }
     }
 
-    /// The Workloads tab's pod list; nil until the tab is first selected.
+    /// The pod list; nil until the console first comes on screen.
     private(set) var pods: TabLoader<Workloads>?
     /// The shared node list: one read for the panel's nodes and the Images
     /// tab's images, never a second per tab.
@@ -69,7 +70,7 @@ final class WorkloadsModel: ObservableObject {
         forward(nodeList)
     }
 
-    /// Creates the pod list's loader, once: on the Workloads tab's first selection.
+    /// Creates the pod list's loader, once.
     func podsLoader() -> TabLoader<Workloads> {
         if let pods { return pods }
         let loader = TabLoader(

@@ -51,14 +51,22 @@ final class AppModel: ObservableObject {
     /// Which tab the console shows in its middle column, kept in the user
     /// defaults across launches (`ConsoleTabs.restore` reads it back). While
     /// the console is on screen, choosing a tab stops the one left and starts
-    /// the one chosen.
+    /// the one chosen; the pod list is the exception, kept reading at
+    /// `PollSchedule.backgroundInterval` while another tab is selected, since
+    /// the navy panel's pod figures come from it.
     @Published var section: ConsoleSection = ConsoleTabs.restore(
         from: UserDefaults.standard.object(forKey: ConsoleTabs.sectionKey)) {
         didSet {
             UserDefaults.standard.set(section.rawValue, forKey: ConsoleTabs.sectionKey)
             guard section != oldValue, consoleShown else { return }
-            loaders[oldValue]?.stop()
-            loader(for: section)?.start()
+            if oldValue != .workloads { loaders[oldValue]?.stop() }
+            let chosen = loader(for: section)
+            if section == .workloads {
+                // Restarted, so it reads now and then at the tab's cadence
+                // rather than finishing its background wait.
+                chosen?.stop()
+            }
+            chosen?.start()
         }
     }
     /// The Images tab's search and selected row (a `NodeImage.key`), kept
@@ -276,7 +284,9 @@ final class AppModel: ObservableObject {
         let made: (any TabLoading)?
         switch section {
         case .workloads:
-            made = workloads.podsLoader()
+            let pods = workloads.podsLoader()
+            pods.interval = { [weak self] _ in PollSchedule.podsInterval(selected: self?.section == .workloads) }
+            made = pods
         case .images:
             made = nil
         case .builds:
@@ -292,10 +302,13 @@ final class AppModel: ObservableObject {
     }
 
     /// Starts the console's reads when it comes on screen: the shared node
-    /// list and the selected tab's loader. A second start is a no-op.
+    /// list, the pod list (the panel's figures, at the background cadence
+    /// unless Workloads is selected) and the selected tab's loader. A second
+    /// start is a no-op.
     func startTabs() {
         consoleShown = true
         workloads.nodeList.start()
+        loader(for: .workloads)?.start()
         loader(for: section)?.start()
     }
 
@@ -304,6 +317,7 @@ final class AppModel: ObservableObject {
     func stopTabs() {
         consoleShown = false
         workloads.nodeList.stop()
+        loaders[.workloads]?.stop()
         loaders[section]?.stop()
     }
 
