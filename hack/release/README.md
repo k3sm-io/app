@@ -43,8 +43,9 @@ hack/release/release.sh --version vX.Y.Z --stage-dir <dir> \
 
 Any failure stops the run before the upload. `publish.sh --upload` repeats
 every image check itself, so the checks here fail early and with a clearer
-message; they are not the only ones. Then open the Homebrew cask pull
-request.
+message; they are not the only ones. After the release is promoted, check
+what users download with `verify-release.sh <tag>` (below). Then open the
+Homebrew cask pull request.
 
 ## The rehearsal: `release.sh --rehearsal`
 
@@ -60,17 +61,57 @@ with the version), builds the app with `hack/build-app.sh --rehearsal` (bundle
 id `io.k3sm.app.rehearsal`, no Team ID), builds the image with `make-dmg.sh`,
 and runs the same payload and mount checks. In place of the signed checks
 it requires an ad-hoc signature (`codesign -dv` reports `Signature=adhoc`, no
-`Authority` and no Team ID) and no compiled Team ID stamp. Every script it
+`Authority` and no Team ID) and no compiled Team ID stamp. Last, it writes
+`k3sm_<version>_checksums.txt` beside the image, holding the image's line in
+the release's checksums format (`<sha256>  <name>`), and runs
+`verify-release.sh --image` on the two. Every script it
 starts runs under `env -i` with only `PATH`, `HOME`, `TMPDIR`,
 `DEVELOPER_DIR` and the Go toolchain locations, so no identity, Team ID,
 notary or keychain setting reaches them. The output is
-`k3sm_<version>_darwin_arm64-unsigned.dmg` in a fresh directory under the
-workspace's `k3sm-io.scratch` (or `--out-dir`).
+`k3sm_<version>_darwin_arm64-unsigned.dmg` and its checksums file in a fresh
+directory under the workspace's `k3sm-io.scratch` (or `--out-dir`).
+
+Two rehearsals of the same tree give the same layout, the same app and the
+same payload, but not the same image bytes: `hdiutil create` writes fresh
+volume UUIDs and timestamps into every image. The image's sha256 is therefore
+recorded per build, in the checksums file, and the image is checked by its
+contents, never by comparing digests across builds.
 
 The rehearsal has no path to `publish.sh`, `gh`, `sign-and-notarize.sh` or a
 Developer ID signature. Its app pins no Team ID, so the app's root step
 refuses to install from it; install the staged tree through the CLI instead
 (`sudo <out-dir>/stage/k3sm install`).
+
+## Checking a published release: `verify-release.sh`
+
+```sh
+hack/release/verify-release.sh vX.Y.Z [--repo <owner/name>] [--team-id <TEAMID>]
+hack/release/verify-release.sh --image <file.dmg> --checksums <file> [--team-id <TEAMID>]
+hack/release/verify-release.sh --self-test [<k3sm.app>]
+```
+
+With a tag it downloads `k3sm_<version>_darwin_arm64.dmg` and
+`k3sm_<version>_checksums.txt` from the release (https only, no credential)
+into a fresh private temporary directory and checks, failing on any miss:
+
+1. the image's exact name, and exactly one checksums line for it whose sha256
+   matches
+2. the image's Developer ID signature (`codesign --verify --strict` against
+   the Developer ID requirement, and `--team-id` when given), `spctl -a -t
+   open --context context:primary-signature` and `stapler validate`
+3. mounted read-only without browsing: the volume name `k3sm`, a root holding
+   exactly `k3sm.app` and an `Applications` symlink to `/Applications`
+4. the app's bundle id, version and `codesign --verify --strict --deep`; for a
+   release, its Developer ID team, staple and compiled Team ID pin
+
+Nothing is mounted until 1 and 2 pass. `--image` runs the same checks on a
+local image; an image named `-unsigned.dmg` is a rehearsal and must instead be
+unsigned with an ad-hoc app. `--self-test` builds real images, a good
+rehearsal image and broken copies (wrong checksum, no `Applications` link, an
+extra root entry, the wrong volume name, a modified app and more), and
+checks that only the good one passes; the Developer ID branch runs with fake
+`codesign`, `spctl` and `stapler`. `hack/ci.sh` runs it around its rehearsal
+app. The script signs, notarizes and uploads nothing.
 
 ## The pieces
 
@@ -83,7 +124,8 @@ refuses to install from it; install the staged tree through the CLI instead
 - `make-dmg.sh <k3sm.app> <out.dmg>` builds the image from an unsigned or
   ad-hoc signed app too, for local testing.
 - `release.sh --self-test` runs every step above with fakes for `codesign`,
-  `notarytool`, `stapler`, `spctl`, `hdiutil`, `gh` and the k3sm scripts.
+  `notarytool`, `stapler`, `spctl`, `hdiutil`, `gh`, `verify-release.sh` and
+  the k3sm scripts.
 
 ## Credentials
 

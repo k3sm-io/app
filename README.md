@@ -713,6 +713,25 @@ the swift-testing macro plugin path; `hack/ci.sh` adds it for you.
 `docs/ARCHITECTURE.md` maps the source targets.
 Every control's tooltip follows the help tag standard in its § Help tags.
 
+## Releases
+
+A k3sm release that carries the app attaches
+`k3sm_<version>_darwin_arm64.dmg`, listed in `k3sm_<version>_checksums.txt`.
+The image holds `k3sm.app` and an `Applications` link to drag it onto. To
+check a release's image the way a user receives it (the checksum, the
+Developer ID signature, Gatekeeper's verdict, the staple, and the image's
+layout, mounted read-only):
+
+```sh
+hack/release/verify-release.sh vX.Y.Z
+```
+
+`hack/release/release.sh --rehearsal --version vX.Y.Z` builds the same image
+unsigned, with an ad-hoc signed app, as
+`k3sm_<version>_darwin_arm64-unsigned.dmg` and its checksums file, and checks
+it with the same script. Signing, notarizing and publishing run attended;
+`hack/release/README.md` describes them.
+
 ## Licensing
 
 The source of this app is Apache-2.0, like the k3sm CLI and runtime it

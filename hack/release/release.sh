@@ -74,6 +74,12 @@
 # The rehearsal has no code path to publish.sh, gh, sign-and-notarize.sh or a
 # Developer ID codesign, and the self-test asserts that from its fakes' logs.
 # Its app carries a bundle id and no Team ID that the root copy-out refuses.
+# Beside the image it writes k3sm_<version>_checksums.txt holding the image's
+# line in the release's checksums format (`<sha256>  <name>`, as shasum -a 256
+# prints it), then runs hack/release/verify-release.sh --image on the two, the
+# check a user's download gets: the checksum, the volume name, the root
+# layout and the app's ad-hoc signature, at a second read-only mount. For an
+# -unsigned image it runs no stapler, spctl or Developer ID check.
 #
 # --stub-payload passes stage.sh's placeholder payload through, for a quick
 # shape check only; such an image installs nothing.
@@ -91,6 +97,7 @@ BUILD_APP="$APP_ROOT/hack/build-app.sh"
 CHECK_TEAM_PIN="$APP_ROOT/hack/check-team-pin.sh"
 SIGN_NOTARIZE="$HERE/sign-and-notarize.sh"
 MAKE_DMG="$HERE/make-dmg.sh"
+VERIFY_RELEASE="$HERE/verify-release.sh"
 
 BUNDLE_ID=io.k3sm.app
 REHEARSAL_BUNDLE_ID=io.k3sm.app.rehearsal
@@ -109,6 +116,8 @@ valid_version() { [[ "$1" =~ ^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9
 core_version() { local v="${1#v}"; printf '%s' "${v%-rc.*}"; }
 # image_name <tag> [suffix] -> k3sm_<version>_darwin_arm64<suffix>.dmg
 image_name() { printf 'k3sm_%s_darwin_arm64%s.dmg' "${1#v}" "${2:-}"; }
+# checksums_name <tag> -> k3sm_<version>_checksums.txt, the release's checksums file
+checksums_name() { printf 'k3sm_%s_checksums.txt' "${1#v}"; }
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # attended_problems <claudecode-set> <k3sm-auto-set> <stdin-tty> <dev-tty>:
@@ -487,7 +496,7 @@ scrubbed() {
 # run_rehearsal: stage ad-hoc, build the rehearsal app, make the unsigned
 # image, check it. No publish.sh, no gh, no sign-and-notarize.sh, no identity.
 run_rehearsal() {
-	local stage_sh tree build img core problems stage_args=()
+	local stage_sh tree build img sums core problems stage_args=()
 	stage_sh="$K3SM_CHECKOUT/hack/release/stage.sh"
 	core="$(core_version "$VERSION")"
 	[ -x "$stage_sh" ] || die "no executable $stage_sh; --k3sm-dir names a k3sm checkout"
@@ -498,15 +507,16 @@ run_rehearsal() {
 	tree="$OUT_DIR/stage"
 	build="$OUT_DIR/app-build"
 	img="$OUT_DIR/$(image_name "$VERSION" -unsigned)"
+	sums="$OUT_DIR/$(checksums_name "$VERSION")"
 	[ "$STUB_PAYLOAD" = 0 ] || stage_args=(--stub-payload)
 
-	echo "==> 1/5 stage.sh (ad-hoc, unsigned) into $tree"
+	echo "==> 1/6 stage.sh (ad-hoc, unsigned) into $tree"
 	scrubbed "$stage_sh" "$tree" --ldflags "$LDFLAGS" ${stage_args[@]+"${stage_args[@]}"} || die "stage.sh failed"
 
-	echo "==> 2/5 the staged tree"
+	echo "==> 2/6 the staged tree"
 	check_tree "$tree" "$VERSION"
 
-	echo "==> 3/5 build the rehearsal k3sm.app $core (ad-hoc, no Team ID)"
+	echo "==> 3/6 build the rehearsal k3sm.app $core (ad-hoc, no Team ID)"
 	scrubbed bash "$BUILD_APP" --rehearsal --version "$core" --payload "$tree" "$build" || die "hack/build-app.sh failed"
 	check_app "$build/k3sm.app" "$VERSION" "$REHEARSAL_BUNDLE_ID" "$tree/PAYLOAD-SHA256"
 	if ! problems="$(rehearsal_app_problems "$build/k3sm.app")"; then
@@ -514,10 +524,10 @@ run_rehearsal() {
 		refuse app-mismatch "the rehearsal k3sm.app is not an ad-hoc app without a Team ID."
 	fi
 
-	echo "==> 4/5 make-dmg.sh (unsigned)"
+	echo "==> 4/6 make-dmg.sh (unsigned)"
 	scrubbed bash "$MAKE_DMG" "$build/k3sm.app" "$img" || die "make-dmg.sh failed"
 
-	echo "==> 5/5 check the image"
+	echo "==> 5/6 check the image"
 	if ! problems="$(image_name_problems "$img" "$VERSION" -unsigned)"; then
 		printf '%s\n' "$problems" >&2
 		refuse image-name "the rehearsal image is misnamed."
@@ -527,8 +537,14 @@ run_rehearsal() {
 		printf '%s\n' "$problems" >&2
 		refuse image-unverified "the rehearsal image's contents fail their checks."
 	fi
+
+	echo "==> 6/6 the checksums line, then verify-release.sh on the image as a user receives it"
+	(cd "$OUT_DIR" && shasum -a 256 "$(basename "$img")") >"$sums" || die "could not write $sums"
+	scrubbed bash "$VERIFY_RELEASE" --image "$img" --checksums "$sums" ||
+		refuse image-unverified "verify-release.sh rejects the rehearsal image."
 	echo "==> rehearsal image: $img"
 	echo "    sha256 $(sha256_of "$img")"
+	echo "    checksums: $sums"
 	echo "    unsigned, bundle id $REHEARSAL_BUNDLE_ID, no Team ID: the app's root copy-out refuses it;"
 	echo "    install its payload through the CLI: sudo $tree/k3sm install"
 }
@@ -767,6 +783,13 @@ set -euo pipefail
 printf '%s\n' "sign-and-notarize.sh \$*" >>"\$FAKE_TOOL_LOG"
 "$F/mk-image" "\$1" "\$2"
 EOF
+	cat >"$A/verify-release.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "verify-release.sh \$*" >>"\$FAKE_TOOL_LOG"
+printf 'verify-release.sh %s\n' "\$(env | sed 's/=.*//' | grep -v '^FAKE_' | LC_ALL=C sort | tr '\n' ' ')" >>"$T/child-env"
+[ -z "\${FAKE_VERIFY_FAIL:-}" ] || exit 1
+EOF
 	cat >"$A/make-dmg.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -786,7 +809,7 @@ EOF
 	printf 'notes\n' >"$T/notes.md"
 
 	# Point this shell's script paths at the fakes; run_case subshells inherit.
-	BUILD_APP="$A/build-app.sh" SIGN_NOTARIZE="$A/sign-and-notarize.sh" MAKE_DMG="$A/make-dmg.sh"
+	BUILD_APP="$A/build-app.sh" SIGN_NOTARIZE="$A/sign-and-notarize.sh" MAKE_DMG="$A/make-dmg.sh" VERIFY_RELEASE="$A/verify-release.sh"
 
 	# full_case <n>: set the full-mode globals for a fresh stage dir.
 	full_case() {
@@ -998,6 +1021,11 @@ publish.sh --upload"
 		eval 'logged "^stage.sh $T/reh-ok/out/stage --ldflags -X k3sm.io/k3sm/pkg/version.Version=1.2.3-rc.1\$" && logged "^build-app.sh --rehearsal --version 1.2.3 --payload " && not_logged "^build-app.sh.*--team-id"'
 	check "the rehearsal image is made by make-dmg.sh and mounted read-only" \
 		eval 'logged "^make-dmg.sh .*/k3sm.app $rimg\$" && logged "^hdiutil attach -readonly"'
+	local rsums="$T/reh-ok/out/k3sm_1.2.3-rc.1_checksums.txt"
+	check "the rehearsal writes the image's checksums line, and only it" \
+		eval '[ "$(cat "$rsums")" = "$(shasum -a 256 "$rimg" | cut -d" " -f1)  $(basename "$rimg")" ]'
+	check "the rehearsal runs verify-release.sh on exactly the image and that file, last" \
+		eval '[ "$(tail -1 "$log")" = "verify-release.sh --image $rimg --checksums $rsums" ]'
 	check "the rehearsal app carries io.k3sm.app.rehearsal" \
 		eval '[ "$(plutil -extract CFBundleIdentifier raw -o - "$T/reh-ok/out/app-build/k3sm.app/Contents/Info.plist")" = io.k3sm.app.rehearsal ]'
 	# Every function the rehearsal path reaches: the closure, over this
@@ -1021,20 +1049,20 @@ publish.sh --upload"
 		fi
 	done
 	check "the rehearsal's reach includes every checker and helper on its path" \
-		eval 'for g in run_rehearsal parse_rehearsal check_app app_problems payload_problems mounted_image_problems rehearsal_app_problems detach_image scrubbed check_tree tree_version image_name_problems team_stamps; do case "$reached" in *" $g "*) ;; *) echo "not reached: $g" >"$T/out"; false ;; esac; done'
+		eval 'for g in run_rehearsal parse_rehearsal check_app app_problems payload_problems mounted_image_problems rehearsal_app_problems detach_image scrubbed check_tree tree_version image_name_problems team_stamps checksums_name; do case "$reached" in *" $g "*) ;; *) echo "not reached: $g" >"$T/out"; false ;; esac; done'
 	check "no function the rehearsal reaches signs, notarizes, uploads or runs a signed check" \
 		eval '[ -z "$banned" ] || { echo "banned:$banned" >"$T/out"; false; }'
 	check "the reach excludes the signed checks and the full release" \
 		eval 'case "$reached" in *" signed_app_problems "* | *" signed_image_problems "* | *" run_full "*) false ;; esac'
 	check "the rehearsal's children ran under env -i with only the kept variables" \
-		eval '[ "$(grep -c . "$T/child-env")" = 3 ] && ! sed "s/^[^ ]* //" "$T/child-env" | tr " " "\n" | sed "/^$/d" | grep -Evx "PATH|HOME|TMPDIR|DEVELOPER_DIR|GO[A-Z]*|PWD|SHLVL|_|OLDPWD" >"$T/out"'
+		eval '[ "$(grep -c . "$T/child-env")" = 4 ] && ! sed "s/^[^ ]* //" "$T/child-env" | tr " " "\n" | sed "/^$/d" | grep -Evx "PATH|HOME|TMPDIR|DEVELOPER_DIR|GO[A-Z]*|PWD|SHLVL|_|OLDPWD" >"$T/out"'
 
 	rehearsal_case scrub
 	export CODESIGN_IDENTITY="$id" K3SM_TEAM_ID="$team" NOTARY_PROFILE=k3sm-notary KEYCHAIN=login.keychain CODESIGN=/bin/echo K3SM_AUTO=1
 	run_case in_fakes run_rehearsal
 	unset CODESIGN_IDENTITY K3SM_TEAM_ID NOTARY_PROFILE KEYCHAIN CODESIGN K3SM_AUTO
 	check "identity, team, notary, keychain and codesign variables never reach a rehearsal child" \
-		eval '[ "$CASE_RC" = 0 ] && [ "$(grep -c . "$T/child-env")" = 3 ] && ! grep -Eq "IDENTITY|TEAM|NOTARY|KEYCHAIN|CODESIGN|K3SM_AUTO|CLAUDECODE|FAKE_" "$T/child-env"'
+		eval '[ "$CASE_RC" = 0 ] && [ "$(grep -c . "$T/child-env")" = 4 ] && ! grep -Eq "IDENTITY|TEAM|NOTARY|KEYCHAIN|CODESIGN|K3SM_AUTO|CLAUDECODE|FAKE_" "$T/child-env"'
 
 	rehearsal_case devid
 	export FAKE_CODESIGN_DV='Executable=x\nIdentifier=io.k3sm.app.rehearsal\nSignature size=9000\nAuthority=Developer ID Application: Example (ABCDE12345)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTeamIdentifier=ABCDE12345'
@@ -1079,6 +1107,12 @@ publish.sh --upload"
 	unset FAKE_TREE_VERSION
 	check "a rehearsal tree reporting another version refuses" \
 		eval '[ "$CASE_RC" = 3 ] && out_has "REFUSE: version-mismatch" && not_logged "^build-app"'
+	rehearsal_case verify
+	export FAKE_VERIFY_FAIL=1
+	run_case in_fakes run_rehearsal
+	unset FAKE_VERIFY_FAIL
+	check "a rehearsal image verify-release.sh rejects refuses" \
+		eval '[ "$CASE_RC" = 3 ] && out_has "verify-release.sh rejects the rehearsal image" && ! out_has "==> rehearsal image:"'
 	rc=0; env PATH="$FPATH" bash "$0" --rehearsal --version "$tag" --k3sm-dir "$K" --identity "$id" </dev/null >"$T/out" 2>&1 || rc=$?
 	check "the rehearsal takes no identity flag" eval '[ "$rc" = 1 ] && out_has "takes no signing or upload flag"'
 

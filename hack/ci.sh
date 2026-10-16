@@ -13,7 +13,9 @@
 #   5. hack/build-app.sh --payload with a fake payload: the refusals, the
 #      manifest, the version stamp; then make-dmg.sh on the result
 #   6. sign-and-notarize.sh refuses to run unattended; release.sh --self-test
-#      (the release driver's refusals, checks and rehearsal, all with fakes)
+#      (the release driver's refusals, checks and rehearsal, all with fakes);
+#      verify-release.sh --self-test around the rehearsal app of step 5 (real
+#      disk images, mounted read-only: a good one passes, each broken one fails)
 #   7. every .swift file carries the Apache-2.0 header
 #   8. every file under .github/workflows/ is dormant (fully commented out)
 #   9. the vendored status and datavol fixtures match a sibling k3sm
@@ -185,6 +187,11 @@ echo "==> hack/release/release.sh --self-test"
 bash hack/release/release.sh --self-test > "$tmp/release-selftest.log" 2>&1 \
 	|| { echo "FAIL: release.sh --self-test"; cat "$tmp/release-selftest.log"; exit 1; }
 tail -n 1 "$tmp/release-selftest.log" | sed 's/^/    /'
+
+echo "==> hack/release/verify-release.sh --self-test (the rehearsal app)"
+bash hack/release/verify-release.sh --self-test "$tmp/rehearsal-out/k3sm.app" > "$tmp/verify-selftest.log" 2>&1 \
+	|| { echo "FAIL: verify-release.sh --self-test"; cat "$tmp/verify-selftest.log"; exit 1; }
+tail -n 1 "$tmp/verify-selftest.log" | sed 's/^/    /'
 
 echo "==> license headers (.swift)"
 header="hack/boilerplate/boilerplate.swift.txt"
