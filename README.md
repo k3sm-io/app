@@ -486,16 +486,20 @@ login** in the app's Settings turns it off or on again (see
   appears and goes without flying.
 - The **details button**, beside the info button above the list, collapses
   the details on the right and shows them again; Command-Option-I does the same, and the app remembers the choice.
-- The **left panel** is resizable: drag the divider between it and the list.
-  It goes no narrower than its original width and no wider than its content
-  can use (every tile in one row, or the longest node row with its meters
-  beside it). Wider, the tiles take one row and each node's meters move up
-  beside its name, so node names stop being shortened. Double-click the
+- The **left panel** opens at its natural width: the narrowest at which
+  nothing in the Cluster or This Mac view is squeezed (every tile in one
+  row, the longest node row with its meters beside it, the memory block's
+  figures and legend, the live load bars), the wider of the two views. It
+  keeps that fit as the figures change until you drag the divider between
+  it and the list. You can make it narrower, down to its original width:
+  the tiles then take two columns and each node's meters move under its
+  name. It goes no wider than its natural width; dragging it back there,
+  or Reset Window Layout in Settings, lets it fit itself again. Double-click the
   divider, or choose View > Hide Panel (Command-Option-L), to collapse the
   panel; do it again, or View > Show Panel, to bring it back. The window's
   minimum width follows: the panel's minimum plus the list's, or the list's
-  alone while the panel is hidden. The app remembers the width and whether
-  the panel is hidden.
+  alone while the panel is hidden. The app remembers a width you dragged and
+  whether the panel is hidden.
 - Every tab's **table columns** are resizable: drag the faint line between
   two column titles. The line on a column's far side from the name column
   moves with the pointer, so a column after the name widens as you drag
@@ -631,7 +635,7 @@ The **General** pane:
 - **Take the Tour** brings the window forward and starts the tour, once k3sm
   is installed.
 - **Reset Window Layout…** asks, then puts the console's left panel back to
-  its first width and view, shown, shows the details column, and puts every
+  its natural width (fitting itself again) and first view, shown, shows the details column, and puts every
   table's columns back to their first widths. Tabs, searches and selections
   stay as they are.
 

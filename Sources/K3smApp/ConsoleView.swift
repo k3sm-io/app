@@ -20,9 +20,10 @@ import SwiftUI
 /// ConsoleView is the window once k3sm is installed: this Mac on the left,
 /// the chosen tab (`ConsoleSection`) in the middle, the inspector on the right unless the
 /// details button has collapsed it. The left panel is the first pane of a
-/// split view (`ConsoleSplit`): its divider drags between the panel's
-/// minimum and the width its content could use (`PanelLayout.widthRange`),
-/// and the panel collapses on a double-click of the divider or View > Hide
+/// split view (`ConsoleSplit`): it opens at its natural width, the widest
+/// either region needs with nothing compressed (`PanelLayout.naturalWidth`),
+/// and follows it until the user drags the divider, which moves between the
+/// panel's minimum and that width (`PanelLayout.widthRange`); the panel collapses on a double-click of the divider or View > Hide
 /// Panel; both survive a relaunch on `AppModel`. Every string from the CLI
 /// renders verbatim and clipped. The lifecycle controls are the status
 /// panel, a popover from the info button. The console follows the system
@@ -70,8 +71,8 @@ struct ConsoleView: View {
                                 updateTitle: updateTitle)
         ConsoleSplit(
             app: app,
-            range: PanelLayout.widthRange(content: panel.layoutContent),
-            width: app.consolePanelWidth,
+            range: PanelLayout.widthRange(regions: panel.layoutRegions),
+            width: PanelLayout.shownWidth(stored: app.consolePanelWidth, regions: panel.layoutRegions),
             collapsed: app.consolePanelCollapsed,
             contentMinimum: Double(Self.contentMinWidth(inspectorShown: app.inspectorShown, updateTitle: updateTitle)),
             // Each pane is hosted on its own; both run under the transparent

@@ -207,7 +207,7 @@ struct MacPanel: View {
     }
 
     private func memoryBlock(_ chart: MemoryChart) -> some View {
-        PanelBlock("Unified memory", value: "\(WorkloadsDisplay.bytes(workloads.load.memoryUsedBytes)) of \(WorkloadsDisplay.bytes(Self.machine.memoryBytes))") {
+        PanelBlock("Unified memory", value: memoryHeading) {
             Meter(parts: chart.segments.map { ($0.share, Palette.swatch($0.swatch)) }, total: 1, height: 10,
                   outline: chart.requestShare)
                 .help(Help.Panel.memoryMeter)
@@ -278,21 +278,41 @@ struct MacPanel: View {
             pods: macPods.count, coresUsed: coresUsed, memoryUsed: memoryUsed)
     }
 
-    /// What the view shown holds, for `PanelLayout.widthRange`: its tiles,
-    /// the Cluster view's node rows and the nodes block's lines.
-    var layoutContent: PanelContent {
-        switch mode {
-        case .cluster:
-            return PanelContent(tiles: ClusterDisplay.tiles(for: cluster), nodes: cluster.nodes,
-                                lines: cluster.nodes.isEmpty ? nodes?.lines ?? [] : [])
-        case .thisMac:
-            return PanelContent(tiles: macTiles, lines: nodes?.lines ?? [])
-        }
+    /// What the panel's regions hold, for `PanelLayout.naturalWidth`: both
+    /// the Cluster and the This Mac view while the switch offers both, so the
+    /// panel keeps one width across a switch, and This Mac alone otherwise.
+    var layoutRegions: [PanelContent] {
+        PanelMode.showsSwitch(nodeCount: cluster.nodeCount) ? [clusterRegion, macRegion] : [macRegion]
     }
 
-    /// The width the panel is drawn at: the user's, within the content's range.
+    /// The Cluster view's tiles, node rows, their live load, and the nodes block.
+    private var clusterRegion: PanelContent {
+        let loads = cluster.nodes.compactMap { MetricsDisplay.nodeLoad(named: $0.name, nodes: workloads.nodes, state: workloads.metrics) }
+        return PanelContent(tiles: ClusterDisplay.tiles(for: cluster), nodes: cluster.nodes,
+                            lines: cluster.nodes.isEmpty ? nodes?.lines ?? [] : [],
+                            pairs: [PanelPair("Nodes", cluster.versions ?? "")], loads: loads)
+    }
+
+    /// The This Mac view's tiles, the machine line, the nodes block, the live
+    /// load, and the core and memory legends with the memory block's heading.
+    private var macRegion: PanelContent {
+        let legend = (coreChart.legend + memoryChart.legend).map { PanelPair($0.label, $0.value, swatch: true) }
+        let load = macNode.flatMap { MetricsDisplay.nodeLoad(named: $0, nodes: workloads.nodes, state: workloads.metrics) }
+        return PanelContent(tiles: macTiles, lines: nodes?.lines ?? [],
+                            pairs: [PanelPair(Self.machine.line, ""), PanelPair("Nodes", nodes?.heading ?? ""),
+                                    PanelPair("Unified memory", memoryHeading)] + legend,
+                            loads: load.map { [$0] } ?? [])
+    }
+
+    /// The memory block's value: what is in use of this Mac's memory.
+    private var memoryHeading: String {
+        "\(WorkloadsDisplay.bytes(workloads.load.memoryUsedBytes)) of \(WorkloadsDisplay.bytes(Self.machine.memoryBytes))"
+    }
+
+    /// The width the panel is drawn at: the natural width while auto-sized,
+    /// the user's within the range otherwise.
     private var shownWidth: Double {
-        PanelLayout.clamp(app.consolePanelWidth, to: PanelLayout.widthRange(content: layoutContent))
+        PanelLayout.shownWidth(stored: app.consolePanelWidth, regions: layoutRegions)
     }
 
     /// The cluster view, re-derived from the report and the two lists.
