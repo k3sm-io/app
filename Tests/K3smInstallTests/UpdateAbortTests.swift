@@ -116,7 +116,7 @@ struct UpdateAbortTests {
         let runner = LANRunner()
         let asked = Questions()
         let result = await ManagedUpdateTests.driver(StatusSequence([]), runner: runner, answer: true, asked: asked).abort()
-        #expect(result == .ran(.notStarted, .succeeded, "k3sm ended the update. Every node keeps the release it runs now."))
+        #expect(result == .ran(.notStarted, .succeeded, "k3sm ended the update. Nothing was rolled back: every node keeps the release it runs, and a node already installing may still finish."))
         #expect(asked.all.map(\.title) == ["Abort the update?"])
         #expect(runner.scripts == [LifecycleScriptBuilder.render(.updateAbort, teamID: Self.team)])
 
@@ -127,6 +127,13 @@ struct UpdateAbortTests {
 
     @Test("a failed abort shows the CLI's cleaned text, and the script's refusals their own")
     func outcomes() {
+        // A successful abort claims no more than the question did.
+        let done = LifecycleOutcome.text(.succeeded, verb: .updateAbort)
+        #expect(done == "k3sm ended the update. Nothing was rolled back: every node keeps the release it runs, and a node already installing may still finish.")
+        for words in ["Nothing was rolled back", "every node keeps the release it runs", "a node already installing may still finish"] {
+            #expect(done.contains(words) && UpdateConfirmationText.abort.lowercased().contains(words.lowercased().replacingOccurrences(of: "was", with: "is")),
+                    "the outcome and the question disagree on: \(words)")
+        }
         // A node the CLI could not release (exit 1) names it.
         let partial = PrivilegedRun(outcome: .failed(exitStatus: 1), errorOutput: "k3sm update abort: release node mac-2: \u{1B}[31mconflict\n")
         guard case .ran(.notStarted, .failed(exitStatus: 1), let text) = UpdateDriver.classify(partial, verb: .updateAbort) else {

@@ -253,7 +253,7 @@ public enum LifecycleOutcome {
             case .lanOff: return "Only this Mac and your cluster mesh can connect to its k3sm services now."
             case .updateApply: return "The update has started. Each node updates in turn, the server last."
             case .updateCancel: return "k3sm is cancelling the update."
-            case .updateAbort: return "k3sm ended the update. Every node keeps the release it runs now."
+            case .updateAbort: return "k3sm ended the update. Nothing was rolled back: every node keeps the release it runs, and a node already installing may still finish."
             }
         case .cancelled:
             return "Cancelled. Nothing was changed."
