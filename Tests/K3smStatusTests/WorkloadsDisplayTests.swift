@@ -127,6 +127,26 @@ struct WorkloadsSelectionTests {
         #expect(WorkloadsDisplay.visible(Self.pods, query: c.query).map(\.name) == c.want)
     }
 
+    @Test("a row names the node its pod runs on, this Mac's by the tag")
+    func workloadRowNamesItsNode() {
+        #expect(WorkloadsDisplay.nodeLabel(testPod("p"), ownNode: "mac-a") == .unscheduled)
+        #expect(WorkloadsDisplay.nodeLabel(testPod("p"), ownNode: "mac-a").text == "-")
+        #expect(WorkloadsDisplay.nodeLabel(testPod("p", node: "mac-a"), ownNode: "mac-a") == .thisMac)
+        #expect(WorkloadsDisplay.nodeLabel(testPod("p", node: "mac-a"), ownNode: "mac-a").text == "this Mac")
+        #expect(WorkloadsDisplay.nodeLabel(testPod("p", node: "mac-b"), ownNode: "mac-a") == .node("mac-b"))
+        #expect(WorkloadsDisplay.nodeLabel(testPod("p", node: "mac-b"), ownNode: nil).text == "mac-b")
+        #expect(WorkloadsDisplay.nodeLabel(testPod("p", node: "mac-a"), ownNode: nil) == .node("mac-a"))
+    }
+
+    @Test("the search matches the node a pod runs on")
+    func searchMatchesNode() {
+        let pods = [testPod("a", node: "mac-a"), testPod("b", node: "studio-2"), testPod("c")]
+        #expect(WorkloadsDisplay.visible(pods, query: "STUDIO", ownNode: "mac-a").map(\.name) == ["b"])
+        #expect(WorkloadsDisplay.visible(pods, query: "this mac", ownNode: "mac-a").map(\.name) == ["a"])
+        #expect(WorkloadsDisplay.visible(pods, query: "mac-a", ownNode: "mac-a").map(\.name) == ["a"])
+        #expect(WorkloadsDisplay.visible(pods, query: "-", ownNode: "mac-a").map(\.name) == ["a", "b"])
+    }
+
     struct SelectionCase: Sendable, CustomTestStringConvertible {
         let name: String
         let selected: String?

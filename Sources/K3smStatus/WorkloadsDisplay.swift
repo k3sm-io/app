@@ -110,15 +110,35 @@ public enum WorkloadsDisplay {
     }
 
     /// The pods the search leaves visible: all of them for an empty query,
-    /// otherwise those whose name or image, each as the list shows it
-    /// (`StatusDisplay.clip`), contains it, case-insensitively. Matching the
-    /// shown text means a pod never matches on a part of its name the list
-    /// hides, and a query never spans the name and the image.
-    public static func visible(_ pods: [Pod], query: String) -> [Pod] {
+    /// otherwise those whose name, image or node, each as the list shows it
+    /// (`StatusDisplay.clip`, and the node also by its `nodeLabel`), contains
+    /// it, case-insensitively. Matching the shown text means a pod never
+    /// matches on a part of its name the list hides, and a query never spans
+    /// two fields.
+    public static func visible(_ pods: [Pod], query: String, ownNode: String? = nil) -> [Pod] {
         guard !query.isEmpty else { return pods }
         return pods.filter { pod in
-            [pod.name, pod.image].contains { StatusDisplay.clip($0).localizedCaseInsensitiveContains(query) }
+            var fields = [pod.name, pod.image]
+            if let node = pod.nodeName {
+                fields.append(node)
+                fields.append(nodeLabel(pod, ownNode: ownNode).text)
+            }
+            return fields.contains { StatusDisplay.clip($0).localizedCaseInsensitiveContains(query) }
         }
+    }
+
+    /// Which Mac a row says its pod runs on: no node yet, this Mac (the node
+    /// the status report names as this Mac's), or another node by name.
+    public static func nodeLabel(_ pod: Pod, ownNode: String?) -> PodNodeLabel {
+        guard let node = pod.nodeName else { return .unscheduled }
+        if let ownNode, node == ownNode { return .thisMac }
+        return .node(StatusDisplay.clip(node))
+    }
+
+    /// This Mac's node name from the status report, as the panel reads it;
+    /// nil when the report or the name is unknown.
+    public static func ownNode(in report: StatusReport?) -> String? {
+        report.flatMap(ClusterDisplay.ownNodeName)
     }
 
     /// What a poll does to the selection. With nothing selected it selects
@@ -133,5 +153,24 @@ public enum WorkloadsDisplay {
     /// The list's group header: the namespace and its pod count.
     public static func groupTitle(namespace: String, count: Int) -> String {
         "\(StatusDisplay.clip(namespace)) · \(count) \(count == 1 ? "pod" : "pods")"
+    }
+}
+
+/// PodNodeLabel is the node column of a workloads row.
+public enum PodNodeLabel: Equatable, Sendable {
+    /// Not bound to a node yet (a pending pod): a dim dash.
+    case unscheduled
+    /// Bound to this Mac's node: tagged "this Mac", as the panel tags it.
+    case thisMac
+    /// Bound to another node, by its clipped name.
+    case node(String)
+
+    /// The column's text.
+    public var text: String {
+        switch self {
+        case .unscheduled: return "-"
+        case .thisMac: return "this Mac"
+        case .node(let name): return name
+        }
     }
 }

@@ -412,10 +412,10 @@ struct NodesTests {
 /// A pod with only the fields the console's arithmetic, search and
 /// selection read.
 func testPod(_ name: String, namespace: String = "default", image: String = "registry.local/app:1",
-             cores: Double? = nil, bytes: Int64? = nil) -> Pod {
+             cores: Double? = nil, bytes: Int64? = nil, node: String? = nil) -> Pod {
     Pod(name: name, namespace: namespace, uid: "\(namespace)-\(name)", image: image, kind: .nativeProcess,
         phase: "Running", health: .running, ready: true, restarts: 0, ports: [], owner: nil, created: nil,
-        cpuRequest: cores, memoryRequest: bytes, nodeName: nil)
+        cpuRequest: cores, memoryRequest: bytes, nodeName: node)
 }
 
 @Suite("what the pods ask of this Mac")
