@@ -95,6 +95,9 @@ turned off.
   shows their age beside its state when that read is late. No other tab is
   read while it is not selected; when you come back to it, it shows what it
   last read and how long ago.
+- The **Update** button appears at the top right of the console, beside the
+  search field, when k3sm reports a newer release for the cluster. It runs
+  the cluster's managed update (see [The managed update](#the-managed-update)).
 - The **tabs** above the list are Workloads (every pod, with the Mac it runs
   on), Images (the images the nodes report holding, one row per digest; until
   a node reports them the tab says so) and Builds (the build engine's state).
@@ -147,6 +150,10 @@ until the read ends or the menu closes; with Reduce Motion on it stays still.
 The full status and the setting for connections from other devices are in the
 window. Then come the actions:
 
+- **Update to v0.1.8…** (naming the release k3sm found) appears when k3sm
+  reports a newer release for the cluster, and runs the managed update
+  (below). While an update rolls it reads **Updating…** and cannot be
+  clicked.
 - **Stop k3sm** stops k3sm on this Mac completely, pods included, and keeps it
   stopped across restarts until you start it (`sudo k3sm stop`). Before it
   asks, the app reads the status again. On a server with joined nodes it names
@@ -194,6 +201,36 @@ These actions need a k3sm release that has `k3sm stop` (any release after
 show them and the window says why; `sudo k3sm stop` and `sudo k3sm start` work
 in Terminal either way. Like installing, they need an administrator account
 and a release build of the app.
+
+## The managed update
+
+A server checks for a new k3sm release at most once an hour (`sudo k3sm
+update check` checks now), and its status report says when a node runs an
+older release than the latest. The app reads only that report: it never
+contacts the network itself. While the report names a newer release, the
+menu offers **Update to <release>…** and the console shows the **Update**
+button. When every node runs the latest release, runs a newer one, or the
+check has no answer, neither appears.
+
+Update asks first, naming the release, then shows the standard
+administrator prompt and runs `/Library/k3sm/k3sm update apply --yes`
+through the same checked root step as Stop and Start. k3sm then updates the
+cluster one node at a time, the server last. If an update is already
+rolling, the app follows that one.
+
+While the update rolls, the console shows a progress panel under the tabs,
+re-read every 5 seconds with `k3sm update status -o json`: the release, the
+phase, and each node with its versions, phase and message. **Cancel Update…**
+asks first, then runs `k3sm update cancel` as root the same way. When the
+update succeeds, the panel says so and offers **Dismiss**. When it fails, it
+shows the failed node's message and "Run k3sm update abort in Terminal, then
+try again." A roll started in Terminal or from another Mac is found through
+the status report, which says when an update is rolling, and is followed the
+same way.
+
+Like Stop and Restart, Update and Cancel need an administrator account and
+a release build of the app. A build from source shows them disabled, with
+the reason as their help text.
 
 ## Connections from other devices
 

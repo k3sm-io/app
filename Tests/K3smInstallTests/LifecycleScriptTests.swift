@@ -34,12 +34,14 @@ struct LifecycleScriptTests {
         .restart: ["restart", "--actor", "user", "--reason", "from the k3sm app"],
         .lanOn: ["network", "lan", "on"],
         .lanOff: ["network", "lan", "off"],
+        .updateApply: ["update", "apply", "--yes"],
+        .updateCancel: ["update", "cancel"],
     ]
 
     @Test("the verb set is closed: stop, start, restart")
     func verbs() {
         #expect(LifecycleVerb.lifecycleVerbs.map(\.rawValue) == ["stop", "start", "restart"])
-        #expect(LifecycleVerb.allCases.filter { !$0.isLAN } == LifecycleVerb.lifecycleVerbs)
+        #expect(LifecycleVerb.allCases.filter { !$0.isLAN && !$0.isUpdate } == LifecycleVerb.lifecycleVerbs)
     }
 
     @Test("the argument list", arguments: LifecycleVerb.allCases)

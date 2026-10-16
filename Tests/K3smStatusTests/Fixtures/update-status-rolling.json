@@ -1,0 +1,35 @@
+{
+  "phase": "Rolling",
+  "version": "v0.1.8",
+  "resolved": {
+    "version": "v0.1.8",
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "nodes": [
+    {
+      "name": "mac-2",
+      "from": "v0.1.7",
+      "to": "v0.1.8",
+      "phase": "Succeeded",
+      "message": "updated",
+      "lastProgress": "2026-10-15T10:00:00Z"
+    },
+    {
+      "name": "mac-1",
+      "from": "v0.1.7",
+      "to": "v0.1.8",
+      "phase": "Pending",
+      "message": "",
+      "lastProgress": ""
+    }
+  ],
+  "conditions": [
+    {
+      "type": "Progressing",
+      "status": "True",
+      "reason": "NodeUpdated",
+      "message": "1 of 2 nodes updated"
+    }
+  ],
+  "name": "current"
+}

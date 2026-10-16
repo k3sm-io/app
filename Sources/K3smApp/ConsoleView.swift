@@ -92,6 +92,9 @@ struct ConsoleContent: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 ConsoleStrip(app: app)
+                if let panel = app.updateProgress.panel {
+                    UpdateProgressPanel(app: app, panel: panel)
+                }
                 section
                     .overlay { TabWaitingMark(waiting: app.waiting, section: app.section, placement: .content) }
             }
@@ -121,7 +124,8 @@ struct ConsoleContent: View {
     }
 }
 
-/// ConsoleStrip is the row above the tab: the tab strip, the tab's search
+/// ConsoleStrip is the row above the tab: the tab strip, the managed update's
+/// button while `UpdateOffer` shows one, the tab's search
 /// field (on a tab with rows to search), the details button that shows or
 /// collapses the inspector, and the info button that opens the status panel.
 struct ConsoleStrip: View {
@@ -137,6 +141,15 @@ struct ConsoleStrip: View {
         HStack(spacing: 12) {
             TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
             Spacer()
+            if let title = app.updateOffer.buttonTitle {
+                let offer = app.updateOffer
+                Button(title) { app.performUpdate() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(Palette.blue)
+                    .disabled(!offer.isEnabled)
+                    .help(offer.disabledReason ?? offer.tag.map { "Update k3sm on every node to \($0)" } ?? title)
+            }
             switch app.section {
             case .workloads:
                 TextField("Search", text: $workloads.query).textFieldStyle(.roundedBorder).frame(width: 180)

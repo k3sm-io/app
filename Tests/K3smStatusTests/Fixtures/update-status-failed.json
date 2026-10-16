@@ -1,0 +1,33 @@
+{
+  "phase": "Failed",
+  "version": "v0.1.8",
+  "resolved": null,
+  "nodes": [
+    {
+      "name": "mac-2",
+      "from": "v0.1.7",
+      "to": "v0.1.8",
+      "phase": "Failed",
+      "message": "install exited 1",
+      "lastProgress": "2026-10-15T10:00:00Z"
+    },
+    {
+      "name": "mac-1",
+      "from": "v0.1.7",
+      "to": "v0.1.8",
+      "phase": "Pending",
+      "message": "",
+      "lastProgress": ""
+    }
+  ],
+  "conditions": [
+    {
+      "type": "Progressing",
+      "status": "False",
+      "reason": "Failed",
+      "message": "mac-2 failed"
+    }
+  ],
+  "name": "current",
+  "finished": true
+}

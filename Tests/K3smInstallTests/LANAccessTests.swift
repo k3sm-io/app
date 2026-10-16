@@ -67,9 +67,9 @@ final class LANRunner: PrivilegedRunner {
 struct LANScriptTests {
     static let team = TeamID("ABCDE12345")!
 
-    @Test("the verb set is closed: stop, start, restart, LAN on, LAN off")
+    @Test("the verb set is closed: stop, start, restart, LAN on, LAN off, update apply, update cancel")
     func verbs() {
-        #expect(LifecycleVerb.allCases == [.stop, .start, .restart, .lanOn, .lanOff])
+        #expect(LifecycleVerb.allCases == [.stop, .start, .restart, .lanOn, .lanOff, .updateApply, .updateCancel])
         #expect(LifecycleVerb.lanVerbs == [.lanOn, .lanOff])
         #expect(LifecycleVerb.lanVerbs.allSatisfy { $0.isLAN })
         #expect(LifecycleVerb.lanVerbs.allSatisfy { $0.requiredState == nil })

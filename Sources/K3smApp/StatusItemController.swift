@@ -26,8 +26,10 @@ import K3smStatus
 /// settings) until the next launch.
 ///
 /// The menu opens with two status lines, Cluster and This Mac, each with a
-/// coloured circle and the word, then the actions: Stop (with the
-/// multi-node warning) and Restart, Open Status, Open Logs, Write a Bug Report, Dashboard and Quit.
+/// coloured circle and the word, then the actions: Update to <tag>… while
+/// the `update` row offers one (`UpdateOffer`; "Updating…", disabled, while a
+/// roll runs; shown disabled with the reason on a developer build), Stop
+/// (with the multi-node warning) and Restart, Open Status, Open Logs, Write a Bug Report, Dashboard and Quit.
 /// Stop and Restart go through `AppModel.perform` and are shown only when
 /// the installed CLI has them; otherwise they are hidden and the window says
 /// why. The full status and the LAN setting are in the window. While LAN access
@@ -47,6 +49,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let menu = NSMenu()
     private let clusterItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let thisMacItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private var updateItem = NSMenuItem()
+    /// The separator after the update item, shown only when Stop and
+    /// Restart are hidden, so the update item never runs into Open Status.
+    private let updateEnd = NSMenuItem.separator()
     private var stopItem = NSMenuItem()
     private var restartItem = NSMenuItem()
     /// The separator after Stop and Restart, hidden with them so the menu
@@ -85,6 +91,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         showStatusLine(clusterItem, MenuStatus.clusterLabel, .unknown)
         showStatusLine(thisMacItem, MenuStatus.thisMacLabel, .unknown)
+        updateItem = add("", #selector(updateAction))
+        menu.addItem(updateEnd)
         stopItem = add(LifecycleVerb.stop.title + "…", #selector(stopAction))
         restartItem = add(LifecycleVerb.restart.title + "…", #selector(restartAction))
         menu.addItem(lifecycleEnd)
@@ -99,9 +107,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             MainActor.assumeIsolated { self?.updateLifecycleItems(support) }
         }
         updateLifecycleItems(nil)
+        updateUpdateItem()
         iconObservation = model.objectWillChange.sink { [weak self] _ in
             // objectWillChange fires before the value changes: read it after.
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.updateIcon() } }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.updateIcon()
+                    self?.updateUpdateItem()
+                }
+            }
         }
     }
 
@@ -179,6 +193,19 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         stopItem.isEnabled = shown && !model.running
         restartItem.isEnabled = shown && !model.running
+        updateUpdateItem()
+    }
+
+    /// Shows the update item as `UpdateOffer` decides: hidden, offered with
+    /// its tag, disabled with the reason as its tooltip, or "Updating…".
+    private func updateUpdateItem() {
+        let offer = model.updateOffer
+        let title = offer.menuTitle
+        updateItem.isHidden = title == nil
+        updateItem.title = title ?? ""
+        updateItem.isEnabled = offer.isEnabled
+        updateItem.toolTip = offer.disabledReason
+        updateEnd.isHidden = title == nil || !stopItem.isHidden
     }
 
     // MARK: NSMenuDelegate
@@ -198,6 +225,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             stepFrames()
             showStatusLine(clusterItem, MenuStatus.clusterLabel, MenuStatus.cluster(of: full))
             showStatusLine(thisMacItem, MenuStatus.thisMacLabel, MenuStatus.thisMac(of: full, readFailed: full == nil))
+            await model.refreshUpdateStatus()
+            updateUpdateItem()
         }
     }
 
@@ -250,6 +279,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// The state the menu showed: the user acts on that, and the driver
     /// refuses if the live state no longer matches.
     private var shownState: LifecycleState { LifecycleState(report: report) }
+
+    @objc private func updateAction() {
+        model.performUpdate()
+    }
 
     @objc private func stopAction() {
         model.perform(.stop, expected: shownState)

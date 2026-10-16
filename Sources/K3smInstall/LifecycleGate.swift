@@ -54,10 +54,13 @@ public struct LifecycleConfirmation: Equatable, Sendable {
     public let warning: String?
     /// Whether Cancel, not the verb, is the default button.
     public let cancelIsDefault: Bool
+    /// The title of the button that answers no.
+    public let cancelTitle: String
 
     public init(verb: LifecycleVerb, report: StatusReport) {
         self.verb = verb
         cancelIsDefault = verb == .lanOn
+        cancelTitle = verb == .updateCancel ? "Keep Updating" : "Cancel"
         switch verb {
         case .stop:
             title = "Stop k3sm on this Mac?"
@@ -81,6 +84,15 @@ public struct LifecycleConfirmation: Equatable, Sendable {
         case .lanOff:
             title = "Stop allowing connections from other devices?"
             message = "Workload listeners answer only on this Mac and your cluster mesh."
+            warning = nil
+        case .updateApply:
+            let tag = report.row(named: "update").flatMap(UpdateOffer.latestTag(in:)).map(StatusDisplay.clip)
+            title = tag.map { "Update k3sm to \($0)?" } ?? "Update k3sm?"
+            message = UpdateConfirmationText.apply
+            warning = nil
+        case .updateCancel:
+            title = "Cancel the update?"
+            message = UpdateConfirmationText.cancel
             warning = nil
         }
     }
@@ -168,7 +180,7 @@ public struct LifecycleDriver: Sendable {
     }
 
     public func perform(_ verb: LifecycleVerb, expected: LifecycleState) async -> Result {
-        guard !verb.isLAN else { return .refused("\(verb.title) is not a lifecycle verb. Nothing was changed.") }
+        guard !verb.isLAN, !verb.isUpdate else { return .refused("\(verb.title) is not a lifecycle verb. Nothing was changed.") }
         let first = await readStatus()
         if case .refused(let why) = LifecyclePrecondition.check(verb, expected: expected, live: LifecycleState(report: first)) {
             return .refused(why)

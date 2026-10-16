@@ -17,8 +17,10 @@ limitations under the License.
 import K3smStatus
 
 /// LifecycleVerb is the closed set of actions the app runs as root through
-/// the installed CLI: `k3sm stop`, `k3sm start` and `k3sm restart`, and the
-/// two LAN access verbs, `k3sm network lan on` and `k3sm network lan off`.
+/// the installed CLI: `k3sm stop`, `k3sm start` and `k3sm restart`, the
+/// two LAN access verbs, `k3sm network lan on` and `k3sm network lan off`,
+/// and the two managed update verbs, `k3sm update apply --yes` and
+/// `k3sm update cancel`.
 /// Nothing else, and no string from the user or the CLI, ever reaches the
 /// root script: each verb's argv is a compile-time constant
 /// (`LifecycleScriptBuilder.arguments(for:)`).
@@ -28,11 +30,19 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
     case restart
     case lanOn = "lan-on"
     case lanOff = "lan-off"
+    case updateApply = "update-apply"
+    case updateCancel = "update-cancel"
 
     /// The three lifecycle verbs, which act on the node daemon's state.
     public static let lifecycleVerbs: [LifecycleVerb] = [.stop, .start, .restart]
     /// The two LAN access verbs, which change where workload listeners answer.
     public static let lanVerbs: [LifecycleVerb] = [.lanOn, .lanOff]
+
+    /// The two managed update verbs, which act on the cluster's roll.
+    public static let updateVerbs: [LifecycleVerb] = [.updateApply, .updateCancel]
+
+    /// Whether this is one of the managed update verbs.
+    public var isUpdate: Bool { self == .updateApply || self == .updateCancel }
 
     /// Whether this is one of the LAN access verbs.
     public var isLAN: Bool { self == .lanOn || self == .lanOff }
@@ -43,6 +53,8 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
         case .stop, .start, .restart: return rawValue
         case .lanOn: return "network lan on"
         case .lanOff: return "network lan off"
+        case .updateApply: return "update apply --yes"
+        case .updateCancel: return "update cancel"
         }
     }
 
@@ -54,6 +66,8 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
         case .restart: return "k3sm wants to restart k3sm on this Mac."
         case .lanOn: return "k3sm wants to allow connections from other devices to the services k3sm runs on this Mac."
         case .lanOff: return "k3sm wants to stop allowing connections from other devices to the services k3sm runs on this Mac."
+        case .updateApply: return "k3sm wants to update k3sm on every node of this cluster."
+        case .updateCancel: return "k3sm wants to cancel the k3sm update."
         }
     }
 
@@ -65,17 +79,21 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
         case .restart: return "Restart k3sm"
         case .lanOn: return "Allow Connections"
         case .lanOff: return "Stop Allowing Connections"
+        case .updateApply: return "Update k3sm"
+        case .updateCancel: return "Cancel Update"
         }
     }
 
     /// The state the verb starts from. Stop and restart act on a running
     /// node; start acts on a stopped one. The LAN verbs act in either state
     /// (a stopped node applies the setting when it starts), so they have none.
+    /// The update verbs act on the cluster's roll, which the CLI checks
+    /// itself, so they have none either.
     public var requiredState: LifecycleState? {
         switch self {
         case .stop, .restart: return .running
         case .start: return .stopped
-        case .lanOn, .lanOff: return nil
+        case .lanOn, .lanOff, .updateApply, .updateCancel: return nil
         }
     }
 }
@@ -125,6 +143,8 @@ public enum LifecycleScriptBuilder {
         case .restart: return ["restart", "--actor", "user", "--reason", reason]
         case .lanOn: return ["network", "lan", "on"]
         case .lanOff: return ["network", "lan", "off"]
+        case .updateApply: return K3smCLI.updateApplyArguments
+        case .updateCancel: return K3smCLI.updateCancelArguments
         }
     }
 
@@ -217,6 +237,8 @@ public enum LifecycleOutcome {
             case .restart: return "k3sm restarted. Pods kept running."
             case .lanOn: return "Devices on the networks this Mac is on can now connect to its k3sm services."
             case .lanOff: return "Only this Mac and your cluster mesh can connect to its k3sm services now."
+            case .updateApply: return "The update has started. Each node updates in turn, the server last."
+            case .updateCancel: return "k3sm is cancelling the update."
             }
         case .cancelled:
             return "Cancelled. Nothing was changed."

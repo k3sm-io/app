@@ -150,7 +150,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var lifecycleSupport: LifecycleSupport?
     /// The last full report that decoded, and when it was read. It alone
     /// carries the daemon's applied state.
-    @Published private(set) var lanReport: StatusReport?
+    @Published private(set) var lanReport: StatusReport? {
+        didSet { syncUpdateReader() }
+    }
     @Published private(set) var lanReadAt: Date?
     /// The last daemons probe that decoded, and when it was read. It carries
     /// the `network` object at the poll rate.
@@ -160,6 +162,13 @@ final class AppModel: ObservableObject {
     @Published private(set) var lanReadFailed = false
     /// Why the installed CLI failed its trust check on the last run, if it did.
     @Published private(set) var lanTrustRefusal: String?
+    /// The managed update as the app follows it (`UpdateProgress`).
+    @Published private(set) var updateProgress = UpdateProgress() {
+        didSet { syncUpdateReader() }
+    }
+    /// The `k3sm update status -o json` read, created on first need and run
+    /// only while `UpdateProgress.readsStatus` says so.
+    private var updateStatus: TabLoader<UpdateStatus>?
 
     let payloadVersion: SemanticVersion?
     private let teamID: TeamID?
@@ -349,6 +358,7 @@ final class AppModel: ObservableObject {
     /// start is a no-op.
     func startTabs() {
         consoleShown = true
+        syncUpdateReader()
         workloads.nodeList.start()
         loader(for: .workloads)?.start()
         loader(for: section)?.start()
@@ -358,10 +368,153 @@ final class AppModel: ObservableObject {
     /// its last value.
     func stopTabs() {
         consoleShown = false
+        syncUpdateReader()
         workloads.nodeList.stop()
         loaders[.workloads]?.stop()
         loaders[section]?.stop()
         waiting.stop()
+    }
+
+    // MARK: the managed update
+
+    /// The managed update the menu and the console offer, from the last full
+    /// report's `update` row and the progress. A privileged action: disabled
+    /// with the reason on a developer build, without the administrator
+    /// rights, while another change runs, or when the installed CLI failed
+    /// its trust check.
+    var updateOffer: UpdateOffer {
+        var blocked: String?
+        if running {
+            blocked = "Another change is running."
+        } else if case .disabled(let reason) = availability {
+            blocked = reason
+        } else if let why = lanTrustRefusal {
+            blocked = "The app will not run the installed k3sm as root: \(why). Use `sudo k3sm update apply` in Terminal."
+        }
+        return UpdateOffer.decide(report: lanReport, progress: updateProgress, developerBuild: teamID == nil, blocked: blocked)
+    }
+
+    /// Starts or stops the update status read. While a roll is followed it
+    /// reads whether or not the window is open, so the menu's "Updating…"
+    /// ends when the roll does; while idle it reads only with the console on
+    /// screen and an update offered, to find a roll started in Terminal.
+    private func syncUpdateReader() {
+        let offered: Bool
+        if case .available = UpdateOffer.decide(report: lanReport, progress: updateProgress, developerBuild: false, blocked: nil) {
+            offered = consoleShown
+        } else {
+            offered = false
+        }
+        if updateProgress.readsStatus(offerShown: offered, rowRolling: UpdateOffer.rowRolling(in: lanReport)) {
+            updateLoader().start()
+        } else {
+            updateStatus?.stop()
+        }
+    }
+
+    private func updateLoader() -> TabLoader<UpdateStatus> {
+        if let updateStatus { return updateStatus }
+        let loader = TabLoader(
+            arguments: K3smCLI.updateStatusArguments, what: "update status", environment: environment,
+            decode: UpdateStatus.tabResult(exitCode:stdout:),
+            interval: { _ in PollSchedule.updateStatusInterval })
+        loader.onRead = { [weak self] in
+            guard let self, let status = self.updateStatus?.value else { return }
+            var next = self.updateProgress
+            next.read(status)
+            if next != self.updateProgress { self.updateProgress = next }
+        }
+        updateStatus = loader
+        return loader
+    }
+
+    /// Reads the update status once, when an update is offered, so the menu
+    /// finds a roll started in Terminal.
+    func refreshUpdateStatus() async {
+        guard updateOffer != .hidden || UpdateOffer.rowRolling(in: lanReport) else { return }
+        await updateLoader().refresh()
+    }
+
+    /// Runs `k3sm update apply --yes` for the release offered, from the menu
+    /// or the console button, through the checked root step.
+    func performUpdate() {
+        let offer = updateOffer
+        guard case .available(let tag, let reason) = offer else { return }
+        if let reason {
+            Self.alert(title: "k3sm cannot update k3sm from the app", text: reason)
+            return
+        }
+        guard let teamID else { return }
+        Task {
+            running = true
+            outcomeMessage = nil
+            updateProgress.applyStarted()
+            let result = await updateDriver(teamID).apply(tag: tag)
+            running = false
+            finishUpdate(result, title: LifecycleVerb.updateApply.title)
+            log.notice("update apply finished")
+            await refresh()
+        }
+    }
+
+    /// Runs `k3sm update cancel` from the progress panel, through the
+    /// checked root step.
+    func cancelUpdate() {
+        guard updateProgress.canCancel, !running else { return }
+        guard let teamID else {
+            Self.alert(title: "k3sm cannot cancel the update from the app", text: UpdateOffer.developerBuildReason)
+            return
+        }
+        if case .disabled(let reason) = availability {
+            Self.alert(title: "k3sm cannot cancel the update from the app", text: reason)
+            return
+        }
+        Task {
+            running = true
+            let result = await updateDriver(teamID).cancel()
+            running = false
+            finishUpdate(result, title: LifecycleVerb.updateCancel.title)
+            log.notice("update cancel finished")
+            await updateStatus?.refresh()
+        }
+    }
+
+    /// The Dismiss button: a finished roll leaves the window.
+    func dismissUpdate() {
+        updateProgress.dismiss()
+    }
+
+    /// Whether the panel's Cancel can be clicked, and why not.
+    var updateCancelReason: String? {
+        if teamID == nil { return UpdateOffer.developerBuildReason }
+        if case .disabled(let reason) = availability { return reason }
+        if running { return "Another change is running." }
+        return nil
+    }
+
+    private func updateDriver(_ teamID: TeamID) -> UpdateDriver {
+        UpdateDriver(
+            teamID: teamID,
+            readStatus: { await self.readFullReport() },
+            confirm: { Self.confirm($0) },
+            runner: runner)
+    }
+
+    private func finishUpdate(_ result: UpdateDriver.Result, title: String) {
+        switch result {
+        case .declined:
+            updateProgress.applyFinished(.notStarted)
+        case .refused(let why):
+            updateProgress.applyFinished(.notStarted)
+            outcomeMessage = why
+            Self.alert(title: "Nothing was changed", text: why)
+        case .ran(let started, let outcome, let text):
+            updateProgress.applyFinished(started)
+            outcomeMessage = text
+            if started == .notStarted, outcome != .succeeded, outcome != .cancelled {
+                Self.alert(title: title, text: text)
+            }
+        }
     }
 
     /// Reads the shared node list and the selected tab now.
@@ -593,7 +746,7 @@ final class AppModel: ObservableObject {
         alert.informativeText = c.warning.map { $0 + "\n\n" + c.message } ?? c.message
         alert.alertStyle = c.warning == nil ? .informational : .critical
         let proceed = alert.addButton(withTitle: c.verb.title)
-        let cancel = alert.addButton(withTitle: "Cancel")
+        let cancel = alert.addButton(withTitle: c.cancelTitle)
         if c.cancelIsDefault {
             // Return answers Cancel; the verb needs a deliberate click.
             proceed.keyEquivalent = ""

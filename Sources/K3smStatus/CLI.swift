@@ -33,6 +33,15 @@ public enum K3smCLI {
     /// The start's own time bound, read before the app runs `k3sm start`:
     /// the CLI prints whole seconds and does nothing else (`StartTimeBound`).
     public static let startTimeBoundArguments = ["start", "--print-time-bound"]
+    /// The managed update's progress, read while one rolls
+    /// (`UpdateStatus`). Unprivileged: it only reads the roll.
+    public static let updateStatusArguments = ["update", "status", "-o", "json"]
+    /// Starts the managed update to the latest release. Run only as root,
+    /// through the checked lifecycle script; `--yes` answers the CLI's own
+    /// question, which the app has already asked.
+    public static let updateApplyArguments = ["update", "apply", "--yes"]
+    /// Cancels the managed update. Run only as root, like the apply.
+    public static let updateCancelArguments = ["update", "cancel"]
     /// The workloads list: every pod on the cluster, through the CLI's bundled
     /// kubectl with the kubeconfig the CLI presets.
     public static let workloadsArguments = ["kubectl", "get", "pods", "-A", "-o", "json"]
@@ -107,6 +116,9 @@ public enum PollSchedule {
     /// The Builds tab's cadence once the engine is ready; until then it is
     /// read at `visibleInterval`, so a starting engine is seen when it serves.
     public static let buildsReadyInterval: Duration = .seconds(15)
+
+    /// The managed update's progress cadence while it is read.
+    public static let updateStatusInterval: Duration = .seconds(5)
 
     /// The pod list's cadence while the console is open but another tab is
     /// selected: the navy panel's pod counts and meters come from it, so it
