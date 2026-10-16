@@ -47,6 +47,29 @@ K3SM_DIR=<k3sm checkout> hack/ci.sh      # the full gate
   checked for ownership and signature first.
 - **A needed status field is requested from the k3sm CLI, never guessed.** If the JSON lacks
   something, the app treats it as unknown and the field is added to k3sm's status contract.
+- **Every control gets a help tag from the catalog.** The tooltip macOS shows after the pointer
+  rests on a control is written only in `Sources/K3smStatus/Help.swift` (`Help.<area>.<name>`,
+  each a `HelpTag` that records its control and visible label) and attached with
+  `.help(Help.<area>.<name>)`, or an AppKit item's `toolTip = ....text`. The standard, after
+  Apple's guidance for help tags (`docs/ARCHITECTURE.md` § Help tags is the public copy):
+  - **What it says.** What the control does, or what a value means, in one short sentence of
+    12 words or fewer. An action begins with its verb ("Delete the pod so its owner recreates
+    it"); a value names its unit or where it comes from ("CPU used now, from metrics-server,
+    against allocatable"). A keyboard shortcut follows in parentheses ("(Command-Option-I)").
+  - **How it reads.** Sentence case, no closing period unless it is two sentences, never the
+    visible label again, never the obvious, and never status or an error: those are the view's
+    job. The only dynamic text a tag carries is a disabled control's reason and the whole of a
+    line the view truncates, both built by catalog functions.
+  - **Where it goes.** Every Button, Toggle, Picker, Menu, Stepper, slider and icon-only control
+    (an icon-only one keeps its accessibility label too); every meter, bar, badge, dot or tile
+    whose label does not say what it means; a column header whose unit is not shown. Plain text
+    and a labelled text field get none. SwiftUI context-menu items, alert and dialog buttons show
+    no help tag on macOS and are listed in `hack/help.allow` with the reason; AppKit menu items
+    show theirs, so app-specific ones set `toolTip` (the system's About, Edit and Window items do not).
+  - **How it is held.** `helpCatalogFollowsTheStandard` checks every catalog entry (length, case,
+    closing punctuation, never its label); a new tag goes into its area's `all` list.
+    `hack/verify-help.sh` (run by `ci.sh`) fails on a help string written outside the catalog and
+    on a control with no `.help(` in its modifier chain, unless `hack/help.allow` names it with a reason.
 - Every `.swift` file starts with the Apache-2.0 header in `hack/boilerplate/boilerplate.swift.txt`
   (after the tools-version line in `Package.swift`); `ci.sh` checks it.
 

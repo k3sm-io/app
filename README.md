@@ -641,6 +641,7 @@ subsystem. With only the Command Line Tools installed, `swift test` may need
 the swift-testing macro plugin path; `hack/ci.sh` adds it for you.
 
 `docs/ARCHITECTURE.md` maps the source targets.
+Every control's tooltip follows the help tag standard in its § Help tags.
 
 ## Licensing
 

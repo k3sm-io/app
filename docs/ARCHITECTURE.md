@@ -37,6 +37,7 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 | `K3smCLI` | R4, R6 | the absolute CLI path, fixed argument lists (status, version, the managed update's status read and its root-only apply and cancel, and the kubectl calls behind the console: pod list, node list, the build engine's pods and claims, services and ingresses, claims and volumes, MLXModels and the MLX API discovery read, every event, metrics-server's node and pod samples (`get --raw` of the `metrics.k8s.io/v1beta1` lists) and the metrics APIService read, a pod's logs, events and manifest; and `datavol status -o json`, all of them reads; the Services tab's EndpointSlice read, `endpointSlicesArguments`; the writes: `deletePodArguments`, the inspector's Restart and Delete, preceded by `podUIDArguments`, the pod's UID read, `deletePodsArguments`, the Workloads cleanup's one delete per namespace, preceded by `podUIDsArguments`, every pod's UID, `deleteServiceArguments`, a service's Delete, preceded by `serviceUIDArguments`; and a model's `modelScaleArguments` (Unload and Load, one `kubectl patch mlxmodels.mlx.k3sm.io <name> -n <ns> --type=merge -p <patch>`) and `deleteModelArguments`, each preceded by `modelUIDArguments`; `deleteClaimArguments`, a claim's Delete, preceded by `claimUIDArguments`; and `deleteVolumesArguments`, the Storage cleanup's `kubectl delete pv <names...> --wait=false`, preceded by `volumesArguments`, every volume; the build history, `build ls -o json`, and one build's log, `build logs [-f] <id>`, both reads; `build cancel <id>` and `build rm <id>`, each taking only a `BuildRecordID`; and the build engine's `builder up`, `builder down`, `builder delete`, `build prune` and `build prune --force`, run as the user with no `--work-dir`, so the CLI picks the user's admin kubeconfig as `k3sm kubectl` does), the built environment |
 | `PollSchedule`, `PollGate` | R6 | 5 s visible, 15 s hidden, 4 s kill deadline; a 10 s deadline for the console's pod and node lists; the full report every 30 s while the console is open; per console tab, Workloads 5 s, Images 15 s, Builds 5 s until the engine is ready and 15 s after, Services, Storage and Models 15 s (`objectsInterval`) (`interval(for:engineReady:)`); the Events view 5 s (`eventsInterval`); the pod list at `backgroundInterval` (30 s) while another tab is selected (`podsInterval(selected:)`), and `panelAge`, the pod read's age the panel shows once it is older than that; `PollGate` keeps one run in flight and coalesces the runs asked for meanwhile into one more; a console action's deadline (`actionDeadline`, the list deadline), a build cancel's (60 s, past the CLI's own 45 s wait), the build engine verbs' (6 min for `builder up`, which waits up to five for a worker, 3 for a stop, a delete or the prune's dry run, 10 for a forced prune) and how long a build log sheet follows a running build (2 h) |
 | `OutputLimit`, `CappedOutput` | R6 | the most standard output one CLI run may produce (1 MiB status, 16 MiB pod and node lists, 4 MiB per metrics list, 64 KiB inspector detail, 256 KiB per Summarize Logs read, 1 MiB build log sheet) and the buffer that keeps the first `limit` bytes and records an overflow |
+| `Help`, `HelpTag`, `HelpStandard` | console, menu, settings | the help tag catalog: every tooltip the app shows, grouped by area (`Strip`, each tab, `Inspector`, `Actions` by request verb and local item id, `Panel`, `Popover`, `FirstRun`, `Update`, `Tour`, `General`, `Network`, `Advanced`, `SettingsWindow`, `Menus`), each a `HelpTag` with its control and visible label; the functions for dynamic tags (a disabled control's reason, the update button's release, a truncated line's whole text); `Help.all` lists them for `HelpStandard.problems`, the standard below |
 | `StatusDisplay` | R5 | flattens control characters, clips fields, caps rows; `errorText` removes control and format characters from CLI error text and truncates it |
 | `SemanticVersion`, `PayloadRelation` | A8, A9 | semver precedence; payload newer, same or older than installed |
 | `Workloads`, `Pod`, `PodHealth`, `WorkloadKind` | console | decodes `kubectl get pods -A -o json` (the API's `PodList` or kubectl's `List` of pods) into the rows a workloads view shows: how each pod runs, its health word and severity, owner, ports, requests, the node it is bound to, and `claims`, the claims its spec mounts (each `persistentVolumeClaim` volume's, and each generic ephemeral volume's `<pod>-<volume>`) |
@@ -150,7 +151,41 @@ library imports AppKit, so every decision is unit-tested without a GUI.
 | `release/sign-and-notarize.sh` | A5, A11, A18 | attended Developer ID signing, notarization and stapling of the app and the image; refuses agent, loop and non-terminal runs, and an app not built with `--team-id` for its team |
 | `acceptance/B458.sh` | | `swift test` (argv goldens, Team ID pin, update policy, `stoppedBy`), the developer and `--team-id` bundles built and verified with `codesign --verify --strict --deep` |
 | `acceptance/B571.sh` | | the Start flow against a fake `k3sm` first on PATH (bound 1 s, a first start that runs past it and exits still cordoned, a second that succeeds): the bound read, the retrying and final texts, exactly two starts; then the start bound and retry suites |
-| `ci.sh` | | the gate: build, tests, bundle builds, shellcheck, payload and refusal checks, headers, workflow dormancy, fixture drift (the status fixtures against k3sm's `pkg/status/testdata`, the datavol fixtures against its `cmd/k3sm/testdata`, byte for byte) |
+| `verify-help.sh` | | every control carries a catalog help tag: no help string literal outside `Help.swift`, no SwiftUI Button, Toggle, Picker, Menu or Stepper without a `.help(` in its own modifier chain unless `help.allow` names it with a reason (a stale entry fails); `--self-test` runs the fixtures in `testdata/verify-help` |
+| `ci.sh` | | the gate: build, tests, bundle builds, shellcheck, payload and refusal checks, headers, workflow dormancy, fixture drift (the status fixtures against k3sm's `pkg/status/testdata`, the datavol fixtures against its `cmd/k3sm/testdata`, byte for byte), the dependency check and the help tag check |
+
+## Help tags
+
+A help tag is the tooltip macOS shows when the pointer rests on a control.
+Every one the app shows comes from the catalog, `Help` in
+`Sources/K3smStatus/Help.swift`, and follows one standard, after Apple's
+guidance for help tags:
+
+- It says what the control does, or what a value means, in one short
+  sentence of 12 words or fewer.
+- An action starts with its verb ("Delete the pod so its owner recreates
+  it"). A value names its unit or its source ("CPU used now, from
+  metrics-server, against allocatable").
+- A keyboard shortcut follows in parentheses: "Show the details column
+  (Command-Option-I)".
+- Sentence case, and no closing period unless the tag is two sentences.
+- It never repeats the control's visible label, never states the obvious,
+  and never carries status or an error, which belong in the view. The two
+  kinds of dynamic text a tag may carry are a disabled control's reason and
+  the whole of a line the view truncates.
+
+It applies to every button, toggle, picker, menu, stepper, slider and
+icon-only control (which also keeps its accessibility label), to every
+meter, bar, badge, dot or tile whose label does not say what it means, and
+to a column header whose unit is not shown. Plain text and a labelled text
+field need none. macOS shows no help tag on a SwiftUI context-menu item or
+on an alert's or dialog's buttons, so those carry none; AppKit menu items
+do show one, so the app's own menu items set it.
+
+`helpCatalogFollowsTheStandard` checks every entry in the catalog, and
+`hack/verify-help.sh` fails the gate on a help string written anywhere else
+or on a control with no help tag, unless `hack/help.allow` lists it with a
+reason.
 
 ## The root step's command lines
 
