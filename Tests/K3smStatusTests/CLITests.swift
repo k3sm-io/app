@@ -51,6 +51,23 @@ struct CLITests {
         #expect(env["K3SM_WORK_DIR"] == nil)
     }
 
+    @Test("the build engine read is a fixed, read-only list of one namespace")
+    func buildEngineArgumentsAreFixed() {
+        #expect(K3smCLI.buildEngineArguments == ["kubectl", "get", "pods,pvc", "-n", "k3sm-builder", "-o", "json"])
+        #expect(K3smCLI.nodesArguments == ["kubectl", "get", "nodes", "-o", "json"])
+        #expect(K3smCLI.workloadsArguments == ["kubectl", "get", "pods", "-A", "-o", "json"])
+    }
+
+    @Test("each console tab has its own cadence")
+    func perTabCadence() {
+        #expect(PollSchedule.interval(for: .workloads, engineReady: false) == .seconds(5))
+        #expect(PollSchedule.interval(for: .workloads, engineReady: true) == .seconds(5))
+        #expect(PollSchedule.interval(for: .images, engineReady: false) == .seconds(15))
+        #expect(PollSchedule.interval(for: .images, engineReady: true) == .seconds(15))
+        #expect(PollSchedule.interval(for: .builds, engineReady: false) == .seconds(5))
+        #expect(PollSchedule.interval(for: .builds, engineReady: true) == .seconds(15))
+    }
+
     @Test("poll cadence follows visibility")
     func cadence() {
         #expect(PollSchedule.interval(visible: true) == .seconds(5))

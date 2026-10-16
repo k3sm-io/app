@@ -74,6 +74,12 @@ public enum Nodes {
     /// Decodes the nodes, sorted by name. It throws `NodesDecodeError` when
     /// the bytes are not a node list; a node without a valid name is left out.
     public static func decode(_ data: Data) throws -> [ClusterNode] {
+        nodes(from: try items(data))
+    }
+
+    /// The node objects of a node list, before any field is read. It throws
+    /// `NodesDecodeError` when the bytes are not a node list.
+    static func items(_ data: Data) throws -> [[String: Any]] {
         guard let top = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let kind = top["kind"] as? String, let items = top["items"] as? [Any] else {
             throw NodesDecodeError.malformed
@@ -84,7 +90,12 @@ public enum Nodes {
         case "List" where objects.allSatisfy({ $0["kind"] == nil || ($0["kind"] as? String) == "Node" }): break
         default: throw NodesDecodeError.notANodeList(StatusDisplay.clip(kind))
         }
-        return objects.compactMap(node(from:)).sorted { $0.name < $1.name }
+        return objects
+    }
+
+    /// The nodes of a node list's objects, sorted by name.
+    static func nodes(from objects: [[String: Any]]) -> [ClusterNode] {
+        objects.compactMap(node(from:)).sorted { $0.name < $1.name }
     }
 
     static func node(from item: [String: Any]) -> ClusterNode? {
@@ -123,4 +134,35 @@ public enum Nodes {
 public enum NodesDecodeError: Error, Equatable, Sendable {
     case malformed
     case notANodeList(String)
+}
+
+/// NodeListRead is one run of the shared node list, read once for both of
+/// its readers: the panel's nodes and the Images tab's images.
+public struct NodeListRead: Equatable, Sendable {
+    public let nodes: [ClusterNode]
+    public let images: ImagesReading
+
+    public init(nodes: [ClusterNode], images: ImagesReading) {
+        self.nodes = nodes
+        self.images = images
+    }
+
+    /// Decodes the node list once into the nodes and their images.
+    public static func decode(_ data: Data) throws -> NodeListRead {
+        let objects = try Nodes.items(data)
+        return NodeListRead(nodes: Nodes.nodes(from: objects), images: ImagesList.read(objects))
+    }
+
+    /// One node-list run as a tab result: a non-zero exit or a list that is
+    /// not a node list is a failure with its reason.
+    public static func tabResult(exitCode: Int32, stdout: Data) -> TabResult<NodeListRead> {
+        guard exitCode == 0 else { return .failed("k3sm kubectl exited \(exitCode)") }
+        do {
+            return .value(try decode(stdout))
+        } catch NodesDecodeError.notANodeList(let kind) {
+            return .failed("kubectl returned a \(kind), not a node list")
+        } catch {
+            return .failed("the node list could not be read")
+        }
+    }
 }

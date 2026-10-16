@@ -34,6 +34,9 @@ public enum K3smCLI {
     /// The cluster's nodes, through the same bundled kubectl: names, Ready,
     /// versions, addresses, capacity and allocatable.
     public static let nodesArguments = ["kubectl", "get", "nodes", "-o", "json"]
+    /// The build engine: the pods and claims in its namespace, through the
+    /// same bundled kubectl. A cluster without an engine lists none.
+    public static let buildEngineArguments = ["kubectl", "get", "pods,pvc", "-n", "k3sm-builder", "-o", "json"]
     /// The most log lines a detail call asks for.
     public static let logTail = 200
 
@@ -91,6 +94,26 @@ public enum PollSchedule {
     /// The wait before the next poll, chosen by whether the item is shown.
     public static func interval(visible: Bool) -> Duration {
         visible ? visibleInterval : hiddenInterval
+    }
+
+    /// The Images tab's cadence: images change only when one is pulled,
+    /// loaded or removed.
+    public static let imagesInterval: Duration = .seconds(15)
+    /// The Builds tab's cadence once the engine is ready; until then it is
+    /// read at `visibleInterval`, so a starting engine is seen when it serves.
+    public static let buildsReadyInterval: Duration = .seconds(15)
+
+    /// The wait between a console tab's reads while it is selected:
+    /// Workloads at `visibleInterval`, as before tabs; Images at
+    /// `imagesInterval`; Builds at `visibleInterval` until the engine is
+    /// ready, then `buildsReadyInterval`. The shared node list follows the
+    /// selected tab's cadence too.
+    public static func interval(for section: ConsoleSection, engineReady: Bool) -> Duration {
+        switch section {
+        case .workloads: return visibleInterval
+        case .images: return imagesInterval
+        case .builds: return engineReady ? buildsReadyInterval : visibleInterval
+        }
     }
 }
 
