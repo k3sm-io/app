@@ -281,6 +281,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSToolbarDeleg
             guard let pane = SettingsPane.shown.first(where: { Self.identifier($0) == itemIdentifier }) else { return nil }
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = pane.title
+            item.toolTip = Help.SettingsWindow.pane(pane).text
             item.image = NSImage(systemSymbolName: pane.symbol, accessibilityDescription: pane.title)
             item.target = self
             item.action = #selector(choose(_:))

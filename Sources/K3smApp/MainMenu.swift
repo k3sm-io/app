@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 import AppKit
+import K3smStatus
 
 /// MainMenu is the menu bar while a window is open: the app menu with
 /// Settings (the Settings window), Edit for the search field, View for
@@ -51,7 +52,7 @@ final class MainMenu: NSObject, NSMenuItemValidation {
         let menu = NSMenu(title: "k3sm")
         menu.addItem(withTitle: "About k3sm", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(item("Settings…", #selector(openSettings(_:)), ","))
+        menu.addItem(item("Settings…", #selector(openSettings(_:)), ",", help: Help.Menus.settings))
         menu.addItem(.separator())
         menu.addItem(withTitle: "Hide k3sm", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         menu.addItem(withTitle: "Quit k3sm", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -72,10 +73,10 @@ final class MainMenu: NSObject, NSMenuItemValidation {
 
     private func viewMenu() -> NSMenu {
         let menu = NSMenu(title: "View")
-        menu.addItem(item("Refresh", #selector(refresh(_:)), "r"))
-        menu.addItem(item("Show Status", #selector(showStatus(_:)), ""))
+        menu.addItem(item("Refresh", #selector(refresh(_:)), "r", help: Help.Menus.refresh))
+        menu.addItem(item("Show Status", #selector(showStatus(_:)), "", help: Help.Menus.showStatus))
         menu.addItem(.separator())
-        let panel = item("Hide Panel", #selector(togglePanel(_:)), "l")
+        let panel = item("Hide Panel", #selector(togglePanel(_:)), "l", help: Help.Menus.panel)
         panel.keyEquivalentModifierMask = [.command, .option]
         menu.addItem(panel)
         return menu
@@ -90,14 +91,16 @@ final class MainMenu: NSObject, NSMenuItemValidation {
 
     private func helpMenu() -> NSMenu {
         let menu = NSMenu(title: "Help")
-        menu.addItem(item("Take the Tour", #selector(startTour(_:)), ""))
+        menu.addItem(item("Take the Tour", #selector(startTour(_:)), "", help: Help.Menus.tour))
         return menu
     }
 
-    /// An item that targets this object.
-    private func item(_ title: String, _ action: Selector, _ key: String) -> NSMenuItem {
+    /// An item that targets this object, its catalog help tag as its tooltip.
+    /// The system's own items (About, Hide, Quit, Edit, Window) carry none.
+    private func item(_ title: String, _ action: Selector, _ key: String, help: HelpTag) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
+        item.toolTip = help.text
         return item
     }
 

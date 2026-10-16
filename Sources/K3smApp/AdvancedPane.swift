@@ -31,12 +31,12 @@ struct AdvancedPane: View {
             group("Diagnostics") {
                 HStack(spacing: 12) {
                     Button("Write a Bug Report…") { MenuActions.writeBugReport() }
-                        .help("Collect a report in Terminal for you to review; nothing is uploaded")
+                        .help(Help.Advanced.bugReport)
                     Button("Live Status") { MenuActions.openLive(.status) }
                         .disabled(app.screen != .status)
-                        .help("Open the live status view in Terminal")
+                        .help(Help.Advanced.liveStatus)
                     Button("Open Logs") { MenuActions.openLogs(role: app.role) }
-                        .help("Open the k3sm logs this account can read")
+                        .help(Help.Advanced.openLogs)
                 }
             }
             group("Uninstall") {
@@ -45,7 +45,7 @@ struct AdvancedPane: View {
             }
             group("Preferences") {
                 Button("Reset to Defaults…") { settings.confirmingDefaults = true }
-                    .help("Put the app's preferences back to how they first were")
+                    .help(Help.Advanced.resetDefaults)
             }
         }
         .padding(20)
@@ -76,8 +76,10 @@ struct UninstallSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle("Also delete k3sm's data", isOn: $model.purge)
+                .help(Help.Advanced.purge)
             Button("Uninstall k3sm…") { model.confirmingUninstall = true }
                 .disabled(!model.canUninstall)
+                .help(Help.Advanced.uninstall)
                 .confirmationDialog(
                     model.purge ? "Uninstall k3sm and delete its data?" : "Uninstall k3sm and keep its data?",
                     isPresented: $model.confirmingUninstall

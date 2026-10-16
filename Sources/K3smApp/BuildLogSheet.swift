@@ -94,6 +94,7 @@ struct BuildLogSheet: View {
                 Text(verbatim: log.status).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
                 Spacer()
                 Button("Close", action: close).keyboardShortcut(.cancelAction)
+                    .help(Help.Inspector.buildLogClose)
             }
         }
         .padding(18)

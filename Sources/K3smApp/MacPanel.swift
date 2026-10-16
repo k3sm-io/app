@@ -65,6 +65,7 @@ struct MacPanel: View {
                         Button(m.title) { app.panelMode = m }
                             .buttonStyle(PanelTabStyle(selected: mode == m))
                             .accessibilityAddTraits(mode == m ? .isSelected : [])
+                            .help(Help.Panel.mode(m))
                     }
                     Spacer(minLength: 0)
                 }
@@ -119,14 +120,14 @@ struct MacPanel: View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .center, spacing: PanelLayout.tileSpacing) {
                 nodeHeading(node)
-                slimMeter("Cores", node.cores).frame(width: PanelLayout.meterWidth)
-                slimMeter("Memory", node.memory).frame(width: PanelLayout.meterWidth)
+                slimMeter("Cores", node.cores, help: Help.Panel.nodeCores).frame(width: PanelLayout.meterWidth)
+                slimMeter("Memory", node.memory, help: Help.Panel.nodeMemory).frame(width: PanelLayout.meterWidth)
             }
             VStack(alignment: .leading, spacing: 6) {
                 nodeHeading(node)
                 HStack(spacing: 10) {
-                    slimMeter("Cores", node.cores)
-                    slimMeter("Memory", node.memory)
+                    slimMeter("Cores", node.cores, help: Help.Panel.nodeCores)
+                    slimMeter("Memory", node.memory, help: Help.Panel.nodeMemory)
                 }
             }
         }
@@ -137,6 +138,7 @@ struct MacPanel: View {
         HStack(spacing: 6) {
             Circle().fill(node.isReady ? Palette.okOnDark : Palette.warnOnDark).frame(width: 7, height: 7)
                 .accessibilityLabel(Text(verbatim: node.ready))
+                .help(Help.Panel.nodeDot)
             Text(verbatim: node.name).font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
                 .lineLimit(1).truncationMode(.middle)
             if node.thisMac {
@@ -156,7 +158,7 @@ struct MacPanel: View {
 
     /// A 5 pt meter with its value under it, dim and monospaced; an empty
     /// track when the node's allocatable is unknown.
-    private func slimMeter(_ title: String, _ usage: ClusterUsage?) -> some View {
+    private func slimMeter(_ title: String, _ usage: ClusterUsage?, help: HelpTag) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Meter(parts: [(usage?.requested ?? 0, Palette.fill)], total: usage?.allocatable ?? 0)
             Text(verbatim: usage?.text ?? " ").font(.system(size: 10)).monospacedDigit()
@@ -165,6 +167,7 @@ struct MacPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(verbatim: "\(title) \(usage?.text ?? "unknown")"))
+        .help(help)
     }
 
     /// This Mac's view: the machine, the state and the tiles, the nodes
@@ -186,6 +189,7 @@ struct MacPanel: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 10) {
                 CoreGrid(cores: Self.machine.cores, performance: Self.machine.performanceCores, used: coresRequested)
+                    .help(Help.Panel.coreGrid)
                 Footnote("Squares are performance cores, circles efficiency cores.")
             }
             memoryBlock
@@ -197,6 +201,7 @@ struct MacPanel: View {
     private var memoryBlock: some View {
         PanelBlock("Unified memory", value: "\(WorkloadsDisplay.bytes(workloads.load.memoryUsedBytes)) of \(WorkloadsDisplay.bytes(Self.machine.memoryBytes))") {
             Meter(parts: [(Double(memoryRequested), Palette.fill), (Double(max(0, workloads.load.memoryUsedBytes - memoryRequested)), Palette.fillDim)], total: Double(Self.machine.memoryBytes))
+                .help(Help.Panel.memoryMeter)
             Legend(rows: [("Requested by pods", Palette.fill, WorkloadsDisplay.bytes(memoryRequested)), ("macOS and apps", Palette.fillDim, WorkloadsDisplay.bytes(workloads.load.memoryUsedBytes))])
         }
     }
@@ -204,6 +209,7 @@ struct MacPanel: View {
     private var stateRow: some View {
         HStack(spacing: 7) {
             Circle().fill(report?.verdict == .running ? Palette.okOnDark : Palette.warnOnDark).frame(width: 8, height: 8)
+                .help(Help.Panel.stateDot)
             Text(verbatim: stateLine).font(.system(size: 12)).foregroundStyle(.white)
             // The pod figures' age, once their read is late or failing.
             TimelineView(.periodic(from: .now, by: 5)) { context in
@@ -387,7 +393,7 @@ struct TileGrid: View {
                                  count: PanelLayout.columns(width: width, tiles: tiles)),
                   alignment: .leading, spacing: 10) {
             ForEach(Array(tiles.enumerated()), id: \.offset) { _, tile in
-                Tile(tile: tile)
+                Tile(tile: tile).help(Help.Panel.tile(tile))
             }
         }
     }

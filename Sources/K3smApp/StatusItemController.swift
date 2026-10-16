@@ -97,17 +97,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         showStatusLine(thisMacItem, MenuStatus.thisMacLabel, .unknown)
         updateItem = add("", #selector(updateAction))
         menu.addItem(updateEnd)
-        stopItem = add(LifecycleVerb.stop.title + "…", #selector(stopAction))
-        restartItem = add(LifecycleVerb.restart.title + "…", #selector(restartAction))
+        stopItem = add(LifecycleVerb.stop.title + "…", #selector(stopAction), help: Help.Menus.stop)
+        restartItem = add(LifecycleVerb.restart.title + "…", #selector(restartAction), help: Help.Menus.restart)
         menu.addItem(lifecycleEnd)
-        _ = add(LiveView.status.menuTitle, #selector(openStatusAction))
-        liveTopItem = add(LiveView.top.menuTitle, #selector(openTopAction))
+        _ = add(LiveView.status.menuTitle, #selector(openStatusAction), help: Help.Menus.liveStatus)
+        liveTopItem = add(LiveView.top.menuTitle, #selector(openTopAction), help: Help.Menus.liveTop)
         liveTopItem.isHidden = true
-        _ = add("Open Logs", #selector(openLogsAction))
-        _ = add("Write a Bug Report…", #selector(bugReportAction))
+        _ = add("Open Logs", #selector(openLogsAction), help: Help.Menus.openLogs)
+        _ = add("Write a Bug Report…", #selector(bugReportAction), help: Help.Menus.bugReport)
         menu.addItem(.separator())
-        _ = add("Settings…", #selector(openSettingsAction), key: ",")
-        _ = add(MenuStatus.windowItemTitle, #selector(openWindowAction), key: "o")
+        _ = add("Settings…", #selector(openSettingsAction), key: ",", help: Help.Menus.settings)
+        _ = add(MenuStatus.windowItemTitle, #selector(openWindowAction), key: "o", help: Help.Menus.dashboard)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit k3sm", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         supportObservation = model.$lifecycleSupport.sink { [weak self] support in
@@ -158,9 +158,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         item?.button?.image = Self.icon(degraded: degraded, lan: model.lanToggle().showsIndicator, wingAngle: wingAngle)
     }
 
-    private func add(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
+    /// Adds an item with its catalog help tag as its tooltip; the update
+    /// item's tag is set as the offer changes.
+    private func add(_ title: String, _ action: Selector, key: String = "", help: HelpTag? = nil) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
+        item.toolTip = help?.text
         menu.addItem(item)
         return item
     }
@@ -204,14 +207,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     /// Shows the update item as `UpdateOffer` decides: hidden, offered with
-    /// its tag, disabled with the reason as its tooltip, or "Updating…".
+    /// its tag, disabled with the reason as its tooltip, or "Updating…";
+    /// an offered update's tooltip says what it does (`Help.Strip.update`).
     private func updateUpdateItem() {
         let offer = model.updateOffer
         let title = offer.menuTitle
         updateItem.isHidden = title == nil
         updateItem.title = title ?? ""
         updateItem.isEnabled = offer.isEnabled
-        updateItem.toolTip = offer.disabledReason
+        updateItem.toolTip = title == nil ? nil : Help.Strip.update(offer)
         updateEnd.isHidden = title == nil || !stopItem.isHidden
     }
 

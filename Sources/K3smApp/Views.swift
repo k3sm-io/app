@@ -88,6 +88,7 @@ struct LoginApprovalLine: View {
             HStack {
                 Text("k3sm is not allowed to open at login.")
                 Button("Open Login Items") { LoginItem.openSettings() }
+                    .help(Help.Popover.openLoginItems)
             }
         }
     }
@@ -121,6 +122,7 @@ struct FirstRunView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .help(Help.FirstRun.choice)
             if model.choice == .join {
                 TextField("Server address, for example studio.local", text: $model.serverText)
                     .textFieldStyle(.roundedBorder)
@@ -139,6 +141,7 @@ struct FirstRunView: View {
             Button(model.choice == .start ? "Start" : "Join") { model.submitFirstRun() }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!model.canSubmit)
+                .help(Help.FirstRun.submit(join: model.choice == .join))
         }
     }
 }
@@ -183,6 +186,7 @@ struct StatusView: View {
                     }
                     Button("Refresh") { Task { await model.refresh() } }
                         .disabled(model.running)
+                        .help(Help.Popover.refresh)
                 }
                 .padding(.top, 6)
             }
@@ -250,7 +254,7 @@ struct StatusView: View {
                 Button(title) { model.performUpdate() }
                     .controlSize(.small)
                     .disabled(!offer.isEnabled)
-                    .help(offer.disabledReason ?? offer.tag.map { "Update k3sm on every node to \($0)" } ?? title)
+                    .help(Help.Strip.update(offer))
             }
         }
     }
@@ -280,12 +284,15 @@ struct LifecycleSection: View {
             case .running:
                 HStack {
                     Button(LifecycleVerb.stop.title + "…") { model.perform(.stop, expected: .running) }
+                        .help(Help.Popover.stop)
                     Button(LifecycleVerb.restart.title + "…") { model.perform(.restart, expected: .running) }
+                        .help(Help.Popover.restart)
                 }
                 .disabled(!model.canRunLifecycle)
             case .stopped:
                 Button(LifecycleVerb.start.title + "…") { model.perform(.start, expected: .stopped) }
                     .disabled(!model.canRunLifecycle)
+                    .help(Help.Popover.start)
             case .notInstalled, .unreadable:
                 EmptyView()
             }
@@ -321,6 +328,7 @@ struct UpdateSection: View {
                     agentTarget
                     Button("Update k3sm to " + payload.description) { model.submitUpdate() }
                         .disabled(!model.canUpdate)
+                        .help(Help.Popover.installPayload)
                 }
             }
         }
@@ -343,6 +351,7 @@ struct UpdateSection: View {
             .font(.callout)
             .foregroundStyle(.secondary)
         Toggle("Every worker runs k3sm " + payload.description + " or newer", isOn: $model.workersConfirmed)
+            .help(Help.Popover.workersConfirmed)
     }
 
     @ViewBuilder

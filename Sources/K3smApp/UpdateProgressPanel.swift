@@ -37,10 +37,11 @@ struct UpdateProgressPanel: View {
                     Button(LifecycleVerb.updateCancel.title + "…") { app.cancelUpdate() }
                         .controlSize(.small)
                         .disabled(reason != nil)
-                        .help(reason ?? "Stop the update before the next node")
+                        .help(Help.Update.cancel(reason: reason))
                 }
                 if panel.showsDismiss {
                     Button("Dismiss") { app.dismissUpdate() }.controlSize(.small)
+                        .help(Help.Update.dismiss)
                 }
             }
             if let detail = panel.detail {

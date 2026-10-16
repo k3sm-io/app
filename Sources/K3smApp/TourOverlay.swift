@@ -159,8 +159,10 @@ struct TourCard: View {
                 Spacer()
                 if step > 0 {
                     Button("Back", action: back).buttonStyle(TourButtonStyle(primary: false))
+                        .help(Help.Tour.back)
                 }
                 Button(step == total - 1 ? "Done" : "Next", action: next).buttonStyle(TourButtonStyle(primary: true))
+                    .help(Help.Tour.forward(last: step == total - 1))
             }
         }
         .padding(EdgeInsets(top: 16, leading: 18, bottom: 14, trailing: 18))

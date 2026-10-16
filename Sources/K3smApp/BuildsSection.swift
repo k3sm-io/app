@@ -80,7 +80,8 @@ struct BuildsSection: View {
                 } else {
                     VStack(spacing: 0) {
                         ObjectColumns.header([("Image", nil, .leading), ("Status", BuildColumns.status, .leading),
-                                              ("Started", BuildColumns.started, .leading), ("Duration", BuildColumns.duration, .trailing)])
+                                              ("Started", BuildColumns.started, .leading), ("Duration", BuildColumns.duration, .trailing)],
+                                             help: ["Duration": Help.Builds.duration])
                             .padding(.horizontal, -10)
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(records, id: \.key) { record in

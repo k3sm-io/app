@@ -47,6 +47,7 @@ struct TabStrip: View {
                 }
                     .buttonStyle(ConsoleTabStyle(selected: selected == s))
                     .accessibilityLabel(s.title)
+                    .help(Help.Strip.tab(s))
                     .accessibilityAddTraits(selected == s ? .isSelected : [])
                     .overlay(alignment: .topLeading) {
                         TabWaitingMark(waiting: waiting, section: s, placement: .label)

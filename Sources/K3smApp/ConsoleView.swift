@@ -198,7 +198,7 @@ struct ConsoleStrip: View {
                     .controlSize(.small)
                     .tint(Palette.blue)
                     .disabled(!offer.isEnabled)
-                    .help(offer.disabledReason ?? offer.tag.map { "Update k3sm on every node to \($0)" } ?? title)
+                    .help(Help.Strip.update(offer))
             }
             switch app.section {
             case .workloads:
@@ -219,20 +219,20 @@ struct ConsoleStrip: View {
             .buttonStyle(.plain)
             .keyboardShortcut("i", modifiers: [.command, .option])
             .accessibilityLabel(app.inspectorShown ? "Hide details" : "Show details")
-            .help(app.inspectorShown ? "Hide details (Command-Option-I)" : "Show details (Command-Option-I)")
+            .help(Help.Strip.details(shown: app.inspectorShown))
             Button { app.tour.start() } label: {
                 Image(systemName: "questionmark.circle").font(.system(size: 16)).foregroundStyle(Palette.navy)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Take the tour")
-            .help("A short tour of the screen")
+            .help(Help.Strip.tour)
             Button { app.statusPanelShown.toggle() } label: {
                 Image(systemName: "info.circle").font(.system(size: 16)).foregroundStyle(Palette.navy)
             }
             .buttonStyle(.plain)
             .tourTarget(.info, app.tour)
             .accessibilityLabel("k3sm status")
-            .help("k3sm on this Mac: its state, start, stop and update")
+            .help(Help.Strip.status)
             .popover(isPresented: $app.statusPanelShown, arrowEdge: .bottom) {
                 StatusPopoverPanel(model: app)
             }
@@ -241,7 +241,7 @@ struct ConsoleStrip: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Settings")
-            .help("Settings (Command-comma)")
+            .help(Help.Strip.settings)
         }
         .padding(.horizontal, 16).frame(height: CGFloat(TabStripLayout.height))
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }

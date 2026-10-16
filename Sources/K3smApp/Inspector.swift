@@ -98,6 +98,7 @@ struct Inspector: View {
                     .background(model.detail == d ? Palette.tint : Color.clear)
                     .foregroundStyle(model.detail == d ? Palette.navy : Palette.ink2)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .help(Help.Inspector.detail(d.rawValue))
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 8)

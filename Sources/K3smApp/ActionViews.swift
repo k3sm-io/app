@@ -123,12 +123,13 @@ struct BulkActionsSlot: View {
                         .foregroundStyle(report.failed ? Palette.bad : Palette.ink2)
                         .lineLimit(1).truncationMode(.tail)
                         .frame(maxWidth: 320, alignment: .trailing)
-                        .help(report.text)
+                        .help(Help.Strip.fullLine(report.text))
                 }
                 ForEach(items) { item in
                     Button(item.title) { runner.ask(item.request) }
                         .controlSize(.small)
                         .disabled(runner.busy || runner.pending != nil)
+                        .help(Help.Actions.tag(for: item))
                 }
             }
         }
@@ -172,6 +173,7 @@ struct RowActions: View {
                         HStack(spacing: 8) {
                             ForEach(menu.local) { item in
                                 Button(item.title) { LocalActions.perform(item.action) }
+                                    .help(Help.Actions.tag(for: item))
                             }
                         }
                     }
@@ -179,6 +181,7 @@ struct RowActions: View {
                         ForEach(menu.items) { item in
                             Button(item.title) { runner.ask(item.request) }
                                 .disabled(runner.busy || runner.pending != nil)
+                                .help(Help.Actions.tag(for: item))
                         }
                         if runner.busy {
                             Text("running…").font(.system(size: 11.5)).foregroundStyle(Palette.dimText)

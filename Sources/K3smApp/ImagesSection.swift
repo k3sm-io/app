@@ -72,8 +72,8 @@ enum ImageColumns {
     static var header: some View {
         HStack(spacing: spacing) {
             Text("Image").frame(maxWidth: .infinity, alignment: .leading)
-            Text("Size").frame(width: size, alignment: .trailing)
-            Text("Nodes").frame(width: nodes, alignment: .leading)
+            Text("Size").frame(width: size, alignment: .trailing).help(Help.Images.size)
+            Text("Nodes").frame(width: nodes, alignment: .leading).help(Help.Images.nodes)
         }
         .font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
         .padding(.horizontal, 20).padding(.top, 10)

@@ -31,11 +31,12 @@ struct LiveLoadRow: View {
             Text(verbatim: load.text).font(.system(size: 10)).foregroundStyle(.white.opacity(0.55))
         case .sampled(let cpu, let memory):
             HStack(alignment: .bottom, spacing: 10) {
-                bar("CPU", cpu)
-                bar("Memory", memory)
+                bar("CPU", cpu).help(Help.Panel.liveCPU)
+                bar("Memory", memory).help(Help.Panel.liveMemory)
                 if sparkline.count > 1 {
                     Sparkline(points: sparkline).frame(width: 40, height: 16)
                         .accessibilityLabel(Text(verbatim: "CPU over the last samples"))
+                        .help(Help.Panel.sparkline)
                 }
             }
         }

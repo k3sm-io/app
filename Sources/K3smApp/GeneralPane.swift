@@ -32,27 +32,32 @@ struct GeneralPane: View {
                 let login = settings.login
                 Toggle("Open k3sm at login", isOn: Binding(get: { login.isOn }, set: { settings.setLogin($0) }))
                     .disabled(!login.isEnabled)
+                    .help(Help.General.openAtLogin)
                 if let text = login.note { note(text) }
                 if login.offersLoginItems {
                     Button("Open Login Items") { settings.openLoginItems() }
+                        .help(Help.Popover.openLoginItems)
                 }
                 Toggle("Open the window when k3sm opens at login", isOn: $preferences.openWindowAtLogin)
+                    .help(Help.General.windowAtLogin)
                 Toggle("Notify me at login when k3sm is stopped", isOn: $preferences.notifyStoppedAtLogin)
+                    .help(Help.General.notifyStopped)
             }
             group("Dock") {
                 let dock = settings.dock
                 Toggle("Animate the Dock icon while the window is open",
                        isOn: Binding(get: { dock.isOn }, set: { preferences.dockAnimation = $0 }))
                     .disabled(!dock.isEnabled)
+                    .help(Help.General.dockAnimation)
                 if let text = dock.note { note(text) }
             }
             group("Window") {
                 HStack(spacing: 12) {
                     Button("Take the Tour") { settings.takeTour() }
                         .disabled(!settings.tourAvailable)
-                        .help(settings.tourAvailable ? "A short tour of the console" : "The tour walks the console, shown once k3sm is installed")
+                        .help(Help.General.tour(available: settings.tourAvailable))
                     Button("Reset Window Layout…") { settings.confirmingReset = true }
-                        .help("Put the console's panel and details column back to how they first were")
+                        .help(Help.General.resetLayout)
                 }
             }
         }

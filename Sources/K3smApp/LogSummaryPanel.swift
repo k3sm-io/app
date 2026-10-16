@@ -36,11 +36,14 @@ struct LogSummaryPanel: View {
                     Spacer()
                     if phase.running {
                         Button("Cancel") { summaries.cancel() }.controlSize(.small)
+                            .help(Help.Inspector.summaryCancel)
                     } else {
                         if case .done(let summary) = phase {
                             Button("Copy") { copy(summary) }.controlSize(.small)
+                                .help(Help.Inspector.summaryCopy)
                         }
                         Button("Close") { summaries.close() }.controlSize(.small)
+                            .help(Help.Inspector.summaryClose)
                     }
                 }
                 content(phase)

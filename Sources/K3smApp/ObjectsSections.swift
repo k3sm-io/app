@@ -72,14 +72,19 @@ enum ObjectColumns {
     static let phase: CGFloat = 80
     static let replicas: CGFloat = 54
 
-    static func header(_ columns: [(String, CGFloat?, Alignment)]) -> some View {
+    /// The column titles over a list; `help` gives the header's tag by
+    /// title, for a column whose unit or meaning its title does not show.
+    static func header(_ columns: [(String, CGFloat?, Alignment)], help: [String: HelpTag] = [:]) -> some View {
         HStack(spacing: spacing) {
             ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
-                if let width = column.1 {
-                    Text(column.0).frame(width: width, alignment: column.2)
-                } else {
-                    Text(column.0).frame(maxWidth: .infinity, alignment: column.2)
+                Group {
+                    if let width = column.1 {
+                        Text(column.0).frame(width: width, alignment: column.2)
+                    } else {
+                        Text(column.0).frame(maxWidth: .infinity, alignment: column.2)
+                    }
                 }
+                .help(optional: help[column.0])
             }
         }
         .font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
@@ -113,7 +118,8 @@ struct ServicesSection: View {
         VStack(spacing: 0) {
             ObjectColumns.header([("Service", nil, .leading), ("Type", ObjectColumns.type, .leading),
                                   ("Cluster IP", ObjectColumns.address, .leading), ("Ports", ObjectColumns.ports, .leading),
-                                  ("Hosts", ObjectColumns.hosts, .leading)])
+                                  ("Hosts", ObjectColumns.hosts, .leading)],
+                                 help: ["Cluster IP": Help.Services.clusterIP, "Hosts": Help.Services.hosts])
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     switch loader.load {
@@ -162,7 +168,8 @@ struct StorageSection: View {
                 VStack(alignment: .leading, spacing: 0) {
                     card.padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 6)
                     ObjectColumns.header([("Claim", nil, .leading), ("Volume", ObjectColumns.volume, .leading),
-                                          ("Capacity", ObjectColumns.capacity, .trailing), ("Phase", ObjectColumns.phase, .leading)])
+                                          ("Capacity", ObjectColumns.capacity, .trailing), ("Phase", ObjectColumns.phase, .leading)],
+                                         help: ["Capacity": Help.Storage.capacity, "Phase": Help.Storage.phase])
                         .padding(.horizontal, -10)
                     LazyVStack(alignment: .leading, spacing: 0) { rows }
                         .padding(.vertical, 8)
@@ -255,7 +262,8 @@ struct ModelsSection: View {
         VStack(spacing: 0) {
             ObjectColumns.header([("", ObjectColumns.dot, .leading), ("Model", nil, .leading),
                                   ("Phase", ObjectColumns.phase, .leading), ("Ready", ObjectColumns.replicas, .trailing),
-                                  ("Endpoint", ObjectColumns.hosts, .leading)])
+                                  ("Endpoint", ObjectColumns.hosts, .leading)],
+                                 help: ["Ready": Help.Models.ready, "Endpoint": Help.Models.endpoint])
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     switch loader.load {
@@ -269,6 +277,7 @@ struct ModelsSection: View {
                             ForEach(ModelsList.visible(rows, query: app.modelsQuery), id: \.key) { row in
                                 ListRow(selected: app.isSelected(.model(row.key))) {
                                     Circle().fill(Palette.health(row.severity)).frame(width: 9, height: 9).frame(width: ObjectColumns.dot)
+                                        .help(Help.Inspector.healthDot)
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(verbatim: row.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
                                         Text(verbatim: row.model.isEmpty ? row.namespace : "\(row.namespace) · \(row.model)")

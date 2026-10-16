@@ -77,6 +77,7 @@ struct LANSection: View {
                         }))
                         .toggleStyle(.checkbox)
                         .disabled(!toggle.enabled)
+                        .help(Help.Network.lan)
                 }
                 Text(LANToggle.subtitle).font(.callout).foregroundStyle(.secondary)
                 if let reason = toggle.disabledReason {

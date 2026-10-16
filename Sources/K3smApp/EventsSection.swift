@@ -32,6 +32,7 @@ struct WorkloadsTab: View {
                     }
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .help(Help.Workloads.view)
                 Spacer()
                 if app.workloadsView == .events, let events = app.events {
                     EventsFilter(app: app, loader: events)
@@ -65,6 +66,7 @@ struct EventsFilter: View {
             }
         }
         .labelsHidden().fixedSize()
+        .help(Help.Workloads.namespace)
     }
 }
 
@@ -79,7 +81,7 @@ enum EventsColumns {
     static var header: some View {
         HStack(spacing: spacing) {
             Color.clear.frame(width: dot, height: 1)
-            Text("Age").frame(width: age, alignment: .leading)
+            Text("Age").frame(width: age, alignment: .leading).help(Help.Workloads.eventAge)
             Text("Reason").frame(width: reason, alignment: .leading)
             Text("Object").frame(width: object, alignment: .leading)
             Text("Message").frame(maxWidth: .infinity, alignment: .leading)
@@ -132,6 +134,7 @@ struct EventRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: EventsColumns.spacing) {
             Circle().fill(Palette.health(event.severity)).frame(width: 9, height: 9).frame(width: EventsColumns.dot)
+                .help(Help.Inspector.healthDot)
                 .padding(.top, 4)
             Text(verbatim: WorkloadsDisplay.age(event.time)).font(.system(size: 12)).monospacedDigit()
                 .foregroundStyle(Palette.ink2).frame(width: EventsColumns.age, alignment: .leading)

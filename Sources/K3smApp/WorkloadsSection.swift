@@ -98,9 +98,9 @@ enum PodColumns {
             Color.clear.frame(width: dot, height: 1)
             Text("Pod").frame(maxWidth: .infinity, alignment: .leading)
             Text("Node").frame(width: node, alignment: .leading)
-            Text("Runs as").frame(width: runsAs, alignment: .leading)
-            Text("Cores").frame(width: cores, alignment: .trailing)
-            Text("Memory").frame(width: memory, alignment: .trailing)
+            Text("Runs as").frame(width: runsAs, alignment: .leading).help(Help.Workloads.runsAs)
+            Text("Cores").frame(width: cores, alignment: .trailing).help(Help.Workloads.cores)
+            Text("Memory").frame(width: memory, alignment: .trailing).help(Help.Workloads.memory)
             Text("Age").frame(width: age, alignment: .trailing)
         }
         .font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
@@ -118,6 +118,7 @@ struct PodRow: View {
     var body: some View {
         HStack(spacing: PodColumns.spacing) {
             Circle().fill(Palette.health(pod.health.severity)).frame(width: 9, height: 9).frame(width: PodColumns.dot)
+                .help(Help.Inspector.healthDot)
             VStack(alignment: .leading, spacing: 1) {
                 Text(verbatim: StatusDisplay.clip(pod.name)).font(.system(size: 13, weight: .medium)).lineLimit(1)
                 Text(verbatim: StatusDisplay.clip(pod.image)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.dimText).lineLimit(1)
