@@ -56,9 +56,26 @@ public struct LifecycleConfirmation: Equatable, Sendable {
     public let cancelIsDefault: Bool
     /// The title of the button that answers no.
     public let cancelTitle: String
+    /// The apply's options as the question names them; nil for other verbs.
+    /// The run passes exactly these, with the downgrade answer.
+    public let update: UpdateOptions?
+    /// Whether the apply's question offers the downgrade checkbox, off each
+    /// time (`UpdateOffer.offersDowngrade`).
+    public let offersDowngrade: Bool
+
+    /// The apply's question, naming every option that is not the default.
+    public init(update options: UpdateOptions, report: StatusReport) {
+        self.init(verb: .updateApply, report: report, options: options)
+    }
 
     public init(verb: LifecycleVerb, report: StatusReport) {
+        self.init(verb: verb, report: report, options: verb == .updateApply ? .defaults : nil)
+    }
+
+    private init(verb: LifecycleVerb, report: StatusReport, options: UpdateOptions?) {
         self.verb = verb
+        update = options
+        offersDowngrade = verb == .updateApply && UpdateOffer.offersDowngrade(in: report)
         cancelIsDefault = verb == .lanOn
         cancelTitle = verb == .updateCancel ? "Keep Updating" : "Cancel"
         switch verb {
@@ -88,7 +105,9 @@ public struct LifecycleConfirmation: Equatable, Sendable {
         case .updateApply:
             let tag = report.row(named: "update").flatMap(UpdateOffer.latestTag(in:)).map(StatusDisplay.clip)
             title = tag.map { "Update k3sm to \($0)?" } ?? "Update k3sm?"
-            message = UpdateConfirmationText.apply
+            let lines = options?.confirmationLines ?? []
+            message = lines.isEmpty ? UpdateConfirmationText.apply
+                : UpdateConfirmationText.apply + "\n\n" + lines.joined(separator: " ")
             warning = nil
         case .updateCancel:
             title = "Cancel the update?"

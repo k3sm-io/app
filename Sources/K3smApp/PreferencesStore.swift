@@ -45,9 +45,6 @@ final class PreferencesStore: ObservableObject {
     @Published var updateDrain: Bool {
         didSet { if !reloading { preferences.updateDrain = updateDrain } }
     }
-    @Published var updateAllowDowngrade: Bool {
-        didSet { if !reloading { preferences.updateAllowDowngrade = updateAllowDowngrade } }
-    }
     @Published var updateSignature: UpdateSignaturePolicy {
         didSet { if !reloading { preferences.updateSignature = updateSignature } }
     }
@@ -63,7 +60,6 @@ final class PreferencesStore: ObservableObject {
         dockAnimation = preferences.dockAnimation
         allChecksOpen = preferences.allChecksOpen
         updateDrain = preferences.updateDrain
-        updateAllowDowngrade = preferences.updateAllowDowngrade
         updateSignature = preferences.updateSignature
     }
 
@@ -78,7 +74,6 @@ final class PreferencesStore: ObservableObject {
         dockAnimation = preferences.dockAnimation
         allChecksOpen = preferences.allChecksOpen
         updateDrain = preferences.updateDrain
-        updateAllowDowngrade = preferences.updateAllowDowngrade
         updateSignature = preferences.updateSignature
     }
 }

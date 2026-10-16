@@ -33,11 +33,36 @@ struct ManagedUpdateTests {
         return StatusReport(schemaVersion: 1, verdict: .running, role: "server", summary: "s", rows: rows, workers: [])
     }
 
-    static func driver(_ reads: StatusSequence, runner: LANRunner, answer: Bool, asked: Questions? = nil) -> UpdateDriver {
+    static func driver(_ reads: StatusSequence, runner: LANRunner, answer: Bool, downgrade: Bool = false,
+                       asked: Questions? = nil, afterAnswer: (@Sendable () -> Void)? = nil) -> UpdateDriver {
         UpdateDriver(teamID: team, readStatus: { reads.next() }, confirm: { c in
             asked?.append(c)
             return answer
+        }, confirmApply: { c in
+            asked?.append(c)
+            afterAnswer?()
+            return answer ? .confirmed(allowDowngrade: downgrade) : .declined
         }, runner: runner)
+    }
+
+    /// A behind row that also names a node newer than the latest release,
+    /// in the words of k3sm's `UpdateRowFrom`.
+    static func mixed(latest: String = "v0.1.8") -> StatusReport {
+        let rows = [
+            StatusRow(name: "server", state: "running", detail: "d"),
+            StatusRow(name: "update", state: "behind",
+                      detail: "k3sm \(latest) is available; behind: a (v0.1.7); newer than the latest release: b (v0.2.0)",
+                      wide: ["latest": latest]),
+        ]
+        return StatusReport(schemaVersion: 1, verdict: .running, role: "server", summary: "s", rows: rows, workers: [])
+    }
+
+    /// A fresh, empty defaults domain of its own.
+    static func freshPreferences() -> AppPreferences {
+        let name = "io.k3sm.app.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return AppPreferences(defaults: defaults)
     }
 
     @Test("the update verbs run the checked lifecycle script with the fixed argv")
@@ -79,17 +104,82 @@ struct ManagedUpdateTests {
     }
 
     @Test("the apply's options reach the root script as fixed flags; the cancel takes none")
-    func applyOptions() async {
+    func applyOptionsScript() {
         let options = UpdateOptions(drain: true, allowDowngrade: false, signature: .required)
         let script = LifecycleScriptBuilder.render(.updateApply, teamID: Self.team, update: options)
         #expect(script.text.hasSuffix("exec \"$k3sm\" 'update' 'apply' '--yes' '--drain' '--signature' 'required'\n"))
         #expect(LifecycleScriptBuilder.arguments(for: .updateCancel, update: options) == ["update", "cancel"])
         #expect(LifecycleScriptBuilder.render(.updateCancel, teamID: Self.team, update: options)
             == LifecycleScriptBuilder.render(.updateCancel, teamID: Self.team))
+    }
+
+    @Test("the apply's question names every option that is not the default")
+    func confirmationNamesOptions() {
+        let plain = LifecycleConfirmation(update: .defaults, report: Self.report(latest: "v0.1.8"))
+        #expect(plain.message == UpdateConfirmationText.apply)
+        #expect(plain == LifecycleConfirmation(verb: .updateApply, report: Self.report(latest: "v0.1.8")))
+        let both = LifecycleConfirmation(update: UpdateOptions(drain: true, allowDowngrade: false, signature: .required),
+                                         report: Self.report(latest: "v0.1.8"))
+        #expect(both.message == UpdateConfirmationText.apply + "\n\n"
+            + UpdateOptions.drainLine + " " + UpdateOptions.signatureRequiredLine)
+        #expect(both.title == "Update k3sm to v0.1.8?")
+        let drainOnly = LifecycleConfirmation(update: UpdateOptions(drain: true, allowDowngrade: false, signature: .ifSigned),
+                                              report: Self.report(latest: "v0.1.8"))
+        #expect(drainOnly.message.hasSuffix(UpdateOptions.drainLine))
+        #expect(!drainOnly.message.contains(UpdateOptions.signatureRequiredLine))
+        #expect(UpdateOptions(drain: true, allowDowngrade: true, signature: .required).confirmationLines
+            == [UpdateOptions.drainLine, UpdateOptions.downgradeLine, UpdateOptions.signatureRequiredLine])
+        // The downgrade checkbox is offered only when a node runs a newer release.
+        #expect(!plain.offersDowngrade)
+        #expect(LifecycleConfirmation(update: .defaults, report: Self.mixed()).offersDowngrade)
+        #expect(!LifecycleConfirmation(verb: .updateCancel, report: Self.mixed()).offersDowngrade)
+        #expect(LifecycleConfirmation(verb: .stop, report: Self.mixed()).update == nil)
+    }
+
+    @Test("the run passes exactly what was confirmed, even if a preference changes after the click")
+    func applyRunsWhatWasConfirmed() async {
+        let prefs = Self.freshPreferences()
+        prefs.updateDrain = true
+        prefs.updateSignature = .required
+        let atClick = prefs.updateOptions
         let reads = StatusSequence([Self.report(latest: "v0.1.8"), Self.report(latest: "v0.1.8")])
         let runner = LANRunner()
-        _ = await Self.driver(reads, runner: runner, answer: true).apply(tag: "v0.1.8", options: options)
-        #expect(runner.scripts == [script])
+        let asked = Questions()
+        let result = await Self.driver(reads, runner: runner, answer: true, asked: asked, afterAnswer: {
+            prefs.updateDrain = false
+            prefs.updateSignature = .ifSigned
+        }).apply(tag: "v0.1.8", options: atClick)
+        #expect(result == .ran(.started, .succeeded, "The update has started. Each node updates in turn, the server last."))
+        let confirmed = UpdateOptions(drain: true, allowDowngrade: false, signature: .required)
+        #expect(asked.all.map(\.update) == [confirmed])
+        #expect(runner.scripts == [LifecycleScriptBuilder.render(.updateApply, teamID: Self.team, update: confirmed)])
+        #expect(prefs.updateOptions == .defaults)
+    }
+
+    @Test("a downgrade is never stored, starts off each time, and runs only where offered")
+    func downgradeIsPerApply() async {
+        // Never a preference.
+        #expect(Self.freshPreferences().updateOptions.allowDowngrade == false)
+        #expect(!AppPreferences.Key.allCases.map(\.rawValue).contains { $0.lowercased().contains("downgrade") })
+        // A downgrade in the options is ignored; each question opens without one.
+        let runner = LANRunner()
+        let asked = Questions()
+        let downgrade = UpdateOptions(drain: false, allowDowngrade: true, signature: .ifSigned)
+        for _ in 0..<2 {
+            let reads = StatusSequence([Self.mixed(), Self.mixed()])
+            _ = await Self.driver(reads, runner: runner, answer: true, downgrade: true, asked: asked)
+                .apply(tag: "v0.1.8", options: downgrade)
+        }
+        #expect(asked.all.count == 2)
+        #expect(asked.all.allSatisfy { $0.update?.allowDowngrade == false && $0.offersDowngrade })
+        let allowed = UpdateOptions(drain: false, allowDowngrade: true, signature: .ifSigned)
+        #expect(runner.scripts == Array(repeating: LifecycleScriptBuilder.render(.updateApply, teamID: Self.team, update: allowed), count: 2))
+        #expect(runner.scripts[0].text.contains("'--allow-downgrade'"))
+        // Where no node is newer the checkbox is not offered, so a yes adds no flag.
+        let plainRunner = LANRunner()
+        let reads = StatusSequence([Self.report(latest: "v0.1.8"), Self.report(latest: "v0.1.8")])
+        _ = await Self.driver(reads, runner: plainRunner, answer: true, downgrade: true).apply(tag: "v0.1.8", options: downgrade)
+        #expect(plainRunner.scripts == [LifecycleScriptBuilder.render(.updateApply, teamID: Self.team)])
     }
 
     @Test("apply refuses when the live row no longer offers the tag", arguments: [

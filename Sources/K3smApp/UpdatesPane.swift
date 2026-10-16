@@ -21,8 +21,10 @@ import SwiftUI
 /// available release with the `update` row's state in plain words
 /// (`UpdatesPaneFacts`), Update Now (`UpdateNowControl`, the one apply path,
 /// `AppModel.performUpdate`), the roll's progress in the console's own
-/// panel (`UpdateProgressPanel`, with its Cancel), and the options passed to
-/// `k3sm update apply` (`UpdateOptions`, stored in `PreferencesStore`).
+/// panel (`UpdateProgressPanel`, with its Cancel), and the two stored
+/// options passed to `k3sm update apply` (drain and the signature policy,
+/// `UpdateOptions`, in `PreferencesStore`); allowing a downgrade is asked in
+/// the confirmation, for one apply only.
 /// Opening the pane reads the status again, so the offer is never judged on
 /// a stale read.
 struct UpdatesPane: View {
@@ -59,8 +61,6 @@ struct UpdatesPane: View {
             group("When updating") {
                 Toggle("Drain each node before updating it", isOn: $preferences.updateDrain)
                     .help(Help.Updates.drain)
-                Toggle("Allow a release older than a node runs", isOn: $preferences.updateAllowDowngrade)
-                    .help(Help.Updates.allowDowngrade)
                 Picker("Code signature", selection: $preferences.updateSignature) {
                     ForEach(UpdateSignaturePolicy.allCases, id: \.self) { policy in
                         Text(policy.title).tag(policy)
@@ -68,7 +68,7 @@ struct UpdatesPane: View {
                 }
                 .fixedSize()
                 .help(Help.Updates.signature)
-                note("These apply to the next update the app starts. The release's checksum is always verified.")
+                note(UpdateOptions.paneNote)
             }
         }
         .padding(20)

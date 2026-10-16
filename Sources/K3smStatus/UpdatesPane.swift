@@ -35,18 +35,30 @@ public enum UpdateSignaturePolicy: String, CaseIterable, Sendable {
     }
 }
 
-/// UpdateOptions is how the app's managed update runs: drain each node
-/// before it updates, allow a release older than a node runs, and the
-/// signature policy. They are the app's own preferences, read when the apply
-/// starts and passed to `k3sm update apply` as its own flags, from a fixed
-/// vocabulary: nothing typed reaches the command line. The defaults add no
-/// flag, so they run the CLI's defaults.
+/// UpdateOptions is how one managed update runs: drain each node before it
+/// updates, allow a release older than a node runs, and the signature
+/// policy. Drain and the policy are the app's own preferences, read once
+/// when Update is clicked; allowing a downgrade is never stored, and is
+/// chosen in the confirmation for that apply only. The confirmation names
+/// every option that is not the default (`confirmationLines`), and the run
+/// passes exactly the options confirmed to `k3sm update apply` as its own
+/// flags, from a fixed vocabulary: nothing typed reaches the command line.
+/// The defaults add no flag, so they run the CLI's defaults.
 public struct UpdateOptions: Equatable, Sendable {
     public var drain: Bool
     public var allowDowngrade: Bool
     public var signature: UpdateSignaturePolicy
 
     public static let defaults = UpdateOptions(drain: false, allowDowngrade: false, signature: .ifSigned)
+
+    /// The confirmation's checkbox for a downgrade, and its line once on.
+    public static let downgradeTitle = "Allow a release older than a node runs"
+    public static let drainLine = "Each node's pods are drained before it updates."
+    public static let signatureRequiredLine = "Only a release with a Developer ID signature is accepted."
+    public static let downgradeLine = "A node may move to an older release."
+    /// The note under the pane's options.
+    public static let paneNote =
+        "Update names these before it starts, and asks about an older release only when a node runs a newer one. The release's checksum is always verified."
 
     public init(drain: Bool, allowDowngrade: Bool, signature: UpdateSignaturePolicy) {
         self.drain = drain
@@ -62,6 +74,31 @@ public struct UpdateOptions: Equatable, Sendable {
         if allowDowngrade { argv.append("--allow-downgrade") }
         if signature != .ifSigned { argv += ["--signature", signature.rawValue] }
         return argv
+    }
+
+    /// One sentence for each option that is not the default, in argv order;
+    /// empty for the defaults.
+    public var confirmationLines: [String] {
+        var lines: [String] = []
+        if drain { lines.append(Self.drainLine) }
+        if allowDowngrade { lines.append(Self.downgradeLine) }
+        if signature == .required { lines.append(Self.signatureRequiredLine) }
+        return lines
+    }
+}
+
+extension UpdateOffer {
+    /// The part of a `behind` row's detail that names the nodes running a
+    /// release newer than the latest (`k3sm` `pkg/status/update.go`,
+    /// `UpdateRowFrom`): "...; newer than the latest release: b (v0.2.0)".
+    public static let newerNodesMarker = "; newer than the latest release: "
+
+    /// Whether `--allow-downgrade` could change what the apply does: the
+    /// live row is `behind` and names a node newer than the latest release,
+    /// which the roll would otherwise refuse to move back.
+    public static func offersDowngrade(in report: StatusReport?) -> Bool {
+        guard let row = report?.row(named: "update"), row.rowState == .behind else { return false }
+        return row.detail.contains(newerNodesMarker)
     }
 }
 
