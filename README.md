@@ -180,6 +180,7 @@ turned off.
   Update button while one is offered, the search field at its narrowest and
   the buttons beside it; only a tab name longer than 24 characters would be
   shortened, at its end.
+- The **window** reopens where you left it, at its size and on its display, after a relaunch too; if that display is gone or the window would sit off the screen, it is moved onto the main display, never smaller than its minimum.
 
 The app reads state only from `k3sm status -o json`, the machine interface the
 k3sm CLI documents. It runs `/Library/k3sm/k3sm` by absolute path with an

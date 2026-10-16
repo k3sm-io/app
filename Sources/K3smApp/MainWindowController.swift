@@ -21,7 +21,10 @@ import SwiftUI
 
 /// MainWindowController owns the one window. While it is open the app is a
 /// regular app (Dock icon, app menu, Command-Tab); when it closes the app
-/// returns to an accessory with only the status item.
+/// returns to an accessory with only the status item. The window's frame
+/// and its screen are saved on every move, resize and close, and the next
+/// open (in this launch or a later one) puts it back through
+/// `WindowFrame.restore`.
 @MainActor
 final class MainWindowController: NSObject, NSWindowDelegate {
     private let model: AppModel
@@ -67,6 +70,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     /// window is on screen: stop both here, not only from the view's
     /// onDisappear, which an ordered-out window may never deliver.
     func windowWillClose(_ notification: Notification) {
+        saveFrame()
         // The Dock subscription goes first, so stopping the flap does not
         // render one last frame that is thrown away a line later.
         dockFlap = nil
@@ -80,7 +84,56 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.accessory)
     }
 
+    func windowDidMove(_ notification: Notification) {
+        saveFrame()
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        saveFrame()
+    }
+
+    /// Records the window's frame and its screen in the user defaults. A
+    /// window on no screen (fully off every display) records nothing.
+    private func saveFrame() {
+        guard let window, let screen = window.screen else { return }
+        let f = window.frame
+        let saved = WindowFrame.Saved(
+            frame: WindowFrame.Rect(x: f.origin.x, y: f.origin.y, width: f.width, height: f.height),
+            screen: screen.k3smIdentity)
+        UserDefaults.standard.set(saved.defaultsValue, forKey: WindowFrame.key)
+    }
+
+    /// Puts the saved frame back, clamped onto a connected screen and never
+    /// below the console's minimum, or centres the window when nothing is
+    /// saved.
+    private func placeWindow(_ window: NSWindow, saved: WindowFrame.Saved?) {
+        let main = NSScreen.main ?? NSScreen.screens.first
+        let ordered = (main.map { [$0] } ?? []) + NSScreen.screens.filter { $0 !== main }
+        let screens = ordered.map { screen in
+            let v = screen.visibleFrame
+            return WindowFrame.Screen(id: screen.k3smIdentity,
+                                      visible: WindowFrame.Rect(x: v.origin.x, y: v.origin.y, width: v.width, height: v.height))
+        }
+        guard let frame = WindowFrame.restore(saved: saved, screens: screens, minimum: minimum()) else {
+            window.center()
+            return
+        }
+        window.setFrame(NSRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height), display: false)
+    }
+
+    /// The console's minimum size as `ConsoleView` lays it out
+    /// (`TabStripLayout`); the first-run screens have none of their own here.
+    private func minimum() -> WindowFrame.Size {
+        guard model.screen == .status else { return WindowFrame.Size(width: 0, height: 0) }
+        let size = ConsoleView.minSize(inspectorShown: model.inspectorShown, panelCollapsed: model.consolePanelCollapsed,
+                                       updateTitle: model.updateOffer.buttonTitle)
+        return WindowFrame.Size(width: Double(size.width), height: Double(size.height))
+    }
+
     private func makeWindow() -> NSWindow {
+        // Read before the window exists: the hosting controller's first
+        // sizing resizes the window, and that resize must not overwrite it.
+        let saved = WindowFrame.Saved(defaultsValue: UserDefaults.standard.object(forKey: WindowFrame.key))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 460),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -90,7 +143,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.title = "k3sm"
         window.isReleasedWhenClosed = false
         window.contentViewController = NSHostingController(rootView: MainView(model: model))
-        window.delegate = self
         // The flap asks this when a beat comes due: miniaturized, ordered
         // out or with the app hidden, the window is not visible and the
         // beat is skipped. occlusionState is not used: on macOS 26 it does
@@ -99,9 +151,30 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             guard let window = self?.window else { return false }
             return window.isVisible && !window.isMiniaturized && !NSApp.isHidden
         }
-        window.center()
         chrome = model.$screen.sink { [weak window] screen in window?.setChrome(for: screen) }
+        // The frame is placed after the content and its chrome, so neither
+        // resizes it afterwards; the delegate is set last, so only the
+        // user's moves and resizes from here on are saved.
+        placeWindow(window, saved: saved)
+        window.delegate = self
         return window
+    }
+}
+
+extension NSScreen {
+    /// A stable identity for the display: its CoreGraphics UUID, which
+    /// survives a reconnect and a relaunch, or the display number when the
+    /// UUID is unavailable.
+    @MainActor
+    var k3smIdentity: String {
+        let number = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+        guard let number else { return "unknown" }
+        let id = CGDirectDisplayID(number.uint32Value)
+        if let uuid = CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue(),
+           let text = CFUUIDCreateString(nil, uuid) as String? {
+            return text
+        }
+        return "display-\(id)"
     }
 }
 
