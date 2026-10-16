@@ -33,23 +33,11 @@ public enum PodAction: String, Sendable, CaseIterable, Identifiable {
     }
 }
 
-/// PodActionConfirmation is the question asked before an action runs.
-public struct PodActionConfirmation: Equatable, Sendable {
-    public let title: String
-    public let message: String
-    /// The title of the button that runs the action.
-    public let verbTitle: String
-    public let cancelTitle: String
-    /// Whether the action removes something, so its button is shown as
-    /// destructive.
-    public let destructive: Bool
-}
-
 /// PodActionRequest is one action on one pod, fixed when the user asks for
 /// it: the names and UID come from the pod as it was listed then, so a later
 /// poll or a new selection cannot change what the confirmed action runs on,
 /// and a pod recreated under the same name since is refused by its UID.
-public struct PodActionRequest: Equatable, Sendable, Identifiable {
+public struct PodActionRequest: Equatable, ConsoleActionRequest {
     public let action: PodAction
     public let namespace: ResourceName
     public let pod: ResourceName
@@ -61,10 +49,24 @@ public struct PodActionRequest: Equatable, Sendable, Identifiable {
     public let owner: String?
 
     public var id: String { "\(action.rawValue):\(podKey)" }
+    public var section: ConsoleSection { .workloads }
+    public var rowKey: String { podKey }
+    public var verb: String { action.rawValue }
 
     /// The read run just before the action, whose output must be `uid`.
     public var verifyArguments: [String] {
         K3smCLI.podUIDArguments(namespace: namespace, pod: pod)
+    }
+
+    /// Every pod action reads the pod's UID first (`PodActions.verify`).
+    public var precheckArguments: [String]? { verifyArguments }
+
+    public func precheck(_ run: ActionRun) -> ActionOutcome? {
+        PodActions.verify(self, run: run)
+    }
+
+    public func report(_ run: ActionRun) -> ActionOutcome {
+        PodActions.report(self, run: run)
     }
 
     /// The CLI arguments the action runs.
@@ -75,45 +77,15 @@ public struct PodActionRequest: Equatable, Sendable, Identifiable {
     }
 
     /// The question asked before it runs.
-    public var confirmation: PodActionConfirmation {
+    public var confirmation: ActionConfirmation {
         switch action {
         case .restart:
-            return PodActionConfirmation(
+            return ActionConfirmation(
                 title: "Restart \(StatusDisplay.clip(namespace.value + "/" + pod.value))?",
                 message: "k3sm deletes this pod, and its owner, \(owner ?? "its controller"), recreates it. "
                     + "Its containers stop now; the new pod may have a new name and run on another node.",
                 verbTitle: action.title, cancelTitle: "Cancel", destructive: true)
         }
-    }
-}
-
-/// PodActionRun is how one action's CLI run ended, as the report reads it.
-public enum PodActionRun: Equatable, Sendable {
-    /// The CLI exited; `output` is its standard output and error together.
-    case exited(status: Int32, output: Data)
-    /// The CLI could not be started, ran past its deadline or wrote past
-    /// its limit: whether the change was made is not known.
-    case noAnswer
-    /// The CLI is not installed.
-    case missing
-    /// The installed CLI failed its trust check, so nothing ran.
-    case refused(String)
-}
-
-/// PodActionReport is the one line the inspector shows after an action.
-public enum PodActionReport: Equatable, Sendable {
-    case succeeded(String)
-    case failed(String)
-
-    public var text: String {
-        switch self {
-        case .succeeded(let t), .failed(let t): return t
-        }
-    }
-
-    public var failed: Bool {
-        if case .failed = self { return true }
-        return false
     }
 }
 
@@ -142,6 +114,12 @@ public enum PodActions {
         PodAction.allCases.filter { request($0, for: pod) != nil }
     }
 
+    /// The pod's actions as its context menu, the inspector and the Delete
+    /// key show them: one list, built here once.
+    public static func menu(for pod: Pod) -> ActionMenu {
+        ActionMenu(available(for: pod).compactMap { request($0, for: pod) })
+    }
+
     /// The request for one action on a pod, or nil when the pod does not
     /// offer it.
     public static func request(_ action: PodAction, for pod: Pod) -> PodActionRequest? {
@@ -159,9 +137,9 @@ public enum PodActions {
     /// still the one confirmed, so the action runs; otherwise the line shown
     /// instead, and nothing runs. A pod that is gone or carries another UID
     /// changed since the click.
-    public static func verify(_ request: PodActionRequest, run: PodActionRun) -> PodActionReport? {
+    public static func verify(_ request: PodActionRequest, run: ActionRun) -> ActionOutcome? {
         let verb = request.action.title
-        let changed = PodActionReport.failed("\(verb) refused: the pod changed since you clicked; nothing was deleted.")
+        let changed = ActionOutcome.refused("\(verb) refused: the pod changed since you clicked; nothing was deleted.")
         switch run {
         case .exited(status: 0, let output):
             let read = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -179,7 +157,7 @@ public enum PodActions {
     }
 
     /// The line shown after a run. CLI text passes `StatusDisplay.errorText`.
-    public static func report(_ request: PodActionRequest, run: PodActionRun) -> PodActionReport {
+    public static func report(_ request: PodActionRequest, run: ActionRun) -> ActionOutcome {
         let verb = request.action.title
         switch run {
         case .exited(status: 0, _):

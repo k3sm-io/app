@@ -107,12 +107,12 @@ struct PodActionsTests {
 
     struct VerifyCase: Sendable, CustomTestStringConvertible {
         let name: String
-        let run: PodActionRun
-        let want: PodActionReport?
+        let run: ActionRun
+        let want: ActionOutcome?
         var testDescription: String { name }
     }
 
-    static let changed = PodActionReport.failed("Restart refused: the pod changed since you clicked; nothing was deleted.")
+    static let changed = ActionOutcome.refused("Restart refused: the pod changed since you clicked; nothing was deleted.")
     static let verifyCases: [VerifyCase] = [
         VerifyCase(name: "the same UID runs the delete", run: .exited(status: 0, output: Data("shop-web-1".utf8)), want: nil),
         VerifyCase(name: "a trailing newline is not a change", run: .exited(status: 0, output: Data("shop-web-1\n".utf8)), want: nil),
@@ -155,8 +155,8 @@ struct PodActionsTests {
 
     struct ReportCase: Sendable, CustomTestStringConvertible {
         let name: String
-        let run: PodActionRun
-        let want: PodActionReport
+        let run: ActionRun
+        let want: ActionOutcome
         var testDescription: String { name }
     }
 

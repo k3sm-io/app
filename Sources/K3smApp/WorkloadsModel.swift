@@ -62,7 +62,7 @@ final class WorkloadsModel: ObservableObject {
     /// The action running now; the inspector's buttons wait for it.
     @Published private(set) var runningAction: PodActionRequest?
     /// The last action's line, for the pod it ran on.
-    @Published private(set) var actionReport: (podKey: String, report: PodActionReport)?
+    @Published private(set) var actionReport: (podKey: String, report: ActionOutcome)?
     /// Called after each node-list read, for the Images tab's selection.
     var onNodesRead: (@MainActor () -> Void)?
 
@@ -150,7 +150,7 @@ final class WorkloadsModel: ObservableObject {
     }
 
     /// The last action's line when it ran on the selected pod.
-    var selectedReport: PodActionReport? {
+    var selectedReport: ActionOutcome? {
         guard let actionReport, actionReport.podKey == selected else { return nil }
         return actionReport.report
     }
@@ -182,7 +182,7 @@ final class WorkloadsModel: ObservableObject {
                     deadline: PollSchedule.listDeadline, limit: OutputLimit.status, keepErrors: true)
             })
         Task { [weak self] in
-            let report: PodActionReport
+            let report: ActionOutcome
             if let refusal = PodActions.verify(request, run: Self.actionRun(await cli.run(request.verifyArguments))) {
                 report = refusal
             } else {
@@ -197,7 +197,7 @@ final class WorkloadsModel: ObservableObject {
     }
 
     /// One trusted run as the pod actions read it.
-    nonisolated private static func actionRun(_ result: TrustedCLI<CLIOutcome>.Result) -> PodActionRun {
+    nonisolated private static func actionRun(_ result: TrustedCLI<CLIOutcome>.Result) -> ActionRun {
         switch result {
         case .refused(let why): return .refused(why)
         case .ran(.exited(let status, let stdout)): return .exited(status: status, output: stdout)
