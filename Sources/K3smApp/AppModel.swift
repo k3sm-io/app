@@ -172,6 +172,8 @@ final class AppModel: ObservableObject {
     }
     /// The console's own state; it polls only while the console is on screen.
     let workloads: WorkloadsModel
+    /// Every tab's writes: the one confirmation, the run and its report.
+    let actions: ActionRunner
     /// The wordmark butterfly's wing beat, played while the console is up.
     let flap = FlapModel()
     /// Each tab's waiting butterfly, from the tabs' reads.
@@ -256,7 +258,8 @@ final class AppModel: ObservableObject {
         self.environment = environment
         let teamID = SelfCheck.teamID()
         self.teamID = teamID
-        self.workloads = WorkloadsModel(environment: environment, teamID: teamID)
+        self.workloads = WorkloadsModel(environment: environment)
+        self.actions = ActionRunner(environment: environment, teamID: teamID)
         self.user = SelfCheck.consoleUser()
         self.payloadVersion = SelfCheck.payloadVersion()
         var availability = SelfCheck.availability()
@@ -290,7 +293,9 @@ final class AppModel: ObservableObject {
         // image it names is still listed, as each pod-list read does for
         // the Workloads selection.
         workloads.onNodesRead = { [weak self] in
-            guard let self, let read = self.workloads.nodeList.value,
+            guard let self else { return }
+            self.actions.tabRead(.images, succeeded: !self.workloads.nodeList.load.failedOrUnavailable)
+            guard let read = self.workloads.nodeList.value,
                   let selected = self.selection.selection(in: .images) else { return }
             if ImagesList.selection(after: selected.key, in: read.images) == nil { self.selection.clear(.images) }
         }
@@ -303,6 +308,17 @@ final class AppModel: ObservableObject {
                 } else {
                     self.selection.clear(.workloads)
                 }
+            }
+        }
+        // An action's report follows its tab's reads, and the tab is read
+        // again after each action on one of its rows.
+        workloads.onPodsRead = { [weak self] ok in self?.actions.tabRead(.workloads, succeeded: ok) }
+        actions.refresh = { [weak self] section in
+            guard let self else { return }
+            if let loader = self.loader(for: section) {
+                await loader.refresh()
+            } else if section == .images {
+                await self.workloads.nodeList.refresh()
             }
         }
         // An unfinished or failed earlier run is the first thing the window
@@ -459,16 +475,14 @@ final class AppModel: ObservableObject {
                 arguments: K3smCLI.buildEngineArguments, what: "build engine list", environment: environment,
                 decode: BuildEngine.tabResult(exitCode:stdout:),
                 interval: { PollSchedule.interval(for: .builds, engineReady: $0?.state == .ready) }))
-            engine.onRead = { [weak self] in self?.retainSelection(.builds) }
-            builds = engine
+            builds = reported(engine, .builds)
             made = engine
         case .services:
             let list = observed(TabLoader(
                 arguments: K3smCLI.servicesArguments, what: "service list", environment: environment,
                 decode: ServicesList.tabResult(exitCode:stdout:),
                 interval: { _ in PollSchedule.interval(for: .services, engineReady: false) }))
-            list.onRead = { [weak self] in self?.retainSelection(.services) }
-            services = list
+            services = reported(list, .services)
             made = list
         case .storage:
             let claims = observed(TabLoader(
@@ -479,8 +493,7 @@ final class AppModel: ObservableObject {
                 arguments: K3smCLI.dataVolumeArguments, what: "data volume report", environment: environment,
                 decode: DataVolume.tabResult(exitCode:stdout:),
                 interval: { _ in PollSchedule.interval(for: .storage, engineReady: false) })
-            claims.onRead = { [weak self] in self?.retainSelection(.storage) }
-            storage = claims
+            storage = reported(claims, .storage)
             dataVolume = volume
             made = TabLoaderGroup([claims, volume])
         case .models:
@@ -488,12 +501,60 @@ final class AppModel: ObservableObject {
             let list = observed(TabLoader<[ModelRow]>(
                 read: { await Self.readModels(environment: environment) },
                 interval: { _ in PollSchedule.interval(for: .models, engineReady: false) }))
-            list.onRead = { [weak self] in self?.retainSelection(.models) }
-            models = list
+            models = reported(list, .models)
             made = list
         }
         loaders[section] = made
         return made
+    }
+
+    /// Hands a tab loader's finished reads to the tab's selection
+    /// (`retainSelection`) and to the action runner, whose report clears on
+    /// its tab's next good read.
+    private func reported<Value>(_ loader: TabLoader<Value>, _ section: ConsoleSection) -> TabLoader<Value> {
+        loader.onRead = { [weak self, weak loader] in
+            guard let self, let loader else { return }
+            self.retainSelection(section)
+            self.actions.tabRead(section, succeeded: !loader.load.failedOrUnavailable)
+        }
+        return loader
+    }
+
+    /// The bulk actions the selected tab's toolbar offers. The slot is there
+    /// for every tab; no tab fills it yet.
+    var bulkActions: [ActionMenuItem] {
+        switch section {
+        case .workloads, .images, .builds, .services, .storage, .models: return []
+        }
+    }
+
+    /// One row's actions: what its context menu, its inspector body and the
+    /// Delete key offer, the one function per kind every tab reads. Only
+    /// pods offer any yet; a tab's actions arrive as a case here.
+    func rowMenu(_ row: ConsoleRow) -> ActionMenu {
+        switch row {
+        case .pod(let key):
+            return workloads.workloads?.pods.first { $0.key == key }.map(PodActions.menu(for:)) ?? .empty
+        case .image, .build, .service, .claim, .model:
+            return .empty
+        }
+    }
+
+    /// The selected row's actions on the selected tab (the Workloads tab's
+    /// only while it shows its pods).
+    var selectedRowMenu: ActionMenu {
+        if section == .workloads, workloadsView != .pods { return .empty }
+        return selection.current.map(rowMenu) ?? .empty
+    }
+
+    /// The Delete key on the selected row: asks for its destructive action
+    /// behind the same confirmation, when it offers one. Returns whether it
+    /// did, so the key is consumed only then.
+    func deleteKey() -> Bool {
+        guard screen == .status, !actions.busy, actions.pending == nil,
+              let item = selectedRowMenu.deleteKeyItem else { return false }
+        actions.ask(item.request)
+        return true
     }
 
     /// Forwards a loader's changes to the waiting butterflies.

@@ -21,15 +21,16 @@ import SwiftUI
 /// pod inspector (`Inspector`) on Workloads, and on every other tab the
 /// selected row's facts (`InspectorDetails`) or the line asking for a
 /// selection. A tab change shows the new tab's own selection
-/// (`ConsoleSelection`), never the row of the tab just left. It only shows;
-/// nothing here changes the cluster.
+/// (`ConsoleSelection`), never the row of the tab just left. Each body
+/// shows its row's actions (`AppModel.rowMenu`) and asks them of the shared
+/// `ActionRunner`, whose one confirmation the console shows.
 struct ConsoleInspector: View {
     @ObservedObject var app: AppModel
 
     var body: some View {
         switch app.section {
         case .workloads:
-            Inspector(model: app.workloads)
+            Inspector(model: app.workloads, runner: app.actions)
         case .images:
             ImageInspector(app: app, workloads: app.workloads)
         case .builds:
@@ -75,7 +76,8 @@ struct ImageInspector: View {
     @ObservedObject var workloads: WorkloadsModel
 
     var body: some View {
-        RowInspector(content: content, empty: InspectorDetails.emptyText(.images))
+        RowInspector(content: content, empty: InspectorDetails.emptyText(.images),
+                     actions: content == nil ? nil : RowActions.selected(.images, app: app))
     }
 
     private var content: InspectorBody? {
@@ -95,7 +97,8 @@ struct LoaderInspector<Value: Sendable>: View {
     let details: (Value, String) -> InspectorBody?
 
     var body: some View {
-        RowInspector(content: content, empty: InspectorDetails.emptyText(section))
+        RowInspector(content: content, empty: InspectorDetails.emptyText(section),
+                     actions: content == nil ? nil : RowActions.selected(section, app: app))
     }
 
     private var content: InspectorBody? {
@@ -110,11 +113,14 @@ struct LoaderInspector<Value: Sendable>: View {
 struct RowInspector: View {
     let content: InspectorBody?
     let empty: String
+    /// The row's actions and last action's line, under the heading.
+    var actions: RowActions?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let content {
                 heading(content)
+                if let actions { actions }
                 Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 7) {
                     ForEach(Array(content.facts.enumerated()), id: \.offset) { _, fact in
                         GridRow {

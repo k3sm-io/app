@@ -50,8 +50,7 @@ struct BuildsSection: View {
             if let engine = loader.value {
                 let row = ConsoleRow.build(InspectorDetails.engineRow)
                 EngineCard(engine: engine, selected: app.isSelected(row))
-                    .contentShape(Rectangle())
-                    .onTapGesture { app.select(row) }
+                    .selects(row, in: app)
             } else {
                 note("Reading the build engine…")
             }

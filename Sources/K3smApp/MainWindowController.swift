@@ -31,6 +31,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var chrome: AnyCancellable?
     private var dockFlap: AnyCancellable?
+    /// The Delete key monitor, for the selected row's destructive action.
+    private var deleteKeys: Any?
 
     init(model: AppModel) {
         self.model = model
@@ -152,6 +154,23 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             return window.isVisible && !window.isMiniaturized && !NSApp.isHidden
         }
         chrome = model.$screen.sink { [weak window] screen in window?.setChrome(for: screen) }
+        // Delete or Forward Delete on this window asks for the selected row's
+        // destructive action behind the console's confirmation, unless text
+        // is being edited, a sheet is up or the tour runs (`DeleteKey`); a
+        // row with no such action leaves the key alone.
+        deleteKeys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak window] event in
+            let code = event.keyCode
+            let modified = !event.modifierFlags.intersection([.command, .option, .control]).isEmpty
+            let consumed = MainActor.assumeIsolated { () -> Bool in
+                guard let self, let window, event.window === window,
+                      DeleteKey.matches(code: code, commandOptionOrControl: modified,
+                                        editingText: window.firstResponder is NSText,
+                                        sheetShown: window.attachedSheet != nil,
+                                        tourShown: self.model.tour.step != nil) else { return false }
+                return self.model.deleteKey()
+            }
+            return consumed ? nil : event
+        }
         // The frame is placed after the content and its chrome, so neither
         // resizes it afterwards; the delegate is set last, so only the
         // user's moves and resizes from here on are saved.

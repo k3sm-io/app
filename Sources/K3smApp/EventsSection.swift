@@ -39,7 +39,7 @@ struct WorkloadsTab: View {
             }
             .padding(.horizontal, 20).padding(.top, 10)
             switch app.workloadsView {
-            case .pods: WorkloadsSection(model: app.workloads)
+            case .pods: WorkloadsSection(model: app.workloads, runner: app.actions)
             case .events:
                 if let events = app.events {
                     EventsSection(app: app, loader: events)

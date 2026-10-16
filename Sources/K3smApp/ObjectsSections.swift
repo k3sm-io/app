@@ -50,9 +50,11 @@ struct ListRow<Content: View>: View {
 }
 
 extension View {
-    /// Makes a console row select `row` on a click.
+    /// Makes a console row select `row` on a click, and offer its actions
+    /// (`AppModel.rowMenu`, the list its inspector shows) as a context menu.
     func selects(_ row: ConsoleRow, in app: AppModel) -> some View {
         contentShape(Rectangle()).onTapGesture { app.select(row) }
+            .modifier(RowActionsMenu(menu: app.rowMenu(row), runner: app.actions) { app.select(row) })
     }
 }
 

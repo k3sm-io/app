@@ -129,7 +129,10 @@ turned off.
 - **Restart…** in the pod details, shown only for a pod whose owner recreates
   it (a ReplicaSet, which a Deployment's pods have, a StatefulSet or a
   DaemonSet), is the
-  console's first write. After you confirm (the question names the
+  console's first write. The pod's row offers the same actions as the
+  details when you Control-click it, and the Delete key asks for the selected
+  pod's Restart behind the same question (not while you type in the search
+  field); a pod that offers no action has no menu, and Delete does nothing. After you confirm (the question names the
   namespace and the pod and says the owner will recreate it), the app first
   reads the pod's UID with `k3sm kubectl get pod <pod> -n <namespace> -o
   jsonpath={.metadata.uid}` and stops, deleting nothing, when the pod is
@@ -143,7 +146,8 @@ turned off.
   the app adds no credential and no privilege. The pod's containers stop at
   once and its owner starts a replacement, which may have a new name and run
   on another node. One line under the button says whether the delete was
-  accepted or why it failed, quoting kubectl's own message, and the pod list is read again. A pod with no
+  accepted or why it failed, quoting kubectl's own message, and the pod list is read again;
+  the line goes at the list's next good read after that one. A pod with no
   owner, or owned by a Job, a Node (a mirror pod) or any other kind, shows
   no Restart, since nothing is sure to bring it back.
 - The **details** on the right follow the tab. Click a row on any tab (the

@@ -121,6 +121,10 @@ struct ConsoleContent: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Palette.surface)
+        // The one confirmation every tab's actions share, here rather than
+        // in the inspector, so a row's menu or the Delete key asks it with
+        // the inspector collapsed too.
+        .modifier(ActionConfirmationDialog(runner: app.actions))
     }
 
     @ViewBuilder
@@ -174,6 +178,7 @@ struct ConsoleStrip: View {
             TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
                 .tourTarget(.tabs, app.tour)
             Spacer()
+            BulkActionsSlot(items: app.bulkActions, runner: app.actions)
             if let title = app.updateOffer.buttonTitle {
                 let offer = app.updateOffer
                 Button(title) { app.performUpdate() }

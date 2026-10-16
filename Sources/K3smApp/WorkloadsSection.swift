@@ -18,9 +18,11 @@ import K3smStatus
 import SwiftUI
 
 /// WorkloadsSection is the pods, grouped by namespace, under a column header;
-/// one row per pod, the selected one highlighted.
+/// one row per pod, the selected one highlighted, each with its actions as
+/// a context menu.
 struct WorkloadsSection: View {
     @ObservedObject var model: WorkloadsModel
+    let runner: ActionRunner
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,7 +36,7 @@ struct WorkloadsSection: View {
                     case .listed(let w) where w.pods.isEmpty: note("No pods on this Mac. Apply a manifest with kubectl and it appears here.")
                     case .listed(let w):
                         ForEach(w.namespaces, id: \.self) { ns in
-                            NamespaceGroup(namespace: ns, pods: model.visible(w.pods(in: ns)), model: model)
+                            NamespaceGroup(namespace: ns, pods: model.visible(w.pods(in: ns)), model: model, runner: runner)
                         }
                     }
                 }
@@ -54,11 +56,13 @@ struct WorkloadsSection: View {
 }
 
 /// NamespaceGroup is one namespace's heading and its pods; a namespace the
-/// search empties is left out.
+/// search empties is left out. A row's context menu is `PodActions.menu`,
+/// the list the inspector shows.
 struct NamespaceGroup: View {
     let namespace: String
     let pods: [Pod]
     @ObservedObject var model: WorkloadsModel
+    let runner: ActionRunner
 
     var body: some View {
         if !pods.isEmpty {
@@ -72,6 +76,7 @@ struct NamespaceGroup: View {
                 PodRow(pod: pod, node: model.nodeLabel(pod), selected: model.selected == pod.key)
                     .contentShape(Rectangle())
                     .onTapGesture { model.select(pod) }
+                    .modifier(RowActionsMenu(menu: PodActions.menu(for: pod), runner: runner) { model.select(pod) })
             }
         }
     }

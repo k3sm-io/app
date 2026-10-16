@@ -1,0 +1,131 @@
+/*
+Copyright The k3sm Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+import K3smStatus
+import SwiftUI
+
+/// ActionConfirmationDialog is the console's one confirmation: shown while
+/// the runner holds a pending request, whichever tab, row, menu or key
+/// asked for it, with the request's own wording.
+struct ActionConfirmationDialog: ViewModifier {
+    @ObservedObject var runner: ActionRunner
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            runner.pending?.confirmation.title ?? "",
+            isPresented: Binding(get: { runner.pending != nil }, set: { if !$0 { runner.cancel() } }),
+            titleVisibility: .visible,
+            presenting: runner.pending
+        ) { request in
+            let c = request.confirmation
+            Button(c.verbTitle, role: c.destructive ? .destructive : nil) { runner.runPending() }
+            Button(c.cancelTitle, role: .cancel) { runner.cancel() }
+        } message: { request in
+            Text(verbatim: request.confirmation.message)
+        }
+    }
+}
+
+/// RowActionsMenu is a row's context menu: the row's `ActionMenu`, the same
+/// list the inspector shows. A row that offers nothing gets no menu.
+/// `select` runs before an item asks, so the row the action is about is
+/// the one the inspector shows.
+struct RowActionsMenu: ViewModifier {
+    let menu: ActionMenu
+    @ObservedObject var runner: ActionRunner
+    let select: () -> Void
+
+    func body(content: Content) -> some View {
+        if menu.isEmpty {
+            content
+        } else {
+            content.contextMenu {
+                ForEach(menu.items) { item in
+                    Button(item.title, role: item.destructive ? .destructive : nil) {
+                        select()
+                        runner.ask(item.request)
+                    }
+                    .disabled(runner.busy || runner.pending != nil)
+                }
+            }
+        }
+    }
+}
+
+/// BulkActionsSlot is a tab's toolbar slot for actions over many rows: one
+/// button per item, nothing while the tab offers none.
+struct BulkActionsSlot: View {
+    let items: [ActionMenuItem]
+    @ObservedObject var runner: ActionRunner
+
+    var body: some View {
+        if !items.isEmpty {
+            HStack(spacing: 8) {
+                ForEach(items) { item in
+                    Button(item.title) { runner.ask(item.request) }
+                        .controlSize(.small)
+                        .disabled(runner.busy || runner.pending != nil)
+                }
+            }
+        }
+    }
+}
+
+/// RowActions is the inspector's actions block for one row, on every tab:
+/// a button per `ActionMenu` item (the row's context menu's list), the
+/// running note, and the last action's line when it ran on this row.
+/// Nothing for a row that offers no action and has no line.
+struct RowActions: View {
+    let menu: ActionMenu
+    let section: ConsoleSection
+    let rowKey: String?
+    @ObservedObject var runner: ActionRunner
+
+    /// The block for `section`'s selected row.
+    static func selected(_ section: ConsoleSection, app: AppModel) -> RowActions {
+        let row = app.selection.selection(in: section)
+        return RowActions(menu: row.map(app.rowMenu) ?? .empty, section: section, rowKey: row?.key, runner: app.actions)
+    }
+
+    var body: some View {
+        let report = runner.report(section: section, rowKey: rowKey)
+        if !menu.isEmpty || report != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                if !menu.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(menu.items) { item in
+                            Button(item.title) { runner.ask(item.request) }
+                                .disabled(runner.busy || runner.pending != nil)
+                        }
+                        if runner.busy {
+                            Text("running…").font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
+                        }
+                    }
+                }
+                if let report {
+                    Text(verbatim: report.text)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(report.failed ? Palette.bad : Palette.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(.horizontal, 18).padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
+        }
+    }
+}
