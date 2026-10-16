@@ -35,6 +35,13 @@ public enum CopyOutAction: Hashable, Sendable {
     /// Re-run the install over an existing one (the in-place upgrade), in the
     /// role this Mac already has.
     case update(UpdateRole)
+    /// Re-run the install over a half-installed k3sm (its command missing or
+    /// untrusted, a daemon down) from this app's verified payload, with no
+    /// role flag and no `--user`: the CLI's in-place shape, which reads the
+    /// role, the join target, the kubeconfig owner and every recorded
+    /// argument from the disk, and refuses when no daemon plist says what
+    /// this Mac is. The data is kept.
+    case repair
     /// Remove k3sm; `purge` also deletes its data.
     case uninstall(purge: Bool)
 
@@ -45,6 +52,7 @@ public enum CopyOutAction: Hashable, Sendable {
         case .startServer: return "k3sm wants to install a k3sm server on this Mac."
         case .join: return "k3sm wants to install k3sm on this Mac and join it to a cluster."
         case .update: return "k3sm wants to update the k3sm installed on this Mac."
+        case .repair: return "k3sm wants to repair the k3sm installed on this Mac."
         case .uninstall(purge: false): return "k3sm wants to uninstall k3sm from this Mac and keep its data."
         case .uninstall(purge: true): return "k3sm wants to uninstall k3sm from this Mac and delete its data."
         }

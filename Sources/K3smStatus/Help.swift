@@ -568,6 +568,9 @@ public enum Help {
         /// Update k3sm, in the guided panel.
         public static let update = HelpTag("Install the k3sm release this app carries, as an administrator",
                                            control: "guided panel: Update", label: "Update k3sm")
+        /// Repair k3sm, in the guided panel.
+        public static let repair = HelpTag("Install this app's k3sm release again over this one, as an administrator",
+                                           control: "guided panel: Repair", label: "Repair k3sm")
         /// Refresh, in the guided panel.
         public static let refresh = HelpTag("Read k3sm's status on this Mac again",
                                             control: "guided panel: Refresh", label: "Refresh")
@@ -594,12 +597,13 @@ public enum Help {
             case .start: return start.text
             case .restart: return restart.text
             case .update: return update.text
+            case .repair: return repair.text
             case .refresh: return refresh.text
             }
         }
 
         public static var all: [HelpTag] {
-            [banner, start, restart, update, refresh, openLogs, copyCommand, openTerminal, close, workersConfirmed]
+            [banner, start, restart, update, repair, refresh, openLogs, copyCommand, openTerminal, close, workersConfirmed]
         }
     }
 

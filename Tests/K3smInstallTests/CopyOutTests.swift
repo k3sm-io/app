@@ -74,6 +74,7 @@ struct CopyOutTests {
         .join(try! ServerAddress(parsing: "studio.local")),
         .update(.server),
         .update(.agent(joinServer: try! ServerAddress(parsing: "studio.local"))),
+        .repair,
         .uninstall(purge: false),
         .uninstall(purge: true),
     ]

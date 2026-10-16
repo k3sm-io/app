@@ -85,6 +85,17 @@ public enum HealthState: Equatable, Sendable {
     /// the console: only when nothing is installed.
     public var showsFirstRun: Bool { self == .notInstalled }
 
+    /// Whether this is a half-installed k3sm that Repair (the install run
+    /// again over it from the app's payload) is offered for: the command
+    /// missing or untrusted, or one daemon down beside the other. The one
+    /// definition the guided panel and `RepairPolicy` share.
+    public var repairable: Bool {
+        switch self {
+        case .cliMissing, .cliUntrusted, .partlyRunning: return true
+        default: return false
+        }
+    }
+
     /// The one line the console shows for this state, nil when healthy.
     /// Every CLI-supplied part passes `StatusDisplay.clip`.
     public var line: String? {

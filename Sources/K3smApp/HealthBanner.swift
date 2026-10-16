@@ -47,7 +47,8 @@ struct HealthBanner: View {
 
 /// GuidedPanelView is the sheet the banner opens: the plan's title, its
 /// numbered steps, the Terminal command where the app cannot run the step,
-/// one primary button through the existing path, the step's progress while
+/// one primary button through the existing path (and Repair beside it on a
+/// partly running Mac), the step's progress while
 /// it runs and the line it ended on.
 struct GuidedPanelView: View {
     @ObservedObject var app: AppModel
@@ -80,6 +81,12 @@ struct GuidedPanelView: View {
                 Button("Close") { app.closeGuided() }
                     .keyboardShortcut(.cancelAction)
                     .help(Help.Guided.close)
+                if let action = plan.secondary {
+                    let reason = app.guidedDisabledReason(action)
+                    Button(action.title + (action.needsRootStep ? "…" : "")) { app.runGuided(action) }
+                        .disabled(reason != nil || app.guidedRun.isRunning)
+                        .help(Help.Guided.primary(action, disabledReason: reason))
+                }
                 if plan.offersRefresh {
                     Button(GuidedAction.refresh.title) { app.runGuided(.refresh) }
                         .disabled(app.guidedRun.isRunning || app.running)
@@ -134,7 +141,7 @@ struct GuidedPanelView: View {
     }
 
     /// The step as it runs (the lifecycle driver's progress line, or the
-    /// copy-out log for Update), then the line it ended on.
+    /// copy-out log for Update and Repair), then the line it ended on.
     @ViewBuilder
     private var progress: some View {
         switch app.guidedRun {
@@ -146,7 +153,7 @@ struct GuidedPanelView: View {
                 Text(verbatim: app.outcomeMessage.map(StatusDisplay.errorText) ?? "Working…")
                     .font(.callout).fixedSize(horizontal: false, vertical: true)
             }
-            if action == .update, !app.logTail.isEmpty {
+            if action == .update || action == .repair, !app.logTail.isEmpty {
                 RootStepLog(text: app.logTail)
             }
         case .finished(_, let succeeded, _):

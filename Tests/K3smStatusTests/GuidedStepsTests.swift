@@ -78,9 +78,9 @@ struct GuidedStepsTests {
         Row(name: "ahead of the app", state: .versionMismatch(payload: v017, installed: v018, relation: .older), role: .server,
             primary: nil, devPrimary: nil, command: nil, devCommand: nil, opensLogs: false),
         Row(name: "the command missing", state: .cliMissing, role: nil,
-            primary: nil, devPrimary: nil, command: pinned, devCommand: pinned, opensLogs: false),
+            primary: .repair, devPrimary: nil, command: nil, devCommand: pinned, opensLogs: false),
         Row(name: "the command untrusted", state: .cliUntrusted("/Library/k3sm/k3sm is a symlink"), role: nil,
-            primary: nil, devPrimary: nil, command: pinned, devCommand: pinned, opensLogs: false),
+            primary: .repair, devPrimary: nil, command: nil, devCommand: pinned, opensLogs: false),
         Row(name: "status unreadable", state: .statusUnreadable, role: .server,
             primary: .refresh, devPrimary: .refresh, command: nil, devCommand: nil, opensLogs: true),
     ]
@@ -124,9 +124,39 @@ struct GuidedStepsTests {
                 if plan.terminalCommand != nil {
                     #expect(plan.offersRefresh, "\(label): Refresh after Terminal")
                 }
-                // No repair path exists yet, so none is offered as a button.
-                #expect(!plan.bannerButton.hasPrefix("Repair"), "\(label)")
+                // Repair is offered, first or beside the primary, exactly
+                // for the half-installed states, and only with the root step.
+                let offersRepair = plan.primary == .repair || plan.secondary == .repair
+                #expect(offersRepair == (root && row.state.repairable), "\(label): Repair offered")
+                #expect(plan.secondary != plan.primary || plan.secondary == nil, "\(label)")
+                if !root {
+                    #expect(plan.secondary == nil, "\(label): a dead second button")
+                }
             }
+        }
+    }
+
+    @Test("Repair replaces the Terminal fallback for a missing or untrusted command")
+    func repairReplacesTerminal() throws {
+        for state in [HealthState.cliMissing, .cliUntrusted("not owned by root")] {
+            let plan = try #require(GuidedSteps.plan(for: state, rootStep: true, role: nil, payload: Self.v018))
+            #expect(plan.primary == .repair)
+            #expect(plan.terminalCommand == nil)
+            #expect(plan.bannerButton == "Repair k3sm…")
+            #expect(plan.steps.contains(GuidedSteps.repairWhatLine))
+            // Without the release the app carries there is nothing to repair
+            // from: the install script again.
+            let unknown = try #require(GuidedSteps.plan(for: state, rootStep: true, role: nil, payload: nil))
+            #expect(unknown.primary == nil)
+            #expect(unknown.terminalCommand == GuidedSteps.installScriptCommand(version: nil))
+        }
+        for down in [["io.k3sm.netd"], ["io.k3sm.server"]] {
+            let plan = try #require(GuidedSteps.plan(for: .partlyRunning(down: down), rootStep: true, role: .server, payload: Self.v018))
+            #expect(plan.primary == GuidedSteps.partlyRunningAction(down: down))
+            #expect(plan.secondary == .repair)
+            #expect(plan.steps.last == GuidedSteps.repairBesideLine)
+            let noPayload = try #require(GuidedSteps.plan(for: .partlyRunning(down: down), rootStep: true, role: .server, payload: nil))
+            #expect(noPayload.secondary == nil)
         }
     }
 

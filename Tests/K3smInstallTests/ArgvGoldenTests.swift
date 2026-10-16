@@ -48,6 +48,7 @@ struct ArgvGoldenTests {
         Case(name: "update a server", action: .update(.server), argv: install),
         Case(name: "update a worker", action: .update(.agent(joinServer: studio)),
              argv: install + ["--agent", "--server", "studio.local"]),
+        Case(name: "repair, in place", action: .repair, argv: ["install", "--from-staging", stage]),
         Case(name: "uninstall, keep data", action: .uninstall(purge: false), argv: ["uninstall"]),
         Case(name: "purge", action: .uninstall(purge: true), argv: ["uninstall", "--purge", "--yes", "--user", "alice"]),
     ]
@@ -79,9 +80,11 @@ struct ArgvGoldenTests {
         #expect(result.output.split(separator: "\n", omittingEmptySubsequences: false).dropLast().map(String.init) == c.argv)
     }
 
-    @Test("no install relies on sudo's environment")
+    /// A repair is the CLI's in-place shape, which reads the kubeconfig owner
+    /// from the server's record and needs no user (RepairTests.repairArgv).
+    @Test("no install other than a repair relies on sudo's environment")
     func everyInstallNamesTheUser() throws {
-        for c in Self.cases where c.argv.first == "install" {
+        for c in Self.cases where c.argv.first == "install" && c.action != .repair {
             let i = try #require(c.argv.firstIndex(of: "--user"), "\(c.name) passes no --user")
             #expect(c.argv[i + 1] == "alice")
         }

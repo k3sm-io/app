@@ -552,10 +552,17 @@ final class AppModel: ObservableObject {
         case .update:
             if let block = guidedUpdateBlock { return block.text }
             if payloadVersion == nil { return GuidedUpdateBlock.unknown.text }
+        case .repair:
+            return repairRefusal?.text
         case .refresh:
             break
         }
         return nil
+    }
+
+    /// Why Repair cannot run now (`RepairPolicy`), nil when it can.
+    var repairRefusal: RepairRefusal? {
+        RepairPolicy.refusal(health: health, rootStep: teamID != nil, payload: payloadVersion)
     }
 
     /// Opens the guided panel for the current state.
@@ -572,10 +579,10 @@ final class AppModel: ObservableObject {
         guidedPanel = nil
     }
 
-    /// Runs the guided panel's primary step through the existing path: Start
-    /// and Restart through `perform` (the lifecycle driver's confirmation and
-    /// the checked root step), Update through the app-carried update, Refresh
-    /// through `refresh`.
+    /// Runs a guided panel step through the existing path: Start and Restart
+    /// through `perform` (the lifecycle driver's confirmation and the checked
+    /// root step), Update through the app-carried update, Repair through the
+    /// same copy-out after its own confirmation, Refresh through `refresh`.
     func runGuided(_ action: GuidedAction) {
         guard !guidedRun.isRunning, !running else { return }
         if let reason = guidedDisabledReason(action) {
@@ -598,6 +605,17 @@ final class AppModel: ObservableObject {
             }
             workersConfirmed = false
             start(update, input: nil, finished: finish)
+        case .repair:
+            guard let payloadVersion else {
+                finish(false, RepairRefusal.payloadUnknown.text)
+                return
+            }
+            // No: nothing ran, and the panel goes back to idle.
+            guard Self.confirmRepair(RepairConfirmation(payload: payloadVersion)) else {
+                finish(nil, "")
+                return
+            }
+            start(.repair, input: nil, finished: finish)
         case .refresh:
             Task {
                 await refresh()
@@ -1329,6 +1347,18 @@ final class AppModel: ObservableObject {
             cancel.keyEquivalent = "\r"
             alert.window.initialFirstResponder = cancel
         }
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    /// Asks Repair's question: what it does, and that the data is kept.
+    private static func confirmRepair(_ c: RepairConfirmation) -> Bool {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = c.title
+        alert.informativeText = c.message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: c.proceedTitle)
+        alert.addButton(withTitle: c.cancelTitle)
         return alert.runModal() == .alertFirstButtonReturn
     }
 

@@ -14,13 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-/// GuidedAction is the one primary step a guided panel offers. Start and
-/// Restart run the existing lifecycle verbs, Update the existing app-carried
-/// update, all through the checked root step; Refresh reads the status again.
+/// GuidedAction is a step a guided panel offers. Start and Restart run the
+/// existing lifecycle verbs, Update the existing app-carried update, Repair
+/// the install again from the app's payload, all through the checked root
+/// step; Refresh reads the status again.
 public enum GuidedAction: String, CaseIterable, Equatable, Sendable {
     case start
     case restart
     case update
+    case repair
     case refresh
 
     /// The panel's primary button.
@@ -29,6 +31,7 @@ public enum GuidedAction: String, CaseIterable, Equatable, Sendable {
         case .start: return "Start k3sm"
         case .restart: return "Restart k3sm"
         case .update: return "Update k3sm"
+        case .repair: return "Repair k3sm"
         case .refresh: return "Refresh"
         }
     }
@@ -55,8 +58,12 @@ public struct GuidedPlan: Equatable, Sendable {
     public let steps: [String]
     /// The primary button; nil when the app offers no step of its own.
     public let primary: GuidedAction?
+    /// A second step beside the primary (Repair, beside Start or Restart on
+    /// a partly running Mac); nil when there is none.
+    public let secondary: GuidedAction?
     /// The exact command to run in Terminal, shown with a Copy button: in a
-    /// developer build in place of a root step, and where no repair path exists.
+    /// developer build in place of a root step, and for a missing or
+    /// untrusted command when the app cannot run Repair.
     public let terminalCommand: String?
     /// Whether the panel offers Open Logs.
     public let opensLogs: Bool
@@ -77,7 +84,8 @@ public struct GuidedPlan: Equatable, Sendable {
 /// | partly running, node daemon down | Start (Restart refuses a stopped node) | `sudo k3sm start` |
 /// | behind the app | Update | the install script pinned to the app's release, or on a worker `sudo k3sm update apply` on the control plane |
 /// | ahead of the app | none, an explanation | the same |
-/// | command missing or untrusted | none: the install script in Terminal, then Refresh | the same |
+/// | partly running, either (beside the primary) | Repair | none |
+/// | command missing or untrusted | Repair | the install script in Terminal, then Refresh |
 /// | status unreadable | Refresh, and Open Logs | the same |
 public enum GuidedSteps {
     /// The Terminal command that starts k3sm.
@@ -116,14 +124,15 @@ public enum GuidedSteps {
         case .notInstalled, .healthy:
             return nil
         case .installedStopped:
-            return lifecycle(.start, state: state, banner: banner, rootStep: rootStep, why: [
+            return lifecycle(.start, state: state, banner: banner, rootStep: rootStep, repair: false, why: [
                 "k3sm is stopped, so this Mac runs no pods and serves nothing. It stays stopped until it is started.",
             ])
         case .partlyRunning(let down):
             let action = partlyRunningAction(down: down)
             let labels = down.map(StatusDisplay.clip).joined(separator: " and ")
             let what = labels.isEmpty ? "Part of k3sm is not running." : "\(labels) \(down.count == 1 ? "is" : "are") not running, so k3sm is only partly up."
-            return lifecycle(action, state: state, banner: banner, rootStep: rootStep, why: [what])
+            return lifecycle(action, state: state, banner: banner, rootStep: rootStep,
+                             repair: rootStep && payload != nil, why: [what])
         case .versionMismatch(let payloadVersion, let installed, let relation):
             if relation == .older {
                 return GuidedPlan(
@@ -134,13 +143,14 @@ public enum GuidedSteps {
                         "k3sm keeps running as it is. The app never installs an older k3sm over a newer one.",
                         "To match them, download the k3sm app for \(installed) from \(releasesURL).",
                     ],
-                    primary: nil, terminalCommand: nil, opensLogs: false, offersRefresh: false)
+                    primary: nil, secondary: nil, terminalCommand: nil, opensLogs: false, offersRefresh: false)
             }
             return update(state: state, banner: banner, rootStep: rootStep, role: role, payload: payloadVersion, installed: installed)
         case .cliMissing:
-            return repair(state: state, banner: banner, payload: payload, why: "/Library/k3sm is here, but the k3sm command in it is missing.")
+            return repair(state: state, banner: banner, rootStep: rootStep, payload: payload,
+                          why: "/Library/k3sm is here, but the k3sm command in it is missing.")
         case .cliUntrusted(let why):
-            return repair(state: state, banner: banner, payload: payload,
+            return repair(state: state, banner: banner, rootStep: rootStep, payload: payload,
                           why: "The installed k3sm failed the app's check: \(StatusDisplay.clip(why)). The app runs nothing until it passes.")
         case .statusUnreadable:
             return GuidedPlan(
@@ -151,7 +161,7 @@ public enum GuidedSteps {
                     "Click Refresh to read it again.",
                     "If it still fails, open the logs to see why.",
                 ],
-                primary: .refresh, terminalCommand: nil, opensLogs: true, offersRefresh: false)
+                primary: .refresh, secondary: nil, terminalCommand: nil, opensLogs: true, offersRefresh: false)
         }
     }
 
@@ -169,13 +179,23 @@ public enum GuidedSteps {
         ]
     }
 
-    private static func lifecycle(_ action: GuidedAction, state: HealthState, banner: String, rootStep: Bool, why: [String]) -> GuidedPlan {
+    /// The line a partly running Mac's panel adds when it offers Repair.
+    public static let repairBesideLine =
+        "If it does not come back, click Repair k3sm: it installs this app's release again over this one and keeps the cluster's data."
+
+    /// The line that says what Repair does, on the panel that offers it first.
+    public static let repairWhatLine =
+        "Repair installs the k3sm release this app carries again, in the role this Mac already has, and keeps the cluster's data."
+
+    private static func lifecycle(_ action: GuidedAction, state: HealthState, banner: String, rootStep: Bool,
+                                  repair: Bool, why: [String]) -> GuidedPlan {
         let command = action == .restart ? restartCommand : startCommand
         return GuidedPlan(
             state: state, banner: banner, bannerButton: action.title + "…",
             title: action.title,
-            steps: why + rootSteps(action, rootStep: rootStep),
-            primary: rootStep ? action : nil, terminalCommand: rootStep ? nil : command,
+            steps: why + rootSteps(action, rootStep: rootStep) + (repair ? [repairBesideLine] : []),
+            primary: rootStep ? action : nil, secondary: repair ? .repair : nil,
+            terminalCommand: rootStep ? nil : command,
             opensLogs: false, offersRefresh: !rootStep)
     }
 
@@ -204,21 +224,36 @@ public enum GuidedSteps {
         return GuidedPlan(
             state: state, banner: banner, bannerButton: GuidedAction.update.title + "…",
             title: GuidedAction.update.title, steps: steps,
-            primary: rootStep ? .update : nil, terminalCommand: rootStep ? nil : command,
+            primary: rootStep ? .update : nil, secondary: nil, terminalCommand: rootStep ? nil : command,
             opensLogs: false, offersRefresh: !rootStep)
     }
 
-    private static func repair(state: HealthState, banner: String, payload: SemanticVersion?, why: String) -> GuidedPlan {
-        GuidedPlan(
+    /// The plan for a missing or untrusted command: Repair, the install run
+    /// again from the app's verified payload, when this build can run the
+    /// root step and knows the release it carries; else the install script
+    /// in Terminal, then Refresh.
+    private static func repair(state: HealthState, banner: String, rootStep: Bool, payload: SemanticVersion?, why: String) -> GuidedPlan {
+        if rootStep, payload != nil {
+            return GuidedPlan(
+                state: state, banner: banner, bannerButton: GuidedAction.repair.title + "…",
+                title: GuidedAction.repair.title,
+                steps: [why, repairWhatLine] + rootSteps(.repair, rootStep: true),
+                primary: .repair, secondary: nil, terminalCommand: nil,
+                opensLogs: false, offersRefresh: false)
+        }
+        let first = rootStep
+            ? "The release this app carries is unknown, so it cannot repair k3sm itself. Reinstall k3sm by running the command below in Terminal."
+            : "This build of k3sm is not Developer ID signed, so it cannot run the administrator step. Reinstall k3sm by running the command below in Terminal."
+        return GuidedPlan(
             state: state, banner: banner, bannerButton: "How to Repair…",
-            title: "Repair k3sm",
+            title: GuidedAction.repair.title,
             steps: [
                 why,
-                "The app cannot repair this itself yet. Reinstall k3sm by running the command below in Terminal.",
+                first,
                 "On a worker, rejoin instead, as k3sm's multi-node guide describes.",
                 "When it ends, click Refresh.",
             ],
-            primary: nil, terminalCommand: installScriptCommand(version: payload),
+            primary: nil, secondary: nil, terminalCommand: installScriptCommand(version: payload),
             opensLogs: false, offersRefresh: true)
     }
 }

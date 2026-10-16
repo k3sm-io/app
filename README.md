@@ -64,17 +64,18 @@ prompt as the menu:
 | state | the panel's step |
 |---|---|
 | stopped | Start k3sm |
-| partly running | Restart k3sm while the node daemon runs (netd is down); Start k3sm while the node daemon is down |
+| partly running | Restart k3sm while the node daemon runs (netd is down); Start k3sm while the node daemon is down; Repair k3sm beside either |
 | behind the app | Update k3sm, the app-carried update; on the control plane, after the workers are confirmed |
 | ahead of the app | none: the app never installs an older k3sm over a newer one, and the panel says where to get the matching app |
-| command missing or not trusted | none in the app yet: the panel shows the install script to run in Terminal, pinned to the app's release, then Refresh |
+| command missing or not trusted | Repair k3sm (see Repairing below) |
 | status unreadable | Refresh, and Open Logs |
 
 While the step runs, the panel shows its progress, and it ends on a plain
 "Done" or "Failed" line with the step's own message. A build that is not
 Developer ID signed cannot run the administrator step, so its panel shows the
 exact Terminal command instead (`sudo k3sm start`, `sudo k3sm restart`, or the
-install script for an update), with Copy Command and Open Terminal.
+install script for an update or a repair, pinned to the app's release), with
+Copy Command and Open Terminal, and no Repair button.
 
 With nothing installed on the Mac, the window walks through a short guided
 first run, one step at a time, with the steps listed across its top:
@@ -766,6 +767,28 @@ downgrade runs in a terminal.
 
 New versions of the app arrive as a new disk image (or, later, through
 `brew upgrade --cask`). The app has no built-in downloader.
+
+## Repairing
+
+When k3sm is half installed on this Mac (its command is missing from
+`/Library/k3sm`, the command fails the app's trust check, or one of its daemons
+is down beside the other), the guided panel offers **Repair k3sm**. It asks
+first, saying what Repair does and that the cluster's data is kept, then runs
+the same verified copy-out as an install or an update, with
+`k3sm install --from-staging <dir>` and no other argument. That is the CLI's
+in-place install: it reads this Mac's role, a worker's control-plane address
+and node credential, the admin kubeconfig's owner and every argument the last
+install was given from the disk, and installs the command, its helpers, the
+daemons' plists and the launcher link again from the app's release, then
+restarts the daemons.
+
+k3sm refuses the repair, and the log says why, when no daemon plist says
+which role this Mac has (both missing, or both present), when the installed
+release is newer than the app's, when a worker's node credential is no longer
+valid (rejoin it instead), or when the installed command is signed by another
+team. The app itself does not offer Repair when nothing is installed or the
+installed k3sm is newer. A build that is not Developer ID signed shows the
+install script to run in Terminal instead.
 
 ## Uninstalling
 

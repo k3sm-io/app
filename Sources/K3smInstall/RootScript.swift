@@ -143,6 +143,13 @@ public enum RootScriptBuilder {
     ///   the CLI refuses an install that names no human;
     /// - a worker update passes `--agent --server <host>`, because the CLI
     ///   re-derives the role and the join target from its flags each run;
+    /// - a repair passes neither a role flag nor `--user`: that is the CLI's
+    ///   in-place shape (`installFlags.inPlace`, `install.ResolveInPlace`),
+    ///   which reads the role, a worker's join target and node credential,
+    ///   the kubeconfig owner and every recorded argument from the disk. With
+    ///   `--user` and no daemon plist on disk the CLI would instead make a
+    ///   first server install, which on a worker whose plist is gone would
+    ///   start a second cluster; without it, that shape is refused;
     /// - a plain uninstall takes no flag (`--yes` and `--user` apply only to
     ///   `--purge`); a purge passes `--user` because `env -i` strips SUDO_USER
     ///   and the CLI must be told whose kubeconfig to clean.
@@ -161,6 +168,8 @@ public enum RootScriptBuilder {
             ]
         case .update(.agent(let server)):
             return install + [.literal("--agent"), .literal("--server"), .literal(server.argument)]
+        case .repair:
+            return [.literal("install"), .literal("--from-staging"), .stagingDirectory]
         case .uninstall(purge: false):
             return [.literal("uninstall")]
         case .uninstall(purge: true):
@@ -203,6 +212,11 @@ public enum RootScriptBuilder {
         case .update:
             return #"""
                 echo 'copy-out: running k3sm install (update)'
+                \#(run)
+                """#
+        case .repair:
+            return #"""
+                echo 'copy-out: running k3sm install (repair)'
                 \#(run)
                 """#
         case .uninstall:
