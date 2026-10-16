@@ -24,7 +24,8 @@ import K3smStatus
 /// Nothing else, and no string from the user or the CLI, ever reaches the
 /// root script: each verb's argv is a compile-time constant
 /// (`LifecycleScriptBuilder.arguments(for:)`), and the apply adds only the
-/// fixed flags its `UpdateOptions` name (`arguments(for:update:)`).
+/// fixed flags its `UpdateOptions` name and `--version` with the release the
+/// user confirmed, a `ReleaseTag` (`arguments(for:update:release:)`).
 public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
     case stop
     case start
@@ -154,11 +155,14 @@ public enum LifecycleScriptBuilder {
         }
     }
 
-    /// The argv for `verb` with the update's options: the apply's flags
-    /// (`UpdateOptions.arguments`, a fixed vocabulary); every other verb's
-    /// argv is unchanged by them.
-    public static func arguments(for verb: LifecycleVerb, update options: UpdateOptions) -> [String] {
-        verb == .updateApply ? options.arguments : arguments(for: verb)
+    /// The argv for `verb` with the update's options and release: the
+    /// apply's flags (`UpdateOptions.arguments`, a fixed vocabulary), then
+    /// `--version` and the confirmed release, so the CLI moves to that
+    /// release and does not resolve the latest one again at run time. Every
+    /// other verb's argv is unchanged by either.
+    public static func arguments(for verb: LifecycleVerb, update options: UpdateOptions, release: ReleaseTag? = nil) -> [String] {
+        guard verb == .updateApply else { return arguments(for: verb) }
+        return options.arguments + (release.map { ["--version", $0.value] } ?? [])
     }
 
     /// Every path the script checks before running the CLI: `/`, each
@@ -174,18 +178,22 @@ public enum LifecycleScriptBuilder {
     }
 
     /// Renders the script for the installed CLI at `K3smCLI.path`; the
-    /// apply carries `options` (the defaults add no flag).
-    public static func render(_ verb: LifecycleVerb, teamID: TeamID, update options: UpdateOptions = .defaults) -> RootScript {
-        render(verb, teamID: teamID, cliPath: K3smCLI.path, update: options)
+    /// apply carries `options` (the defaults add no flag) and `release`.
+    /// `UpdateDriver.apply`, the one caller that runs an apply, always
+    /// passes the release the user confirmed.
+    public static func render(_ verb: LifecycleVerb, teamID: TeamID, update options: UpdateOptions = .defaults,
+                              release: ReleaseTag? = nil) -> RootScript {
+        render(verb, teamID: teamID, cliPath: K3smCLI.path, update: options, release: release)
     }
 
     /// Renders the script for a CLI at `cliPath`. Only the tests pass another
     /// path, to prove the refusals against real directories.
-    static func render(_ verb: LifecycleVerb, teamID: TeamID, cliPath: String, update options: UpdateOptions = .defaults) -> RootScript {
+    static func render(_ verb: LifecycleVerb, teamID: TeamID, cliPath: String, update options: UpdateOptions = .defaults,
+                       release: ReleaseTag? = nil) -> RootScript {
         let q = ShellQuote.quote
         let paths = checkedPaths(cliPath: cliPath).map(q).joined(separator: " ")
         let requirement = "-R=" + DesignatedRequirement.developerID(teamID: teamID)
-        let argv = arguments(for: verb, update: options).map(q).joined(separator: " ")
+        let argv = arguments(for: verb, update: options, release: release).map(q).joined(separator: " ")
         let text = #"""
             set -eu
             umask 077

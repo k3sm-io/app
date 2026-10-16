@@ -209,8 +209,12 @@ struct UpdateAbortTests {
         #expect(update.contains("[--signature if-signed|required]"))
         #expect(UpdateSignaturePolicy.allCases.map(\.rawValue) == ["if-signed", "required"])
         #expect(apply.contains("fsFlags.String(\"signature\", string(updatesv1alpha1.UpdateSignatureIfSigned)"))
-        // The one apply flag the app does not pass is --version: the Updates pane offers no release
-        // picker, so the CLI moves to its latest release.
-        #expect(declared.subtracting(["yes", "drain", "allow-downgrade", "signature"]) == ["version"])
+        // --version carries the release the user confirmed (UpdateVersionPinTests); with it, the app
+        // passes every flag the apply declares.
+        let pinned = LifecycleScriptBuilder.arguments(for: .updateApply, update: UpdateOptions(drain: true, allowDowngrade: true, signature: .required),
+                                                      release: ReleaseTag("v0.1.8")!)
+        #expect(pinned == all + ["--version", "v0.1.8"])
+        let passed = Set(pinned.filter { $0.hasPrefix("--") }.map { String($0.dropFirst(2)) })
+        #expect(passed == declared, "the app and k3sm update apply disagree on the flags: app \(passed), CLI \(declared)")
     }
 }

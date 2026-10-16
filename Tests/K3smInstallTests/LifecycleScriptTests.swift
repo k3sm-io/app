@@ -34,7 +34,7 @@ struct LifecycleScriptTests {
         .restart: ["restart", "--actor", "user", "--reason", "from the k3sm app"],
         .lanOn: ["network", "lan", "on"],
         .lanOff: ["network", "lan", "off"],
-        .updateApply: ["update", "apply", "--yes"],
+        .updateApply: ["update", "apply", "--yes", "--version", "v0.1.8"],
         .updateCancel: ["update", "cancel"],
         .updateAbort: ["update", "abort"],
     ]
@@ -45,14 +45,25 @@ struct LifecycleScriptTests {
         #expect(LifecycleVerb.allCases.filter { !$0.isLAN && !$0.isUpdate } == LifecycleVerb.lifecycleVerbs)
     }
 
+    /// The release every apply here is pinned to, as `UpdateDriver.apply`
+    /// pins the one the user confirmed.
+    static let release = ReleaseTag("v0.1.8")!
+
+    /// The script `verb` runs: the apply with its release.
+    static func rendered(_ verb: LifecycleVerb) -> RootScript {
+        LifecycleScriptBuilder.render(verb, teamID: team, release: release)
+    }
+
     @Test("the argument list", arguments: LifecycleVerb.allCases)
     func argumentList(_ verb: LifecycleVerb) {
-        #expect(LifecycleScriptBuilder.arguments(for: verb) == Self.goldenArgv[verb])
+        #expect(LifecycleScriptBuilder.arguments(for: verb, update: .defaults, release: Self.release) == Self.goldenArgv[verb])
+        // The verb's own words; the apply adds its options and release to them.
+        #expect(LifecycleScriptBuilder.arguments(for: verb) == (verb == .updateApply ? K3smCLI.updateApplyArguments : Self.goldenArgv[verb]))
     }
 
     /// The single CLI line of a rendered script.
     static func cliLine(_ verb: LifecycleVerb) throws -> String {
-        let lines = LifecycleScriptBuilder.render(verb, teamID: team).text.split(separator: "\n").filter { $0.hasPrefix("exec ") }
+        let lines = rendered(verb).text.split(separator: "\n").filter { $0.hasPrefix("exec ") }
         try #require(lines.count == 1, "want exactly one exec line")
         return String(lines[0])
     }
@@ -107,8 +118,8 @@ struct LifecycleScriptTests {
     @Test("every verb renders the same checks and differs only in its verb", arguments: LifecycleVerb.allCases)
     func onlyTheVerbDiffers(_ verb: LifecycleVerb) {
         let stop = LifecycleScriptBuilder.render(.stop, teamID: Self.team).text
-        let other = LifecycleScriptBuilder.render(verb, teamID: Self.team).text
-        let argv = LifecycleScriptBuilder.arguments(for: verb).map(ShellQuote.quote).joined(separator: " ")
+        let other = Self.rendered(verb).text
+        let argv = Self.goldenArgv[verb]!.map(ShellQuote.quote).joined(separator: " ")
         #expect(other == stop.replacingOccurrences(
             of: "exec \"$k3sm\" 'stop' '--actor' 'user' '--reason' 'from the k3sm app'", with: "exec \"$k3sm\" " + argv))
     }
@@ -127,7 +138,7 @@ struct LifecycleScriptTests {
 
     @Test("the command line is a scrubbed environment and the script, with no staging lock", arguments: LifecycleVerb.allCases)
     func commandLine(_ verb: LifecycleVerb) throws {
-        let script = LifecycleScriptBuilder.render(verb, teamID: Self.team)
+        let script = Self.rendered(verb)
         let line = script.command(inputPath: "/dev/null")
         #expect(line == "/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /bin/sh -c " + ShellQuote.quote(script.text) + " < '/dev/null'")
         #expect(!line.contains("lockf"))
@@ -136,7 +147,7 @@ struct LifecycleScriptTests {
 
     @Test("the lifecycle script never reuses the copy-out", arguments: LifecycleVerb.allCases)
     func notTheCopyOut(_ verb: LifecycleVerb) {
-        let text = LifecycleScriptBuilder.render(verb, teamID: Self.team).text
+        let text = Self.rendered(verb).text
         for word in ["staging", "lockf", "ditto", "copy-out", "mktemp", "$stage", "'install'", "uninstall", "chown", "/bin/rm"] {
             #expect(!text.contains(word), "the lifecycle script mentions \(word)")
         }

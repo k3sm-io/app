@@ -680,9 +680,14 @@ button, and Settings > Updates enables **Update Now**. When every node runs the 
 check has no answer, neither appears.
 
 Update asks first, naming the release, then shows the standard
-administrator prompt and runs `/Library/k3sm/k3sm update apply --yes`
-through the same checked root step as Stop and Start, adding `--drain` or
-`--signature required` when Settings > Updates asks for them. When the
+administrator prompt and runs `/Library/k3sm/k3sm update apply --yes
+--version <release>` through the same checked root step as Stop and Start,
+adding `--drain` or `--signature required` when Settings > Updates asks for
+them. `--version` names the release the question named, so a release
+published while the question was open is not the one installed; the app
+checks the tag with the same rule as `k3sm update apply` (letters, digits,
+`.`, `+`, `_` and `-`, at most 128 bytes, not starting with `-`) and refuses
+any other before it asks. When the
 status report names a node that runs a release newer than the latest, the
 question also carries **Allow a release older than a node runs**, off each
 time it opens; ticked, that one update runs with `--allow-downgrade`. It is

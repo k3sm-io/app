@@ -62,8 +62,10 @@ public enum UpdateApplyAnswer: Equatable, Sendable {
 /// option that is not the default, and offering a downgrade only when the
 /// row names a node newer than the latest), re-reads and checks again, then
 /// hands `k3sm update apply --yes`, with exactly the options the question
-/// showed and the downgrade answer, to the administrator prompt through the
-/// checked lifecycle script. The options are frozen when `apply` is called;
+/// showed, the downgrade answer and `--version` with the release it
+/// re-checked, to the administrator prompt through the checked lifecycle
+/// script. A tag that is not a release tag (`ReleaseTag`) is refused before
+/// anything is read or asked. The options are frozen when `apply` is called;
 /// nothing is read from the preferences after that. The cancel asks, then runs
 /// `k3sm update cancel` the same way, and the abort asks, then runs `k3sm
 /// update abort` the same way. Every run is a fresh prompt.
@@ -104,10 +106,17 @@ public struct UpdateDriver: Sendable {
         self.runner = runner
     }
 
+    /// The refusal for a tag `ReleaseTag` does not accept. It does not echo
+    /// the tag.
+    public static let invalidTagText = "k3sm did not start the update: the release it was offered does not have a valid release tag. Nothing was changed."
+
     /// Starts the update to `tag`, the release the user was offered, with
     /// `options` as read at the click (a downgrade in them is ignored: only
-    /// the question's checkbox allows one).
+    /// the question's checkbox allows one). The run is pinned to `tag` with
+    /// `--version`, so a release published after the last check is not the
+    /// one rolled.
     public func apply(tag: String, options: UpdateOptions = .defaults) async -> Result {
+        guard let release = ReleaseTag(tag) else { return .refused(Self.invalidTagText) }
         let frozen = UpdateOptions(drain: options.drain, allowDowngrade: false, signature: options.signature)
         let first = await readStatus()
         if case .refused(let why) = UpdatePrecondition.check(tag: tag, live: first) { return .refused(why) }
@@ -118,7 +127,7 @@ public struct UpdateDriver: Sendable {
         confirmed.allowDowngrade = downgrade && question.offersDowngrade
         let second = await readStatus()
         if case .refused(let why) = UpdatePrecondition.check(tag: tag, live: second) { return .refused(why) }
-        let script = LifecycleScriptBuilder.render(.updateApply, teamID: teamID, update: confirmed)
+        let script = LifecycleScriptBuilder.render(.updateApply, teamID: teamID, update: confirmed, release: release)
         let run = await runner.runAsRootReportingError(script, input: nil)
         return Self.classify(run, verb: .updateApply)
     }
