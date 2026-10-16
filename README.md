@@ -141,18 +141,20 @@ login** in the app's Settings turns it off or on again (see
     "Unavailable (the MLX API is not served on this cluster)", which is not a
     failure.
 
-  The tabs only read. The changes the console makes are the pod
-  inspector's **Restart** and a service's **Delete** (below). The app remembers the tab, each tab's
+  The tabs only read. The changes the console makes are a pod's
+  **Restart** and **Delete** and a service's **Delete** (below). The app remembers the tab, each tab's
   search and selection, the Workloads switch and the events namespace.
-- **Restart…** in the pod details, shown only for a pod whose owner recreates
-  it (a ReplicaSet, which a Deployment's pods have, a StatefulSet or a
-  DaemonSet), is the
-  console's first write. The pod's row offers the same actions as the
-  details when you Control-click it; a pod that offers no action has no
-  menu. The Delete key asks, behind the same question, only for an action
-  that deletes the selected row (never while you type in the search field),
-  so it does nothing on a pod today: Restart is not a delete. After you confirm (the question names the
-  namespace and the pod and says the owner will recreate it), the app first
+- **Restart…** and **Delete…** in the pod details are the console's writes.
+  Restart is shown only for a pod whose owner recreates it (a ReplicaSet,
+  which a Deployment's pods have, a StatefulSet or a DaemonSet); Delete is
+  shown for every pod. The pod's row offers the same actions as the
+  details when you Control-click it. The Delete key asks for Delete, behind
+  the same question (never while you type in the search field); Restart is
+  not on the key. Each question names the namespace and the pod. Restart's
+  says the owner will recreate it; Delete's says what follows: "its owner,
+  ReplicaSet web-5f6d, recreates it", "its owner, Job migrate, may not
+  recreate it", or, for a pod with no owner, "nothing recreates it; this pod
+  is gone for good". After you confirm, the app first
   reads the pod's UID with `k3sm kubectl get pod <pod> -n <namespace> -o
   jsonpath={.metadata.uid}` and stops, deleting nothing, when the pod is
   gone or is no longer the one you clicked; otherwise it runs `k3sm kubectl delete pod <pod> -n <namespace>
@@ -163,12 +165,10 @@ login** in the app's Settings turns it off or on again (see
   uses the `k3sm` context of the admin kubeconfig that `k3sm install` wrote
   to your account (`~/.kube/config`), the same one every console read uses;
   the app adds no credential and no privilege. The pod's containers stop at
-  once and its owner starts a replacement, which may have a new name and run
-  on another node. One line under the button says whether the delete was
+  once; an owner that recreates pods starts a replacement, which may have a
+  new name and run on another node. One line under the buttons says whether the delete was
   accepted or why it failed, quoting kubectl's own message, and the pod list is read again;
-  the line goes at the list's next good read after that one. A pod with no
-  owner, or owned by a Job, a Node (a mirror pod) or any other kind, shows
-  no Restart, since nothing is sure to bring it back.
+  the line goes at the list's next good read after that one.
 - A **service**'s details and its Control-click menu offer **Copy Cluster
   IP** (not for a headless service) and **Copy DNS Name**
   (`<name>.<namespace>.svc.cluster.local`), which put the text on the

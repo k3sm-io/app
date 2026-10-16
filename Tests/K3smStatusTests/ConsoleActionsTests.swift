@@ -95,20 +95,28 @@ struct ConsoleActionsTests {
         let pod = ownedPod()
         let menu = PodActions.menu(for: pod)
         let restart = try #require(PodActions.request(.restart, for: pod))
-        #expect(menu.items.map(\.id) == PodActions.available(for: pod).compactMap { PodActions.request($0, for: pod)?.id })
-        #expect(menu.items.map(\.title) == ["Restart…"])
+        #expect(menu.items.map(\.id) == PodActions.available(for: pod).compactMap { PodActions.request($0, for: pod)?.id }
+)
+        let delete = try #require(PodActions.request(.delete, for: pod))
+        #expect(menu.items.map(\.title) == ["Restart…", "Delete…"])
         #expect(menu.items.first?.request as? PodActionRequest == restart)
-        // Restart is destructive but not a delete, so a row whose only
-        // destructive action is Restart puts nothing on the Delete key.
+        // Restart is destructive but not a delete, so the Delete key skips
+        // it and picks Delete.
         #expect(menu.items.first?.destructive == true)
         #expect(menu.items.first?.kind == .change)
-        #expect(menu.deleteKeyItem == nil)
-        // A pod with no action offers no menu and no Delete key.
+        #expect(menu.deleteKeyItem?.request as? PodActionRequest == delete)
+        // A pod without an owner still offers Delete, on the key.
         let bare = PodActions.menu(for: Pod(
             name: "bare", namespace: "shop", uid: "u", image: "", kind: .nativeProcess, phase: "Running", health: .running,
             ready: true, restarts: 0, ports: [], owner: nil, created: nil, cpuRequest: nil, memoryRequest: nil, nodeName: nil))
-        #expect(bare.isEmpty)
-        #expect(bare.deleteKeyItem == nil)
+        #expect(bare.items.map(\.title) == ["Delete…"])
+        #expect(bare.deleteKeyItem?.id == "delete:shop/bare")
+        // A pod whose names the guard refuses offers nothing at all.
+        let refused = PodActions.menu(for: Pod(
+            name: "--all", namespace: "shop", uid: "u", image: "", kind: .nativeProcess, phase: "Running", health: .running,
+            ready: true, restarts: 0, ports: [], owner: nil, created: nil, cpuRequest: nil, memoryRequest: nil, nodeName: nil))
+        #expect(refused.isEmpty)
+        #expect(refused.deleteKeyItem == nil)
     }
 
     @Test("the Delete key is offered only when it cannot be someone else's key, and only for a delete")
