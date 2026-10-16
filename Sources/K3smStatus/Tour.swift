@@ -90,7 +90,7 @@ public enum Tour {
 
     static let rest: [TourStep] = [
         TourStep(target: .cores, title: "Cores and memory, by pod",
-                 text: "What the pods ask of this Mac, against what it has. Squares are performance cores, circles efficiency cores."),
+                 text: "What the pods use, filled, and ask for, outlined, against what this Mac has. Squares are performance cores, circles efficiency cores."),
         tabsStop,
         TourStep(target: .pods, title: "Workloads",
                  text: "Pods grouped by namespace. \"Process\" is a native macOS process under a default-deny sandbox; \"Linux VM\" is a Linux container in a small virtual machine, used only when a workload needs Linux."),

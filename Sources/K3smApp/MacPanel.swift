@@ -184,26 +184,47 @@ struct MacPanel: View {
         .id(TourTarget.summary)
         .tourTarget(.summary, tour)
         nodesBlock
-        LiveLoadBlock(node: MetricsDisplay.thisMacNode(report: report, nodes: workloads.nodes),
-                      nodes: workloads.nodes, state: workloads.metrics)
+        LiveLoadBlock(node: macNode, nodes: workloads.nodes, state: workloads.metrics)
+        let cores = coreChart
+        let memory = memoryChart
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 10) {
-                CoreGrid(cores: Self.machine.cores, performance: Self.machine.performanceCores, used: coresRequested)
+                CoreGrid(chart: cores)
                     .help(Help.Panel.coreGrid)
+                Legend(rows: cores.legend)
                 Footnote("Squares are performance cores, circles efficiency cores.")
             }
-            memoryBlock
+            memoryBlock(memory)
+            if cores.sampled || memory.sampled {
+                MetricsNote(state: workloads.metrics)
+            }
+            if let note = MacUsage.note(cores: cores, memory: memory) {
+                Footnote(note)
+            }
         }
         .id(TourTarget.cores)
         .tourTarget(.cores, tour)
     }
 
-    private var memoryBlock: some View {
+    private func memoryBlock(_ chart: MemoryChart) -> some View {
         PanelBlock("Unified memory", value: "\(WorkloadsDisplay.bytes(workloads.load.memoryUsedBytes)) of \(WorkloadsDisplay.bytes(Self.machine.memoryBytes))") {
-            Meter(parts: [(Double(memoryRequested), Palette.fill), (Double(max(0, workloads.load.memoryUsedBytes - memoryRequested)), Palette.fillDim)], total: Double(Self.machine.memoryBytes))
+            Meter(parts: chart.segments.map { ($0.share, Palette.swatch($0.swatch)) }, total: 1, height: 10,
+                  outline: chart.requestShare)
                 .help(Help.Panel.memoryMeter)
-            Legend(rows: [("Requested by pods", Palette.fill, WorkloadsDisplay.bytes(memoryRequested)), ("macOS and apps", Palette.fillDim, WorkloadsDisplay.bytes(workloads.load.memoryUsedBytes))])
+            Legend(rows: chart.legend)
         }
+    }
+
+    /// The core grid: this Mac's node's measured CPU over its pods' requests.
+    private var coreChart: CoreChart {
+        MacUsage.cores(count: Self.machine.cores, performance: Self.machine.performanceCores,
+                       requested: coresRequested, used: coresUsed)
+    }
+
+    /// The memory meter: its pods' working sets and requests, and the rest in use.
+    private var memoryChart: MemoryChart {
+        MacUsage.memory(total: Self.machine.memoryBytes, inUse: workloads.load.memoryUsedBytes,
+                        requested: memoryRequested, podsUsed: memoryUsed)
     }
 
     private var stateRow: some View {
@@ -254,7 +275,7 @@ struct MacPanel: View {
         ClusterDisplay.macTiles(
             requests: macRequests, cores: Self.machine.cores, memoryBytes: Self.machine.memoryBytes,
             dataRootUsed: workloads.load.dataRootUsedBytes, dataRootSize: workloads.load.dataRootSizeBytes,
-            pods: macPods.count)
+            pods: macPods.count, coresUsed: coresUsed, memoryUsed: memoryUsed)
     }
 
     /// What the view shown holds, for `PanelLayout.widthRange`: its tiles,
@@ -289,6 +310,11 @@ struct MacPanel: View {
     private var macRequests: PodRequests { ClusterDisplay.requests(of: macPods) }
     private var coresRequested: Double { macRequests.cores }
     private var memoryRequested: Int64 { macRequests.memoryBytes }
+    /// This Mac's node, for its usage sample.
+    private var macNode: String? { MetricsDisplay.thisMacNode(report: report, nodes: workloads.nodes) }
+    /// The cores the node used and its pods' working sets, nil without a sample.
+    private var coresUsed: Double? { MacUsage.cpuUsed(node: macNode, state: workloads.metrics) }
+    private var memoryUsed: Int64? { MacUsage.podsMemoryUsed(macPods, node: macNode, state: workloads.metrics) }
 
     private var stateLine: String { StatusDisplay.panelStateLine(report, podCount: pods.count) }
 
@@ -430,7 +456,7 @@ struct Tile: View {
     }
 
     @ViewBuilder private var detail: some View {
-        if let detail = tile.detail {
+        if let detail = tile.detailLine {
             Text(verbatim: detail).font(.system(size: 11)).monospacedDigit()
                 .foregroundStyle(.white.opacity(0.62)).lineLimit(1).fixedSize()
         }
@@ -438,36 +464,50 @@ struct Tile: View {
 }
 
 /// CoreGrid is one cell per core, squares for performance cores and circles
-/// for efficiency cores, filled by how many cores are asked for.
+/// for efficiency cores: each cell filled from the bottom by the CPU used
+/// (`CoreCell.used`) and outlined up to what the pods request
+/// (`CoreCell.requested`), with a line across a partly requested cell.
 struct CoreGrid: View {
-    let cores: Int
-    let performance: Int
-    let used: Double
+    let chart: CoreChart
+    private let side: CGFloat = 22
 
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: 8), spacing: 5) {
-            ForEach(0..<max(cores, 0), id: \.self) { i in
-                let fast = i < performance
-                let shape = RoundedRectangle(cornerRadius: fast ? 5 : 11)
+            ForEach(Array(chart.cells.enumerated()), id: \.offset) { _, cell in
+                let shape = RoundedRectangle(cornerRadius: cell.performance ? 5 : 11)
                 ZStack(alignment: .bottom) {
                     shape.fill(Palette.deep2)
-                    shape.fill(fast ? Palette.fill : Palette.fillSoft)
-                        .frame(height: 22 * max(0, min(1, used - Double(i))))
+                    if let used = cell.used {
+                        Rectangle().fill(cell.performance ? Palette.fill : Palette.fillSoft)
+                            .frame(height: side * used)
+                    }
+                    if cell.requested > 0 {
+                        shape.strokeBorder(Palette.requestLine, lineWidth: 1.5)
+                            .mask(alignment: .bottom) { Rectangle().frame(height: side * cell.requested) }
+                        if cell.requested < 1 {
+                            Rectangle().fill(Palette.requestLine).frame(height: 1.5)
+                                .padding(.bottom, max(0, side * cell.requested - 1.5))
+                        }
+                    }
                 }
-                .frame(height: 22)
+                .frame(height: side)
                 .clipShape(shape)
             }
         }
     }
 }
 
-/// Meter is a bar of parts over a total, on the panel's track.
+/// Meter is a bar of parts over a total, on the panel's track, with an
+/// optional outline from the left edge over a share of the bar (what pods
+/// request, over what is used).
 struct Meter: View {
     let parts: [(Double, Color)]
     let total: Double
     var height: CGFloat = 5
     /// The track under the parts: the panel's navy, or the light surface's wash.
     var track: Color = Palette.deep2
+    /// The outlined share of the bar, 0 to 1; nil or 0 draws none.
+    var outline: Double? = nil
 
     var body: some View {
         GeometryReader { geo in
@@ -481,24 +521,43 @@ struct Meter: View {
         .frame(height: height)
         .background(track)
         .clipShape(RoundedRectangle(cornerRadius: height / 2))
+        .overlay(alignment: .leading) {
+            if let outline, outline > 0 {
+                GeometryReader { geo in
+                    RoundedRectangle(cornerRadius: height / 2)
+                        .strokeBorder(Palette.requestLine, lineWidth: 1.5)
+                        .frame(width: max(height, geo.size.width * min(1, outline)))
+                }
+            }
+        }
     }
 }
 
-/// Legend names a meter's parts with their values.
+/// Legend names a chart's parts with their values, each behind the swatch
+/// the chart draws it with: a fill, or an outline for a request.
 struct Legend: View {
-    let rows: [(String, Color, String)]
+    let rows: [UsageLegendRow]
 
     var body: some View {
         VStack(spacing: 4) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: 8) {
-                    RoundedRectangle(cornerRadius: 2).fill(row.1).frame(width: 8, height: 8)
-                    Text(row.0).foregroundStyle(.white.opacity(0.8))
+                    swatch(row.swatch).frame(width: 8, height: 8)
+                    Text(verbatim: row.label).foregroundStyle(.white.opacity(0.8))
                     Spacer()
-                    Text(verbatim: row.2).foregroundStyle(.white).monospacedDigit()
+                    Text(verbatim: row.value).foregroundStyle(.white).monospacedDigit()
                 }
                 .font(.system(size: 12))
             }
+        }
+    }
+
+    @ViewBuilder private func swatch(_ kind: UsageSwatch) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 2)
+        if kind == .requested {
+            shape.strokeBorder(Palette.requestLine, lineWidth: 1.5)
+        } else {
+            shape.fill(Palette.swatch(kind))
         }
     }
 }

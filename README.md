@@ -83,7 +83,15 @@ login** in the app's Settings turns it off or on again (see
   panel picks between two views: **Cluster** shows nodes ready, running pods,
   the cores and memory pods request of what the nodes offer, and each node
   with its role, readiness and its own requests; **This Mac** shows this Mac's
-  cores, memory and data root and the cluster's nodes with their roles. When
+  cores, memory and data root and the cluster's nodes with their roles. Its
+  core grid and unified memory meter show both what this Mac's pods request
+  and what is used: the use fills (the cores the node used, and the pods'
+  memory), the request is an outline over it, so each stays readable when it
+  passes the other, and the meter's dim part is what macOS and other apps
+  use. The legends give the figures ("Used 1.80 cores", "Requested 0.60
+  cores"), and the request tiles show the use beside them ("of 10 · 1.80
+  used"). Without a usage sample the charts show the requests alone and say
+  so; use is never shown as zero for want of a sample. When
   every node runs the same k3sm release, both views name it once ("k3sm
   0.1.7"); otherwise each node shows its own version and the panel says
   "versions differ", or "versions: some unknown" when a node's version cannot

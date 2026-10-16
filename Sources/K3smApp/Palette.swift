@@ -48,6 +48,7 @@ enum Palette {
     static let fill = Color(red: 0.373, green: 0.482, blue: 1.0)        // #5f7bff, meters on the panel
     static let fillSoft = Color(red: 0.725, green: 0.773, blue: 1.0)    // #b9c5ff, efficiency cores
     static let fillDim = Color(red: 0.227, green: 0.263, blue: 0.502)   // #3a4380, the rest of memory
+    static let requestLine = Color.white.opacity(0.9)                   // what pods request, outlined over use
     static let okOnDark = Color(red: 0.384, green: 0.902, blue: 0.627)  // #62e6a0, a healthy daemon
     static let dockMark = Color(red: 0.561, green: 0.643, blue: 1.0)    // #8fa4ff, the mark on the Dock tile
     static let dockMarkGlow = Color(red: 0.435, green: 0.533, blue: 0.996) // #6f88fe, its glow (the mark's dark-mode upper wing)
@@ -94,6 +95,17 @@ enum Palette {
         case "warn": return warn
         case "bad": return bad
         default: return unknown
+        }
+    }
+
+    /// A This Mac chart part's fill: use, macOS and apps, nothing under a
+    /// request whose use is unknown; a request is an outline (`requestLine`).
+    static func swatch(_ kind: UsageSwatch) -> Color {
+        switch kind {
+        case .used: return fill
+        case .system: return fillDim
+        case .requested: return requestLine
+        case .unknown: return .clear
         }
     }
 

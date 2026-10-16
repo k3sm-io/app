@@ -388,10 +388,10 @@ public enum Help {
         public static let sparkline = HelpTag("CPU used over the last samples, oldest on the left",
                                               control: "panel: CPU sparkline")
         /// The This Mac view's core grid.
-        public static let coreGrid = HelpTag("Cores the pods on this Mac request, filled in order",
+        public static let coreGrid = HelpTag("Fill is CPU used, from metrics-server; outline is what pods request",
                                              control: "panel: core grid")
         /// The This Mac view's unified memory meter.
-        public static let memoryMeter = HelpTag("Memory the pods request, then what macOS and apps use",
+        public static let memoryMeter = HelpTag("Fill is memory used, from metrics-server; outline is what pods request",
                                                 control: "panel: Unified memory meter")
 
         /// The panel's view switch segment.
@@ -399,8 +399,21 @@ public enum Help {
             mode == .cluster ? cluster : thisMac
         }
 
-        /// One tile, by its label.
-        public static func tile(_ tile: PanelTile) -> HelpTag { tileTag(label: tile.label) }
+        /// One tile, by its label; a request tile showing what is used has its own.
+        public static func tile(_ tile: PanelTile) -> HelpTag {
+            tile.used == nil ? tileTag(label: tile.label) : usedTileTag(label: tile.label)
+        }
+
+        /// A This Mac request tile with what is used beside it.
+        static func usedTileTag(label: String) -> HelpTag {
+            let text: String
+            switch label {
+            case "cores requested": text = "Cores the pods request of the total, then used, from metrics-server"
+            case "memory requested": text = "Memory the pods request of the total, then used, from metrics-server"
+            default: return tileTag(label: label)
+            }
+            return HelpTag(text, control: "panel: tile with use", label: label)
+        }
 
         static func tileTag(label: String) -> HelpTag {
             let text: String
@@ -424,6 +437,7 @@ public enum Help {
         public static var all: [HelpTag] {
             [cluster, thisMac, stateDot, nodeDot, nodeCores, nodeMemory, liveCPU, liveMemory, sparkline,
              coreGrid, memoryMeter] + tileLabels.map { tileTag(label: $0) }
+                + ["cores requested", "memory requested"].map { usedTileTag(label: $0) }
         }
     }
 

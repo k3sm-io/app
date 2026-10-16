@@ -57,17 +57,26 @@ public struct ClusterUsage: Equatable, Sendable {
 }
 
 /// PanelTile is one tile of the console panel's grid: a big figure, the
-/// small words under it, and an optional "of 19" beside the figure. Every
+/// small words under it, an optional "of 19" beside the figure, and, on a
+/// request tile with a usage sample, what is used ("1.8 used"). Every
 /// string is clipped.
 public struct PanelTile: Equatable, Sendable {
     public let label: String
     public let value: String
     public let detail: String?
+    public let used: String?
 
-    public init(label: String, value: String, detail: String? = nil) {
+    public init(label: String, value: String, detail: String? = nil, used: String? = nil) {
         self.label = StatusDisplay.clip(label)
         self.value = StatusDisplay.clip(value)
         self.detail = detail.map(StatusDisplay.clip)
+        self.used = used.map(StatusDisplay.clip)
+    }
+
+    /// The small text beside the figure: "of 19 · 1.8 used", "of 19", or nil.
+    public var detailLine: String? {
+        let parts = [detail, used].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 
@@ -291,16 +300,21 @@ public enum ClusterDisplay {
     }
 
     /// The This Mac view's tiles: what its pods request of its cores and of
-    /// its unified memory, the data root's volume used of its size, and how
-    /// many pods it runs. A size of zero or less (unread) leaves its "of"
-    /// out; a hostile core sum arrives already saturated by `requests(of:)`.
+    /// its unified memory, each with what is used beside it when a usage
+    /// sample stands behind it (`MacUsage.cpuUsed`, `podsMemoryUsed`), the
+    /// data root's volume used of its size, and how many pods it runs. A
+    /// size of zero or less (unread) leaves its "of" out; a hostile core sum
+    /// arrives already saturated by `requests(of:)`.
     public static func macTiles(requests: PodRequests, cores: Int, memoryBytes: Int64,
-                                dataRootUsed: Int64, dataRootSize: Int64, pods: Int) -> [PanelTile] {
+                                dataRootUsed: Int64, dataRootSize: Int64, pods: Int,
+                                coresUsed: Double? = nil, memoryUsed: Int64? = nil) -> [PanelTile] {
         [
             PanelTile(label: "cores requested", value: WorkloadsDisplay.cores(requests.cores),
-                      detail: cores > 0 ? "of \(cores)" : nil),
+                      detail: cores > 0 ? "of \(cores)" : nil,
+                      used: coresUsed.map { "\(MetricsDisplay.cores($0)) used" }),
             PanelTile(label: "memory requested", value: bytes(requests.memoryBytes),
-                      detail: memoryBytes > 0 ? "of \(bytes(memoryBytes))" : nil),
+                      detail: memoryBytes > 0 ? "of \(bytes(memoryBytes))" : nil,
+                      used: memoryUsed.map { "\(MetricsDisplay.bytes($0)) used" }),
             PanelTile(label: "data root", value: bytes(dataRootUsed),
                       detail: dataRootSize > 0 ? "of \(bytes(dataRootSize))" : nil),
             PanelTile(label: pods == 1 ? "pod on this Mac" : "pods on this Mac", value: "\(max(0, pods))"),

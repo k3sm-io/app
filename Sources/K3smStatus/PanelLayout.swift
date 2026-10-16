@@ -100,9 +100,9 @@ public enum PanelLayout {
     }
 
     /// One tile's natural width: its padding and the wider of the value with
-    /// its "of" beside it, and the label.
+    /// its "of" (and what is used) beside it, and the label.
     static func tileWidth(_ tile: PanelTile) -> Double {
-        let figure = text(tile.value, size: 20) + (tile.detail.map { 4 + text($0, size: 11) } ?? 0)
+        let figure = text(tile.value, size: 20) + (tile.detailLine.map { 4 + text($0, size: 11) } ?? 0)
         return 20 + max(figure, text(tile.label, size: 11))
     }
 
