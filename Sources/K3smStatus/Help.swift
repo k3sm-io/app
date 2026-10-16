@@ -108,9 +108,6 @@ public enum Help {
             return updateAny.text
         }
 
-        /// The whole text of a line the view truncates to fit.
-        public static func fullLine(_ text: String) -> String { text }
-
         public static var all: [HelpTag] {
             [showDetails, hideDetails, tour, status, settings, updateAny] + ConsoleSection.allCases.map(tab)
         }
@@ -285,7 +282,7 @@ public enum Help {
 
     // MARK: Row actions
 
-    /// The actions a row offers, in the inspector and the strip's bulk slot,
+    /// The actions a row offers, in the inspector and a tab's header row,
     /// by the request's `verb` and the local item's id. A context menu's
     /// items show no help tag on macOS, so only the buttons carry these.
     public enum Actions {
@@ -350,6 +347,9 @@ public enum Help {
             let key = item.id.split(separator: ":", maxSplits: 1).first.map(String.init) ?? item.id
             return byLocalID[key] ?? other
         }
+
+        /// The whole text of a bulk action's line, which its header row truncates to fit.
+        public static func fullLine(_ text: String) -> String { text }
 
         public static var all: [HelpTag] {
             byVerb.keys.sorted().compactMap { byVerb[$0] } + byLocalID.keys.sorted().compactMap { byLocalID[$0] } + [other]

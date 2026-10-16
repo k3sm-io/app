@@ -152,8 +152,9 @@ struct ServicesSection: View {
     }
 }
 
-/// StorageSection is the Storage tab: this Mac's data volume card on top,
-/// then every claim with its volume, capacity and phase, and the volumes no
+/// StorageSection is the Storage tab: a header row with the volume cleanup
+/// right-aligned while it is offered or its line shows, this Mac's data
+/// volume card, then every claim with its volume, capacity and phase, and the volumes no
 /// claim holds, decided by `StorageList` and `DataVolume`. It observes the
 /// pod list too, since a claim's Delete names the pods still mounting it.
 struct StorageSection: View {
@@ -164,6 +165,7 @@ struct StorageSection: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            TabHeaderRow(items: app.bulkActions, section: .storage, runner: app.actions)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     card.padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 6)

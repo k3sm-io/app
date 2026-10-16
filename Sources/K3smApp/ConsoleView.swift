@@ -172,7 +172,8 @@ struct ConsoleContent: View {
 /// button while `UpdateOffer` shows one, the tab's search
 /// field (on a tab with rows to search), the details button that shows or
 /// collapses the inspector, the tour button, the info button that opens the
-/// status panel, and the gear that opens Settings.
+/// status panel, and the gear that opens Settings. A tab's bulk actions are
+/// on the tab's own header row (`TabHeader`), not here.
 struct ConsoleStrip: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
@@ -187,11 +188,6 @@ struct ConsoleStrip: View {
             TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
                 .tourTarget(.tabs, app.tour)
             Spacer()
-            if app.section == .storage, let storage = app.storage {
-                LoaderBulkActions(app: app, loader: storage)
-            } else {
-                BulkActionsSlot(items: app.bulkActions, section: app.section, runner: app.actions)
-            }
             if let title = app.updateOffer.buttonTitle {
                 let offer = app.updateOffer
                 Button(title) { app.performUpdate() }

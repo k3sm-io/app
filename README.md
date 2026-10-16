@@ -250,13 +250,13 @@ login** in the app's Settings turns it off or on again (see
   line under the buttons. A node whose name is not a valid Kubernetes name,
   or that was listed without a UID, offers neither. Draining a node is not
   in the app.
-- **Delete completed and failed pods…**, in the strip while Workloads shows
-  its pods and some pod has finished, deletes every pod in phase Succeeded
+- **Delete completed and failed pods…**, at the right end of the Pods /
+  Events row while Workloads shows its pods and some pod has finished, deletes every pod in phase Succeeded
   or Failed, or evicted. The question names how many and in which
   namespaces. The app reads every pod's UID first and deletes nothing when
   one of those names now belongs to a new pod; otherwise it runs one `k3sm
   kubectl delete pod <names...> -n <namespace> --wait=false` per namespace
-  and leaves one line in the strip: how many were deleted, how many were
+  and leaves one line beside the button: how many were deleted, how many were
   already gone, and where and why any were not.
 - A **model**'s details and its Control-click menu offer **Unload…** while
   it asks for replicas and **Load…** while it asks for none, never both.
@@ -303,8 +303,8 @@ login** in the app's Settings turns it off or on again (see
   not the one you clicked, and otherwise runs `k3sm kubectl delete pvc
   <claim> -n <namespace> --wait=false`, with the same trust check and
   account as Restart. A volume no claim holds offers no row action.
-- **Delete released and unclaimed volumes…** in the Storage tab's strip,
-  shown while a volume is Released (its claim was deleted) or Available with
+- **Delete released and unclaimed volumes…** at the right end of the
+  Storage tab's header row, shown while a volume is Released (its claim was deleted) or Available with
   no claim reserving it, deletes those volume objects. The question gives
   their number and names and the data directories they record, and says
   the directories stay on disk: deleting a volume object does not remove
@@ -312,9 +312,9 @@ login** in the app's Settings turns it off or on again (see
   never does. After you confirm, the app reads every volume with `k3sm
   kubectl get pv -o json` and deletes nothing unless each one is still
   listed with the same UID and still unused; then it runs `k3sm kubectl
-  delete pv <volume>... --wait=false`. Its line shows in the strip.
-- On **Builds**, the toolbar acts on the build engine: **Start Engine**
-  (`k3sm builder up`) while it is not running, **Stop Engine**
+  delete pv <volume>... --wait=false`. Its line shows beside the button.
+- On **Builds**, the buttons at the right end of the tab's header row act on
+  the build engine: **Start Engine** (`k3sm builder up`) while it is not running, **Stop Engine**
   (`k3sm builder down`, which keeps the build cache) while it is, and
   **Reset Engine** (`k3sm builder delete`, then, once that succeeded,
   `k3sm builder up`: the engine and its cache start over), and **Prune

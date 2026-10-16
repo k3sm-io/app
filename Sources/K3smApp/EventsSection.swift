@@ -17,15 +17,24 @@ limitations under the License.
 import K3smStatus
 import SwiftUI
 
-/// WorkloadsTab is the Workloads tab: a sub-tab switch (`WorkloadsView`)
-/// over the pods or the cluster's events. The events are read only while
-/// their sub-tab is chosen (`AppModel.workloadsView`).
+/// WorkloadsTab is the Workloads tab: a header row with the sub-tab switch
+/// (`WorkloadsView`) and, at its trailing edge, the events' namespace menu
+/// and the tab's bulk actions (`TabHeader.Placement.switchRow`), over the
+/// pods or the cluster's events. The events are read only while their
+/// sub-tab is chosen (`AppModel.workloadsView`). It observes the pod list
+/// too, so a new list re-offers the cleanup.
 struct WorkloadsTab: View {
     @ObservedObject var app: AppModel
+    @ObservedObject var workloads: WorkloadsModel
+
+    init(app: AppModel) {
+        self.app = app
+        self.workloads = app.workloads
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
+            HStack(spacing: CGFloat(TabHeader.spacing)) {
                 Picker("View", selection: $app.workloadsView) {
                     ForEach(WorkloadsView.allCases) { view in
                         Text(view.title).tag(view)
@@ -37,8 +46,9 @@ struct WorkloadsTab: View {
                 if app.workloadsView == .events, let events = app.events {
                     EventsFilter(app: app, loader: events)
                 }
+                BulkActionsSlot(items: app.bulkActions, section: .workloads, runner: app.actions)
             }
-            .padding(.horizontal, 20).padding(.top, 10)
+            .tabHeaderRow()
             switch app.workloadsView {
             case .pods: WorkloadsSection(model: app.workloads, runner: app.actions)
             case .events:

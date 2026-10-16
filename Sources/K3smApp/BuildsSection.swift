@@ -21,8 +21,8 @@ import SwiftUI
 /// `BuildEngine`, with the last engine action's line under it, and the build
 /// history below it (`k3sm build ls`, newest first, decided by
 /// `BuildHistory`). The card and every history row are selectable; a row's
-/// context menu is its `BuildActions.menu`, and the engine's actions are the
-/// toolbar's (`BuildActions.toolbar`).
+/// context menu is its `BuildActions.menu`, and the engine's actions
+/// (`BuildActions.toolbar`) are on the tab's header row, right-aligned.
 struct BuildsSection: View {
     @ObservedObject var app: AppModel
     @ObservedObject var loader: TabLoader<BuildEngine>
@@ -31,6 +31,7 @@ struct BuildsSection: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            TabHeaderRow(items: app.bulkActions, section: .builds, runner: runner)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     card

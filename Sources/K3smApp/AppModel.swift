@@ -558,10 +558,10 @@ final class AppModel: ObservableObject {
         return loader
     }
 
-    /// The bulk actions the selected tab's toolbar offers. The slot is there
-    /// for every tab; Workloads offers the cleanup (`PodCleanup`) while it
-    /// shows its pods, Storage its volume cleanup while a volume is unused,
-    /// and Builds the build engine's (`BuildActions.toolbar`).
+    /// The bulk actions the selected tab's header row offers (`TabHeader`):
+    /// Workloads the cleanup (`PodCleanup`) while it shows its pods, Storage
+    /// its volume cleanup while a volume is unused, and Builds the build
+    /// engine's (`BuildActions.toolbar`); the other tabs none.
     var bulkActions: [ActionMenuItem] {
         switch section {
         case .workloads:
@@ -575,7 +575,7 @@ final class AppModel: ObservableObject {
 
     /// One row's actions: what its context menu, its inspector body and the
     /// Delete key offer, the one function per kind every tab reads (the
-    /// build engine's actions are the Builds toolbar's; a build row offers
+    /// build engine's actions are the Builds header row's; a build row offers
     /// its own). A tab's actions arrive as a case here.
     func rowMenu(_ row: ConsoleRow) -> ActionMenu {
         switch row {

@@ -104,10 +104,11 @@ struct RowActionsMenu: ViewModifier {
     }
 }
 
-/// BulkActionsSlot is a tab's toolbar slot for actions over many rows: one
-/// button per item, and the last bulk action's line on this tab (its row
-/// key is `ActionMenu.bulkRowKey`) until the tab's next good read clears
-/// it; nothing while the tab offers none and has no line.
+/// BulkActionsSlot is a tab's actions over many rows, at the trailing edge
+/// of the tab's header row (`TabHeader.placement`): one button per item,
+/// and the last bulk action's line on this tab (its row key is
+/// `ActionMenu.bulkRowKey`) beside them until the tab's next good read
+/// clears it; nothing while the tab offers none and has no line.
 struct BulkActionsSlot: View {
     let items: [ActionMenuItem]
     let section: ConsoleSection
@@ -123,7 +124,7 @@ struct BulkActionsSlot: View {
                         .foregroundStyle(report.failed ? Palette.bad : Palette.ink2)
                         .lineLimit(1).truncationMode(.tail)
                         .frame(maxWidth: 320, alignment: .trailing)
-                        .help(Help.Strip.fullLine(report.text))
+                        .help(Help.Actions.fullLine(report.text))
                 }
                 ForEach(items) { item in
                     Button(item.title) { runner.ask(item.request) }
@@ -136,14 +137,32 @@ struct BulkActionsSlot: View {
     }
 }
 
-/// LoaderBulkActions is a tab's bulk slot whose actions come from its own
-/// read: it observes the loader, so a new list re-offers them.
-struct LoaderBulkActions<Value: Sendable>: View {
-    @ObservedObject var app: AppModel
-    @ObservedObject var loader: TabLoader<Value>
+/// TabHeaderRow is a tab's own header row (`TabHeader.Placement.ownRow`):
+/// its bulk actions right-aligned, drawn only while `TabHeader.showsRow`
+/// says it holds something, so a tab with nothing to offer keeps no empty row.
+struct TabHeaderRow: View {
+    let items: [ActionMenuItem]
+    let section: ConsoleSection
+    @ObservedObject var runner: ActionRunner
 
     var body: some View {
-        BulkActionsSlot(items: app.bulkActions, section: app.section, runner: app.actions)
+        let hasLine = runner.report(section: section, rowKey: ActionMenu.bulkRowKey) != nil
+        if TabHeader.showsRow(section, hasActions: !items.isEmpty, hasLine: hasLine) {
+            HStack(spacing: CGFloat(TabHeader.spacing)) {
+                Spacer()
+                BulkActionsSlot(items: items, section: section, runner: runner)
+            }
+            .tabHeaderRow()
+        }
+    }
+}
+
+extension View {
+    /// A tab's header row: the one height and padding every tab's uses (`TabHeader`).
+    func tabHeaderRow() -> some View {
+        frame(height: CGFloat(TabHeader.height))
+            .padding(.horizontal, CGFloat(TabHeader.horizontalPadding))
+            .padding(.top, CGFloat(TabHeader.topPadding))
     }
 }
 
