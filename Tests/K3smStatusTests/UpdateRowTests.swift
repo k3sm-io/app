@@ -29,9 +29,8 @@ struct UpdateRowTests {
         "status_json_stopped-by-user.json", "status_json_stopped-clean.json", "status_json_unknown.json",
     ]
     /// A worker, or a Mac with no install, has none.
-    static let otherReports = [
-        "status_json_agent-join-target.json", "status_json_agent-waiting.json", "status_json_not-installed.json",
-    ]
+    static let workerReports = ["status_json_agent-join-target.json", "status_json_agent-waiting.json"]
+    static let otherReports = ["status_json_not-installed.json"]
 
     @Test("a server's update row with no check recorded is unknown, with its detail", arguments: serverReports)
     func serverFixtures(_ file: String) throws {
@@ -45,7 +44,16 @@ struct UpdateRowTests {
         #expect(StatusDisplay.panelText(row) == "unknown")
     }
 
-    @Test("a worker or an uninstalled Mac reports no update row", arguments: otherReports)
+    @Test("a worker reports a read-only update row, unknown until it can read the server's record", arguments: workerReports)
+    func workerFixtures(_ file: String) throws {
+        let report = try StatusReport.decode(try fixture(file))
+        let row = try #require(report.row(named: "update"))
+        #expect(row.state == "unknown")
+        #expect(row.detail == "this Mac cannot read the latest release the server recorded: no cluster client this account may use")
+        #expect(row.remedy == nil)
+    }
+
+    @Test("an uninstalled Mac reports no update row", arguments: otherReports)
     func otherFixtures(_ file: String) throws {
         let report = try StatusReport.decode(try fixture(file))
         #expect(report.row(named: "update") == nil)
