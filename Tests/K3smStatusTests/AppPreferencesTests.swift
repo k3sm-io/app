@@ -125,9 +125,9 @@ struct AppPreferencesTests {
 
     @Test("the settings panes are data, and only built panes are shown")
     func settingsPanes() {
-        #expect(SettingsPane.shown == [.general, .network, .advanced])
-        #expect(SettingsPane.shown.map(\.title) == ["General", "Network", "Advanced"])
-        #expect(SettingsPane.shown.map(\.symbol) == ["gearshape", "network", "wrench.and.screwdriver"])
+        #expect(SettingsPane.shown == [.general, .network, .updates, .advanced])
+        #expect(SettingsPane.shown.map(\.title) == ["General", "Network", "Updates", "Advanced"])
+        #expect(SettingsPane.shown.map(\.symbol) == ["gearshape", "network", "arrow.triangle.2.circlepath", "wrench.and.screwdriver"])
         #expect(SettingsPane.restore(from: "general") == .general)
         #expect(SettingsPane.restore(from: "network") == .network)
         #expect(SettingsPane.restore(from: "advanced") == .advanced)

@@ -22,7 +22,8 @@ import SwiftUI
 /// SettingsModel is the Settings window's state (no view holds any): the
 /// login item as the system reports it, Reduce Motion, whether the tour can
 /// run, and the two reset confirmations; and the actions the General and
-/// Advanced panes run. The Network pane and Uninstall read and act on `app`.
+/// Advanced panes run. The Network and Updates panes and Uninstall read and
+/// act on `app`.
 @MainActor
 final class SettingsModel: ObservableObject {
     @Published private(set) var login = LoginItemDisplay.decide(status: .notRegistered, inApplications: false, error: nil)
@@ -248,6 +249,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSToolbarDeleg
         switch pane {
         case .general: AnyView(GeneralPane(settings: model, preferences: model.preferences))
         case .network: AnyView(NetworkPane(app: model.app, nodes: model.app.workloads.nodeList))
+        case .updates: AnyView(UpdatesPane(app: model.app, preferences: model.preferences))
         case .advanced: AnyView(AdvancedPane(settings: model, app: model.app))
         }
     }
