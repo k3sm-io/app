@@ -25,21 +25,31 @@ import K3smStatus
 final class FakeCluster: Sendable {
     let outcomes: [[String]: ReadOutcome]
     let fallback: ReadOutcome
+    /// Reads that hang until their task is cancelled, as a CLI run would
+    /// until it is killed.
+    let hanging: Set<[String]>
     private let made = ReadRecord()
 
-    init(_ outcomes: [[String]: ReadOutcome], fallback: ReadOutcome = .killed) {
+    init(_ outcomes: [[String]: ReadOutcome], fallback: ReadOutcome = .killed, hanging: Set<[String]> = []) {
         self.outcomes = outcomes
         self.fallback = fallback
+        self.hanging = hanging
     }
 
     var reader: ClusterReader {
-        { [outcomes, fallback, made] request in
+        { [outcomes, fallback, hanging, made] request in
             await made.add(request)
+            if hanging.contains(request.arguments) {
+                try? await Task.sleep(for: .seconds(60))
+                await made.noteCancelled(Task.isCancelled)
+                return .killed
+            }
             return outcomes[request.arguments] ?? fallback
         }
     }
 
     func reads() async -> [ReadRequest] { await made.all }
+    func cancelledReads() async -> Int { await made.cancelled }
 
     func tools() -> ClusterTools {
         ClusterTools(read: reader, appVersion: "0.2.0", now: { MCPFixtures.t0 })
@@ -48,7 +58,9 @@ final class FakeCluster: Sendable {
 
 actor ReadRecord {
     private(set) var all: [ReadRequest] = []
+    private(set) var cancelled = 0
     func add(_ request: ReadRequest) { all.append(request) }
+    func noteCancelled(_ was: Bool) { if was { cancelled += 1 } }
 }
 
 enum MCPFixtures {
@@ -380,7 +392,7 @@ struct MCPTests {
             #"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
             #"{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"k3sm_status","arguments":{}}}"#,
             "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\"}\r",
-            #"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"call-1"}}"#,
+            #"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"never-sent"}}"#,
         ], cluster: cluster)
 
         // Four requests, four replies, in order; the notifications get none.
@@ -440,6 +452,34 @@ struct MCPTests {
         #expect(replies[8]["id"] == 7 && replies[8]["result"] == [:])
         // The unknown tool and the bad arguments ran nothing.
         #expect(await cluster.reads().isEmpty)
+    }
+
+    @Test("the queue holds a fixed number of messages, and a cancel stops the read in flight")
+    func mcpQueueBoundAndCancel() async throws {
+        let cluster = FakeCluster(try MCPFixtures.healthy(), hanging: [ReadRequest.nodes.arguments])
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("mcp-queue-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appendingPathComponent("k3sm-mcp.log").path
+        let queued = StdioTransport.maxQueued
+        var lines = [#"{"jsonrpc":"2.0","id":"slow","method":"tools/call","params":{"name":"k3sm_nodes"}}"#]
+        for n in 1...(queued + 2) {
+            lines.append(#"{"jsonrpc":"2.0","id":\#(n),"method":"tools/call","params":{"name":"k3sm_status"}}"#)
+        }
+        lines.append(#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":3,"reason":"changed my mind"}}"#)
+        lines.append(#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"slow"}}"#)
+        let replies = try await Self.exchange(lines, cluster: cluster, log: CallLog(path: path))
+
+        // The two past the queue are refused at once; the cancelled ones get
+        // no reply; every other queued call is answered.
+        let busy = replies.filter { $0["error"]?["code"]?.intValue == MCPServer.ErrorCode.serverBusy.rawValue }
+        #expect(busy.map { $0["id"] } == [.int(queued + 1), .int(queued + 2)])
+        let answered = replies.filter { $0["result"] != nil }.compactMap { $0["id"]?.intValue }
+        #expect(answered == Array(1...queued).filter { $0 != 3 })
+        #expect(replies.count == busy.count + answered.count)
+        #expect(await cluster.cancelledReads() == 1, "the hanging read saw its task cancelled")
+        let log = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(log.contains("tool=k3sm_nodes outcome=cancelled"))
     }
 
     @Test("initialize negotiates the version; before 2025-06-18 results carry text only")

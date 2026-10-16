@@ -28,6 +28,8 @@ public enum CallOutcome: String, Sendable {
     case invalidArguments = "invalid-arguments"
     /// No tool has the name asked for; nothing was read.
     case unknownTool = "unknown-tool"
+    /// The client cancelled the call while it ran; no reply was sent.
+    case cancelled
 }
 
 /// ToolResult is one tool's answer: the structured object (nil for an

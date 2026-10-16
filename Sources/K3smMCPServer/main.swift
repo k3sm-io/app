@@ -33,6 +33,8 @@ signal(SIGPIPE, SIG_IGN)
 let team = TeamIDPin.teamID
 let environment = InstalledCLI.environment()
 let reader: ClusterReader = { request in
+    // A cancelled call runs nothing more; CLIProcess kills a run in flight.
+    guard !Task.isCancelled else { return .killed }
     let trusted = TrustedCLI<CLIOutcome>(
         check: { InstalledCLI.trust(team: team) },
         execute: { arguments in

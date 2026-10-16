@@ -48,6 +48,8 @@ public actor MCPServer {
         case invalidRequest = -32600
         case methodNotFound = -32601
         case invalidParams = -32602
+        /// Implementation-defined: too many messages are waiting.
+        case serverBusy = -32000
     }
 
     let info: ServerInfo
@@ -132,7 +134,8 @@ public actor MCPServer {
         (protocolVersion ?? Self.supportedVersions[0]) >= Self.structuredSince
     }
 
-    func call(id: JSONValue, _ params: [String: JSONValue]) async -> Data {
+    /// One `tools/call`; nil when the request was cancelled while it ran.
+    func call(id: JSONValue, _ params: [String: JSONValue]) async -> Data? {
         let started = clock()
         guard let name = params["name"]?.stringValue, let definition = ToolDefinition.named(name) else {
             log?.append(tool: nil, outcome: .unknownTool, milliseconds: 0)
@@ -148,6 +151,11 @@ public actor MCPServer {
         }
         let result = await tools.call(definition.name, arguments: arguments)
         let elapsed = clock() - started
+        if Task.isCancelled {
+            // The client cancelled it: no reply is sent for a cancelled request.
+            log?.append(tool: definition.name, outcome: .cancelled, milliseconds: Self.milliseconds(elapsed))
+            return nil
+        }
         log?.append(tool: definition.name, outcome: result.outcome, milliseconds: Self.milliseconds(elapsed))
         return Self.reply(id: id, Self.content(result, structured: structured))
     }
