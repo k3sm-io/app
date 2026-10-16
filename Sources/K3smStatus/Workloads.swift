@@ -177,6 +177,9 @@ public struct Pod: Equatable, Sendable {
     /// volume's, which Kubernetes names "<pod>-<volume>". Unclipped API
     /// strings, compared with a claim's own name and never shown as they are.
     public internal(set) var claims: [String] = []
+    /// Each container's restart count, by container name, from the
+    /// container statuses; a container without a status is absent.
+    public var containerRestarts: [String: Int] = [:]
 
     /// The name the kubectl detail calls take, or nil when the API served a name
     /// the app refuses to put on a command line.
@@ -293,6 +296,7 @@ struct PodWire: Decodable {
                 let waiting: Reason?
                 let terminated: Reason?
             }
+            let name: String?
             let ready: Bool
             let restartCount: Int
             let state: State?
@@ -332,6 +336,9 @@ extension Pod {
             return nil
         }
         let statuses = wire.status?.containerStatuses ?? []
+        for status in statuses {
+            if let name = status.name { containerRestarts[name] = status.restartCount }
+        }
         ready = !statuses.isEmpty && statuses.allSatisfy(\.ready)
         restarts = statuses.reduce(0) { total, status in
             let (next, overflow) = total.addingReportingOverflow(status.restartCount)

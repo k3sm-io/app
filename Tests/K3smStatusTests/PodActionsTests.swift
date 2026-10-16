@@ -249,7 +249,7 @@ struct PodLocalActionsTests {
             let pod = Pod(name: "web-1", namespace: "shop", uid: "u", image: "", kind: .nativeProcess, phase: phase,
                           health: .waiting(""), ready: false, restarts: 0, ports: [], owner: nil, created: nil,
                           cpuRequest: nil, memoryRequest: nil, nodeName: nil, containers: ["app"])
-            #expect(PodActions.localActions(for: pod).count == 2, "phase \(phase)")
+            #expect(!PodActions.localActions(for: pod).contains { $0.id == "open-shell" }, "phase \(phase)")
         }
         var hostile = ownedPod()
         hostile.containers = ["--privileged"]

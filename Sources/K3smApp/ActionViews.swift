@@ -20,10 +20,14 @@ import SwiftUI
 
 /// LocalActions performs a row's `LocalAction`: the text on the general
 /// pasteboard, the address in the default browser, or a pod's shell in
-/// Terminal (`MenuActions.openShell`). Only http and https addresses are
-/// opened, though `K3smStatus` builds no other.
+/// Terminal (`MenuActions.openShell`), or a container's log summarized on
+/// this Mac (`summarize`, set by the Workloads tab's model). Only http and
+/// https addresses are opened, though `K3smStatus` builds no other.
 @MainActor
 enum LocalActions {
+    /// Runs Summarize Logs; the Workloads tab's model sets it.
+    static var summarize: ((LogSummaryTarget) -> Void)?
+
     static func perform(_ action: LocalAction) {
         switch action {
         case .copy(let text):
@@ -34,6 +38,8 @@ enum LocalActions {
             NSWorkspace.shared.open(url)
         case .openShell(let shell):
             MenuActions.openShell(shell)
+        case .summarizeLogs(let target):
+            summarize?(target)
         }
     }
 }

@@ -83,6 +83,17 @@ public enum K3smCLI {
         ["kubectl", "logs", "-n", namespace.value, pod.value, "--tail=\(logTail)", "--all-containers"]
     }
 
+    /// The most log lines the Summarize Logs action reads from one instance.
+    public static let logSummaryTail = 500
+
+    /// The last `logSummaryTail` lines of one container, each stamped with
+    /// its time, for the Summarize Logs action; with `previous`, of the
+    /// container's previous instance, the one that ended in its last restart.
+    public static func containerLogsArguments(namespace: ResourceName, pod: ResourceName, container: ResourceName, previous: Bool) -> [String] {
+        ["kubectl", "logs", pod.value, "-n", namespace.value, "-c", container.value, "--tail=\(logSummaryTail)", "--timestamps"]
+            + (previous ? ["--previous"] : [])
+    }
+
     /// The events recorded against one pod, oldest first.
     public static func eventsArguments(namespace: ResourceName, pod: ResourceName) -> [String] {
         ["kubectl", "get", "events", "-n", namespace.value, "--field-selector", "involvedObject.name=\(pod.value)",

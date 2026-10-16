@@ -29,6 +29,9 @@ public enum OutputLimit {
     public static let metrics = 4 << 20
     /// The inspector's logs, events or manifest: 64 KiB, the most it shows.
     public static let detail = 64 << 10
+    /// One log read for the Summarize Logs action: 256 KiB, room for
+    /// `K3smCLI.logSummaryTail` stamped lines.
+    public static let logSummary = 256 << 10
 }
 
 /// CappedOutput keeps at most `limit` bytes of a stream, in order, and

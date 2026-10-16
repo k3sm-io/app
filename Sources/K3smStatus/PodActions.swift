@@ -145,18 +145,40 @@ public enum PodActions {
     /// any pod whose names `ResourceName` accepts, and Open Shell in
     /// Terminal for a pod in phase Running whose first container's name it
     /// accepts too (the container kubectl itself picks when none is named).
-    /// A pod that is not Running has no process to exec into.
+    /// A pod that is not Running has no process to exec into. Summarize
+    /// Logs (`summarizeItems`) comes before Open Shell.
     public static func localActions(for pod: Pod) -> [LocalMenuItem] {
         guard let namespace = pod.namespaceName, let name = pod.resourceName else { return [] }
         var items = [
             LocalMenuItem(id: "copy-name", title: "Copy Name", action: .copy(name.value)),
             LocalMenuItem(id: "copy-namespace-name", title: "Copy Namespace/Name", action: .copy(namespace.value + "/" + name.value)),
         ]
+        items += summarizeItems(for: pod)
         if pod.phase == "Running", let first = pod.containers.first, let container = ResourceName(first) {
             items.append(LocalMenuItem(id: "open-shell", title: "Open Shell in Terminal",
                                        action: .openShell(PodShell(namespace: namespace, pod: name, container: container))))
         }
         return items
+    }
+
+    /// The pod phases whose containers have run, so have a log to read.
+    public static let loggedPhases: Set<String> = ["Running", "Succeeded", "Failed"]
+
+    /// Summarize Logs, one item per container whose name `ResourceName`
+    /// accepts, for a pod with a UID in a phase whose containers have run
+    /// (`loggedPhases`). A pod of one container offers "Summarize Logs";
+    /// of several, "Summarize Logs: <container>" each. A container that has
+    /// restarted has its previous instance read too.
+    public static func summarizeItems(for pod: Pod) -> [LocalMenuItem] {
+        guard loggedPhases.contains(pod.phase), !pod.uid.isEmpty,
+              let namespace = pod.namespaceName, let name = pod.resourceName else { return [] }
+        let containers = pod.containers.compactMap(ResourceName.init)
+        return containers.map { container in
+            let target = LogSummaryTarget(namespace: namespace, pod: name, container: container, podKey: pod.key, uid: pod.uid,
+                                          restarted: (pod.containerRestarts[container.value] ?? 0) > 0)
+            let title = pod.containers.count == 1 ? "Summarize Logs" : "Summarize Logs: \(container.value)"
+            return LocalMenuItem(id: "summarize-logs:\(container.value)", title: title, action: .summarizeLogs(target))
+        }
     }
 
     /// What follows a delete, by the pod's owner: a controller that

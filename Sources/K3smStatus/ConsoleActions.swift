@@ -146,6 +146,9 @@ public enum LocalAction: Equatable, Sendable {
     /// A shell in one container of a pod, opened in Terminal
     /// (`PodShellCommand`), only for a CLI that passes its trust check then.
     case openShell(PodShell)
+    /// One container's recent log, summarized on this Mac by Apple's
+    /// on-device model (`LogSummaryPrompt`); it reads, and changes nothing.
+    case summarizeLogs(LogSummaryTarget)
 }
 
 /// PodShell is the one container a Terminal shell opens in: the pod, its
