@@ -48,8 +48,8 @@ public struct InspectorBody: Equatable, Sendable {
 /// inspector shows when its tab has no selection. Nothing is invented: a
 /// fact the read did not carry is left out or says it was not reported.
 public enum InspectorDetails {
-    /// The Builds tab's one selectable row today, the engine card. The build
-    /// history's rows will take their own keys beside it.
+    /// The Builds tab's engine card's key. The build history's rows are keyed
+    /// by their record ids, twelve hex characters, so none can be this.
     public static let engineRow = "engine"
 
     /// What a row of each tab is called, lowercase.
@@ -114,6 +114,34 @@ public enum InspectorDetails {
             facts.append(InspectorFact("Cache", "none"))
         }
         return InspectorBody(kind: "Build engine", title: engine.podName ?? BuildEngine.defaultName, subtitle: nil, facts: facts)
+    }
+
+    /// The keys the Builds tab's reads list: the engine card once the engine
+    /// is read, and every history row; nil while neither is decoded.
+    public static func keys(engine: BuildEngine?, history: [BuildRecord]?) -> Set<String>? {
+        guard engine != nil || history != nil else { return nil }
+        var keys = Set(history?.map(\.key) ?? [])
+        if engine != nil { keys.insert(engineRow) }
+        return keys
+    }
+
+    /// A recorded build: its image, status, when it started and how long it
+    /// ran, its context, platform and route, the digest it recorded or its
+    /// error, and its record id.
+    public static func buildRecord(_ record: BuildRecord, now: Date = Date(), timeZone: TimeZone = .current) -> InspectorBody {
+        var facts = [InspectorFact("Image", record.tag.isEmpty ? "untagged" : record.tag, mono: true)]
+        facts.append(InspectorFact("Status", record.status.word))
+        let started = BuildHistory.started(record.startedAt, timeZone: timeZone)
+        facts.append(InspectorFact("Started", started.isEmpty ? "not reported" : started))
+        let duration = BuildHistory.duration(record.duration(now: now))
+        facts.append(InspectorFact("Duration", duration.isEmpty ? "not reported" : duration + (record.status == .running ? " so far" : "")))
+        facts.append(InspectorFact("Context", record.context.isEmpty ? "not reported" : record.context, mono: true))
+        if !record.platform.isEmpty { facts.append(InspectorFact("Platform", record.platform)) }
+        if !record.engine.isEmpty { facts.append(InspectorFact("Built by", record.engine == "engine" ? "the build engine" : record.engine)) }
+        if let digest = record.digest { facts.append(InspectorFact("Digest", digest, mono: true)) }
+        if let error = record.error { facts.append(InspectorFact("Error", error)) }
+        facts.append(InspectorFact("Record", record.key, mono: true))
+        return InspectorBody(kind: "Build", title: record.title, subtitle: nil, facts: facts)
     }
 
     /// A Service: its type, cluster IP, each port, its ready endpoints, and

@@ -18,27 +18,39 @@ import K3smStatus
 import SwiftUI
 
 /// BuildsSection is the Builds tab: one card for the build engine, decided by
-/// `BuildEngine`, and the build history below it. The CLI records no build
-/// history yet, so the tab says so rather than listing anything. The engine
-/// card is the tab's one selectable row (`InspectorDetails.engineRow`); the
-/// history's rows will be selectable beside it.
+/// `BuildEngine`, with the last engine action's line under it, and the build
+/// history below it (`k3sm build ls`, newest first, decided by
+/// `BuildHistory`). The card and every history row are selectable; a row's
+/// context menu is its `BuildActions.menu`, and the engine's actions are the
+/// toolbar's (`BuildActions.toolbar`).
 struct BuildsSection: View {
     @ObservedObject var app: AppModel
     @ObservedObject var loader: TabLoader<BuildEngine>
-
-    static let noHistory = "No build history recorded."
+    @ObservedObject var history: TabLoader<[BuildRecord]>
+    @ObservedObject var runner: ActionRunner
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     card
-                    Text(verbatim: Self.noHistory).font(.system(size: 13)).foregroundStyle(Palette.ink2)
+                    if let report = runner.report(section: .builds, rowKey: InspectorDetails.engineRow) {
+                        Text(verbatim: report.text)
+                            .font(.system(size: 12))
+                            .foregroundStyle(report.failed ? Palette.bad : Palette.ink2)
+                            .frame(maxWidth: 460, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    } else if runner.busy, runner.report?.rowKey == InspectorDetails.engineRow {
+                        Text("running…").font(.system(size: 12)).foregroundStyle(Palette.dimText)
+                    }
+                    Text("Build history").font(.system(size: 14, weight: .semibold)).padding(.top, 6)
+                    rows
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)
             }
-            TabFooter(load: loader.load)
+            TabFooter(load: history.load)
         }
     }
 
@@ -57,8 +69,68 @@ struct BuildsSection: View {
         }
     }
 
+    @ViewBuilder private var rows: some View {
+        switch history.load {
+        case .failed(let text): note(text)
+        case .unavailable(let reason): note(reason)
+        default:
+            if let records = history.value {
+                if records.isEmpty {
+                    note(BuildHistory.emptyText)
+                } else {
+                    VStack(spacing: 0) {
+                        ObjectColumns.header([("Image", nil, .leading), ("Status", BuildColumns.status, .leading),
+                                              ("Started", BuildColumns.started, .leading), ("Duration", BuildColumns.duration, .trailing)])
+                            .padding(.horizontal, -10)
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(records, id: \.key) { record in
+                                BuildRow(record: record, selected: app.isSelected(.build(record.key)))
+                                    .selects(.build(record.key), in: app)
+                            }
+                        }
+                    }
+                }
+            } else {
+                note("Reading the build history…")
+            }
+        }
+    }
+
     private func note(_ text: String) -> some View {
-        Text(verbatim: text).foregroundStyle(Palette.ink2)
+        Text(verbatim: text).font(.system(size: 13)).foregroundStyle(Palette.ink2)
+    }
+}
+
+/// BuildColumns is the build history's column widths.
+enum BuildColumns {
+    static let status: CGFloat = 96
+    static let started: CGFloat = 132
+    static let duration: CGFloat = 70
+}
+
+/// BuildRow is one recorded build: its image over its record id, platform
+/// and route, its status with a dot, when it started and how long it ran.
+/// Every string was clipped by the decoder.
+struct BuildRow: View {
+    let record: BuildRecord
+    let selected: Bool
+
+    var body: some View {
+        ListRow(selected: selected) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(verbatim: record.title).font(.system(size: 13, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                Text(verbatim: [record.key, record.platform, record.engine].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.system(size: 11)).foregroundStyle(Palette.dimText).lineLimit(1).truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 6) {
+                Circle().fill(Palette.health(record.status.severity)).frame(width: 8, height: 8)
+                Text(verbatim: record.status.word).font(.system(size: 12)).foregroundStyle(Palette.ink2).lineLimit(1)
+            }
+            .frame(width: BuildColumns.status, alignment: .leading)
+            ObjectColumns.cell(BuildHistory.started(record.startedAt), width: BuildColumns.started)
+            ObjectColumns.cell(BuildHistory.duration(record.duration()), width: BuildColumns.duration, alignment: .trailing)
+        }
     }
 }
 

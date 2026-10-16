@@ -34,10 +34,8 @@ struct ConsoleInspector: View {
         case .images:
             ImageInspector(app: app, workloads: app.workloads)
         case .builds:
-            if let builds = app.builds {
-                LoaderInspector(app: app, loader: builds, section: .builds) { engine, key in
-                    key == InspectorDetails.engineRow ? InspectorDetails.build(engine) : nil
-                }
+            if let builds = app.builds, let history = app.buildHistory {
+                BuildsInspector(app: app, engine: builds, history: history)
             } else {
                 RowInspector(content: nil, empty: InspectorDetails.emptyText(.builds))
             }
@@ -103,6 +101,25 @@ struct StorageInspector: View {
         guard let key = app.selection.selection(in: .storage)?.key,
               let row = loader.value?.first(where: { $0.key == key }) else { return nil }
         return InspectorDetails.claim(row, pods: workloads.workloads?.pods)
+    }
+}
+
+/// BuildsInspector is the Builds tab's inspector over its two reads: the
+/// engine card's facts, or the selected recorded build's.
+struct BuildsInspector: View {
+    @ObservedObject var app: AppModel
+    @ObservedObject var engine: TabLoader<BuildEngine>
+    @ObservedObject var history: TabLoader<[BuildRecord]>
+
+    var body: some View {
+        RowInspector(content: content, empty: InspectorDetails.emptyText(.builds),
+                     actions: content == nil ? nil : RowActions.selected(.builds, app: app))
+    }
+
+    private var content: InspectorBody? {
+        guard let key = app.selection.selection(in: .builds)?.key else { return nil }
+        if key == InspectorDetails.engineRow { return engine.value.map(InspectorDetails.build) }
+        return history.value?.first { $0.key == key }.map { InspectorDetails.buildRecord($0) }
     }
 }
 

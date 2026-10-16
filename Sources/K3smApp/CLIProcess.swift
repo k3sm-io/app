@@ -48,7 +48,11 @@ enum CLIProcess {
     /// wait on it past this.
     private static let drainGrace: DispatchTimeInterval = .milliseconds(500)
 
-    static func run(path: String, arguments: [String], environment: [String: String], deadline: Duration, limit: Int, keepErrors: Bool = false) async -> CLIOutcome {
+    /// `onOutput`, when set, receives each chunk of output as it is read,
+    /// within the limit, on the reader's thread: a build log sheet shows a
+    /// following run as it goes.
+    static func run(path: String, arguments: [String], environment: [String: String], deadline: Duration, limit: Int, keepErrors: Bool = false,
+                    onOutput: (@Sendable (Data) -> Void)? = nil) async -> CLIOutcome {
         guard FileManager.default.isExecutableFile(atPath: path) else {
             return .missing
         }
@@ -56,7 +60,7 @@ enum CLIProcess {
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
-                    continuation.resume(returning: runBlocking(path: path, arguments: arguments, environment: environment, deadline: deadline, limit: limit, keepErrors: keepErrors, control: control))
+                    continuation.resume(returning: runBlocking(path: path, arguments: arguments, environment: environment, deadline: deadline, limit: limit, keepErrors: keepErrors, onOutput: onOutput, control: control))
                 }
             }
         } onCancel: {
@@ -66,7 +70,8 @@ enum CLIProcess {
         }
     }
 
-    private static func runBlocking(path: String, arguments: [String], environment: [String: String], deadline: Duration, limit: Int, keepErrors: Bool, control: RunControl) -> CLIOutcome {
+    private static func runBlocking(path: String, arguments: [String], environment: [String: String], deadline: Duration, limit: Int, keepErrors: Bool,
+                                    onOutput: (@Sendable (Data) -> Void)?, control: RunControl) -> CLIOutcome {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
@@ -95,7 +100,9 @@ enum CLIProcess {
         let reader = pipe.fileHandleForReading
         Thread.detachNewThread {
             while let chunk = try? reader.read(upToCount: 64 * 1024), !chunk.isEmpty {
-                guard output.append(chunk) else {
+                let kept = output.append(chunk)
+                if let onOutput { onOutput(kept.data) }
+                guard kept.within else {
                     // Past the limit: stop reading and end the run, so the
                     // child is not left blocked on a full pipe.
                     control.stop()
@@ -129,9 +136,14 @@ private final class OutputBuffer: Sendable {
         storage = Mutex(CappedOutput(limit: limit))
     }
 
-    /// append adds `chunk`; false once the output has passed the limit.
-    func append(_ chunk: Data) -> Bool {
-        storage.withLock { $0.append(chunk) }
+    /// append adds `chunk`: `within` is false once the output has passed
+    /// the limit, and `data` is the part of the chunk that was kept.
+    func append(_ chunk: Data) -> (within: Bool, data: Data) {
+        storage.withLock { buffer in
+            let before = buffer.data.count
+            let within = buffer.append(chunk)
+            return (within, Data(buffer.data.dropFirst(before)))
+        }
     }
 
     var result: (data: Data, overflowed: Bool) {

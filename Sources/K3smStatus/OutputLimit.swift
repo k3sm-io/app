@@ -32,6 +32,9 @@ public enum OutputLimit {
     /// One log read for the Summarize Logs action: 256 KiB, room for
     /// `K3smCLI.logSummaryTail` stamped lines.
     public static let logSummary = 256 << 10
+    /// A build's stored log in its sheet: 1 MiB. The CLI keeps up to 16 MiB;
+    /// past this the sheet says the rest is in `k3sm build logs`.
+    public static let buildLog = 1 << 20
 }
 
 /// CappedOutput keeps at most `limit` bytes of a stream, in order, and

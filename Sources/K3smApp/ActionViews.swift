@@ -19,14 +19,17 @@ import K3smStatus
 import SwiftUI
 
 /// LocalActions performs a row's `LocalAction`: the text on the general
-/// pasteboard, the address in the default browser, or a pod's shell in
-/// Terminal (`MenuActions.openShell`), or a container's log summarized on
-/// this Mac (`summarize`, set by the Workloads tab's model). Only http and
-/// https addresses are opened, though `K3smStatus` builds no other.
+/// pasteboard, the address in the default browser, a pod's shell in
+/// Terminal (`MenuActions.openShell`), a container's log summarized on
+/// this Mac (`summarize`, set by the Workloads tab's model), or a build's
+/// log sheet (`showBuildLog`, set by `AppModel`). Only http and https
+/// addresses are opened, though `K3smStatus` builds no other.
 @MainActor
 enum LocalActions {
     /// Runs Summarize Logs; the Workloads tab's model sets it.
     static var summarize: ((LogSummaryTarget) -> Void)?
+    /// Opens a build's log sheet; `AppModel` sets it, since the sheet is its state.
+    static var showBuildLog: (@MainActor (BuildLogTarget) -> Void)?
 
     static func perform(_ action: LocalAction) {
         switch action {
@@ -40,6 +43,8 @@ enum LocalActions {
             MenuActions.openShell(shell)
         case .summarizeLogs(let target):
             summarize?(target)
+        case .showBuildLog(let target):
+            showBuildLog?(target)
         }
     }
 }

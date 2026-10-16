@@ -1,0 +1,47 @@
+[
+  {
+    "id": "05ed1a6a9d12",
+    "dockerfile": "/Users/dev/worker/Dockerfile",
+    "context": "/Users/dev/worker",
+    "tag": "worker:dev",
+    "platform": "linux/arm64",
+    "engine": "engine",
+    "startedAt": "2026-10-16T09:41:07.492153+02:00",
+    "status": "running"
+  },
+  {
+    "id": "48346d2e1129",
+    "dockerfile": "/Users/dev/web/Dockerfile",
+    "context": "/Users/dev/web",
+    "tag": "web:latest",
+    "platform": "linux/arm64",
+    "engine": "engine",
+    "startedAt": "2026-10-16T07:30:00Z",
+    "finishedAt": "2026-10-16T07:31:12.5Z",
+    "status": "cancelled"
+  },
+  {
+    "id": "46d8d9a0a692",
+    "dockerfile": "/Users/dev/api/Dockerfile",
+    "context": "/Users/dev/api",
+    "tag": "api:v2",
+    "platform": "linux/arm64,linux/amd64",
+    "engine": "engine",
+    "startedAt": "2026-10-16T07:12:03.452186Z",
+    "finishedAt": "2026-10-16T07:15:08.462531Z",
+    "status": "failed",
+    "error": "process \"/bin/sh -c make\" did not complete successfully: exit code: 2"
+  },
+  {
+    "id": "cc5ce47dda43",
+    "dockerfile": "/Users/dev/app/Dockerfile",
+    "context": "/Users/dev/app",
+    "tag": "myapp:dev",
+    "platform": "darwin/arm64",
+    "engine": "native",
+    "startedAt": "2026-10-16T07:02:53.39787Z",
+    "finishedAt": "2026-10-16T07:02:58.437657Z",
+    "status": "succeeded",
+    "imageDigest": "sha256:9f2c4e1b7a3d5f60812e4b9c0d7a6e5f4c3b2a1908f7e6d5c4b3a29180716253"
+  }
+]

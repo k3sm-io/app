@@ -125,6 +125,13 @@ struct ConsoleContent: View {
         // in the inspector, so a row's menu or the Delete key asks it with
         // the inspector collapsed too.
         .modifier(ActionConfirmationDialog(runner: app.actions))
+        // A recorded build's log, opened by its Show Log; closing it stops
+        // the read.
+        .sheet(isPresented: Binding(get: { app.buildLog != nil }, set: { if !$0 { app.closeBuildLog() } })) {
+            if let log = app.buildLog {
+                BuildLogSheet(log: log) { app.closeBuildLog() }
+            }
+        }
     }
 
     @ViewBuilder
@@ -133,8 +140,8 @@ struct ConsoleContent: View {
         case .workloads: WorkloadsTab(app: app).tourTarget(.pods, app.tour)
         case .images: ImagesSection(app: app, workloads: app.workloads)
         case .builds:
-            if let builds = app.builds {
-                BuildsSection(app: app, loader: builds)
+            if let builds = app.builds, let history = app.buildHistory {
+                BuildsSection(app: app, loader: builds, history: history, runner: app.actions)
             } else {
                 Color.clear
             }

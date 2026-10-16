@@ -51,6 +51,18 @@ public enum K3smCLI {
     /// The build engine: the pods and claims in its namespace, through the
     /// same bundled kubectl. A cluster without an engine lists none.
     public static let buildEngineArguments = ["kubectl", "get", "pods,pvc", "-n", "k3sm-builder", "-o", "json"]
+    /// The Builds tab's history: the invoking user's build ledger, newest
+    /// first, from the CLI itself; it needs no privilege.
+    public static let buildHistoryArguments = ["build", "ls", "-o", "json"]
+    /// The build engine's lifecycle and its cache prune, run as the user
+    /// like every console write: the CLI reads the user's admin kubeconfig
+    /// as `k3sm kubectl` does (no `--work-dir`, so it picks the kubeconfig
+    /// itself). The prune without `--force` is its dry run.
+    public static let builderUpArguments = ["builder", "up"]
+    public static let builderDownArguments = ["builder", "down"]
+    public static let builderDeleteArguments = ["builder", "delete"]
+    public static let buildPrunePlanArguments = ["build", "prune"]
+    public static let buildPruneArguments = ["build", "prune", "--force"]
     /// The Services tab: every Service and Ingress, across namespaces.
     public static let servicesArguments = ["kubectl", "get", "svc,ingress", "-A", "-o", "json"]
     /// The Services tab's endpoint read: every EndpointSlice, across
@@ -190,6 +202,22 @@ public enum K3smCLI {
     /// volumes that are still the ones confirmed and still unclaimed.
     public static let volumesArguments = ["kubectl", "get", "pv", "-o", "json"]
 
+    /// Stops one running build. Only a `BuildRecordID` reaches it.
+    public static func buildCancelArguments(id: BuildRecordID) -> [String] {
+        ["build", "cancel", id.value]
+    }
+
+    /// Removes one finished build and its stored log from the history.
+    public static func buildRemoveArguments(id: BuildRecordID) -> [String] {
+        ["build", "rm", id.value]
+    }
+
+    /// One build's stored log, and with `follow` the rest of it while the
+    /// build runs; the CLI returns when the build finishes.
+    public static func buildLogsArguments(id: BuildRecordID, follow: Bool) -> [String] {
+        follow ? ["build", "logs", "-f", id.value] : ["build", "logs", id.value]
+    }
+
     /// The PATH every CLI run gets: system directories only.
     public static let systemPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 
@@ -242,6 +270,23 @@ public enum PollSchedule {
     /// The Builds tab's cadence once the engine is ready; until then it is
     /// read at `visibleInterval`, so a starting engine is seen when it serves.
     public static let buildsReadyInterval: Duration = .seconds(15)
+
+    /// How long a console action's run may take before it is killed: a
+    /// kubectl write, well under a minute.
+    public static let actionDeadline: Duration = listDeadline
+    /// A build cancel's deadline: the CLI waits up to 45 s for buildx to
+    /// stop and the build to record itself.
+    public static let buildCancelDeadline: Duration = .seconds(60)
+    /// The longest a build log sheet follows a running build before the
+    /// app stops reading; the sheet says so, and opening it again resumes.
+    public static let buildLogDeadline: Duration = .seconds(2 * 3600)
+
+    /// The build engine's verbs: `builder up` waits up to five minutes for a
+    /// worker, so its run gets six; a stop, a delete and the prune's dry run
+    /// get three; a forced prune, which BuildKit may take a while over, ten.
+    public static let builderUpDeadline: Duration = .seconds(360)
+    public static let builderDeadline: Duration = .seconds(180)
+    public static let buildPruneDeadline: Duration = .seconds(600)
 
     /// The managed update's progress cadence while it is read.
     public static let updateStatusInterval: Duration = .seconds(5)

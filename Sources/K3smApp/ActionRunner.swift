@@ -22,8 +22,10 @@ import K3smStatus
 /// the request waiting on its confirmation (the console's one dialog shows
 /// while it is set), runs the request's pre-check and then its arguments,
 /// each through `TrustedCLI` (a fresh trust check of the installed CLI) and
-/// `CLIProcess` with `listDeadline`, `OutputLimit.status` and `keepErrors`,
-/// so kubectl's own error text reaches the report; it keeps the
+/// `CLIProcess` with the request's deadline, `OutputLimit.status` and
+/// `keepErrors`, so the CLI's own error text reaches the report; a run that
+/// leads to another action (a prune's dry run, a reset's delete) asks that
+/// one next. It keeps the
 /// `ActionReport` and asks the owning tab to read again after the run,
 /// whatever the outcome. Each tab's finished reads come back through
 /// `tabRead`, and the report clears on the next good one after that read.
@@ -54,11 +56,13 @@ final class ActionRunner: ObservableObject {
     }
 
     /// Asks for an action: the request is fixed now, and the confirmation
-    /// shows it. Ignored while another action runs or waits.
+    /// shows it; a request that does not ask first runs now. Ignored while
+    /// another action runs or waits.
     func ask(_ request: any ConsoleActionRequest) {
         guard !busy, pending == nil else { return }
         pending = request
         report = ActionReport.pending(request)
+        if !request.asksFirst { runPending() }
     }
 
     /// The confirmation was declined.
@@ -83,12 +87,13 @@ final class ActionRunner: ObservableObject {
         report = ActionReport.pending(request).confirmed()
         let environment = environment
         let teamID = teamID
+        let deadline = request.deadline
         let cli = TrustedCLI<CLIOutcome>(
             check: { await Task.detached { SelfCheck.installedCLITrust(team: teamID) }.value },
             execute: { arguments in
                 await CLIProcess.run(
                     path: K3smCLI.path, arguments: arguments, environment: environment,
-                    deadline: PollSchedule.listDeadline, limit: OutputLimit.status, keepErrors: true)
+                    deadline: deadline, limit: OutputLimit.status, keepErrors: true)
             })
         Task { [weak self] in
             let outcome: ActionOutcome
@@ -98,6 +103,15 @@ final class ActionRunner: ObservableObject {
                 var runs: [ActionRun] = []
                 for arguments in request.runs {
                     runs.append(Self.actionRun(await cli.run(arguments)))
+                }
+                if let last = runs.last, let next = request.next(after: last) {
+                    // The run leads to another action (asking first when it
+                    // does): nothing is reported or read yet.
+                    log.notice("console: \(request.verb, privacy: .public) leads on")
+                    guard let self else { return }
+                    self.report = nil
+                    self.ask(next)
+                    return
                 }
                 outcome = request.report(runs: runs)
             }

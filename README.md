@@ -133,7 +133,9 @@ login** in the app's Settings turns it off or on again (see
     that switch is on.
   - **Images**: the images the nodes report holding, one row per digest;
     until a node reports them the tab says so.
-  - **Builds**: the build engine's state.
+  - **Builds**: the build engine's state, then your build history, newest
+    first (from `k3sm build ls -o json`, the builds your account ran on this
+    Mac): each build's image, status, start time and duration.
   - **Services**: every service, with its namespace, type, cluster IP and
     ports, and the hosts of the ingresses that route to it (`*` for a rule
     that matches any host). After each service list the tab also reads every
@@ -151,8 +153,9 @@ login** in the app's Settings turns it off or on again (see
 
   The tabs only read. The changes the console makes are a pod's
   **Restart** and **Delete**, a service's **Delete**, the Workloads cleanup,
-  a model's **Unload**, **Load** and **Delete**, and a claim's **Delete** and
-  the Storage cleanup of unused volumes (below). The app remembers the tab, each tab's
+  a model's **Unload**, **Load** and **Delete**, a claim's **Delete**, the
+  Storage cleanup of unused volumes, and the Builds tab's engine, cache and
+  build actions (below). The app remembers the tab, each tab's
   search and selection, the Workloads switch and the events namespace.
 - **Restart…** and **Delete…** in the pod details are the console's writes.
   Restart is shown only for a pod whose owner recreates it (a ReplicaSet,
@@ -291,11 +294,36 @@ login** in the app's Settings turns it off or on again (see
   kubectl get pv -o json` and deletes nothing unless each one is still
   listed with the same UID and still unused; then it runs `k3sm kubectl
   delete pv <volume>... --wait=false`. Its line shows in the strip.
-- The **details** on the right follow the tab. Click a row on any tab (the
-  build engine's card on Builds) and its details show there: a pod's facts
+- On **Builds**, the toolbar acts on the build engine: **Start Engine**
+  (`k3sm builder up`) while it is not running, **Stop Engine**
+  (`k3sm builder down`, which keeps the build cache) while it is, and
+  **Reset Engine** (`k3sm builder delete`, then, once that succeeded,
+  `k3sm builder up`: the engine and its cache start over), and **Prune
+  Cache** while it serves. Stop and Reset ask first. Prune Cache first runs
+  the dry run (`k3sm build prune`), then asks with what a prune would
+  reclaim, and prunes (`k3sm build prune --force`) only if you confirm. Each
+  runs as your own account, with the same check of the installed k3sm as
+  Restart; k3sm uses the admin kubeconfig `k3sm install` wrote to your
+  account, as `k3sm kubectl` does. A k3sm older than that fallback refuses
+  without root, and the line under the engine card then shows its own
+  message. That line says how each action ended, with the freed size after
+  a prune.
+- Each **build** in the history offers, from its row's Control-click menu or
+  its details: **Show Log**, a sheet with the build's stored log
+  (`k3sm build logs <id>`, following it with `-f` while the build runs; the
+  sheet shows at most 1 MiB, and closing it stops the read); **Cancel
+  Build** while it runs (`k3sm build cancel <id>`); and **Delete Record**
+  once it has finished (`k3sm build rm <id>`, which removes the record and
+  its log, not the image), which is also on the Delete key. Both ask first,
+  and run as your own account. A build's id reaches a command only as the
+  twelve hexadecimal characters `k3sm build ls` gives it; a row with any
+  other id offers no action.
+- The **details** on the right follow the tab. Click a row on any tab (on
+  Builds, the engine card or a build) and its details show there: a pod's facts
   and its logs, events or manifest; an image's reference, digest, size, the
   nodes holding it and the pods using it; the build engine's state, pod,
-  node and cache; a service's type, cluster IP, ports, ready endpoints and
+  node and cache; a build's image, status, start time, duration, context,
+  platform, digest or error, and record id; a service's type, cluster IP, ports, ready endpoints and
   ingress hosts; a
   claim's volume, capacity, access modes, class, phase, the volume's data
   directory and the pods mounting it; a model's model,

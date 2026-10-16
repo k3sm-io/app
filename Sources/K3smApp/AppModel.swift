@@ -127,8 +127,14 @@ final class AppModel: ObservableObject {
     }
     /// Mirrors the pod selection into `selection`.
     private var podSelection: AnyCancellable?
-    /// The Builds tab's engine read; nil until the tab is first selected.
+    /// The Builds tab's engine read and its history read (`k3sm build ls`);
+    /// each nil until the tab is first selected.
     @Published private(set) var builds: TabLoader<BuildEngine>?
+    @Published private(set) var buildHistory: TabLoader<[BuildRecord]>?
+    /// The build log sheet on screen; nil when none is.
+    @Published private(set) var buildLog: BuildLogModel?
+    /// The one log sheet's read: opening a log or closing the sheet stops the last.
+    private let buildLogs = BuildLogSlot()
     /// The Services, Storage (its claim list and the data volume card) and
     /// Models reads, and the Workloads tab's Events read; each nil until
     /// its tab (or sub-tab) is first selected.
@@ -321,6 +327,8 @@ final class AppModel: ObservableObject {
                 await self.workloads.nodeList.refresh()
             }
         }
+        // The Builds tab's Show Log opens the log sheet.
+        LocalActions.showBuildLog = { [weak self] target in self?.showBuildLog(target) }
         // An unfinished or failed earlier run is the first thing the window
         // shows on relaunch.
         let previous = Self.readLog()
@@ -442,7 +450,9 @@ final class AppModel: ObservableObject {
         switch section {
         case .workloads: return nil
         case .images: return workloads.nodeList.value.flatMap { InspectorDetails.keys(images: $0.images) }
-        case .builds: return builds?.value.map { _ in [InspectorDetails.engineRow] }
+        case .builds:
+            guard let history = buildHistory?.value else { return nil }
+            return InspectorDetails.keys(engine: builds?.value, history: history)
         case .services: return services?.value.map { Set($0.map(\.key)) }
         case .storage: return storage?.value.map { Set($0.map(\.key)) }
         case .models: return models?.value.map { Set($0.map(\.key)) }
@@ -475,8 +485,13 @@ final class AppModel: ObservableObject {
                 arguments: K3smCLI.buildEngineArguments, what: "build engine list", environment: environment,
                 decode: BuildEngine.tabResult(exitCode:stdout:),
                 interval: { PollSchedule.interval(for: .builds, engineReady: $0?.state == .ready) }))
-            builds = reported(engine, .builds)
-            made = engine
+            let history = TabLoader(
+                arguments: K3smCLI.buildHistoryArguments, what: "build history", environment: environment,
+                decode: BuildHistory.tabResult(exitCode:stdout:),
+                interval: { [weak self] _ in PollSchedule.interval(for: .builds, engineReady: self?.engineReady ?? false) })
+            builds = reportedBuilds(engine)
+            buildHistory = reportedBuilds(history)
+            made = TabLoaderGroup([engine, history])
         case .services:
             let environment = environment
             let list = observed(TabLoader<[ServiceRow]>(
@@ -520,22 +535,39 @@ final class AppModel: ObservableObject {
         return loader
     }
 
+    /// The Builds tab's two reads hand their finished reads on like
+    /// `reported`, but a read keeps or clears the tab's selection only once
+    /// both have decoded (`presentKeys`), or when it failed, so a history
+    /// row restored at launch is not cleared by the engine's first read.
+    private func reportedBuilds<Value>(_ loader: TabLoader<Value>) -> TabLoader<Value> {
+        loader.onRead = { [weak self, weak loader] in
+            guard let self, let loader else { return }
+            let failed = loader.load.failedOrUnavailable
+            if failed || self.presentKeys(.builds) != nil { self.retainSelection(.builds) }
+            self.actions.tabRead(.builds, succeeded: !failed)
+        }
+        return loader
+    }
+
     /// The bulk actions the selected tab's toolbar offers. The slot is there
     /// for every tab; Workloads offers the cleanup (`PodCleanup`) while it
-    /// shows its pods, and Storage its volume cleanup while a volume is unused.
+    /// shows its pods, Storage its volume cleanup while a volume is unused,
+    /// and Builds the build engine's (`BuildActions.toolbar`).
     var bulkActions: [ActionMenuItem] {
         switch section {
         case .workloads:
             return workloadsView == .pods ? PodCleanup.bulkActions(for: workloads.workloads?.pods) : []
         case .storage:
             return storage?.value.flatMap(StorageActions.cleanupRequest).map { [ActionMenuItem($0)] } ?? []
-        case .images, .builds, .services, .models: return []
+        case .builds: return BuildActions.toolbar(builds?.value)
+        case .images, .services, .models: return []
         }
     }
 
     /// One row's actions: what its context menu, its inspector body and the
-    /// Delete key offer, the one function per kind every tab reads. A tab's
-    /// actions arrive as a case here.
+    /// Delete key offer, the one function per kind every tab reads (the
+    /// build engine's actions are the Builds toolbar's; a build row offers
+    /// its own). A tab's actions arrive as a case here.
     func rowMenu(_ row: ConsoleRow) -> ActionMenu {
         switch row {
         case .pod(let key):
@@ -547,9 +579,27 @@ final class AppModel: ObservableObject {
         case .claim(let key):
             let pods = workloads.workloads?.pods
             return storage?.value?.first { $0.key == key }.map { StorageActions.menu(for: $0, pods: pods) } ?? .empty
-        case .image, .build:
+        case .build(let key):
+            guard key != InspectorDetails.engineRow,
+                  let record = buildHistory?.value?.first(where: { $0.key == key }) else { return .empty }
+            return BuildActions.menu(for: record)
+        case .image:
             return .empty
         }
+    }
+
+    /// Opens a recorded build's log sheet, replacing any other
+    /// (`LocalAction.showBuildLog`, through `LocalActions`).
+    func showBuildLog(_ target: BuildLogTarget) {
+        let log = BuildLogModel(read: buildLogs.open(target))
+        buildLog = log
+        log.start(environment: environment, teamID: teamID)
+    }
+
+    /// Closes the log sheet and stops its read.
+    func closeBuildLog() {
+        buildLogs.close()
+        buildLog = nil
     }
 
     /// The selected row's actions on the selected tab (the Workloads tab's

@@ -110,6 +110,17 @@ public protocol ConsoleActionRequest: Sendable, Identifiable where ID == String 
     func report(_ run: ActionRun) -> ActionOutcome
     /// The line shown after all of `runs`, one `ActionRun` each, in order.
     func report(runs: [ActionRun]) -> ActionOutcome
+    /// How long the run may take before it is killed.
+    var deadline: Duration { get }
+    /// Whether the console's confirmation is asked before the run. An
+    /// action that only reads (a dry run) or removes nothing (starting the
+    /// build engine) runs on the click.
+    var asksFirst: Bool { get }
+    /// The action asked for next, built from this action's last run (a
+    /// prune's dry run leads to the prune it measured, a reset's delete to
+    /// its start); it asks its own confirmation when it `asksFirst`. Nil
+    /// when the run is the end, and `report(runs:)` gives its line.
+    func next(after run: ActionRun) -> (any ConsoleActionRequest)?
 }
 
 extension ConsoleActionRequest {
@@ -117,6 +128,9 @@ extension ConsoleActionRequest {
     public func precheck(_ run: ActionRun) -> ActionOutcome? { nil }
     public var runs: [[String]] { [arguments] }
     public func report(runs: [ActionRun]) -> ActionOutcome { report(runs.first ?? .noAnswer) }
+    public var deadline: Duration { PollSchedule.actionDeadline }
+    public var asksFirst: Bool { true }
+    public func next(after run: ActionRun) -> (any ConsoleActionRequest)? { nil }
 }
 
 /// ActionMenuItem is one action a row offers, as the row's context menu,
@@ -149,6 +163,24 @@ public enum LocalAction: Equatable, Sendable {
     /// One container's recent log, summarized on this Mac by Apple's
     /// on-device model (`LogSummaryPrompt`); it reads, and changes nothing.
     case summarizeLogs(LogSummaryTarget)
+    /// A recorded build's stored log, in the console's log sheet
+    /// (`k3sm build logs`); `follow` keeps reading while the build runs.
+    case showBuildLog(BuildLogTarget)
+}
+
+/// BuildLogTarget is the build a log sheet reads: its id, only as a
+/// `BuildRecordID`, the clipped name the sheet shows, and whether the build
+/// was running when the log was asked for.
+public struct BuildLogTarget: Equatable, Sendable {
+    public let id: BuildRecordID
+    public let title: String
+    public let follow: Bool
+
+    public init(id: BuildRecordID, title: String, follow: Bool) {
+        self.id = id
+        self.title = title
+        self.follow = follow
+    }
 }
 
 /// PodShell is the one container a Terminal shell opens in: the pod, its
