@@ -55,6 +55,27 @@ mismatch (behind or ahead of the app) or healthy. Only "not installed" opens the
 first run; every other state opens the console, whose status names the state
 in one line.
 
+While the state is not healthy, a banner across the top of the console says it
+in one sentence, with a button that names the next step. The button opens a
+guided panel: a short numbered list of steps and one button that runs the
+step the app already has, through the same confirmation and administrator
+prompt as the menu:
+
+| state | the panel's step |
+|---|---|
+| stopped | Start k3sm |
+| partly running | Restart k3sm while the node daemon runs (netd is down); Start k3sm while the node daemon is down |
+| behind the app | Update k3sm, the app-carried update; on the control plane, after the workers are confirmed |
+| ahead of the app | none: the app never installs an older k3sm over a newer one, and the panel says where to get the matching app |
+| command missing or not trusted | none in the app yet: the panel shows the install script to run in Terminal, pinned to the app's release, then Refresh |
+| status unreadable | Refresh, and Open Logs |
+
+While the step runs, the panel shows its progress, and it ends on a plain
+"Done" or "Failed" line with the step's own message. A build that is not
+Developer ID signed cannot run the administrator step, so its panel shows the
+exact Terminal command instead (`sudo k3sm start`, `sudo k3sm restart`, or the
+install script for an update), with Copy Command and Open Terminal.
+
 With nothing installed on the Mac, the window asks one question:
 
 - **Start a cluster on this Mac** installs a k3sm server.

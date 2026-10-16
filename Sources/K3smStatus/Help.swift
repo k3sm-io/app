@@ -52,7 +52,7 @@ public enum Help {
     /// Every tag in the catalog, area by area.
     public static var all: [HelpTag] {
         Strip.all + Workloads.all + Nodes.all + Images.all + Builds.all + Services.all + Storage.all + Models.all
-            + Inspector.all + Actions.all + Panel.all + Popover.all + FirstRun.all + Update.all
+            + Inspector.all + Actions.all + Panel.all + Popover.all + Guided.all + FirstRun.all + Update.all
             + Tour.all + General.all + Network.all + Advanced.all + SettingsWindow.all + Menus.all + Columns.all
     }
 
@@ -489,6 +489,58 @@ public enum Help {
                                                    control: "login approval: Open Login Items", label: "Open Login Items")
 
         public static var all: [HelpTag] { [stop, restart, start, installPayload, workersConfirmed, refresh, openLoginItems] }
+    }
+
+    // MARK: Health banner and guided panel
+
+    /// The health banner across the top of the console and the guided panel
+    /// (a sheet) it opens.
+    public enum Guided {
+        /// The banner's button, whose label names the next step.
+        public static let banner = HelpTag("Show the steps that bring k3sm back to health",
+                                           control: "health banner: next step")
+        /// Start k3sm, in the guided panel.
+        public static let start = HelpTag("Start this Mac's node, as an administrator",
+                                          control: "guided panel: Start", label: "Start k3sm")
+        /// Restart k3sm, in the guided panel.
+        public static let restart = HelpTag("Stop k3sm's daemons and start them again, as an administrator",
+                                            control: "guided panel: Restart", label: "Restart k3sm")
+        /// Update k3sm, in the guided panel.
+        public static let update = HelpTag("Install the k3sm release this app carries, as an administrator",
+                                           control: "guided panel: Update", label: "Update k3sm")
+        /// Refresh, in the guided panel.
+        public static let refresh = HelpTag("Read k3sm's status on this Mac again",
+                                            control: "guided panel: Refresh", label: "Refresh")
+        /// Open Logs, in the guided panel.
+        public static let openLogs = HelpTag("Open the k3sm logs this account can read",
+                                             control: "guided panel: Open Logs", label: "Open Logs")
+        /// Copy Command, beside the Terminal command.
+        public static let copyCommand = HelpTag("Put the command on the clipboard to paste into Terminal",
+                                                control: "guided panel: Copy Command", label: "Copy Command")
+        /// Open Terminal, beside the Terminal command.
+        public static let openTerminal = HelpTag("Open the Terminal app to run the command",
+                                                 control: "guided panel: Open Terminal", label: "Open Terminal")
+        /// Close, which puts the panel away.
+        public static let close = HelpTag("Put this panel away (Escape)",
+                                          control: "guided panel: Close", label: "Close")
+        /// The workers confirmation, in the guided panel.
+        public static let workersConfirmed = HelpTag("Confirm it first, since the control plane updates last",
+                                                     control: "guided panel: workers confirmation")
+
+        /// The primary button's tag: why it is disabled, or what it does.
+        public static func primary(_ action: GuidedAction, disabledReason: String?) -> String {
+            if let disabledReason { return disabledReason }
+            switch action {
+            case .start: return start.text
+            case .restart: return restart.text
+            case .update: return update.text
+            case .refresh: return refresh.text
+            }
+        }
+
+        public static var all: [HelpTag] {
+            [banner, start, restart, update, refresh, openLogs, copyCommand, openTerminal, close, workersConfirmed]
+        }
     }
 
     // MARK: First run

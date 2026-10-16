@@ -95,8 +95,9 @@ struct ConsoleView: View {
     }
 }
 
-/// ConsoleContent is the split view's second pane: the strip and the chosen
-/// tab, then the inspector (`ConsoleInspector`, following the tab) unless it
+/// ConsoleContent is the split view's second pane: the strip, the health
+/// banner while the health check finds a problem (`HealthBanner`, which opens
+/// the guided panel), and the chosen tab, then the inspector (`ConsoleInspector`, following the tab) unless it
 /// is collapsed.
 struct ConsoleContent: View {
     @ObservedObject var app: AppModel
@@ -105,6 +106,9 @@ struct ConsoleContent: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 ConsoleStrip(app: app)
+                if let plan = app.guidedPlan {
+                    HealthBanner(app: app, plan: plan)
+                }
                 if let panel = app.updateProgress.panel {
                     UpdateProgressPanel(app: app, panel: panel)
                 }
@@ -130,6 +134,13 @@ struct ConsoleContent: View {
         .sheet(isPresented: Binding(get: { app.buildLog != nil }, set: { if !$0 { app.closeBuildLog() } })) {
             if let log = app.buildLog {
                 BuildLogSheet(log: log) { app.closeBuildLog() }
+            }
+        }
+        // The guided panel the health banner opens, for the plan it was
+        // opened with, so its finished line stays after the state changes.
+        .sheet(isPresented: Binding(get: { app.guidedPanel != nil }, set: { if !$0 { app.closeGuided() } })) {
+            if let plan = app.guidedPanel {
+                GuidedPanelView(app: app, plan: plan)
             }
         }
     }

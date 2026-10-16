@@ -48,6 +48,12 @@ final class AppModel: ObservableObject {
     /// (`HealthClassifier`); nil until the first one finishes. It picks the
     /// screen; the console shows its line.
     @Published private(set) var health: HealthState?
+    /// The guided panel on screen (a sheet over the console), the plan it
+    /// was opened for; nil while it is closed. It keeps that plan while its
+    /// step runs, so the finished line stays after the state changes.
+    @Published private(set) var guidedPanel: GuidedPlan?
+    /// The guided panel's step: idle, running, or how it ended.
+    @Published private(set) var guidedRun: GuidedRun = .idle
     /// Whether the console shows the status panel (start, stop, connections,
     /// uninstall): the info button and Show Status open it. A change of screen
     /// closes it, so a Show Status chosen on the first-run screen does not open
@@ -422,6 +428,96 @@ final class AppModel: ObservableObject {
     /// the installed CLI, never the app's copy.
     var canRunLifecycle: Bool {
         !running && availability == .enabled && teamID != nil && lifecycleSupport == .available
+    }
+
+    /// The banner and guided panel for the current health state
+    /// (`GuidedSteps`), nil when healthy or before the first check. A build
+    /// with no Team ID pin cannot run the root step, so its plan shows the
+    /// Terminal command instead.
+    var guidedPlan: GuidedPlan? {
+        health.flatMap { GuidedSteps.plan(for: $0, rootStep: teamID != nil, role: role, payload: payloadVersion) }
+    }
+
+    /// Why the panel's Update cannot run yet, from the same `UpdatePolicy`
+    /// decision the status popover's update follows; nil when it can.
+    var guidedUpdateBlock: GuidedUpdateBlock? {
+        guard let decision = updateDecision else { return .unknown }
+        switch decision.verdict {
+        case .offer: break
+        case .upToDate, .needsDowngradeConsent: return .notNewer
+        case .waitForWorkers: return .waitForWorkers(decision.workersToUpdate)
+        case .confirmWorkersUpdated: return .confirmWorkers
+        }
+        return updateAction == nil ? .joinTargetUnknown : nil
+    }
+
+    /// Why the guided panel's primary button is disabled, nil when it can run.
+    func guidedDisabledReason(_ action: GuidedAction) -> String? {
+        if running { return "Another change is running." }
+        guard action.needsRootStep else { return nil }
+        if case .disabled(let reason) = availability { return reason }
+        switch action {
+        case .start, .restart:
+            if case .unavailable(let note) = lifecycleSupport { return note }
+        case .update:
+            if let block = guidedUpdateBlock { return block.text }
+            if payloadVersion == nil { return GuidedUpdateBlock.unknown.text }
+        case .refresh:
+            break
+        }
+        return nil
+    }
+
+    /// Opens the guided panel for the current state.
+    func openGuided() {
+        guard let plan = guidedPlan else { return }
+        if !guidedRun.isRunning { guidedRun = .idle }
+        guidedPanel = plan
+        Task { await refreshLifecycleSupport() }
+    }
+
+    /// Closes the guided panel. A running step keeps running; its outcome
+    /// still reaches the status popover.
+    func closeGuided() {
+        guidedPanel = nil
+    }
+
+    /// Runs the guided panel's primary step through the existing path: Start
+    /// and Restart through `perform` (the lifecycle driver's confirmation and
+    /// the checked root step), Update through the app-carried update, Refresh
+    /// through `refresh`.
+    func runGuided(_ action: GuidedAction) {
+        guard !guidedRun.isRunning, !running else { return }
+        if let reason = guidedDisabledReason(action) {
+            guidedRun = .finished(action, succeeded: false, message: reason)
+            return
+        }
+        guidedRun = .running(action)
+        let finish: (Bool?, String) -> Void = { [weak self] succeeded, message in
+            guard let self else { return }
+            // nil: the user answered no at the confirmation; nothing ran.
+            self.guidedRun = succeeded.map { .finished(action, succeeded: $0, message: message) } ?? .idle
+        }
+        switch action {
+        case .start: perform(.start, expected: .stopped, finished: finish)
+        case .restart: perform(.restart, expected: .running, finished: finish)
+        case .update:
+            guard let update = updateAction else {
+                finish(false, (guidedUpdateBlock ?? .unknown).text)
+                return
+            }
+            workersConfirmed = false
+            start(update, input: nil, finished: finish)
+        case .refresh:
+            Task {
+                await refresh()
+                if health == .statusUnreadable {
+                    finish(false, HealthState.statusUnreadable.line ?? "")
+                } else {
+                    finish(true, health?.line ?? "k3sm's status reads again.")
+                }
+            }
+        }
     }
 
     /// Re-reads which screen applies, the full report, the installed version
@@ -1032,18 +1128,29 @@ final class AppModel: ObservableObject {
     /// notification. `expected` is the state the user acted on. The driver
     /// re-reads the status, asks (naming the verb, with the Stop warning),
     /// re-reads again, and only then shows the administrator prompt.
-    func perform(_ verb: LifecycleVerb, expected: LifecycleState) {
-        guard !running else { return }
+    ///
+    /// `finished`, when given, hears how the run ended: true or false with
+    /// the step's own message, or nil when the user answered no and nothing
+    /// ran (the guided panel's progress line).
+    func perform(_ verb: LifecycleVerb, expected: LifecycleState, finished: ((Bool?, String) -> Void)? = nil) {
+        guard !running else {
+            finished?(false, "Another change is running.")
+            return
+        }
         Task {
             if lifecycleSupport == nil {
                 await refreshLifecycleSupport()
             }
             guard canRunLifecycle, let teamID else {
+                var why = "k3sm cannot \(verb.rawValue) k3sm from the app."
                 if case .unavailable(let note) = lifecycleSupport {
+                    why = note
                     Self.alert(title: "k3sm cannot \(verb.rawValue) k3sm from the app", text: note)
                 } else if case .disabled(let reason) = availability {
+                    why = reason
                     Self.alert(title: "k3sm cannot \(verb.rawValue) k3sm from the app", text: reason)
                 }
+                finished?(false, why)
                 return
             }
             running = true
@@ -1057,23 +1164,28 @@ final class AppModel: ObservableObject {
                 progress: { self.outcomeMessage = $0 })
             let result = await driver.perform(verb, expected: expected)
             running = false
+            var ended: (Bool?, String) = (nil, "")
             switch result {
             case .declined:
                 break
             case .refused(let why):
                 outcomeMessage = why
+                ended = (false, why)
                 Self.alert(title: "Nothing was changed", text: why)
             case .ran(let outcome, let text):
                 outcomeMessage = text
+                ended = (outcome == .succeeded, text)
                 if outcome != .succeeded, outcome != .cancelled {
                     Self.alert(title: verb.title, text: text)
                 }
             case .startedNotSchedulable(let text), .timedOut(let text):
                 outcomeMessage = text
+                ended = (false, text)
                 Self.alert(title: verb.title, text: text)
             }
             log.notice("lifecycle verb finished")
             await refresh()
+            finished?(ended.0, ended.1)
         }
     }
 
@@ -1157,20 +1269,26 @@ final class AppModel: ObservableObject {
         start(uninstallAction, input: nil)
     }
 
-    private func start(_ action: CopyOutAction, input: Data?) {
-        guard let teamID, let user, let payloadVersion else { return }
+    /// `finished`, when given, hears whether the copy-out succeeded and the
+    /// outcome's sentence (the guided panel's progress line).
+    private func start(_ action: CopyOutAction, input: Data?, finished: ((Bool?, String) -> Void)? = nil) {
+        guard let teamID, let user, let payloadVersion else {
+            finished?(false, GuidedUpdateBlock.unknown.text)
+            return
+        }
         let plan: CopyOutPlan
         do {
             plan = try CopyOutPlan(
                 bundlePath: Bundle.main.bundlePath, payloadVersion: payloadVersion, teamID: teamID, user: user, action: action)
         } catch {
             outcomeMessage = "k3sm cannot run from \(Bundle.main.bundlePath). Move it to the Applications folder."
+            finished?(false, outcomeMessage ?? "")
             return
         }
-        run(plan, input: input)
+        run(plan, input: input, finished: finished)
     }
 
-    private func run(_ plan: CopyOutPlan, input: Data?) {
+    private func run(_ plan: CopyOutPlan, input: Data?, finished: ((Bool?, String) -> Void)? = nil) {
         running = true
         outcomeMessage = nil
         logTail = ""
@@ -1187,10 +1305,12 @@ final class AppModel: ObservableObject {
             tail.cancel()
             guard let self else { return }
             self.logTail = Self.readLog()
-            self.outcomeMessage = OutcomeSummary.text(outcome, action: plan.action)
+            let text = OutcomeSummary.text(outcome, action: plan.action)
+            self.outcomeMessage = text
             self.running = false
             log.notice("copy-out finished")
             await self.refresh()
+            finished?(outcome == .succeeded, text)
         }
     }
 
