@@ -50,7 +50,7 @@ struct UpdateRowTests {
         let row = try #require(report.row(named: "update"))
         #expect(row.state == "unknown")
         #expect(row.detail == "this Mac cannot read the latest release the server recorded: no cluster client this account may use")
-        #expect(row.remedy == nil)
+        #expect(row.remedy == "")
     }
 
     @Test("an uninstalled Mac reports no update row", arguments: otherReports)
