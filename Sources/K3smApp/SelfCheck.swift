@@ -96,6 +96,13 @@ enum SelfCheck {
             signatureValid: { team.map { binarySignatureValid(path: K3smCLI.path, team: $0) } ?? true })
     }
 
+    /// The startup health check's file facts: whether `/Library/k3sm` and
+    /// its CLI exist (`lstat`, so a symlinked CLI counts as present and then
+    /// fails its trust check).
+    static func installFiles() -> (rootExists: Bool, cliPresent: Bool) {
+        (pathFacts(K3smCLI.installRoot) != nil, pathFacts(K3smCLI.path) != nil)
+    }
+
     /// `lstat` of one path, or nil when it cannot be read.
     static func pathFacts(_ path: String) -> InstalledCLITrust.PathFacts? {
         var st = stat()

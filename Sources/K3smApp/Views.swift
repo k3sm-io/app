@@ -146,8 +146,9 @@ struct FirstRunView: View {
     }
 }
 
-/// StatusView is the popover's status: the headline and the stopped-by
-/// line, only the checks that are not ok (`StatusPopover.problemRows`, or
+/// StatusView is the popover's status: the headline, the health check's
+/// line (`HealthState.statusLine`; the whole headline without a report),
+/// the stopped-by line, only the checks that are not ok (`StatusPopover.problemRows`, or
 /// its all-ok line), the version line with the managed update's button
 /// while the `update` row says behind (`UpdateOffer`), Start, Stop and
 /// Restart, the app-carried update when it offers one, and the full table
@@ -167,9 +168,14 @@ struct StatusView: View {
                     Text(verbatim: StatusDisplay.clip(stopped.line)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let line = model.health?.statusLine {
+                    Text(verbatim: line).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 problems(report)
             } else {
-                Text("k3sm is installed, but its status could not be read.").font(.title3).bold()
+                Text(verbatim: model.health?.line ?? HealthState.statusUnreadable.line ?? "").font(.title3).bold()
+                    .fixedSize(horizontal: false, vertical: true)
             }
             versionRow
             LifecycleSection(model: model)

@@ -25,9 +25,10 @@ import K3smStatus
 @MainActor
 final class AppModel: ObservableObject {
     enum Screen: Equatable {
-        /// No /Library/k3sm: offer to start or join a cluster.
+        /// Nothing installed (`HealthState.showsFirstRun`): offer to start
+        /// or join a cluster.
         case firstRun
-        /// k3sm is installed: show its status.
+        /// k3sm is installed, healthy or not: show its status.
         case status
     }
 
@@ -43,6 +44,10 @@ final class AppModel: ObservableObject {
     private static let tailBytes = 16 * 1024
 
     @Published private(set) var screen: Screen = .firstRun
+    /// What the startup health check found on the last `refresh()`
+    /// (`HealthClassifier`); nil until the first one finishes. It picks the
+    /// screen; the console shows its line.
+    @Published private(set) var health: HealthState?
     /// Whether the console shows the status panel (start, stop, connections,
     /// uninstall): the info button and Show Status open it. A change of screen
     /// closes it, so a Show Status chosen on the first-run screen does not open
@@ -419,11 +424,28 @@ final class AppModel: ObservableObject {
 
     /// Re-reads which screen applies, the full report, the installed version
     /// and, on a worker, its join target. The full report runs only here:
-    /// when the window is shown, and on the console's report loop.
+    /// when the window is shown, and on the console's report loop. The
+    /// screen follows the health check (`HealthClassifier`) over the file
+    /// facts, the trust check, the report and the versions: the first run
+    /// only when nothing is installed, the console for every other state.
     func refresh() async {
         refreshesInFlight += 1
         defer { refreshesInFlight -= 1 }
-        let next: Screen = FileManager.default.fileExists(atPath: K3smCLI.installRoot) ? .status : .firstRun
+        let files = await Task.detached { SelfCheck.installFiles() }.value
+        var trust: HealthFacts.CLITrust = .unchecked
+        var read: StatusReport?
+        if files.rootExists {
+            read = await fullRead()
+            trust = lanTrustRefusal.map { .refused($0) } ?? .trusted
+            if case .exited(0, let stdout) = await runCLI(K3smCLI.versionArguments) {
+                installedVersion = SemanticVersion.fromVersionCommand(String(decoding: stdout, as: UTF8.self))
+            }
+        }
+        let state = HealthClassifier.classify(HealthFacts(
+            installRootExists: files.rootExists, cliPresent: files.cliPresent, cliTrust: trust, report: read,
+            payloadVersion: payloadVersion, installedVersion: files.rootExists ? installedVersion : nil))
+        if state != health { health = state }
+        let next: Screen = state.showsFirstRun ? .firstRun : .status
         if next != screen {
             screen = next
             statusPanelShown = false
@@ -434,10 +456,7 @@ final class AppModel: ObservableObject {
             joinTarget = nil
             return
         }
-        report = await fullRead()
-        if case .exited(0, let stdout) = await runCLI(K3smCLI.versionArguments) {
-            installedVersion = SemanticVersion.fromVersionCommand(String(decoding: stdout, as: UTF8.self))
-        }
+        report = read
         joinTarget = role == .agent
             ? AgentJoinTarget.resolve(statusJoinTarget: report?.joinTarget, plist: Self.readPlist)
             : nil

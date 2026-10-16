@@ -45,7 +45,17 @@ opens on the log of an unfinished or failed run.
 
 ## First run
 
-With no `/Library/k3sm` on the Mac, the window asks one question:
+Each time the window opens, and on the console's report loop, the app checks
+k3sm on this Mac: whether `/Library/k3sm` and its command exist, whether the
+command passes the app's trust check, what `k3sm status` reports, and whether
+the installed release matches the one the app carries. The result is one of
+not installed, stopped, partly running (netd or the node daemon down while the
+other runs), command missing, command not trusted, status unreadable, version
+mismatch (behind or ahead of the app) or healthy. Only "not installed" opens the
+first run; every other state opens the console, whose status names the state
+in one line.
+
+With nothing installed on the Mac, the window asks one question:
 
 - **Start a cluster on this Mac** installs a k3sm server.
 - **Join a cluster** takes the server's address and a join token from
