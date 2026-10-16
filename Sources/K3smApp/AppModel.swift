@@ -190,6 +190,18 @@ final class AppModel: ObservableObject {
             }
         }
     }
+    /// The widest block of the console panel's content as the panel last
+    /// measured it (`PanelMeasure`), without its edges; nil before the first
+    /// layout, when `PanelLayout.naturalWidth` estimates instead. Not kept.
+    @Published private(set) var consolePanelMeasured: Double?
+
+    /// Records a measured content width, only when it moved by a point or
+    /// more, so a re-render that measures the same does not publish again.
+    func panelMeasured(_ width: Double) {
+        guard width.isFinite, width > 0 else { return }
+        if let current = consolePanelMeasured, abs(current - width) < 1 { return }
+        consolePanelMeasured = width
+    }
     /// Whether the console panel is collapsed: a double-click on the divider
     /// and View > Hide Panel (Command-Option-L) toggle it. Kept across launches.
     @Published var consolePanelCollapsed: Bool = PanelLayout.restoreCollapsed(

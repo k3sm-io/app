@@ -58,9 +58,14 @@ public struct PanelPair: Equatable, Sendable {
 /// in one row at its natural width, the longest node row with its name,
 /// role, pod count and both meters on one line, the nodes block's lines,
 /// the memory block's heading and legend, and the live load rows, whichever
-/// is widest across both regions, never past `ceiling`. Widths are estimated
+/// is widest across both regions, never past `ceiling`, with the panel's
+/// `edge` on both sides. The panel measures that content as it draws it (the
+/// ideal width of each block, `measured`), so the natural width is exactly
+/// the content and its two edges; until the first layout it is estimated
 /// from character counts at a conservative advance per point of font size,
-/// so an estimate errs wide rather than truncating.
+/// which errs wide rather than truncating. The constants below are the ones
+/// the panel's views draw with (the edge, a tile's inner padding, the gap
+/// between tiles), so the estimate and the drawing cannot drift apart.
 ///
 /// The panel is auto-sized until the user drags its divider: an auto-sized
 /// panel is drawn at the natural width and follows it as the content
@@ -79,10 +84,14 @@ public enum PanelLayout {
     public static let widthKey = "consolePanelWidth"
     public static let collapsedKey = "consolePanelCollapsed"
 
+    /// The panel's padding on each side, from its edge to its content.
+    public static let edge: Double = 20
     /// The panel's horizontal padding, both sides together.
-    public static let padding: Double = 40
+    public static let padding: Double = 2 * edge
     /// The gap between tiles, and between a node row's parts.
     public static let tileSpacing: Double = 10
+    /// A tile's inner padding on each side, from its edge to its figures.
+    public static let tilePadding: Double = 10
     /// A slim meter's width when a node row is on one line.
     public static let meterWidth: Double = 96
 
@@ -96,17 +105,24 @@ public enum PanelLayout {
     /// The live load row's sparkline width, and the gap before it.
     public static let sparklineWidth: Double = 40
 
-    /// The width `regions` need with nothing compressed or clipped: the
-    /// widest of every region's content, at least `minimum`, never past
-    /// `ceiling`.
-    public static func naturalWidth(regions: [PanelContent]) -> Double {
-        let wanted = regions.map(wantedWidth).max() ?? 0
+    /// The width `regions` need with nothing compressed or clipped, at
+    /// least `minimum`, never past `ceiling`: the widest block the panel
+    /// measured (`measured`, its content without the edges) and both edges,
+    /// or, before the panel has measured anything (nil, or not a positive
+    /// finite width), the widest of every region's estimated content.
+    public static func naturalWidth(regions: [PanelContent], measured: Double? = nil) -> Double {
+        let wanted: Double
+        if let measured, measured.isFinite, measured > 0 {
+            wanted = measured.rounded(.up) + padding
+        } else {
+            wanted = regions.map(wantedWidth).max() ?? 0
+        }
         return min(ceiling, max(minimum, wanted))
     }
 
     /// The panel's width range for `regions`: from `minimum` to the natural width.
-    public static func widthRange(regions: [PanelContent]) -> ClosedRange<Double> {
-        minimum...naturalWidth(regions: regions)
+    public static func widthRange(regions: [PanelContent], measured: Double? = nil) -> ClosedRange<Double> {
+        minimum...naturalWidth(regions: regions, measured: measured)
     }
 
     /// The panel's width range for one region's `content`.
@@ -116,8 +132,8 @@ public enum PanelLayout {
 
     /// The width the panel is drawn at: the natural width while auto-sized
     /// (`stored` is nil), the user's width within the range otherwise.
-    public static func shownWidth(stored: Double?, regions: [PanelContent]) -> Double {
-        let range = widthRange(regions: regions)
+    public static func shownWidth(stored: Double?, regions: [PanelContent], measured: Double? = nil) -> Double {
+        let range = widthRange(regions: regions, measured: measured)
         guard let stored else { return range.upperBound }
         return clamp(stored, to: range)
     }
@@ -166,25 +182,43 @@ public enum PanelLayout {
         (stored as? Bool) ?? false
     }
 
-    /// How many tile columns a panel `width` wide shows: every tile in one
-    /// row once they all fit at their natural width, two otherwise.
-    public static func columns(width: Double, tiles: [PanelTile]) -> Int {
-        guard tiles.count > 2, width >= gridWidth(tiles) else { return 2 }
-        return tiles.count
+    /// The width of tiles in one row, each as wide as the widest of
+    /// `tileWidths` (every tile's whole width, its inner padding on both
+    /// sides included), `tileSpacing` apart. The panel's tile row lays its
+    /// tiles out by it, so a measured row and an estimated one agree.
+    public static func tileRowWidth(_ tileWidths: [Double]) -> Double {
+        guard let widest = tileWidths.max() else { return 0 }
+        let count = Double(tileWidths.count)
+        return count * widest + (count - 1) * tileSpacing
     }
 
-    /// One tile's natural width: its padding and the wider of the value with
-    /// its "of" (and what is used) beside it, and the label.
+    /// Whether tiles `tileWidths` wide fit in one row of a panel `width`
+    /// wide, inside its two edges; when they do not, the tiles take two columns.
+    public static func tileRowFits(width: Double, tileWidths: [Double]) -> Bool {
+        tileWidths.count > 2 && tileRowWidth(tileWidths) <= width - padding
+    }
+
+    /// The gaps from the panel's two edges to a tile row `rowWidth` wide in a
+    /// panel `width` wide: the leading edge always, and on the trailing side
+    /// what the row leaves of the width. A row that fits stretches across the
+    /// content, so both are `edge`; a row wider than the content runs into the
+    /// trailing edge, which is what the natural width must never allow.
+    public static func tileMargins(width: Double, rowWidth: Double) -> (leading: Double, trailing: Double) {
+        (edge, width - edge - max(rowWidth, width - padding))
+    }
+
+    /// One tile's estimated natural width: its inner padding on both sides
+    /// and the wider of the value with its "of" (and what is used) beside
+    /// it, and the label.
     static func tileWidth(_ tile: PanelTile) -> Double {
         let figure = text(tile.value, size: 20) + (tile.detailLine.map { 4 + text($0, size: 11) } ?? 0)
-        return 20 + max(figure, text(tile.label, size: 11))
+        return 2 * tilePadding + max(figure, text(tile.label, size: 11))
     }
 
-    /// Every tile in one row, each as wide as the widest, with the padding.
+    /// Every tile in one row (`tileRowWidth`), with the panel's padding.
     static func gridWidth(_ tiles: [PanelTile]) -> Double {
-        guard let widest = tiles.map(tileWidth).max() else { return 0 }
-        let count = Double(tiles.count)
-        return padding + count * widest + (count - 1) * tileSpacing
+        guard !tiles.isEmpty else { return 0 }
+        return padding + tileRowWidth(tiles.map(tileWidth))
     }
 
     /// A Cluster view node row on one line: the dot, the name, the "this Mac"

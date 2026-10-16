@@ -71,8 +71,9 @@ struct ConsoleView: View {
                                 updateTitle: updateTitle)
         ConsoleSplit(
             app: app,
-            range: PanelLayout.widthRange(regions: panel.layoutRegions),
-            width: PanelLayout.shownWidth(stored: app.consolePanelWidth, regions: panel.layoutRegions),
+            range: PanelLayout.widthRange(regions: panel.layoutRegions, measured: app.consolePanelMeasured),
+            width: PanelLayout.shownWidth(stored: app.consolePanelWidth, regions: panel.layoutRegions,
+                                          measured: app.consolePanelMeasured),
             collapsed: app.consolePanelCollapsed,
             contentMinimum: Double(Self.contentMinWidth(inspectorShown: app.inspectorShown, updateTitle: updateTitle)),
             // Each pane is hosted on its own; both run under the transparent

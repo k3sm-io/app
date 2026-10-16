@@ -40,7 +40,8 @@ struct MacPanel: View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 content
-                    .padding([.horizontal, .bottom], 20)
+                    .padding(.horizontal, PanelLayout.edge)
+                    .padding(.bottom, 20)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .onReceive(tour.$scrollTarget.compactMap { $0 }) { target in
@@ -50,6 +51,17 @@ struct MacPanel: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(alignment: .topLeading) {
+            // Both regions' blocks at their ideal widths, unseen: the widest
+            // is the content the panel's natural width holds between its edges.
+            PanelMeasure(regions: layoutRegions)
+                .fixedSize()
+                .hidden()
+                .accessibilityHidden(true)
+                .onGeometryChange(for: Double.self, of: { Double($0.size.width) }) { width in
+                    app.panelMeasured(width)
+                }
+        }
         .background(Palette.deep)
     }
 
@@ -90,7 +102,7 @@ struct MacPanel: View {
                 Text(verbatim: cluster.title).font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
             }
             stateRow
-            TileGrid(tiles: ClusterDisplay.tiles(for: cluster), width: shownWidth)
+            TileGrid(tiles: ClusterDisplay.tiles(for: cluster))
             if let note = cluster.note {
                 Footnote(note)
             }
@@ -118,56 +130,15 @@ struct MacPanel: View {
     /// side, on the same line when the panel is wide enough, under it otherwise.
     private func clusterNodeRow(_ node: ClusterNodeRow) -> some View {
         ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: PanelLayout.tileSpacing) {
-                nodeHeading(node)
-                slimMeter("Cores", node.cores, help: Help.Panel.nodeCores).frame(width: PanelLayout.meterWidth)
-                slimMeter("Memory", node.memory, help: Help.Panel.nodeMemory).frame(width: PanelLayout.meterWidth)
-            }
+            NodeRowLine(node: node)
             VStack(alignment: .leading, spacing: 6) {
-                nodeHeading(node)
-                HStack(spacing: 10) {
-                    slimMeter("Cores", node.cores, help: Help.Panel.nodeCores)
-                    slimMeter("Memory", node.memory, help: Help.Panel.nodeMemory)
+                NodeHeading(node: node)
+                HStack(spacing: PanelLayout.tileSpacing) {
+                    SlimMeter(title: "Cores", usage: node.cores, help: Help.Panel.nodeCores)
+                    SlimMeter(title: "Memory", usage: node.memory, help: Help.Panel.nodeMemory)
                 }
             }
         }
-    }
-
-    /// A node row's first part: the dot, the name, the tag, the role and the pods.
-    private func nodeHeading(_ node: ClusterNodeRow) -> some View {
-        HStack(spacing: 6) {
-            Circle().fill(node.isReady ? Palette.okOnDark : Palette.warnOnDark).frame(width: 7, height: 7)
-                .accessibilityLabel(Text(verbatim: node.ready))
-                .help(Help.Panel.nodeDot)
-            Text(verbatim: node.name).font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
-                .lineLimit(1).truncationMode(.middle)
-            if node.thisMac {
-                Text("this Mac").font(.system(size: 9, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Capsule().fill(.white.opacity(0.14)))
-                    .fixedSize()
-            }
-            Text(verbatim: node.role).font(.system(size: 11)).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
-            Spacer(minLength: 4)
-            if let running = node.running {
-                Text(verbatim: "\(running) \(running == 1 ? "pod" : "pods")").font(.system(size: 11)).monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.62)).fixedSize()
-            }
-        }
-    }
-
-    /// A 5 pt meter with its value under it, dim and monospaced; an empty
-    /// track when the node's allocatable is unknown.
-    private func slimMeter(_ title: String, _ usage: ClusterUsage?, help: HelpTag) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Meter(parts: [(usage?.requested ?? 0, Palette.fill)], total: usage?.allocatable ?? 0)
-            Text(verbatim: usage?.text ?? " ").font(.system(size: 10)).monospacedDigit()
-                .foregroundStyle(.white.opacity(0.62)).lineLimit(1).minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(verbatim: "\(title) \(usage?.text ?? "unknown")"))
-        .help(help)
     }
 
     /// This Mac's view: the machine, the state and the tiles, the nodes
@@ -179,7 +150,7 @@ struct MacPanel: View {
             }
             Text(verbatim: Self.machine.line).font(.system(size: 12)).foregroundStyle(.white.opacity(0.62))
             stateRow
-            TileGrid(tiles: macTiles, width: shownWidth)
+            TileGrid(tiles: macTiles)
         }
         .id(TourTarget.summary)
         .tourTarget(.summary, tour)
@@ -321,12 +292,6 @@ struct MacPanel: View {
         "\(WorkloadsDisplay.bytes(workloads.load.memoryUsedBytes)) of \(WorkloadsDisplay.bytes(Self.machine.memoryBytes))"
     }
 
-    /// The width the panel is drawn at: the natural width while auto-sized,
-    /// the user's within the range otherwise.
-    private var shownWidth: Double {
-        PanelLayout.shownWidth(stored: app.consolePanelWidth, regions: layoutRegions)
-    }
-
     /// The cluster view, re-derived from the report and the two lists.
     private var cluster: ClusterSummary {
         ClusterDisplay.summary(of: report, nodes: workloads.nodes, pods: workloads.workloads?.pods)
@@ -356,15 +321,7 @@ struct MacPanel: View {
     private func nodeRows(_ nodes: NodesView) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(nodes.lines.enumerated()), id: \.offset) { _, line in
-                HStack(spacing: 8) {
-                    Text(verbatim: line.name).foregroundStyle(.white.opacity(0.8)).lineLimit(1).truncationMode(.middle)
-                    Text(verbatim: line.role).foregroundStyle(.white.opacity(0.55))
-                    Spacer()
-                    if let version = line.version {
-                        Text(verbatim: version).foregroundStyle(.white).monospacedDigit()
-                    }
-                }
-                .font(.system(size: 12))
+                NodeLineRow(line: line)
             }
             if let versions = nodes.versions {
                 Text(verbatim: versions).font(.system(size: 12)).foregroundStyle(.white.opacity(0.8)).monospacedDigit()
@@ -427,36 +384,84 @@ struct PanelBlock<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(title).foregroundStyle(.white.opacity(0.62))
-                Spacer()
-                Text(verbatim: value).foregroundStyle(.white).monospacedDigit()
-            }
-            .font(.system(size: 12, weight: .medium))
+            PanelPairLine(label: title, value: value, heading: true) { EmptyView() }
             content()
         }
     }
 }
 
-/// TileGrid is the panel's figures in columns of tiles: two, or every tile
-/// in one row once the panel is wide enough (`PanelLayout.columns`).
+/// TileGrid is the panel's figures: every tile in one row (`TileRow`) when
+/// that row, at the tiles' natural widths, fits the width the panel lays the
+/// grid out in, two columns otherwise. It decides by the width it is given,
+/// so a panel the window squeezes below its natural width takes two columns.
 struct TileGrid: View {
     let tiles: [PanelTile]
-    let width: Double
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10, alignment: .topLeading),
-                                 count: PanelLayout.columns(width: width, tiles: tiles)),
-                  alignment: .leading, spacing: 10) {
-            ForEach(Array(tiles.enumerated()), id: \.offset) { _, tile in
-                Tile(tile: tile).help(Help.Panel.tile(tile))
+        if tiles.count > 2 {
+            ViewThatFits(in: .horizontal) {
+                TileRow(spacing: PanelLayout.tileSpacing) { tileViews }
+                columns
             }
+        } else {
+            columns
+        }
+    }
+
+    private var columns: some View {
+        let spacing = CGFloat(PanelLayout.tileSpacing)
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: spacing, alignment: .topLeading), count: 2),
+                         alignment: .leading, spacing: spacing) {
+            tileViews
+        }
+    }
+
+    private var tileViews: some View {
+        ForEach(Array(tiles.enumerated()), id: \.offset) { _, tile in
+            Tile(tile: tile).help(Help.Panel.tile(tile))
         }
     }
 }
 
+/// TileRow lays tiles out in one row, each as wide as the widest at its
+/// ideal width, `spacing` apart (`PanelLayout.tileRowWidth`), all as tall as
+/// the tallest. Its ideal width is that row; given more, it widens every
+/// tile alike, so the row meets the panel's padding on both sides.
+struct TileRow: Layout {
+    let spacing: Double
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = rowWidth(proposal: proposal, subviews: subviews)
+        let tile = tileWidth(width, count: subviews.count)
+        let height = subviews.map { $0.sizeThatFits(ProposedViewSize(width: tile, height: nil)).height }.max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let tile = tileWidth(bounds.width, count: subviews.count)
+        for (i, subview) in subviews.enumerated() {
+            let x = bounds.minX + CGFloat(i) * (tile + CGFloat(spacing))
+            subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: tile, height: bounds.height))
+        }
+    }
+
+    /// The row at its tiles' ideal widths, or the proposed width when wider.
+    private func rowWidth(proposal: ProposedViewSize, subviews: Subviews) -> CGFloat {
+        let ideal = CGFloat(PanelLayout.tileRowWidth(subviews.map { Double($0.sizeThatFits(.unspecified).width) }))
+        guard let proposed = proposal.width, proposed.isFinite else { return ideal }
+        return max(ideal, proposed)
+    }
+
+    private func tileWidth(_ row: CGFloat, count: Int) -> CGFloat {
+        guard count > 0 else { return 0 }
+        return (row - CGFloat(spacing) * CGFloat(count - 1)) / CGFloat(count)
+    }
+}
+
 /// Tile is one figure: the value large, its "of" beside it (or under it
-/// when the two do not fit), and the label small and lowercase below.
+/// when the two do not fit), and the label small and lowercase below, inside
+/// `PanelLayout.tilePadding` on every side.
 struct Tile: View {
     let tile: PanelTile
 
@@ -465,16 +470,18 @@ struct Tile: View {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     value
-                    detail
+                    detail.fixedSize()
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     value
-                    detail
+                    // Under the value, a detail wider than a narrow column
+                    // shrinks, then shortens, rather than push the tile out.
+                    detail.minimumScaleFactor(0.8).truncationMode(.tail)
                 }
             }
             Text(verbatim: tile.label).font(.system(size: 11)).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
         }
-        .padding(10)
+        .padding(CGFloat(PanelLayout.tilePadding))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 10).fill(Palette.deepRaised))
         .accessibilityElement(children: .combine)
@@ -488,7 +495,143 @@ struct Tile: View {
     @ViewBuilder private var detail: some View {
         if let detail = tile.detailLine {
             Text(verbatim: detail).font(.system(size: 11)).monospacedDigit()
-                .foregroundStyle(.white.opacity(0.62)).lineLimit(1).fixedSize()
+                .foregroundStyle(.white.opacity(0.62)).lineLimit(1)
+        }
+    }
+}
+
+/// NodeRowLine is a Cluster view node row on one line: the heading, then
+/// both meters at `PanelLayout.meterWidth`.
+struct NodeRowLine: View {
+    let node: ClusterNodeRow
+
+    var body: some View {
+        HStack(alignment: .center, spacing: PanelLayout.tileSpacing) {
+            NodeHeading(node: node)
+            SlimMeter(title: "Cores", usage: node.cores, help: Help.Panel.nodeCores).frame(width: PanelLayout.meterWidth)
+            SlimMeter(title: "Memory", usage: node.memory, help: Help.Panel.nodeMemory).frame(width: PanelLayout.meterWidth)
+        }
+    }
+}
+
+/// NodeHeading is a node row's first part: the dot, the name, the tag, the
+/// role and the pods.
+struct NodeHeading: View {
+    let node: ClusterNodeRow
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle().fill(node.isReady ? Palette.okOnDark : Palette.warnOnDark).frame(width: 7, height: 7)
+                .accessibilityLabel(Text(verbatim: node.ready))
+                .help(Help.Panel.nodeDot)
+            Text(verbatim: node.name).font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
+                .lineLimit(1).truncationMode(.middle)
+            if node.thisMac {
+                Text("this Mac").font(.system(size: 9, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(.white.opacity(0.14)))
+                    .fixedSize()
+            }
+            Text(verbatim: node.role).font(.system(size: 11)).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
+            Spacer(minLength: 4)
+            if let running = node.running {
+                Text(verbatim: "\(running) \(running == 1 ? "pod" : "pods")").font(.system(size: 11)).monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.62)).fixedSize()
+            }
+        }
+    }
+}
+
+/// SlimMeter is a 5 pt meter with its value under it, dim and monospaced;
+/// an empty track when the node's allocatable is unknown.
+struct SlimMeter: View {
+    let title: String
+    let usage: ClusterUsage?
+    let help: HelpTag
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Meter(parts: [(usage?.requested ?? 0, Palette.fill)], total: usage?.allocatable ?? 0)
+            Text(verbatim: usage?.text ?? " ").font(.system(size: 10)).monospacedDigit()
+                .foregroundStyle(.white.opacity(0.62)).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(verbatim: "\(title) \(usage?.text ?? "unknown")"))
+        .help(help)
+    }
+}
+
+/// NodeLineRow is one line of the nodes block: the name, the role, and the
+/// version on the right.
+struct NodeLineRow: View {
+    let line: NodeLine
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(verbatim: line.name).foregroundStyle(.white.opacity(0.8)).lineLimit(1).truncationMode(.middle)
+            Text(verbatim: line.role).foregroundStyle(.white.opacity(0.55))
+            Spacer()
+            if let version = line.version {
+                Text(verbatim: version).foregroundStyle(.white).monospacedDigit()
+            }
+        }
+        .font(.system(size: 12))
+    }
+}
+
+/// PanelPairLine is a panel line with a label on the left and its value on
+/// the right, at 12 pt: a block's heading (`heading`, medium and dimmer) or
+/// a legend row, which leads with its swatch.
+struct PanelPairLine<Leading: View>: View {
+    let label: String
+    let value: String
+    let heading: Bool
+    @ViewBuilder let leading: () -> Leading
+
+    var body: some View {
+        HStack(spacing: CGFloat(PanelLayout.pairGap)) {
+            leading()
+            Text(verbatim: label).foregroundStyle(.white.opacity(heading ? 0.62 : 0.8))
+            Spacer()
+            Text(verbatim: value).foregroundStyle(.white).monospacedDigit()
+        }
+        .font(.system(size: 12, weight: heading ? .medium : .regular))
+    }
+}
+
+/// PanelMeasure is every block the panel's natural width covers, for every
+/// region in `regions` (`PanelContent`), drawn by the views the panel draws
+/// them with; laid out at its ideal size, its width is the widest block, the
+/// content the natural width holds between the panel's edges.
+struct PanelMeasure: View {
+    let regions: [PanelContent]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(regions.enumerated()), id: \.offset) { _, region in
+                if !region.tiles.isEmpty {
+                    TileRow(spacing: PanelLayout.tileSpacing) {
+                        ForEach(Array(region.tiles.enumerated()), id: \.offset) { _, tile in Tile(tile: tile) }
+                    }
+                }
+                ForEach(Array(region.nodes.enumerated()), id: \.offset) { _, node in NodeRowLine(node: node) }
+                ForEach(Array(region.lines.enumerated()), id: \.offset) { _, line in NodeLineRow(line: line) }
+                ForEach(Array(region.pairs.enumerated()), id: \.offset) { _, pair in
+                    if pair.value.isEmpty, !pair.swatch {
+                        // A line with no value, such as the machine's, is its text alone.
+                        Text(verbatim: pair.label).font(.system(size: 12))
+                    } else {
+                        PanelPairLine(label: pair.label, value: pair.value, heading: !pair.swatch) {
+                            if pair.swatch { Color.clear.frame(width: 8, height: 8) }
+                        }
+                    }
+                }
+                ForEach(Array(region.loads.enumerated()), id: \.offset) { _, load in
+                    // Two points, so the sparkline is counted as it is drawn once sampled.
+                    LiveLoadRow(load: load, sparkline: [0, 0])
+                }
+            }
         }
     }
 }
@@ -571,13 +714,9 @@ struct Legend: View {
     var body: some View {
         VStack(spacing: 4) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: 8) {
+                PanelPairLine(label: row.label, value: row.value, heading: false) {
                     swatch(row.swatch).frame(width: 8, height: 8)
-                    Text(verbatim: row.label).foregroundStyle(.white.opacity(0.8))
-                    Spacer()
-                    Text(verbatim: row.value).foregroundStyle(.white).monospacedDigit()
                 }
-                .font(.system(size: 12))
             }
         }
     }
