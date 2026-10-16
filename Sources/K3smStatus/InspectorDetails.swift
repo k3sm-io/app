@@ -23,11 +23,14 @@ public struct InspectorFact: Equatable, Sendable {
     public let label: String
     public let value: String
     public let mono: Bool
+    /// The value's help tag, when its meaning is not plain from the label.
+    public let help: HelpTag?
 
-    public init(_ label: String, _ value: String, mono: Bool = false) {
+    public init(_ label: String, _ value: String, mono: Bool = false, help: HelpTag? = nil) {
         self.label = label
         self.value = value
         self.mono = mono
+        self.help = help
     }
 }
 

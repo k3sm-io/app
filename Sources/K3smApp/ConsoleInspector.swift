@@ -169,6 +169,7 @@ struct RowInspector: View {
                             Text(verbatim: StatusDisplay.clip(fact.value))
                                 .font(.system(size: fact.mono ? 11.5 : 12.5, design: fact.mono ? .monospaced : .default))
                                 .textSelection(.enabled)
+                                .help(optional: fact.help)
                         }
                     }
                 }

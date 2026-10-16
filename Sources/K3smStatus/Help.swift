@@ -148,8 +148,17 @@ public enum Help {
         public static let status = HelpTag("Whether the kubelet reports Ready, and whether new pods may land",
                                            control: "nodes: Status column", label: "Status")
         /// The Version column header.
-        public static let version = HelpTag("The k3sm release inside the node's kubelet version",
+        public static let version = HelpTag("The node's k3sm release, and how it compares with the cluster's target",
                                             control: "nodes: Version column", label: "Version")
+        /// The summary line over the list.
+        public static let versionSummary = HelpTag("Nodes on the cluster's target release, from the server's update check",
+                                                   control: "nodes: version summary line")
+        /// The inspector's k3sm fact.
+        public static let versionFact = HelpTag("This node's release against the target the cluster moves to",
+                                                control: "node inspector: k3sm fact")
+        /// The inspector's latest-release fact.
+        public static let latestFact = HelpTag("Newest k3sm release found by the server's last update check",
+                                               control: "node inspector: Latest fact")
         /// The Load column header.
         public static let load = HelpTag("CPU and memory used now, from metrics-server, of allocatable",
                                          control: "nodes: Load column", label: "Load")
@@ -166,7 +175,8 @@ public enum Help {
         public static let podUsage = HelpTag("CPU and memory the pod uses now, from metrics-server",
                                              control: "node inspector: pod usage")
 
-        public static var all: [HelpTag] { [status, version, load, liveCPU, liveMemory, sparkline, podUsage] }
+        public static var all: [HelpTag] { [status, version, versionSummary, versionFact, latestFact, load, liveCPU, liveMemory, sparkline,
+                                    podUsage] }
     }
 
     // MARK: Images tab

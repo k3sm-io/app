@@ -66,7 +66,8 @@ struct NodesTabTests {
         #expect(sampled.header.subtitle == nil)
         #expect(sampled.header.facts.map { [$0.label, $0.value] } == [
             ["Role", "server"], ["Status", "Ready"], ["Scheduling", "takes new pods"],
-            ["Kubelet", "v1.36.2+k3sm.0.1.7"], ["k3sm", "0.1.7"],
+            ["Kubelet", "v1.36.2+k3sm.0.1.7"], ["k3sm", "current: runs 0.1.7, cluster target 0.1.7 (the server's release)"],
+            ["Latest", "not reported"],
             ["Addresses", "100.64.0.1 (InternalIP), mac-a (Hostname)"],
             ["Capacity", "20 cores · 64 GB · 110 pods"], ["Allocatable", "19 cores · 60 GB · 110 pods"],
         ])
@@ -93,7 +94,8 @@ struct NodesTabTests {
         let unsampled = InspectorDetails.node(b, nodes: nodes, report: nil, pods: pods, metrics: metrics, now: Self.now)
         #expect(unsampled.header.facts.map { [$0.label, $0.value] } == [
             ["Role", "agent"], ["Status", "Not ready"], ["Scheduling", "cordoned: no new pods"],
-            ["Kubelet", "v1.36.2+k3sm.0.1.6"], ["k3sm", "0.1.6"], ["Addresses", "100.64.1.1 (InternalIP)"],
+            ["Kubelet", "v1.36.2+k3sm.0.1.6"], ["k3sm", "behind: runs 0.1.6, cluster target 0.1.7 (the server's release)"],
+            ["Latest", "not reported"], ["Addresses", "100.64.1.1 (InternalIP)"],
             ["Capacity", "8 cores · 8.0 GB · 110 pods"], ["Allocatable", "7.5 cores · 6.0 GB · 110 pods"],
         ])
         #expect(unsampled.load == .unsampled("no metrics yet"))
@@ -141,8 +143,8 @@ struct NodesTabTests {
         let nodes = try Self.nodes()
         let rows = NodesList.rows(nodes, report: nil, metrics: Self.sampled())
         #expect(rows.map { [$0.key, $0.role, $0.status, $0.version, $0.load] } == [
-            ["mac-a", "server", "Ready", "0.1.7", "8% CPU · 20% memory"],
-            ["mac-b", "agent", "Not ready · cordoned", "0.1.6", "no metrics yet"],
+            ["mac-a", "server", "Ready", "0.1.7 · current", "8% CPU · 20% memory"],
+            ["mac-b", "agent", "Not ready · cordoned", "0.1.6 · behind", "no metrics yet"],
         ])
         #expect(NodesList.rows(nodes, report: nil, metrics: MetricsState()).allSatisfy { $0.load.isEmpty })
         #expect(NodesList.visible(rows, query: "B").map(\.key) == ["mac-b"])

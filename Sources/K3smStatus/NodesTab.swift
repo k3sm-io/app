@@ -17,8 +17,9 @@ limitations under the License.
 import Foundation
 
 /// NodeRow is one row of the Nodes tab: the node's name and role, its
-/// readiness with a cordon mark, its k3sm release and its live load, each
-/// already clipped. Its key is the node name (a `ResourceName`).
+/// readiness with a cordon mark, its k3sm release with its state against
+/// the cluster's target (`NodeVersions`) and its live load, each already
+/// clipped. Its key is the node name (a `ResourceName`).
 public struct NodeRow: Equatable, Sendable {
     public let key: String
     public let name: String
@@ -28,8 +29,11 @@ public struct NodeRow: Equatable, Sendable {
     public let status: String
     /// Whether the node reports Ready.
     public let ready: Bool
-    /// The k3sm release its kubelet runs, else the kubelet version, else "".
+    /// The k3sm release its kubelet runs (else the kubelet version) and its
+    /// state in plain words: "0.1.7 · behind", or the state alone.
     public let version: String
+    /// The release's state against the cluster's target.
+    public let versionState: NodeVersionState
     /// "8% CPU · 20% memory", "no metrics yet", or "" while metrics are hidden.
     public let load: String
 }
@@ -52,10 +56,12 @@ public enum NodesList {
     public static func rows(_ nodes: [ClusterNode], report: StatusReport?, metrics: MetricsState) -> [NodeRow] {
         let (ownNode, ownRole) = own(report: report)
         let ordered = nodes.filter { $0.name == ownNode } + nodes.filter { $0.name != ownNode }
+        let versions = NodeVersions.decide(nodes, report: report)
         return ordered.map { node in
             NodeRow(key: node.name, name: StatusDisplay.clip(node.name),
                     role: NodesDisplay.roleWord(node.role(ownNode: ownNode, ownRole: ownRole)),
-                    status: statusText(node), ready: node.ready == true, version: versionText(node),
+                    status: statusText(node), ready: node.ready == true, version: versions.columnText(node),
+                    versionState: versions.state(of: node.name),
                     load: loadText(MetricsDisplay.nodeLoad(named: node.name, nodes: nodes, state: metrics)))
         }
     }
@@ -152,7 +158,9 @@ extension InspectorDetails {
         facts.append(InspectorFact("Status", NodesList.statusText(node).components(separatedBy: " · ")[0]))
         facts.append(InspectorFact("Scheduling", node.unschedulable ? "cordoned: no new pods" : "takes new pods"))
         facts.append(InspectorFact("Kubelet", node.kubeletVersion.map(StatusDisplay.clip) ?? "not reported", mono: true))
-        facts.append(InspectorFact("k3sm", node.k3smRelease?.description ?? "not reported"))
+        let versions = NodeVersions.decide(nodes, report: report)
+        facts.append(InspectorFact("k3sm", versions.inspectorText(node), help: Help.Nodes.versionFact))
+        facts.append(InspectorFact("Latest", versions.latestText, help: Help.Nodes.latestFact))
         let addresses = node.addresses.map { $0.type.isEmpty ? $0.address : "\($0.address) (\($0.type))" }
         facts.append(InspectorFact("Addresses", addresses.isEmpty ? "not reported" : addresses.joined(separator: ", "), mono: true))
         facts.append(InspectorFact("Capacity", resources(milliCPU: node.capacityMilliCPU, bytes: node.capacityMemoryBytes,

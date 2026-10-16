@@ -19,8 +19,10 @@ import SwiftUI
 
 /// NodesSection is the Nodes tab: every node of the shared node list (no
 /// read of its own), this Mac's first, with its role, readiness, release and
-/// live load, decided by `NodesList`. A row selects its node for the
-/// inspector and offers its Cordon or Uncordon as a context menu.
+/// its state against the cluster's target, and live load, decided by
+/// `NodesList`, under the version summary line (`NodeVersions.summary`). A
+/// row selects its node for the inspector and offers its Cordon or Uncordon
+/// as a context menu.
 struct NodesSection: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
@@ -29,6 +31,13 @@ struct NodesSection: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let nodes = workloads.nodes, let summary = NodeVersions.decide(nodes, report: app.report).summary {
+                Text(verbatim: StatusDisplay.clip(summary)).font(.system(size: 12)).foregroundStyle(Palette.ink2)
+                    .lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(Help.Nodes.versionSummary)
+                    .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 2)
+            }
             ObjectColumns.header([("Node", nil, .leading), ("Status", NodeColumns.status, .leading),
                                   ("Version", NodeColumns.version, .leading), ("Load", NodeColumns.load, .leading)],
                                  help: ["Status": Help.Nodes.status, "Version": Help.Nodes.version, "Load": Help.Nodes.load])
@@ -69,7 +78,7 @@ struct NodesSection: View {
 /// NodeColumns is the one place the Nodes list's column widths live.
 enum NodeColumns {
     static let status: CGFloat = 130
-    static let version: CGFloat = 90
+    static let version: CGFloat = 130
     static let load: CGFloat = 160
 }
 

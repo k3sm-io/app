@@ -142,9 +142,18 @@ login** in the app's Settings turns it off or on again (see
     that switch is on.
   - **Nodes**: every node of the cluster, this Mac's first, with its role,
     whether it is Ready (and "cordoned" when it takes no new pods), its k3sm
-    release and its live load as shares of what it offers ("8% CPU · 20%
-    memory", or "no metrics yet"). It renders the same node list the panel
-    and Images read, so it makes no read of its own.
+    release with how it compares with the cluster's target ("0.1.7 ·
+    behind": current, behind, ahead, updating or unknown), and its live load
+    as shares of what it offers ("8% CPU · 20% memory", or "no metrics
+    yet"). The target is the release a managed update in progress moves to,
+    else the latest release the server's last update check found, else the
+    release the control-plane node runs; the app asks no one on the network
+    for it. A dev build, a pseudo-version or a build from a modified tree is
+    unknown, as in `k3sm status`. A line over the list sums it up ("2 nodes
+    on 0.1.8", "1 node behind 0.1.8", "Updating to 0.1.8 · 1 of 3 nodes on
+    it"), and the node inspector shows the node's state with both versions
+    and the latest release. It renders the same node list the panel and
+    Images read, so it makes no read of its own.
   - **Images**: the images the nodes report holding, one row per digest;
     until a node reports them the tab says so.
   - **Builds**: the build engine's state, then your build history, newest

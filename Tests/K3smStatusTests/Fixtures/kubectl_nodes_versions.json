@@ -1,0 +1,154 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {
+        "name": "mac-a",
+        "labels": {
+          "kubernetes.io/os": "darwin",
+          "node-role.kubernetes.io/control-plane": "true"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "True"
+          }
+        ],
+        "nodeInfo": {
+          "kubeletVersion": "v1.36.2+k3sm.0.1.8"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {
+        "name": "mac-b",
+        "labels": {
+          "kubernetes.io/os": "darwin"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "True"
+          }
+        ],
+        "nodeInfo": {
+          "kubeletVersion": "v1.36.2+k3sm.0.1.7"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {
+        "name": "mac-c",
+        "labels": {
+          "kubernetes.io/os": "darwin"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "True"
+          }
+        ],
+        "nodeInfo": {
+          "kubeletVersion": "v1.36.2+k3sm.0.1.9-0.20261015120000-0123456789ab"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {
+        "name": "mac-d",
+        "labels": {
+          "kubernetes.io/os": "darwin"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "True"
+          }
+        ],
+        "nodeInfo": {
+          "kubeletVersion": "v1.36.2+k3sm.0.1.9"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {
+        "name": "mac-e",
+        "labels": {
+          "kubernetes.io/os": "darwin"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "True"
+          }
+        ],
+        "nodeInfo": {
+          "kubeletVersion": "v1.36.2"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {
+        "name": "mac-f",
+        "labels": {
+          "kubernetes.io/os": "darwin"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "True"
+          }
+        ],
+        "nodeInfo": {
+          "kubeletVersion": "v1.36.2+k3sm.dev"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {
+        "name": "mac-g",
+        "labels": {
+          "kubernetes.io/os": "darwin"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "True"
+          }
+        ],
+        "nodeInfo": {
+          "kubeletVersion": "v1.36.2+k3sm.0.1.8.dirty"
+        }
+      }
+    }
+  ]
+}
