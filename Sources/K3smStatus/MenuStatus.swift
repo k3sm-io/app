@@ -42,6 +42,9 @@ public enum MenuStatus {
     public static let clusterLabel = "Cluster"
     public static let thisMacLabel = "This Mac"
 
+    /// The title of the menu item that opens the window.
+    public static let windowItemTitle = "Dashboard"
+
     /// The line's title: the label, a middle dot, then the health word.
     public static func title(_ label: String, _ health: MenuHealth) -> String {
         label + " · " + health.word

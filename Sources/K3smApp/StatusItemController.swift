@@ -27,7 +27,7 @@ import K3smStatus
 ///
 /// The menu opens with two status lines, Cluster and This Mac, each with a
 /// coloured circle and the word, then the actions: Stop (with the
-/// multi-node warning) and Restart, Open Status, Open Logs, Write a Bug Report, Open k3sm and Quit.
+/// multi-node warning) and Restart, Open Status, Open Logs, Write a Bug Report, Dashboard and Quit.
 /// Stop and Restart go through `AppModel.perform` and are shown only when
 /// the installed CLI has them; otherwise they are hidden and the window says
 /// why. The full status and the LAN setting are in the window. While LAN access
@@ -81,7 +81,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         _ = add("Open Logs", #selector(openLogsAction))
         _ = add("Write a Bug Report…", #selector(bugReportAction))
         menu.addItem(.separator())
-        _ = add("Open k3sm", #selector(openWindowAction), key: "o")
+        _ = add(MenuStatus.windowItemTitle, #selector(openWindowAction), key: "o")
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit k3sm", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         supportObservation = model.$lifecycleSupport.sink { [weak self] support in

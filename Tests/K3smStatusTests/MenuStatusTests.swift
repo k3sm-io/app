@@ -102,3 +102,7 @@ struct MenuStatusTests {
         #expect(MenuStatus.accessibilityText(MenuStatus.clusterLabel, .degraded) == "Cluster: degraded")
     }
 }
+
+@Test func menuWindowItemReadsDashboard() {
+    #expect(MenuStatus.windowItemTitle == "Dashboard")
+}

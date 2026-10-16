@@ -127,7 +127,7 @@ from other devices are in the window. Then come the actions:
   opens that file for you to read. Nothing is uploaded, and it reads no
   kubeconfig, token, Secret, environment or pod manifest. Share the file
   yourself if you want to.
-- **Open k3sm** and **Quit k3sm**.
+- **Dashboard** and **Quit k3sm**.
 
 After a stop the status item disappears, because k3sm is no longer running.
 At your next login the app posts a notification, "k3sm is stopped (by you)",
