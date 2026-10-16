@@ -20,9 +20,10 @@ import Foundation
 /// the tool, the outcome and how long it took. It never records an
 /// argument, a result or anything the cluster printed, and a call whose tool
 /// name is not one of `ToolName` is recorded as `tool=unknown`, so nothing an
-/// agent sent reaches the file. The file is created 0600, never followed
-/// through a symlink, appended only while it is a regular file this user
-/// owns, and moved aside to `<path>.1` once it passes `maxBytes`. A write
+/// agent sent reaches the file. The file is set to 0600 on every open
+/// (`fchmod`, whatever the umask or an earlier mode), never followed through
+/// a symlink, appended only while it is a regular file this user owns, and
+/// moved aside to `<path>.1` once it passes `maxBytes`. A write
 /// that fails is dropped: the log never fails a call.
 public struct CallLog: Sendable {
     /// Where the log goes, under the home directory.
@@ -75,6 +76,12 @@ public struct CallLog: Sendable {
         guard fd >= 0 else { return nil }
         var st = stat()
         guard fstat(fd, &st) == 0, st.st_mode & S_IFMT == S_IFREG, st.st_uid == getuid() else {
+            Darwin.close(fd)
+            return nil
+        }
+        // O_CREAT's mode applies only to a new file and is narrowed by the
+        // umask; an existing file keeps its own. Set 0600 either way.
+        guard fchmod(fd, 0o600) == 0 else {
             Darwin.close(fd)
             return nil
         }

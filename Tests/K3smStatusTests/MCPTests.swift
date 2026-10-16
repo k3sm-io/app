@@ -674,6 +674,12 @@ struct MCPTests {
         #expect(FileManager.default.fileExists(atPath: path + ".1"))
         #expect(try String(contentsOfFile: path, encoding: .utf8).split(separator: "\n").count < 6)
 
+        // A file left wider than 0600 is narrowed on the next append.
+        chmod(path, 0o644)
+        log.append(tool: .status, outcome: .ok, milliseconds: 1)
+        let narrowed = try FileManager.default.attributesOfItem(atPath: path)
+        #expect((narrowed[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+
         // A symlink in its place is never followed.
         let target = dir.appendingPathComponent("elsewhere").path
         try Data().write(to: URL(fileURLWithPath: target))
