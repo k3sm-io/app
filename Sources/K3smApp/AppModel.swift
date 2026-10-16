@@ -605,8 +605,9 @@ final class AppModel: ObservableObject {
     private var engineReady: Bool { builds?.value?.state == .ready }
 
     /// The loader behind a tab, created on its first selection; nil for
-    /// Nodes and Images, which render the shared node list, and for Stats,
-    /// which renders what the other reads fetched.
+    /// Nodes and Images, which render the shared node list. Stats has the
+    /// Storage tab's loader (its claims and data volume reads); its other
+    /// charts render what the other reads fetched.
     private func loader(for section: ConsoleSection) -> (any TabLoading)? {
         if let existing = loaders[section] { return existing }
         let made: (any TabLoading)?
@@ -615,8 +616,13 @@ final class AppModel: ObservableObject {
             let pods = workloads.podsLoader()
             pods.interval = { [weak self] _ in PollSchedule.podsInterval(selected: self?.section == .workloads) }
             made = pods
-        case .nodes, .images, .stats:
+        case .nodes, .images:
             made = nil
+        case .stats:
+            // The Storage tab's own loader, the same reads at the same
+            // cadence, so the storage chart fills while Stats is shown; it
+            // starts and stops with Stats like any tab's loader.
+            made = loader(for: .storage)
         case .builds:
             let engine = observed(TabLoader(
                 arguments: K3smCLI.buildEngineArguments, what: "build engine list", environment: environment,

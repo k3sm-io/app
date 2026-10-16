@@ -96,9 +96,9 @@ public enum StatsDisplay {
     public static let noSamplesYet = "No samples yet"
     /// The inspector's line on the Stats tab, which has no rows to select.
     public static let inspectorText = "The charts cover this session's reads, the last hour at most."
-    /// The storage chart's line before the Storage tab has read the claims:
-    /// the Stats tab makes no read of its own.
-    public static let storageNotRead = "Not read yet. Open the Storage tab to read the claims."
+    /// The storage chart's line before the first read of the claims, which
+    /// the Storage tab's loader makes while Stats or Storage is shown.
+    public static let storageNotRead = "Not read yet"
 
     /// "Metrics unavailable: <reason>".
     public static func metricsUnavailable(_ reason: String) -> String {
@@ -156,7 +156,7 @@ public enum StatsDisplay {
         }
     }
 
-    /// The storage chart from the Storage tab's last reads.
+    /// The storage chart from the Storage tab's loader's last reads.
     public static func storage(_ rows: StatsInput<[StorageRow]>, volume: DataVolume?) -> StatsChartState<StatsStorage> {
         switch rows {
         case .notRead: return .empty(storageNotRead)

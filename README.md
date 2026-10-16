@@ -130,7 +130,8 @@ login** in the app's Settings turns it off or on again (see
   This Mac. The panel scrolls in a short window. While the window is open the
   node list and the selected tab's list are re-read every 5 seconds (Nodes
   included; every 15
-  seconds on Images, Services, Storage, Models and Stats, and on Builds once the
+  seconds on Images, Services, Storage, Models and Stats (whose storage chart
+  uses the Storage tab's reads), and on Builds once the
   build engine is ready) and the
   status report is re-read every 30 seconds, so the panel follows nodes as
   they join and leave. The pod list keeps being read every 30 seconds while
@@ -212,8 +213,9 @@ login** in the app's Settings turns it off or on again (see
     each pod's restart count between pod-list reads, in five-minute bars),
     image count and size by node, the bound claims' capacity against the
     data volume's free space, and the managed update's state over this
-    session. The tab makes no read of its own: the storage chart shows what
-    the Storage tab last read, and says so until you open it. The samples
+    session. The tab makes no new kind of read: while it is shown the app
+    runs the Storage tab's reads at the Storage tab's cadence, so the
+    storage chart says "Not read yet" only until their first read. The samples
     are kept in memory only, so the charts start empty after a relaunch. A
     chart with nothing to draw says why ("No samples yet", or "Metrics
     unavailable" with the reason) rather than drawing zero.

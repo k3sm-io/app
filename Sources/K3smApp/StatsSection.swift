@@ -21,9 +21,10 @@ import SwiftUI
 /// StatsSection is the Stats tab: one navy tile per `StatsChart`, two
 /// across when the column has room, each with its title, its units and its
 /// help tag, and either its chart or the line `StatsDisplay` gives for why
-/// there is none. It makes no read: the series come from `StatsHistory`
-/// (fed by the metrics poll, the pod list and the status report) and the
-/// last values of the shared node list and the Storage tab. It is in the
+/// there is none. It makes no read of its own kind: the series come from
+/// `StatsHistory` (fed by the metrics poll, the pod list and the status
+/// report), the shared node list, and the Storage tab's loader, which
+/// `AppModel` runs while Stats is shown. It is in the
 /// view tree only while its tab is on screen, so nothing is drawn
 /// otherwise; the time-based charts redraw every `StatsSection.tick`.
 struct StatsSection: View {
