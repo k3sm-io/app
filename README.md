@@ -522,12 +522,13 @@ The **Updates** pane (see [The managed update](#the-managed-update)):
 - While an update rolls, the same progress panel as in the console, with
   **Cancel Update…**.
 - **When updating**: **Drain each node before updating it** (off at first)
-  evicts each node's pods before it updates; **Allow a release older than a
-  node runs** (off at first) lets the update move a node back; **Code
-  signature** is either **Same signer as the installed k3sm** (the default)
-  or **Developer ID signature required**. They apply to the next update the
-  app starts, as `k3sm update apply` flags. The release's checksum is always
-  verified.
+  evicts each node's pods before it updates; **Code signature** is either
+  **Same signer as the installed k3sm** (the default) or the stricter
+  **Developer ID signature required**. They are read when you click Update,
+  and the question that follows names each one that is not the default; the
+  update then runs with exactly what the question showed, as `k3sm update
+  apply` flags, even if you change them here meanwhile. The release's
+  checksum is always verified.
 
 The release source the server checks is set when k3sm is installed and is
 not shown here: `k3sm status` does not report it.
@@ -554,9 +555,12 @@ check has no answer, neither appears.
 
 Update asks first, naming the release, then shows the standard
 administrator prompt and runs `/Library/k3sm/k3sm update apply --yes`
-through the same checked root step as Stop and Start, adding `--drain`,
-`--allow-downgrade` or `--signature required` when Settings > Updates asks
-for them. k3sm then updates the
+through the same checked root step as Stop and Start, adding `--drain` or
+`--signature required` when Settings > Updates asks for them. When the
+status report names a node that runs a release newer than the latest, the
+question also carries **Allow a release older than a node runs**, off each
+time it opens; ticked, that one update runs with `--allow-downgrade`. It is
+never remembered. k3sm then updates the
 cluster one node at a time, the server last. If an update is already
 rolling, the app follows that one.
 

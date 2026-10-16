@@ -580,10 +580,10 @@ public enum Help {
         /// Drain each node before updating it.
         public static let drain = HelpTag("Evict each node's pods before it updates, so they move first",
                                           control: "updates: drain checkbox", label: "Drain each node before updating it")
-        /// Allow a release older than a node runs.
-        public static let allowDowngrade = HelpTag("Let the update move a node to an older release",
-                                                   control: "updates: downgrade checkbox",
-                                                   label: "Allow a release older than a node runs")
+        /// Allow a release older than a node runs, in the update's confirmation.
+        public static let allowDowngrade = HelpTag("Let this update move a node to an older release",
+                                                   control: "update confirmation: downgrade checkbox",
+                                                   label: UpdateOptions.downgradeTitle)
         /// The signature policy popup.
         public static let signature = HelpTag("Which code signature the new release must carry; checksums always apply",
                                               control: "updates: signature popup", label: "Code signature")

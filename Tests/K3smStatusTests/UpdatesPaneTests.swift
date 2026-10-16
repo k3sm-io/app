@@ -53,19 +53,19 @@ struct UpdatesPaneTests {
         let options = UpdateOptions(drain: drain, allowDowngrade: downgrade, signature: signature)
         #expect(options.arguments == argv)
         #expect(UpdateOptions.defaults.arguments == K3smCLI.updateApplyArguments)
+        // The popup offers the default or stricter, nothing looser.
         #expect(UpdateSignaturePolicy.allCases.map(\.rawValue) == ["if-signed", "required"])
     }
 
-    @Test("the update options are stored preferences, off by default, and reset puts them back")
+    @Test("drain and the signature policy are stored, off by default, and reset puts them back")
     func updateOptionsPreferences() {
         let defaults = Self.fresh()
         let prefs = AppPreferences(defaults: defaults)
         #expect(prefs.updateOptions == .defaults)
         prefs.updateDrain = true
-        prefs.updateAllowDowngrade = true
         prefs.updateSignature = .required
         #expect(AppPreferences(defaults: defaults).updateOptions
-            == UpdateOptions(drain: true, allowDowngrade: true, signature: .required))
+            == UpdateOptions(drain: true, allowDowngrade: false, signature: .required))
         // A stored word this build does not know reads as the default.
         defaults.set("sometimes", forKey: AppPreferences.updateSignatureKey)
         #expect(prefs.updateSignature == .ifSigned)
@@ -114,6 +114,16 @@ struct UpdatesPaneTests {
         // A latest that is not a release tag never reaches the pane.
         let bad = UpdatesPaneFacts.decide(report: Self.update("ok", wide: ["latest": "v0.1.9\u{202E}evil"]), installed: installed)
         #expect(bad.available == "not known")
+    }
+
+    @Test("a downgrade is offered only for a behind row that names a newer node")
+    func downgradeOffer() {
+        let mixed = Self.update("behind", detail: "k3sm v0.1.8 is available; behind: a (v0.1.7); newer than the latest release: b (v0.2.0)",
+                                wide: ["latest": "v0.1.8"])
+        #expect(UpdateOffer.offersDowngrade(in: mixed))
+        #expect(!UpdateOffer.offersDowngrade(in: Self.update("behind", detail: "k3sm v0.1.8 is available; behind: a (v0.1.7)")))
+        #expect(!UpdateOffer.offersDowngrade(in: Self.update("ahead", detail: "k3sm v0.1.8 is the latest; newer than the latest release: b (v0.2.0)")))
+        #expect(!UpdateOffer.offersDowngrade(in: nil))
     }
 
     @Test("Update Now is enabled only when an update is offered, and says why not")

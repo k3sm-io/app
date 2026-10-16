@@ -37,8 +37,6 @@ public struct AppPreferences: @unchecked Sendable {
         case allChecksOpen = "pref.allChecksOpen"
         /// Pass `--drain` to `k3sm update apply` (`UpdateOptions.drain`).
         case updateDrain = "pref.updateDrain"
-        /// Pass `--allow-downgrade` to `k3sm update apply`.
-        case updateAllowDowngrade = "pref.updateAllowDowngrade"
 
         /// The value when nothing usable is stored.
         public var defaultValue: Bool {
@@ -48,7 +46,6 @@ public struct AppPreferences: @unchecked Sendable {
             case .dockAnimation: true
             case .allChecksOpen: false
             case .updateDrain: false
-            case .updateAllowDowngrade: false
             }
         }
     }
@@ -110,11 +107,6 @@ public struct AppPreferences: @unchecked Sendable {
         nonmutating set { set(newValue, for: .updateDrain) }
     }
 
-    public var updateAllowDowngrade: Bool {
-        get { bool(.updateAllowDowngrade) }
-        nonmutating set { set(newValue, for: .updateAllowDowngrade) }
-    }
-
     /// The stored signature policy; a missing value, another type or a word
     /// this build does not know reads as `ifSigned`, the CLI's default.
     public var updateSignature: UpdateSignaturePolicy {
@@ -122,9 +114,11 @@ public struct AppPreferences: @unchecked Sendable {
         nonmutating set { defaults.set(newValue.rawValue, forKey: Self.updateSignatureKey) }
     }
 
-    /// The managed update's options as stored, read when the apply starts.
+    /// The managed update's options as stored, read once when Update is
+    /// clicked. Allowing a downgrade is never stored: the confirmation
+    /// offers it for that one apply, off each time.
     public var updateOptions: UpdateOptions {
-        UpdateOptions(drain: updateDrain, allowDowngrade: updateAllowDowngrade, signature: updateSignature)
+        UpdateOptions(drain: updateDrain, allowDowngrade: false, signature: updateSignature)
     }
 
     /// The Settings window's last pane, restored through `SettingsPane.restore`.

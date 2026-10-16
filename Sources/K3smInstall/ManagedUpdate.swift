@@ -43,12 +43,22 @@ public enum UpdatePrecondition {
     }
 }
 
+/// UpdateApplyAnswer is the answer to the apply's question: no, or yes with
+/// the downgrade checkbox's state (off unless the question offered it).
+public enum UpdateApplyAnswer: Equatable, Sendable {
+    case declined
+    case confirmed(allowDowngrade: Bool)
+}
+
 /// UpdateDriver runs one managed update verb from a click to its outcome.
 /// The apply re-reads the status and refuses unless the `update` row still
-/// offers the release the user chose, asks (naming it), re-reads and checks
-/// again, then hands `k3sm update apply --yes`, with the flags its
-/// `UpdateOptions` name, to the administrator prompt through the checked
-/// lifecycle script. The cancel asks, then runs
+/// offers the release the user chose, asks (naming the release and every
+/// option that is not the default, and offering a downgrade only when the
+/// row names a node newer than the latest), re-reads and checks again, then
+/// hands `k3sm update apply --yes`, with exactly the options the question
+/// showed and the downgrade answer, to the administrator prompt through the
+/// checked lifecycle script. The options are frozen when `apply` is called;
+/// nothing is read from the preferences after that. The cancel asks, then runs
 /// `k3sm update cancel` the same way. Every run is a fresh prompt.
 public struct UpdateDriver: Sendable {
     public enum Result: Equatable, Sendable {
@@ -70,30 +80,39 @@ public struct UpdateDriver: Sendable {
     let teamID: TeamID
     let readStatus: @Sendable () async -> StatusReport?
     let confirm: @MainActor @Sendable (LifecycleConfirmation) async -> Bool
+    let confirmApply: @MainActor @Sendable (LifecycleConfirmation) async -> UpdateApplyAnswer
     let runner: any PrivilegedRunner
 
     public init(
         teamID: TeamID,
         readStatus: @escaping @Sendable () async -> StatusReport?,
         confirm: @escaping @MainActor @Sendable (LifecycleConfirmation) async -> Bool,
+        confirmApply: @escaping @MainActor @Sendable (LifecycleConfirmation) async -> UpdateApplyAnswer,
         runner: any PrivilegedRunner
     ) {
         self.teamID = teamID
         self.readStatus = readStatus
         self.confirm = confirm
+        self.confirmApply = confirmApply
         self.runner = runner
     }
 
     /// Starts the update to `tag`, the release the user was offered, with
-    /// the update's options as flags.
+    /// `options` as read at the click (a downgrade in them is ignored: only
+    /// the question's checkbox allows one).
     public func apply(tag: String, options: UpdateOptions = .defaults) async -> Result {
+        let frozen = UpdateOptions(drain: options.drain, allowDowngrade: false, signature: options.signature)
         let first = await readStatus()
         if case .refused(let why) = UpdatePrecondition.check(tag: tag, live: first) { return .refused(why) }
         guard let first else { return .refused("k3sm could not read the status of this Mac just now.") }
-        guard await confirm(LifecycleConfirmation(verb: .updateApply, report: first)) else { return .declined }
+        let question = LifecycleConfirmation(update: frozen, report: first)
+        guard case .confirmed(let downgrade) = await confirmApply(question) else { return .declined }
+        var confirmed = frozen
+        confirmed.allowDowngrade = downgrade && question.offersDowngrade
         let second = await readStatus()
         if case .refused(let why) = UpdatePrecondition.check(tag: tag, live: second) { return .refused(why) }
-        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(.updateApply, teamID: teamID, update: options), input: nil)
+        let script = LifecycleScriptBuilder.render(.updateApply, teamID: teamID, update: confirmed)
+        let run = await runner.runAsRootReportingError(script, input: nil)
         return Self.classify(run, verb: .updateApply)
     }
 

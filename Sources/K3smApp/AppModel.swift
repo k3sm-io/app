@@ -772,7 +772,7 @@ final class AppModel: ObservableObject {
 
     /// Runs `k3sm update apply --yes` for the release offered, from the menu,
     /// the console button or the Settings Updates pane, through the checked
-    /// root step, with the update options as they are stored now.
+    /// root step, with the update options as stored at the click.
     func performUpdate() {
         let offer = updateOffer
         guard case .available(let tag, let reason) = offer else { return }
@@ -781,11 +781,14 @@ final class AppModel: ObservableObject {
             return
         }
         guard let teamID else { return }
+        // Read once, at the click; the driver freezes them for the question
+        // and the run, so a change in Settings afterwards reaches neither.
+        let options = AppPreferences().updateOptions
         Task {
             running = true
             outcomeMessage = nil
             updateProgress.applyStarted()
-            let result = await updateDriver(teamID).apply(tag: tag, options: AppPreferences().updateOptions)
+            let result = await updateDriver(teamID).apply(tag: tag, options: options)
             running = false
             finishUpdate(result, title: LifecycleVerb.updateApply.title)
             log.notice("update apply finished")
@@ -833,6 +836,7 @@ final class AppModel: ObservableObject {
             teamID: teamID,
             readStatus: { await self.readFullReport() },
             confirm: { Self.confirm($0) },
+            confirmApply: { Self.confirmApply($0) },
             runner: runner)
     }
 
@@ -1091,6 +1095,30 @@ final class AppModel: ObservableObject {
             alert.window.initialFirstResponder = cancel
         }
         return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    /// Asks the apply's question: the release, every option that is not the
+    /// default, and, when it offers one, the downgrade checkbox, off each
+    /// time the question opens.
+    private static func confirmApply(_ c: LifecycleConfirmation) -> UpdateApplyAnswer {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = c.title
+        alert.informativeText = c.message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: c.verb.title)
+        alert.addButton(withTitle: c.cancelTitle)
+        var box: NSButton?
+        if c.offersDowngrade {
+            let checkbox = NSButton(checkboxWithTitle: UpdateOptions.downgradeTitle, target: nil, action: nil)
+            checkbox.state = .off
+            checkbox.toolTip = Help.Updates.allowDowngrade.text
+            checkbox.sizeToFit()
+            alert.accessoryView = checkbox
+            box = checkbox
+        }
+        guard alert.runModal() == .alertFirstButtonReturn else { return .declined }
+        return .confirmed(allowDowngrade: box?.state == .on)
     }
 
     /// Shows one sentence in an alert.
