@@ -251,7 +251,11 @@ final class AppModel: ObservableObject {
     /// The last full report that decoded, and when it was read. It alone
     /// carries the daemon's applied state.
     @Published private(set) var lanReport: StatusReport? {
-        didSet { syncUpdateReader() }
+        didSet {
+            syncUpdateReader()
+            // The Stats tab's update chart follows the row in each report.
+            if let lanReport { workloads.noteUpdate(lanReport, at: Date()) }
+        }
     }
     @Published private(set) var lanReadAt: Date?
     /// The last daemons probe that decoded, and when it was read. It carries
@@ -311,6 +315,7 @@ final class AppModel: ObservableObject {
             case .services: return self.services?.load
             case .storage: return self.storage?.load
             case .models: return self.models?.load
+            case .stats: return nil
             }
         }
         waiting.selected = { [weak self] in self?.section }
@@ -586,6 +591,7 @@ final class AppModel: ObservableObject {
         case .services: return services?.value.map { Set($0.map(\.key)) }
         case .storage: return storage?.value.map { Set($0.map(\.key)) }
         case .models: return models?.value.map { Set($0.map(\.key)) }
+        case .stats: return []
         }
     }
 
@@ -599,7 +605,8 @@ final class AppModel: ObservableObject {
     private var engineReady: Bool { builds?.value?.state == .ready }
 
     /// The loader behind a tab, created on its first selection; nil for
-    /// Nodes and Images, which render the shared node list.
+    /// Nodes and Images, which render the shared node list, and for Stats,
+    /// which renders what the other reads fetched.
     private func loader(for section: ConsoleSection) -> (any TabLoading)? {
         if let existing = loaders[section] { return existing }
         let made: (any TabLoading)?
@@ -608,7 +615,7 @@ final class AppModel: ObservableObject {
             let pods = workloads.podsLoader()
             pods.interval = { [weak self] _ in PollSchedule.podsInterval(selected: self?.section == .workloads) }
             made = pods
-        case .nodes, .images:
+        case .nodes, .images, .stats:
             made = nil
         case .builds:
             let engine = observed(TabLoader(
@@ -690,7 +697,7 @@ final class AppModel: ObservableObject {
         case .storage:
             return storage?.value.flatMap(StorageActions.cleanupRequest).map { [ActionMenuItem($0)] } ?? []
         case .builds: return BuildActions.toolbar(builds?.value)
-        case .nodes, .images, .services, .models: return []
+        case .nodes, .images, .services, .models, .stats: return []
         }
     }
 
@@ -715,7 +722,7 @@ final class AppModel: ObservableObject {
             guard key != InspectorDetails.engineRow,
                   let record = buildHistory?.value?.first(where: { $0.key == key }) else { return .empty }
             return BuildActions.menu(for: record)
-        case .image:
+        case .image, .stat:
             return .empty
         }
     }

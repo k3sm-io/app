@@ -25,11 +25,16 @@ limitations under the License.
 public enum TabStripLayout {
     /// The tab labels' font size.
     public static let fontSize: Double = 13
-    /// The gap between two tabs.
-    public static let tabSpacing: Double = 16
+    /// The gap between two tabs: 14 pt, the least that still holds the
+    /// waiting butterfly's landing (`Perch.landingStart` is 12 pt before the
+    /// label). It was 16 before the Stats tab; with `itemSpacing` and
+    /// `searchMinimum` it keeps the eight labels, at the estimate's wide
+    /// advance, inside a 1440 pt window with the panel and inspector shown.
+    public static let tabSpacing: Double = 14
     /// The gap between the strip's items: the tabs, the spacer, the update
-    /// button, the search field and the icon buttons.
-    public static let itemSpacing: Double = 12
+    /// button, the search field and the icon buttons (12 pt before the Stats
+    /// tab; the strip's `HStack` uses this value).
+    public static let itemSpacing: Double = 10
     /// The spacer between the tabs and the controls, at its least.
     public static let spacerMinimum: Double = 8
     /// The icon buttons at the strip's end: details, tour, info and Settings.
@@ -38,9 +43,10 @@ public enum TabStripLayout {
     public static let iconButtonWidth: Double = 20
     /// The icon buttons with the gaps between them.
     public static let controlsWidth: Double = Double(iconButtons) * iconButtonWidth + Double(iconButtons - 1) * itemSpacing
-    /// The search field's minimum width.
-    public static let searchMinimum: Double = 100
-    /// The strip's horizontal padding, both sides together.
+    /// The search field's minimum width (100 pt before the Stats tab); it
+    /// grows to its ideal 180 pt whenever the window is wider than its least.
+    public static let searchMinimum: Double = 72
+    /// The strip's horizontal padding, both sides together (half each side).
     public static let padding: Double = 32
     /// The longest label drawn in full; a longer one is shortened at its tail.
     public static let labelCap = 24

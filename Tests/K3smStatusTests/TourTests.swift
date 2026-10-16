@@ -57,7 +57,7 @@ struct TourTests {
         for section in ConsoleSection.allCases {
             #expect(stop?.text.contains(section.title) == true, "\(section.title) is missing")
         }
-        #expect(stop?.text.contains("Workloads, Nodes, Images, Builds, Services, Storage and Models") == true)
+        #expect(stop?.text.contains("Workloads, Nodes, Images, Builds, Services, Storage, Models and Stats") == true)
     }
 
     @Test("a list reads like a sentence")

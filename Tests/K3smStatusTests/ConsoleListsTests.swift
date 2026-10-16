@@ -329,8 +329,8 @@ struct NewTabsTests {
 
     @Test("the new tabs have their cadence and their order in the strip")
     func cadenceAndOrder() {
-        #expect(ConsoleSection.allCases == [.workloads, .nodes, .images, .builds, .services, .storage, .models])
-        for section in [ConsoleSection.services, .storage, .models] {
+        #expect(ConsoleSection.allCases == [.workloads, .nodes, .images, .builds, .services, .storage, .models, .stats])
+        for section in [ConsoleSection.services, .storage, .models, .stats] {
             #expect(PollSchedule.interval(for: section, engineReady: false) == .seconds(15))
         }
         #expect(PollSchedule.eventsInterval == .seconds(5))

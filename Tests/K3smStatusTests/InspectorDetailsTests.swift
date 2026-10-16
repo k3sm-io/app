@@ -165,6 +165,7 @@ struct InspectorDetailsTests {
         let want: [ConsoleSection: String] = [
             .workloads: "Select a pod.", .nodes: "Select a node.", .images: "Select an image.", .builds: "Select a build.",
             .services: "Select a service.", .storage: "Select a claim.", .models: "Select a model.",
+            .stats: "The charts cover this session's reads, the last hour at most.",
         ]
         for section in ConsoleSection.allCases {
             #expect(InspectorDetails.emptyText(section) == want[section])

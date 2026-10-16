@@ -65,11 +65,14 @@ public enum InspectorDetails {
         case .services: return "service"
         case .storage: return "claim"
         case .models: return "model"
+        case .stats: return "chart"
         }
     }
 
-    /// The inspector's line while its tab has no selection: "Select an image."
+    /// The inspector's line while its tab has no selection: "Select an image.",
+    /// or, on Stats, whose charts have no rows, what the charts cover.
     public static func emptyText(_ section: ConsoleSection) -> String {
+        if section == .stats { return StatsDisplay.inspectorText }
         let kind = kind(of: section)
         let article = "aeiou".contains(kind.first ?? "x") ? "an" : "a"
         return "Select \(article) \(kind)."

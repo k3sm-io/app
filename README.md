@@ -130,7 +130,7 @@ login** in the app's Settings turns it off or on again (see
   This Mac. The panel scrolls in a short window. While the window is open the
   node list and the selected tab's list are re-read every 5 seconds (Nodes
   included; every 15
-  seconds on Images, Services, Storage and Models, and on Builds once the
+  seconds on Images, Services, Storage, Models and Stats, and on Builds once the
   build engine is ready) and the
   status report is re-read every 30 seconds, so the panel follows nodes as
   they join and leave. The pod list keeps being read every 30 seconds while
@@ -154,7 +154,8 @@ login** in the app's Settings turns it off or on again (see
   no sample for reads "no metrics yet", never zero. When the cluster serves
   no metrics API, or its APIService is not available, the bars are hidden
   and the line says why (from the APIService's condition, or the read's
-  error); the app then looks again every minute. Nothing is stored.
+  error); the app then looks again every minute. Nothing is written to
+  disk; the Stats tab keeps the last hour of samples in memory.
 - The **Update** button appears at the top right of the console, beside the
   search field, when k3sm reports a newer release for the cluster. It runs
   the cluster's managed update (see [The managed update](#the-managed-update)).
@@ -204,6 +205,18 @@ login** in the app's Settings turns it off or on again (see
     and endpoint. On a cluster that does not serve the MLX API the tab says
     "Unavailable (the MLX API is not served on this cluster)", which is not a
     failure.
+  - **Stats**: charts of what the console already reads, on navy tiles:
+    CPU and memory per node over the last hour (as shares of what each
+    node offers, one point per metrics sample, about 240 per node), pods by
+    phase and by node, container restarts in the last hour (the rise in
+    each pod's restart count between pod-list reads, in five-minute bars),
+    image count and size by node, the bound claims' capacity against the
+    data volume's free space, and the managed update's state over this
+    session. The tab makes no read of its own: the storage chart shows what
+    the Storage tab last read, and says so until you open it. The samples
+    are kept in memory only, so the charts start empty after a relaunch. A
+    chart with nothing to draw says why ("No samples yet", or "Metrics
+    unavailable" with the reason) rather than drawing zero.
 
   The tabs only read. The changes the console makes are a pod's
   **Restart** and **Delete**, a node's **Cordon** and **Uncordon**, a

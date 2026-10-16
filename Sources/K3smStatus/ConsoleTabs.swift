@@ -26,6 +26,7 @@ public enum ConsoleSection: String, CaseIterable, Identifiable, Sendable {
     case services
     case storage
     case models
+    case stats
 
     public var id: Self { self }
 
@@ -39,6 +40,7 @@ public enum ConsoleSection: String, CaseIterable, Identifiable, Sendable {
         case .services: return "Services"
         case .storage: return "Storage"
         case .models: return "Models"
+        case .stats: return "Stats"
         }
     }
 }

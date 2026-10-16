@@ -64,6 +64,8 @@ struct ConsoleInspector: View {
             } else {
                 RowInspector(content: nil, empty: InspectorDetails.emptyText(.models))
             }
+        case .stats:
+            RowInspector(content: nil, empty: InspectorDetails.emptyText(.stats))
         }
     }
 }

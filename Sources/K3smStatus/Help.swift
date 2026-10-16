@@ -51,7 +51,7 @@ public struct HelpTag: Equatable, Sendable {
 public enum Help {
     /// Every tag in the catalog, area by area.
     public static var all: [HelpTag] {
-        Strip.all + Workloads.all + Nodes.all + Images.all + Builds.all + Services.all + Storage.all + Models.all
+        Strip.all + Workloads.all + Nodes.all + Images.all + Builds.all + Services.all + Storage.all + Models.all + Stats.all
             + Inspector.all + Actions.all + Panel.all + Popover.all + Guided.all + FirstRun.all + Update.all
             + Tour.all + General.all + Network.all + Updates.all + Advanced.all + SettingsWindow.all + Menus.all + Columns.all
     }
@@ -104,6 +104,7 @@ public enum Help {
             case .services: text = "Show the services and the hosts routed to them"
             case .storage: text = "Show the data volume and the volume claims"
             case .models: text = "Show the MLX models the cluster serves"
+            case .stats: text = "Chart the load, pods, restarts, images, storage and updates"
             }
             return HelpTag(text, control: "console strip: \(section.rawValue) tab", label: section.title)
         }
@@ -254,6 +255,44 @@ public enum Help {
                                              control: "models: Endpoint column", label: "Endpoint")
 
         public static var all: [HelpTag] { [ready, endpoint] }
+    }
+
+    // MARK: Stats tab
+
+    /// The Stats tab's charts, one tag each.
+    public enum Stats {
+        public static let cpu = HelpTag("CPU used per node, from metrics-server, as a share of allocatable",
+                                        control: "stats: CPU chart", label: StatsChart.cpu.title)
+        public static let memory = HelpTag("Memory used per node, from metrics-server, as a share of allocatable",
+                                           control: "stats: memory chart", label: StatsChart.memory.title)
+        public static let podsByPhase = HelpTag("How many pods are in each phase, from the last pod list",
+                                                control: "stats: pods by phase chart", label: StatsChart.podsByPhase.title)
+        public static let podsByNode = HelpTag("How many pods each node holds, from the last pod list",
+                                               control: "stats: pods by node chart", label: StatsChart.podsByNode.title)
+        public static let restarts = HelpTag("Restarts found between pod list reads, in five-minute bars",
+                                             control: "stats: restarts chart", label: StatsChart.restarts.title)
+        public static let images = HelpTag("Size of the images each node reports holding, with their count",
+                                           control: "stats: images chart", label: StatsChart.images.title)
+        public static let storage = HelpTag("Capacity of the bound claims, against the data volume's free space",
+                                            control: "stats: storage chart", label: StatsChart.storage.title)
+        public static let updates = HelpTag("The update row's state in each status report this session",
+                                            control: "stats: update chart", label: StatsChart.updates.title)
+
+        /// One chart's tag.
+        public static func tag(for chart: StatsChart) -> HelpTag {
+            switch chart {
+            case .cpu: return cpu
+            case .memory: return memory
+            case .podsByPhase: return podsByPhase
+            case .podsByNode: return podsByNode
+            case .restarts: return restarts
+            case .images: return images
+            case .storage: return storage
+            case .updates: return updates
+            }
+        }
+
+        public static var all: [HelpTag] { StatsChart.allCases.map(tag(for:)) }
     }
 
     // MARK: Inspector

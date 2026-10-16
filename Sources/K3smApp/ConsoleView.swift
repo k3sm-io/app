@@ -175,6 +175,7 @@ struct ConsoleContent: View {
             } else {
                 Color.clear
             }
+        case .stats: StatsSection(app: app, workloads: app.workloads)
         }
     }
 }
@@ -195,7 +196,7 @@ struct ConsoleStrip: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: CGFloat(TabStripLayout.itemSpacing)) {
             TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
                 .tourTarget(.tabs, app.tour)
             Spacer()
@@ -218,7 +219,7 @@ struct ConsoleStrip: View {
             case .services: search($app.servicesQuery)
             case .storage: search($app.storageQuery)
             case .models: search($app.modelsQuery)
-            case .builds:
+            case .builds, .stats:
                 EmptyView()
             }
             Button { app.inspectorShown.toggle() } label: {
@@ -252,12 +253,12 @@ struct ConsoleStrip: View {
             .accessibilityLabel("Settings")
             .help(Help.Strip.settings)
         }
-        .padding(.horizontal, 16).frame(height: CGFloat(TabStripLayout.height))
+        .padding(.horizontal, CGFloat(TabStripLayout.padding / 2)).frame(height: CGFloat(TabStripLayout.height))
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
     }
 
     /// The tab's search field: 180 pt when the strip has room, narrowing to
-    /// 100 pt before the tab labels are squeezed.
+    /// `TabStripLayout.searchMinimum` before the tab labels are squeezed.
     private func search(_ text: Binding<String>) -> some View {
         TextField("Search", text: text).textFieldStyle(.roundedBorder).frame(minWidth: CGFloat(TabStripLayout.searchMinimum), idealWidth: 180, maxWidth: 180)
     }

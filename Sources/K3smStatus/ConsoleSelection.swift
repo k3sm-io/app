@@ -29,6 +29,9 @@ public enum ConsoleRow: Hashable, Sendable {
     case service(String)
     case claim(String)
     case model(String)
+    /// The Stats tab draws charts and lists no rows; a stored key of its
+    /// own is cleared on the tab's first showing.
+    case stat(String)
 
     /// A row of `section` keyed `key`.
     public init(section: ConsoleSection, key: String) {
@@ -40,6 +43,7 @@ public enum ConsoleRow: Hashable, Sendable {
         case .services: self = .service(key)
         case .storage: self = .claim(key)
         case .models: self = .model(key)
+        case .stats: self = .stat(key)
         }
     }
 
@@ -53,13 +57,14 @@ public enum ConsoleRow: Hashable, Sendable {
         case .service: return .services
         case .claim: return .storage
         case .model: return .models
+        case .stat: return .stats
         }
     }
 
     /// The decoder's key for the row.
     public var key: String {
         switch self {
-        case .pod(let k), .node(let k), .image(let k), .build(let k), .service(let k), .claim(let k), .model(let k): return k
+        case .pod(let k), .node(let k), .image(let k), .build(let k), .service(let k), .claim(let k), .model(let k), .stat(let k): return k
         }
     }
 }

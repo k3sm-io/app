@@ -331,14 +331,15 @@ public enum PollSchedule {
     /// Workloads and Nodes at `visibleInterval`, as before tabs; Images at
     /// `imagesInterval`; Builds at `visibleInterval` until the engine is
     /// ready, then `buildsReadyInterval`; Services, Storage and Models at
-    /// `objectsInterval`. The shared node list follows the selected tab's
-    /// cadence too.
+    /// `objectsInterval`; Stats, which only renders what the other reads
+    /// fetched, at `objectsInterval`. The shared node list follows the
+    /// selected tab's cadence too.
     public static func interval(for section: ConsoleSection, engineReady: Bool) -> Duration {
         switch section {
         case .workloads, .nodes: return visibleInterval
         case .images: return imagesInterval
         case .builds: return engineReady ? buildsReadyInterval : visibleInterval
-        case .services, .storage, .models: return objectsInterval
+        case .services, .storage, .models, .stats: return objectsInterval
         }
     }
 }

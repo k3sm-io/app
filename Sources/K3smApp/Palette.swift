@@ -57,6 +57,10 @@ enum Palette {
     static let glow = Color(red: 0.49, green: 0.576, blue: 1.0)         // #7d93ff, the tour's light
     static let glowSoft = Color(red: 0.624, green: 0.69, blue: 1.0)     // #9fb0ff, the tour's eyebrow
 
+    /// The Stats tab's series on its navy tiles, one per node or state in
+    /// turn: the meters' fill, then the panel's other marks.
+    static let chartSeries: [Color] = [fill, okOnDark, vm, fillSoft, glowSoft, warnOnDark, dockMark]
+
     static let ok = Color(red: 0.090, green: 0.569, blue: 0.310)
     static let warn = Color(red: 0.722, green: 0.416, blue: 0.0)
     static let bad = Color(red: 0.788, green: 0.188, blue: 0.173)

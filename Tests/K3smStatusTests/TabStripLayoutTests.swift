@@ -36,9 +36,9 @@ struct TabStripLayoutTests {
         #expect(TabStripLayout.controlsWidth == 4 * TabStripLayout.iconButtonWidth + 3 * TabStripLayout.itemSpacing)
     }
 
-    @Test("the seven tabs fit whole at the minimum width; a longer eighth raises it; the window follows")
+    @Test("the eight tabs fit whole at the minimum width; a longer ninth raises it; the window follows")
     func tabStripFitsAtMinimumWidth() {
-        #expect(Self.titles.count == 7)
+        #expect(Self.titles.count == 8)
         let button = TabStripLayout.buttonWidth(title: "Updating…")
         let minimum = TabStripLayout.minimumWidth(labels: Self.titles, buttonWidth: button)
         #expect(minimum > 0)
@@ -52,7 +52,7 @@ struct TabStripLayoutTests {
         #expect(tabs > 0)
         #expect(minimum - Self.fixedParts(button: button) >= tabs)
 
-        // An eighth long title raises the minimum by at least its own width and a gap.
+        // A ninth long title raises the minimum by at least its own width and a gap.
         let eighth = "Interconnects and links"
         let raised = TabStripLayout.minimumWidth(labels: Self.titles + [eighth], buttonWidth: button)
         #expect(raised >= minimum + TabStripLayout.labelWidth(eighth) + TabStripLayout.tabSpacing)
@@ -78,6 +78,22 @@ struct TabStripLayoutTests {
             let before = TabStripLayout.minimumWidth(labels: without, buttonWidth: button)
             #expect(abs(strip - before - TabStripLayout.labelWidth("Nodes") - TabStripLayout.tabSpacing) < 1e-9)
         }
+    }
+
+    @Test("with the Stats tab the window's minimum still fits a 1440 pt wide display, whatever the strip holds")
+    func statsTabFitsTheNarrowestLaptop() {
+        #expect(Self.titles.last == "Stats")
+        let without = Self.titles.filter { $0 != "Stats" }
+        for title in [nil, "Update", "Updating…"] as [String?] {
+            let button = title.map(TabStripLayout.buttonWidth(title:))
+            let strip = TabStripLayout.minimumWidth(labels: Self.titles, buttonWidth: button)
+            let window = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: true, panelCollapsed: false)
+            #expect(window <= 1440, "\(title ?? "no update"): \(window)")
+            let before = TabStripLayout.minimumWidth(labels: without, buttonWidth: button)
+            #expect(abs(strip - before - TabStripLayout.labelWidth("Stats") - TabStripLayout.tabSpacing) < 1e-9)
+        }
+        // The spacing stays a visible gap: at least the width of one label character.
+        #expect(TabStripLayout.tabSpacing >= TabStripLayout.fontSize * PanelLayout.advance)
     }
 
     @Test("the update button counts only when offered")

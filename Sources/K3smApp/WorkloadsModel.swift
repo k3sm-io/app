@@ -59,6 +59,10 @@ final class WorkloadsModel: ObservableObject {
     /// The live load from metrics-server: the last sample, kept while the
     /// console is away, and why there is none (`MetricsState`).
     @Published private(set) var metrics = MetricsState()
+    /// What the Stats tab charts over time (`StatsHistory`): the metrics
+    /// samples, the restarts between pod-list reads and the update row's
+    /// states, fed by the reads above and kept in memory only.
+    @Published private(set) var stats = StatsHistory()
     /// The Summarize Logs action's runner, whose panel the inspector shows.
     let summaries: LogSummaryModel
     /// Called after each node-list read, for the Images tab's selection.
@@ -87,6 +91,7 @@ final class WorkloadsModel: ObservableObject {
         LocalActions.summarize = { [weak summaries] in summaries?.summarize($0) }
         metricsPoller = MetricsPoller(environment: environment) { [weak self] reading, at in
             self?.metrics.apply(reading, at: at)
+            self?.stats.record(reading, at: at)
         }
     }
 
@@ -99,6 +104,11 @@ final class WorkloadsModel: ObservableObject {
     /// Stops the metrics poll; the last sample stays.
     func stopMetrics() {
         metricsPoller?.stop()
+    }
+
+    /// Records a full status report's update row for the Stats tab.
+    func noteUpdate(_ report: StatusReport, at time: Date) {
+        stats.record(update: report, at: time)
     }
 
     /// The selected pod's live load rows, by `MetricsDisplay.podFacts`.
@@ -116,7 +126,9 @@ final class WorkloadsModel: ObservableObject {
         loader.onRead = { [weak self] in
             guard let self else { return }
             self.applySelection()
-            self.onPodsRead?(!(self.pods?.load.failedOrUnavailable ?? true))
+            let ok = !(self.pods?.load.failedOrUnavailable ?? true)
+            if ok, let pods = self.workloads?.pods { self.stats.record(pods: pods, at: self.pods?.readAt ?? Date()) }
+            self.onPodsRead?(ok)
         }
         pods = loader
         forward(loader)
