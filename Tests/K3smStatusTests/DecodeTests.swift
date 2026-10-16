@@ -37,7 +37,7 @@ struct DecodeTests {
                    summary: "the control-plane daemon and netd are running (the apiserver was not probed)",
                    rowCount: 2, nodeRow: "server", nodeState: "running"),
         DecodeCase(file: "status_json_running.json", verdict: .running, role: "server",
-                   summary: "1/1 nodes ready", rowCount: 11, nodeRow: "server", nodeState: "running"),
+                   summary: "1/1 nodes ready", rowCount: 12, nodeRow: "server", nodeState: "running"),
         DecodeCase(file: "status_daemons_json_degraded.json", verdict: .degraded, role: "server",
                    summary: "netd: launchd reports running, but pid 1292 is not in the process table · socket /var/lib/k3sm/run/netd.sock",
                    rowCount: 2, nodeRow: "server", nodeState: "unknown"),

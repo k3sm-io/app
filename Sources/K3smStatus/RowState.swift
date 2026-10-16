@@ -25,6 +25,12 @@ public enum RowState: Equatable, Sendable {
     case healthy(String)
     /// A check only root can run: nothing was checked and nothing is wrong.
     case needsAdmin
+    /// The `update` row: a node runs an older k3sm release than the latest.
+    /// Its severity carries the warn; it never moves the verdict.
+    case behind
+    /// The `update` row: a node runs a release newer than the latest and
+    /// none is behind.
+    case ahead
     /// Another committed word (stopped, not-ready, skip, ...), shown as printed.
     case reported(String)
     /// The word `unknown`, or a word this build does not know.
@@ -32,6 +38,9 @@ public enum RowState: Equatable, Sendable {
 
     /// The wire word for a check only root can run.
     public static let needsAdminWord = "needs-admin"
+    /// The `update` row's wire words for an older and a newer release.
+    public static let behindWord = "behind"
+    public static let aheadWord = "ahead"
 
     static let healthyWords: Set<String> = ["running", "ok", "ready", "healthy"]
     static let reportedWords: Set<String> = [
@@ -47,6 +56,10 @@ public enum RowState: Equatable, Sendable {
     public init(word: String) {
         if word == Self.needsAdminWord {
             self = .needsAdmin
+        } else if word == Self.behindWord {
+            self = .behind
+        } else if word == Self.aheadWord {
+            self = .ahead
         } else if Self.healthyWords.contains(word) {
             self = .healthy(word)
         } else if Self.reportedWords.contains(word) {
@@ -61,22 +74,30 @@ public enum RowState: Equatable, Sendable {
         switch self {
         case .healthy(let w), .reported(let w), .unknown(let w): return w
         case .needsAdmin: return Self.needsAdminWord
+        case .behind: return Self.behindWord
+        case .ahead: return Self.aheadWord
         }
     }
 
     /// How the row is drawn.
     public var tone: RowTone {
         switch self {
-        case .healthy: return .healthy
+        case .healthy, .ahead: return .healthy
         case .needsAdmin: return .notChecked
-        case .reported, .unknown: return .attention
+        case .behind, .reported, .unknown: return .attention
         }
     }
 
     /// Whether the row may make the app read this Mac as other than its
     /// verdict says it is. A `needs-admin` row never does: the CLI keeps it
-    /// out of the verdict, and so does the app.
-    public var degradesVerdict: Bool { tone == .attention }
+    /// out of the verdict, and so does the app. Nor does `behind`: an update
+    /// being available is drawn for attention, and the cluster still runs.
+    public var degradesVerdict: Bool {
+        switch self {
+        case .healthy, .needsAdmin, .behind, .ahead: return false
+        case .reported, .unknown: return true
+        }
+    }
 }
 
 /// RowTone is how a status row is drawn: its glyph, its colour and the word
@@ -112,11 +133,20 @@ extension StatusDisplay {
 
     /// The detail a row shows, clipped: a `needs-admin` row says it needs an
     /// administrator and names the row's own remedy, for example "needs an
-    /// administrator; run sudo k3sm status". Any other row shows its detail.
+    /// administrator; run sudo k3sm status". A `behind` or `ahead` row shows
+    /// its detail as printed, then "; run " and its remedy when it has one.
+    /// Any other row shows its detail.
     public static func rowDetail(_ row: StatusRow) -> String {
-        guard row.rowState == .needsAdmin else { return clip(row.detail) }
         let remedy = clip(row.remedy)
-        return clip(remedy.isEmpty ? needsAdminText : needsAdminText + "; run " + remedy)
+        switch row.rowState {
+        case .needsAdmin:
+            return clip(remedy.isEmpty ? needsAdminText : needsAdminText + "; run " + remedy)
+        case .behind, .ahead:
+            let detail = clip(row.detail)
+            return remedy.isEmpty ? detail : clip(detail + "; run " + remedy)
+        default:
+            return clip(row.detail)
+        }
     }
 
     /// The text the window's left panel shows beside a row's name: the
