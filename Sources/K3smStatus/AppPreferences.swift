@@ -46,6 +46,8 @@ public struct AppPreferences: @unchecked Sendable {
 
     /// The Settings window's last pane.
     public static let settingsPaneKey = "settingsPane"
+    /// The Settings window's frame and screen, a `WindowFrame.Saved` value.
+    public static let settingsFrameKey = "settingsWindowFrame"
     /// The console panel's Cluster or This Mac choice.
     public static let panelModeKey = "consolePanelMode"
     /// Whether the console shows its details column.

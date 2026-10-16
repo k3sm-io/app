@@ -111,14 +111,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     /// below the console's minimum, or centres the window when nothing is
     /// saved.
     private func placeWindow(_ window: NSWindow, saved: WindowFrame.Saved?) {
-        let main = NSScreen.main ?? NSScreen.screens.first
-        let ordered = (main.map { [$0] } ?? []) + NSScreen.screens.filter { $0 !== main }
-        let screens = ordered.map { screen in
-            let v = screen.visibleFrame
-            return WindowFrame.Screen(id: screen.k3smIdentity,
-                                      visible: WindowFrame.Rect(x: v.origin.x, y: v.origin.y, width: v.width, height: v.height))
-        }
-        guard let frame = WindowFrame.restore(saved: saved, screens: screens, minimum: minimum()) else {
+        guard let frame = WindowFrame.restore(saved: saved, screens: NSScreen.k3smScreens(), minimum: minimum()) else {
             window.center()
             return
         }
@@ -183,6 +176,19 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 }
 
 extension NSScreen {
+    /// The connected screens as `WindowFrame.restore` takes them, the main
+    /// screen first, each with its identity and visible frame.
+    @MainActor
+    static func k3smScreens() -> [WindowFrame.Screen] {
+        let main = NSScreen.main ?? NSScreen.screens.first
+        let ordered = (main.map { [$0] } ?? []) + NSScreen.screens.filter { $0 !== main }
+        return ordered.map { screen in
+            let v = screen.visibleFrame
+            return WindowFrame.Screen(id: screen.k3smIdentity,
+                                      visible: WindowFrame.Rect(x: v.origin.x, y: v.origin.y, width: v.width, height: v.height))
+        }
+    }
+
     /// A stable identity for the display: its CoreGraphics UUID, which
     /// survives a reconnect and a relaunch, or the display number when the
     /// UUID is unavailable.

@@ -124,6 +124,8 @@ struct AppPreferencesTests {
         #expect(SettingsPane.restore(from: "general") == .general)
         #expect(SettingsPane.restore(from: nil) == .general)
         #expect(SettingsPane.restore(from: 3) == .general)
+        // Settings keeps its own frame, apart from the console's.
+        #expect(AppPreferences.settingsFrameKey != WindowFrame.key)
     }
 
     /// status, from /Applications, on, enabled, offers Login Items, has a note.

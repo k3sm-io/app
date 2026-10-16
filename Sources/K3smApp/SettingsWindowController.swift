@@ -115,7 +115,9 @@ final class SettingsModel: ObservableObject {
 /// (`SettingsPane.shown`, so a later pane is one more entry there), each a
 /// SwiftUI view in an `NSHostingView`, the window sized to the pane and
 /// titled by it. It remembers the last pane (`AppPreferences.settingsPane`)
-/// and its frame (AppKit's frame autosave), and shares the console's
+/// and where it was (a `WindowFrame.Saved` under
+/// `AppPreferences.settingsFrameKey`, saved on every move and close and put
+/// back through `WindowFrame.restore`, the console's clamp), and shares the console's
 /// activation rule through `AppActivation`: while it is open the app is in
 /// the Dock, as it is while the console is.
 @MainActor
@@ -124,7 +126,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSToolbarDeleg
     /// the console strip's gear.
     static var shared: SettingsWindowController?
 
-    private static let autosaveName = "io.k3sm.app.settings"
     private static let toolbarID = "io.k3sm.app.settings.toolbar"
     /// The panes' width; each pane sets its own height.
     static let paneWidth: CGFloat = 520
@@ -149,8 +150,43 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSToolbarDeleg
     }
 
     func windowWillClose(_ notification: Notification) {
+        saveFrame()
         model.confirmingReset = false
         AppActivation.closed(.settings)
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        saveFrame()
+    }
+
+    /// Records the window's frame and its screen. A window on no screen
+    /// records nothing.
+    private func saveFrame() {
+        guard let window, let screen = window.screen else { return }
+        let f = window.frame
+        let saved = WindowFrame.Saved(
+            frame: WindowFrame.Rect(x: f.origin.x, y: f.origin.y, width: f.width, height: f.height),
+            screen: screen.k3smIdentity)
+        UserDefaults.standard.set(saved.defaultsValue, forKey: AppPreferences.settingsFrameKey)
+    }
+
+    /// Puts the window back where it was, at the current pane's size with
+    /// the saved top edge kept, clamped onto a connected screen by
+    /// `WindowFrame.restore`; centres it when nothing is saved.
+    private func placeWindow(_ window: NSWindow) {
+        let size = window.frame.size
+        let stored = WindowFrame.Saved(defaultsValue: UserDefaults.standard.object(forKey: AppPreferences.settingsFrameKey))
+        let saved = stored.map { s in
+            WindowFrame.Saved(frame: WindowFrame.Rect(x: s.frame.x, y: s.frame.maxY - Double(size.height),
+                                                      width: Double(size.width), height: Double(size.height)),
+                              screen: s.screen)
+        }
+        let minimum = WindowFrame.Size(width: Double(size.width), height: Double(size.height))
+        guard let frame = WindowFrame.restore(saved: saved, screens: NSScreen.k3smScreens(), minimum: minimum) else {
+            window.center()
+            return
+        }
+        window.setFrame(NSRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height), display: false)
     }
 
     private func makeWindow() -> NSWindow {
@@ -161,7 +197,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSToolbarDeleg
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.delegate = self
         window.toolbarStyle = .preference
         let toolbar = NSToolbar(identifier: Self.toolbarID)
         toolbar.delegate = self
@@ -169,11 +204,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSToolbarDeleg
         toolbar.allowsUserCustomization = false
         window.toolbar = toolbar
         show(pane, in: window, keepTop: false)
-        window.center()
-        // A frame saved by an earlier session puts the window back where the
-        // user left it; the pane then sets the height again, top kept.
-        window.setFrameAutosaveName(Self.autosaveName)
-        fit(window, keepTop: true)
+        // Placed once the pane has sized it; the delegate is set last, so
+        // only the user's moves from here on are saved.
+        placeWindow(window)
+        window.delegate = self
         return window
     }
 
