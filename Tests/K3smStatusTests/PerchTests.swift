@@ -137,6 +137,27 @@ struct PerchTests {
         }
     }
 
+    @Test("the perched profile is full size: it fills the flight mark's box, its body on the perch line")
+    func perchedProfileIsFullSize() {
+        // The side view before its stretch: the turned mark (as long as the mark is tall) and
+        // the mirrored half standing above the body (as tall as half the mark is wide).
+        let length = TabStripLayout.markFoot - Perch.markTop
+        let rise = 0.5 - Perch.markLeft
+        #expect(rise < length / 2 + 0.05, "unstretched, the profile is about half the box")
+        // Stretched by `sideFill`, it is as wide and as tall as the flight mark.
+        let width = length * Perch.sideFill.x, height = rise * Perch.sideFill.y
+        #expect(abs(width - (Perch.markRight - Perch.markLeft)) < 1e-9)
+        #expect(abs(height - (TabStripLayout.markFoot - Perch.markTop)) < 1e-9)
+        // With its body on the perch line, its top is the flight mark's top, inside the square,
+        // and it is no wider than the square, so the strip's room holds (`flightStaysInItsRoom`).
+        let top = TabStripLayout.markFoot - height
+        #expect(abs(top - Perch.markTop) < 1e-9 && top >= 0)
+        #expect(width <= 1 && 0.5 - width / 2 >= 0)
+        // At rest it is drawn at that full size, not compressed.
+        #expect(Perch.pose(.perched, at: 0).sideScale == 1)
+        #expect(Perch.pose(.landing, at: Perch.landing).sideScale == 1)
+    }
+
     @Test("the tab butterfly sits side-on through the perch and beats its closed wings once per beat")
     func perchedPoseIsSideways() {
         // Fully side-on, level and in place, through the perched phase.
@@ -144,29 +165,27 @@ struct PerchTests {
             let pose = Perch.pose(.perched, at: t)
             #expect(pose.sideOn == 1)
             #expect(pose.rotation == 0 && pose.dx == 0 && pose.dy == 0 && pose.beat == 0)
-            #expect(pose.parting >= 0 && pose.parting <= Perch.sidePeak + 1e-9)
+            #expect(pose.squeeze >= 0 && pose.squeeze <= Perch.sidePeak + 1e-9)
+            #expect(pose.sideScale <= 1 && pose.sideScale >= 0.85 - 1e-9)
         }
-        // One part-and-close per Flap beat: closed at each beat's ends, parted at its middle, repeating.
+        // One stroke per Flap beat: full size at each beat's ends, smallest at its middle, repeating.
         #expect(Perch.sideBeat == Flap.duration)
         let d = Flap.duration
         for k in 0..<3 {
             let start = Double(k) * d
-            #expect(abs(Perch.pose(.perched, at: start).parting) < 1e-9)
-            #expect(abs(Perch.pose(.perched, at: start + d / 2).parting - Perch.sidePeak) < 1e-9)
-            #expect(abs(Perch.pose(.perched, at: start + d / 4).parting - Perch.sidePeak / 2) < 1e-9)
+            #expect(abs(Perch.pose(.perched, at: start).sideScale - 1) < 1e-9)
+            #expect(abs(Perch.pose(.perched, at: start + d / 2).sideScale - 0.85) < 1e-9)
+            #expect(abs(Perch.pose(.perched, at: start + d / 4).squeeze - Perch.sidePeak / 2) < 1e-9)
         }
-        // The side view is the turned mark narrowed along the body: closed at `closedScale`,
-        // parted by easing that a little, never back to the full length.
-        #expect(Perch.closedScale > 0 && Perch.closedScale < 1)
-        #expect(Perch.pose(.perched, at: 0).sideScale == Perch.closedScale)
-        let parted = Perch.pose(.perched, at: d / 2).sideScale
-        #expect(abs(parted - (Perch.closedScale + (1 - Perch.closedScale) * Perch.sidePeak)) < 1e-9)
-        #expect(parted > Perch.closedScale && parted < 1)
-        #expect(Perch.sidePeak > 0 && Perch.sidePeak <= 0.3)
-        #expect(Perch.profilePeak < 1)
+        // At rest the full-size profile; each stroke makes it a little smaller, about 0.85, never more.
+        #expect(Perch.pose(.perched, at: 0).sideScale == 1)
+        let smallest = (0...800).map { Perch.pose(.perched, at: Double($0) * d / 800).sideScale }.min() ?? 0
+        #expect(abs(smallest - 0.85) < 1e-6)
+        #expect(Perch.sidePeak > 0 && Perch.sidePeak <= 0.2)
+        #expect(Perch.profilePeak < 0.5)
         var rises = 0, last = 0.0
         for t in stride(from: 0.0, through: d, by: 0.01) {
-            let b = Perch.pose(.perched, at: t).parting
+            let b = Perch.pose(.perched, at: t).squeeze
             if b > last + 1e-12 && last <= 1e-12 { rises += 1 }
             last = b
         }
@@ -181,14 +200,21 @@ struct PerchTests {
         #expect(Perch.pose(.takingOff, at: Perch.turnTime / 2).sideOn == 0.5)
         for t in [Perch.turnTime, 0.175, Perch.takeOff] {
             let pose = Perch.pose(.takingOff, at: t)
-            #expect(pose.sideOn == 0 && pose.parting == 0)
+            #expect(pose.sideOn == 0 && pose.squeeze == 0)
         }
-        // A take-off mid beat parts the closed wings from where they were and closes them as it turns.
-        let held = Perch.pose(.perched, at: 0.2).parting
-        #expect(Perch.pose(.takingOff, at: 0, parted: held).parting == held)
-        #expect(Perch.pose(.takingOff, at: Perch.turnTime, parted: held).parting == 0)
+        // A take-off mid stroke starts at the size the profile had and returns it to full size as it turns.
+        let held = Perch.pose(.perched, at: 0.2).squeeze
+        #expect(Perch.pose(.takingOff, at: 0, squeezed: held).squeeze == held)
+        #expect(Perch.pose(.takingOff, at: Perch.turnTime, squeezed: held).squeeze == 0)
         let flight = LabelFlight(shownAt: 10, leftAt: 10 + Perch.landing + 0.2, reduceMotion: false)
-        #expect(abs(flight.pose(at: 10 + Perch.landing + 0.2).parting - held) < 1e-9)
+        #expect(abs(flight.pose(at: 10 + Perch.landing + 0.2).squeeze - held) < 1e-9)
+        // No size jump at take-off: the side view's scale moves smoothly from the perch's.
+        var size = flight.pose(at: 10 + Perch.landing + 0.2 - 1.0 / 240).sideScale
+        for i in 0...Int((Perch.takeOff * 240).rounded()) {
+            let s = flight.pose(at: 10 + Perch.landing + 0.2 + Double(i) / 240).sideScale
+            #expect(abs(s - size) < 0.05, "take-off size jump at \(i)")
+            size = s
+        }
         // The turn is continuous in time, and Reduce Motion stays the still mark, not side-on.
         let step = 1.0 / 240
         var prev = Perch.pose(.landing, at: 0).sideOn
@@ -197,7 +223,7 @@ struct PerchTests {
             #expect(abs(s - prev) < 0.2)
             prev = s
         }
-        #expect(Perch.still.sideOn == 0 && Perch.still.parting == 0)
+        #expect(Perch.still.sideOn == 0 && Perch.still.squeeze == 0)
         let still = LabelFlight(shownAt: 10, leftAt: nil, reduceMotion: true)
         for t in [10.0, 10.5, 11.2, 13] {
             #expect(still.pose(at: t) == Perch.still)
@@ -219,23 +245,32 @@ struct PerchTests {
             let t = Double(i) * step
             let pose = Perch.pose(.landing, at: t)
             if t >= 0.1 { #expect(pose.sideOn == 1, "sideOn \(pose.sideOn) at \(t)") }
-            #expect(pose.parting >= 0 && pose.parting <= Perch.profilePeak + 1e-9)
+            #expect(pose.squeeze >= 0 && pose.squeeze <= Perch.profilePeak + 1e-9)
         }
-        // The descent beats in profile: each stroke parts the closed wings to `profilePeak` and closes them.
+        // The descent beats in profile: each stroke draws it in by `profilePeak` and back to full size.
         let flight = Perch.landing - Perch.settle
         for k in 0..<Int((flight / Perch.beatPeriod).rounded()) {
             let start = Double(k) * Perch.beatPeriod
-            #expect(abs(Perch.pose(.landing, at: start).parting) < 1e-9)
-            #expect(abs(Perch.pose(.landing, at: start + Perch.beatPeriod / 2).parting - Perch.profilePeak) < 1e-9)
+            #expect(abs(Perch.pose(.landing, at: start).squeeze) < 1e-9)
+            #expect(abs(Perch.pose(.landing, at: start + Perch.beatPeriod / 2).squeeze - Perch.profilePeak) < 1e-9)
         }
         #expect(Perch.profilePeak > Perch.sidePeak)
-        // Touchdown closes the wings upright, a slow settle stroke parts them by at most `sidePeak`,
-        // and the landing ends closed, where the perch begins.
-        #expect(abs(Perch.pose(.landing, at: flight).parting) < 1e-9)
+        // Touchdown is at full size, a slow settle stroke draws it in by at most `sidePeak`,
+        // and the landing ends at the full-size profile, where the perch begins.
+        #expect(abs(Perch.pose(.landing, at: flight).squeeze) < 1e-9)
         for t in stride(from: flight, through: Perch.landing, by: 0.01) {
-            #expect(Perch.pose(.landing, at: t).parting <= Perch.sidePeak + 1e-9)
+            #expect(Perch.pose(.landing, at: t).squeeze <= Perch.sidePeak + 1e-9)
         }
-        #expect(abs(Perch.pose(.landing, at: Perch.landing).parting) < 1e-9)
+        #expect(abs(Perch.pose(.landing, at: Perch.landing).squeeze) < 1e-9)
+        #expect(Perch.pose(.landing, at: Perch.landing).sideScale == 1)
+        // No size jump through the landing and into the perch.
+        var size = Perch.pose(.landing, at: 0).sideScale
+        for i in 1...Int((Perch.landing * 240).rounded()) {
+            let s = Perch.pose(.landing, at: Double(i) / 240).sideScale
+            #expect(abs(s - size) < 0.05, "landing size jump at \(i)")
+            size = s
+        }
+        #expect(abs(Perch.pose(.perched, at: 1.0 / 240).sideScale - size) < 0.05)
         #expect(Perch.pose(.landing, at: Perch.landing) == Perch.pose(.perched, at: 0))
         // The perch stays side-on; the take-off is unchanged: it turns back within turnTime.
         #expect(Perch.pose(.perched, at: 0).sideOn == 1)

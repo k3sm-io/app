@@ -61,9 +61,11 @@ struct Butterfly: Shape {
 /// turned 90 degrees clockwise so its centre line, the body, lies level and
 /// its head points right; its right half mirrored across that line onto the
 /// left, so both wing pairs stand together above the body and the lower half
-/// is empty; and the whole scaled along the body to `scale` of its length,
-/// so the wings read as closed (`PerchPose.sideScale`). The body sits on the perch line
-/// (`TabStripLayout.markFoot`), where the flight view's feet are.
+/// is empty; and the whole stretched (`Perch.sideFill`) so the closed wings
+/// fill the box the flight mark fills, then drawn at `scale` of that
+/// (`PerchPose.sideScale`: 1 at rest, a little smaller on a stroke). The body
+/// sits on the perch line (`TabStripLayout.markFoot`), where the flight
+/// view's feet are, and stays there as the scale changes.
 struct FoldedButterfly: View {
     let scale: Double
     let color: Color
@@ -75,7 +77,7 @@ struct FoldedButterfly: View {
                 FlappingButterfly.half(left: false, color: color).scaleEffect(x: -1, y: 1, anchor: .center)
             }
             .rotationEffect(.degrees(90), anchor: .center)
-            .scaleEffect(x: CGFloat(scale), y: 1, anchor: .center)
+            .scaleEffect(x: CGFloat(Perch.sideFill.x * scale), y: CGFloat(Perch.sideFill.y * scale), anchor: .center)
             .offset(y: geo.size.height * CGFloat(TabStripLayout.markFoot - 0.5))
         }
         // One layer, so a fade shows no seam where the mirrored halves overlap.

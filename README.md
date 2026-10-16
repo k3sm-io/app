@@ -474,9 +474,9 @@ login** in the app's Settings turns it off or on again (see
   turns side-on as it appears and flies in from the upper left in profile,
   beating fast, then closes its wings and sits on the letter the way a real
   butterfly does, body level, wings closed together above its back (the
-  same butterfly, turned on its side with its wings folded up), parting
-  them slightly and closing
-  them again once every 0.8 seconds; when the read is done it turns back to
+  same butterfly, turned on its side with its wings folded up, as big as
+  it was in flight), getting a little smaller on a beat of its closed
+  wings and back once every 0.8 seconds; when the read is done it turns back to
   face you, opens its wings and flies off to the upper right, fading out.
   On the tab you are looking at, every refresh lands the butterfly on the
   name and keeps it there at least 0.8 seconds, however quick the read. A

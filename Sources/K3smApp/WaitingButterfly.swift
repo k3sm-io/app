@@ -65,8 +65,8 @@ struct TabWaitingMark: View {
 /// tilted, its wing pair scaled narrow as they fold and hinged by the beat,
 /// at that opacity; as the landing begins it turns (a cross-fade with a turn
 /// about its vertical axis, by `sideOn`) to the side view, `FoldedButterfly`
-/// (the mark turned, its wings mirrored together and narrowed to
-/// `sideScale`), parting and closing them in profile down to the perch, and turns
+/// (the mark turned, its wings mirrored together, at full size and drawn a
+/// little smaller by each stroke, `sideScale`) in profile down to the perch, and turns
 /// back at take-off. With no flight, or under Reduce Motion, the timeline is
 /// paused and the pose is the still perched mark.
 struct PerchingButterfly: View {
