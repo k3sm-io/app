@@ -33,27 +33,67 @@ struct ImagesListTests {
     @Test("images group by digest across nodes, with every name clipped")
     func groupsNodeImagesByDigestAndClipsNames() throws {
         let a = Self.node("mac-a", images: #"""
-            [{"names":["docker.io/library/nginx@sha256:aaa","docker.io/library/nginx:1.27"],"sizeBytes":71000000},
+            [{"names":["docker.io/library/nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","docker.io/library/nginx:1.27"],"sizeBytes":71000000},
              {"names":["ghcr.io/x/evil‮gnp.exe:1"],"sizeBytes":1024}]
             """#)
         let b = Self.node("mac-b", images: #"""
-            [{"names":["docker.io/library/nginx@sha256:aaa","docker.io/library/nginx:latest"],"sizeBytes":71000000}]
+            [{"names":["docker.io/library/nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","docker.io/library/nginx:latest"],"sizeBytes":71000000}]
             """#)
         let read = try NodeListRead.decode(Self.list([a, b]))
         #expect(read.nodes.map(\.name) == ["mac-a", "mac-b"])
         guard case .listed(let images) = read.images else { Issue.record("not listed"); return }
         #expect(images.count == 2)
-        let nginx = try #require(images.first { $0.digest == "sha256:aaa" })
-        #expect(nginx.key == "sha256:aaa")
-        #expect(nginx.names == ["docker.io/library/nginx:1.27", "docker.io/library/nginx:latest", "docker.io/library/nginx@sha256:aaa"])
+        let nginx = try #require(images.first { $0.digest == "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" })
+        #expect(nginx.key == "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        #expect(nginx.names == ["docker.io/library/nginx:1.27", "docker.io/library/nginx:latest", "docker.io/library/nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"])
         #expect(nginx.title == "docker.io/library/nginx:1.27")
         #expect(nginx.sizeBytes == 71_000_000)
         #expect(nginx.nodes == ["mac-a", "mac-b"])
         #expect(nginx.nodesText == "mac-a, mac-b")
         let other = try #require(images.first { $0.digest == nil })
         #expect(other.names == ["ghcr.io/x/evilgnp.exe:1"])
-        #expect(other.key == "ghcr.io/x/evilgnp.exe:1")
+        #expect(other.key == ImagesList.rowKey("ghcr.io/x/evil\u{202E}gnp.exe:1"))
+        #expect(other.key.hasPrefix("ghcr.io/x/evilgnp.exe:1#"))
         #expect(other.nodes == ["mac-a"])
+    }
+
+    static let hex = String(repeating: "0123456789abcdef", count: 4)
+
+    @Test("only sha256 with 64 lowercase hex is a digest; any other name keys its row whole")
+    func digestIsOnlySha256With64Hex() throws {
+        #expect(ImagesList.digest(of: "r@sha256:" + Self.hex) == "sha256:" + Self.hex)
+        #expect(ImagesList.digest(of: "evil@x") == nil)
+        #expect(ImagesList.digest(of: "r@sha256:abc") == nil)
+        #expect(ImagesList.digest(of: "r@sha512:" + Self.hex + Self.hex) == nil)
+        #expect(ImagesList.digest(of: "r@sha256:" + Self.hex.uppercased()) == nil)
+        #expect(ImagesList.digest(of: "r@sha256:" + String(Self.hex.dropLast()) + "g") == nil)
+        #expect(ImagesList.digest(of: "r:1") == nil)
+        let a = Self.node("mac-a", images: #"[{"names":["evil@x"],"sizeBytes":1},{"names":["good@x"],"sizeBytes":2}]"#)
+        guard case .listed(let images) = try NodeListRead.decode(Self.list([a])).images else { Issue.record("not listed"); return }
+        #expect(images.map(\.key) == ["evil@x", "good@x"])
+        #expect(images.allSatisfy { $0.digest == nil })
+    }
+
+    @Test("a name the list cuts off keys its row by a hash, so two such names stay two rows")
+    func longNamesKeyApart() {
+        let base = "registry.local/" + String(repeating: "a", count: 200)
+        let one = ImagesList.rowKey(base + "/one:1")
+        let two = ImagesList.rowKey(base + "/two:1")
+        #expect(one != two)
+        #expect(one.count == StatusDisplay.maxLength && two.count == StatusDisplay.maxLength)
+        #expect(StatusDisplay.clip(one) == one)
+        #expect(ImagesList.rowKey("short:1") == "short:1")
+        #expect(ImagesList.rowKey(base + "/one:1") == one)
+    }
+
+    @Test("a read keeps a selected image while it is listed and clears it otherwise")
+    func staleImagesSelectionClears() {
+        let image = NodeImage(key: "sha256:" + Self.hex, digest: "sha256:" + Self.hex, names: ["r:1"], sizeBytes: 1, nodes: ["a"])
+        #expect(ImagesList.selection(after: image.key, in: .listed([image])) == image.key)
+        #expect(ImagesList.selection(after: "gone", in: .listed([image])) == nil)
+        #expect(ImagesList.selection(after: image.key, in: .notReported) == nil)
+        #expect(ImagesList.selection(after: nil, in: .listed([image])) == nil)
+        #expect(ImagesList.notReportedText == "No node reports its images yet.")
     }
 
     @Test("no node carrying the field is not reported, an empty field is an empty list")

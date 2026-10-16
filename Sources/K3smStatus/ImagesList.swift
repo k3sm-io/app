@@ -21,8 +21,9 @@ import Foundation
 /// it. Images are one entry per digest, so a tag on one node and the same
 /// digest under another tag on a second node are one row.
 public struct NodeImage: Equatable, Sendable {
-    /// The row's identity: the digest, or the first name reported when no
-    /// name carries one. Clipped, so it is safe to show and to store.
+    /// The row's identity: the digest, or, when no name carries a valid one,
+    /// the first name reported (`ImagesList.rowKey`). It always survives
+    /// `StatusDisplay.clip` unchanged, so it is safe to show and to store.
     public let key: String
     /// The content digest ("sha256:…"), clipped; nil when no name has one.
     public let digest: String?
@@ -58,7 +59,7 @@ public enum ImagesReading: Equatable, Sendable {
 /// contributes nothing, and when no node has it the tab says so.
 public enum ImagesList {
     /// The tab's line when no node reports its images.
-    public static let notReportedText = "This node does not report its images yet."
+    public static let notReportedText = "No node reports its images yet."
     /// The tab's line when the nodes report an empty image list.
     public static let emptyText = "No images on the cluster's nodes."
 
@@ -78,8 +79,8 @@ public enum ImagesList {
                 let names = (entry["names"] as? [Any] ?? []).compactMap { $0 as? String }.filter { !$0.isEmpty }
                 guard let first = names.first else { continue }
                 let digest = names.lazy.compactMap(Self.digest(of:)).first
-                let key = StatusDisplay.clip(digest ?? first)
-                var group = groups[key] ?? (digest.map(StatusDisplay.clip), [], nil, [])
+                let key = digest ?? rowKey(first)
+                var group = groups[key] ?? (digest, [], nil, [])
                 if groups[key] == nil { order.append(key) }
                 group.names.formUnion(names.map(StatusDisplay.clip))
                 group.size = group.size ?? Self.size(entry["sizeBytes"])
@@ -104,11 +105,50 @@ public enum ImagesList {
         return images.filter { image in image.names.contains { $0.localizedCaseInsensitiveContains(query) } }
     }
 
-    /// The digest of a reference "repo@sha256:…", or nil without one.
+    /// What a read does to the Images tab's selection: a selected image
+    /// still listed stays; one gone from the list, or a list with no images
+    /// reported, clears it. Nothing is selected for the user.
+    public static func selection(after selected: String?, in reading: ImagesReading) -> String? {
+        guard let selected, case .listed(let images) = reading, images.contains(where: { $0.key == selected }) else {
+            return nil
+        }
+        return selected
+    }
+
+    /// The digest of a reference "repo@sha256:<64 lowercase hex>", or nil
+    /// for anything else after the "@" (any other algorithm, a short or
+    /// non-hex value), so a crafted name never keys a row as a digest.
     static func digest(of name: String) -> String? {
         guard let at = name.lastIndex(of: "@") else { return nil }
         let digest = name[name.index(after: at)...]
-        return digest.isEmpty ? nil : String(digest)
+        let prefix = "sha256:"
+        guard digest.hasPrefix(prefix) else { return nil }
+        let hex = digest.dropFirst(prefix.count).unicodeScalars
+        guard hex.count == 64, hex.allSatisfy({ ("0"..."9").contains($0) || ("a"..."f").contains($0) }) else { return nil }
+        return String(digest)
+    }
+
+    /// The row key for a name without a digest: the name itself when
+    /// `StatusDisplay.clip` leaves it unchanged; otherwise its clipped form,
+    /// shortened, with a hash of the whole name, so two long names that
+    /// share their shown prefix stay two rows.
+    static func rowKey(_ name: String) -> String {
+        let shown = StatusDisplay.clip(name)
+        guard shown != name else { return name }
+        let hash = String(fnv1a64(name), radix: 16)
+        let room = StatusDisplay.maxLength - 1 - 16
+        return String(shown.prefix(room)) + "#" + String(repeating: "0", count: 16 - hash.count) + hash
+    }
+
+    /// FNV-1a over the name's UTF-8: a stable, non-cryptographic hash that
+    /// only keeps row keys apart; nothing trusts it.
+    static func fnv1a64(_ text: String) -> UInt64 {
+        var h: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in text.utf8 {
+            h ^= UInt64(byte)
+            h = h &* 0x0000_0100_0000_01b3
+        }
+        return h
     }
 
     /// A size in bytes from JSON, or nil when it is not a whole, non-negative number.
