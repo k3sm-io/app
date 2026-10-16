@@ -162,13 +162,11 @@ struct PerchTests {
             last = b
         }
         #expect(rises == 1)
-        // The landing is the flight view until the settle, then turns side-on by touchdown.
-        for t in [0.0, 0.0625, 0.125, 0.25] {
-            let pose = Perch.pose(.landing, at: t)
-            #expect(abs(pose.sideOn) < 1e-9 && pose.closedBeat == 0)
+        // The landing turns side-on at its start and stays side-on through touchdown (`landingIsSideways`).
+        #expect(Perch.pose(.landing, at: 0).sideOn == 0)
+        for t in [0.1, 0.125, 0.25, 0.30, Perch.landing] {
+            #expect(Perch.pose(.landing, at: t).sideOn == 1)
         }
-        #expect(abs(Perch.pose(.landing, at: 0.30).sideOn - 0.5) < 1e-9)
-        #expect(Perch.pose(.landing, at: Perch.landing).sideOn == 1)
         // The take-off turns back to the flight view within turnTime, then matches today's flight.
         #expect(Perch.pose(.takingOff, at: 0).sideOn == 1)
         #expect(Perch.pose(.takingOff, at: Perch.turnTime / 2).sideOn == 0.5)
@@ -193,6 +191,50 @@ struct PerchTests {
         #expect(Perch.still.sideOn == 0 && Perch.still.closedBeat == 0)
         let still = LabelFlight(shownAt: 10, leftAt: nil, reduceMotion: true)
         for t in [10.0, 10.5, 11.2, 13] {
+            #expect(still.pose(at: t) == Perch.still)
+        }
+    }
+
+    @Test("the tab butterfly lands in profile: turned side-on within 0.1 s, beating its wings side-on down to touchdown")
+    func landingIsSideways() {
+        // The turn to side-on happens at the start of the landing and is complete within its first 0.1 s.
+        #expect(Perch.turnIn > 0 && Perch.turnIn <= 0.1)
+        // The cross-fade from the flight view ends inside the fade-in, while the mark is still faint.
+        #expect(Perch.turnIn < Perch.fadeIn)
+        #expect(Perch.pose(.landing, at: Perch.turnIn).opacity <= 0.5 + 1e-9)
+        #expect(Perch.pose(.landing, at: Perch.turnIn).sideOn == 1)
+        #expect(Perch.pose(.landing, at: 0).sideOn == 0)
+        #expect(Perch.pose(.landing, at: Perch.turnIn / 2).sideOn > 0)
+        let step = 1.0 / 240
+        for i in 0...Int((Perch.landing / step).rounded()) {
+            let t = Double(i) * step
+            let pose = Perch.pose(.landing, at: t)
+            if t >= 0.1 { #expect(pose.sideOn == 1, "sideOn \(pose.sideOn) at \(t)") }
+            #expect(pose.closedBeat >= 0 && pose.closedBeat <= Perch.profilePeak + 1e-9)
+        }
+        // The descent beats in profile: the near wing sweeps from closed to `profilePeak` and back each stroke.
+        let flight = Perch.landing - Perch.settle
+        for k in 0..<Int((flight / Perch.beatPeriod).rounded()) {
+            let start = Double(k) * Perch.beatPeriod
+            #expect(abs(Perch.pose(.landing, at: start).closedBeat) < 1e-9)
+            #expect(abs(Perch.pose(.landing, at: start + Perch.beatPeriod / 2).closedBeat - Perch.profilePeak) < 1e-9)
+        }
+        #expect(Perch.profilePeak > Perch.sidePeak)
+        // Touchdown closes the wings upright, a slow settle stroke parts them by at most `sidePeak`,
+        // and the landing ends closed, where the perch begins.
+        #expect(abs(Perch.pose(.landing, at: flight).closedBeat) < 1e-9)
+        for t in stride(from: flight, through: Perch.landing, by: 0.01) {
+            #expect(Perch.pose(.landing, at: t).closedBeat <= Perch.sidePeak + 1e-9)
+        }
+        #expect(abs(Perch.pose(.landing, at: Perch.landing).closedBeat) < 1e-9)
+        #expect(Perch.pose(.landing, at: Perch.landing) == Perch.pose(.perched, at: 0))
+        // The perch stays side-on; the take-off is unchanged: it turns back within turnTime.
+        #expect(Perch.pose(.perched, at: 0).sideOn == 1)
+        #expect(Perch.pose(.takingOff, at: 0).sideOn == 1)
+        #expect(Perch.pose(.takingOff, at: Perch.turnTime).sideOn == 0)
+        // Reduce Motion: the still mark throughout.
+        let still = LabelFlight(shownAt: 10, leftAt: nil, reduceMotion: true)
+        for t in [10.0, 10.05, 10.1, 10.3] {
             #expect(still.pose(at: t) == Perch.still)
         }
     }

@@ -471,9 +471,10 @@ login** in the app's Settings turns it off or on again (see
   middle of the tab while its first read runs, and perched on the first
   letter of the tab's name while a later read runs behind the list it
   already shows; the names never move to make room for it. The perched one
-  flies in from the upper left, beating fast, and turns side-on as it
-  lands and sits on the letter the way a real butterfly does, body level,
-  wings closed together above its back, parting them slightly and closing
+  turns side-on as it appears and flies in from the upper left in profile,
+  antennae forward, beating fast, then closes its wings and sits on the
+  letter the way a real butterfly does, body level, wings closed together
+  above its back, parting them slightly and closing
   them again once every 0.8 seconds; when the read is done it turns back to
   face you, opens its wings and flies off to the upper right, fading out.
   On the tab you are looking at, every refresh lands the butterfly on the

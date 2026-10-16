@@ -65,11 +65,15 @@ public struct PerchPose: Equatable, Sendable {
 /// into it, so the keyframes are tested without a GUI; the app samples them
 /// on a timeline while the mark is shown and draws the pose.
 ///
-/// Landing (`landing`, 0.35 s): it comes in from the upper left on a short
-/// descending arc, tilted into its travel and levelling as it arrives, wings
-/// open and beating fast; on touchdown it dips `dip` below the perch and
-/// recovers while one slow stroke folds its wings (`settle`, the landing's
-/// last 0.1 s), during which it also turns side-on (`sideOn` 0 to 1). Perched:
+/// Landing (`landing`, 0.35 s): it turns side-on as it appears (`sideOn` 0
+/// to 1 within `turnIn`), so the whole approach is seen in profile, and comes
+/// in from the upper left on a short descending arc, tilted into its travel
+/// and levelling as it arrives, beating fast in profile (`closedBeat`, the
+/// near wing sweeping back by up to `profilePeak`); the wings are closed
+/// upright at touchdown, and it dips `dip` below the perch and recovers while
+/// one slow stroke parts and closes them (`settle`, the landing's last 0.1 s).
+/// The flight view's `opening` and `beat` keep their keyframes underneath.
+/// Perched:
 /// seen from the side, body level, wings closed together above its back, no
 /// drift, and every `sideBeat` (one `Flap` beat) the closed wings part
 /// slightly and close again (`closedBeat`); the legacy `opening` flex
@@ -110,9 +114,16 @@ public enum Perch {
     public static let openTime: TimeInterval = 0.06
     /// The folded wing pair's horizontal scale, seen nearly edge-on.
     public static let folded = 0.3
-    /// How long the turn out of the side view takes at take-off, in seconds
-    /// (the landing's turn in takes its `settle`).
+    /// How long the turn out of the side view takes at take-off, in seconds.
     public static let turnTime: TimeInterval = 0.06
+    /// How long the turn into the side view takes at the start of the
+    /// landing, in seconds: the approach and touchdown are seen in profile,
+    /// and the turn ends within `fadeIn`, so the cross-fade from the flight
+    /// view happens while the mark is still faint.
+    public static let turnIn: TimeInterval = 0.04
+    /// The descent's beat seen side-on: the near wing sweeps back from the
+    /// far one by up to `profilePeak` degrees on each fast stroke.
+    public static let profilePeak = 60.0
     /// The side-on pose's closed-wing beat: one every `sideBeat` seconds (a
     /// `Flap` beat), parting the wings by `sidePeak` degrees at the top.
     public static let sideBeat: TimeInterval = Flap.duration
@@ -148,11 +159,13 @@ public enum Perch {
             let s = 1 - (1 - u) * (1 - u)
             let p = arc(landingStart, landingControl, (0, 0), s)
             return PerchPose(dx: p.dx, dy: p.dy, rotation: landingTilt * (1 - s), opening: 1,
-                             beat: stroke(t), opacity: min(1, t / fadeIn))
+                             beat: stroke(t), opacity: min(1, t / fadeIn), sideOn: smooth(t / turnIn),
+                             closedBeat: profilePeak * (1 - cos(2 * .pi * t / beatPeriod)) / 2)
         }
         let v = (t - flight) / settle
         return PerchPose(dx: 0, dy: dip * sin(.pi * v), rotation: 0, opening: 1 - smooth(v),
-                         beat: settleBeat * sin(.pi * v), opacity: 1, sideOn: smooth(v))
+                         beat: settleBeat * sin(.pi * v), opacity: 1, sideOn: 1,
+                         closedBeat: sidePeak * sin(.pi * v))
     }
 
     private static func perchedPose(at t: TimeInterval) -> PerchPose {

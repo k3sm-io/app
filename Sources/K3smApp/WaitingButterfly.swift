@@ -63,8 +63,9 @@ struct TabWaitingMark: View {
 /// only while it is shown, it samples `flight`'s pose (`LabelFlight.pose`) on
 /// the monotonic clock and draws the mark at that offset from its perch,
 /// tilted, its wing pair scaled narrow as they fold and hinged by the beat,
-/// at that opacity; as it lands it turns (a cross-fade with a turn about its
-/// vertical axis, by `sideOn`) to the side view, `SideButterfly`, and turns
+/// at that opacity; as the landing begins it turns (a cross-fade with a turn
+/// about its vertical axis, by `sideOn`) to the side view, `SideButterfly`,
+/// beating its wings in profile (`closedBeat`) down to the perch, and turns
 /// back at take-off. With no flight, or under Reduce Motion, the timeline is
 /// paused and the pose is the still perched mark.
 struct PerchingButterfly: View {
