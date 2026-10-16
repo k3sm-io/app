@@ -605,22 +605,50 @@ public enum Help {
 
     // MARK: First run
 
-    /// The first-run form.
+    /// The guided first run (`FirstRunFlow`).
     public enum FirstRun {
         /// The start-or-join switch.
         public static let choice = HelpTag("Start a new cluster here, or join one that runs",
                                            control: "first run: choice switch")
-        /// The Start button.
+        /// Continue, to the next step.
+        public static let next = HelpTag("Go on to the next step",
+                                         control: "first run: Continue", label: "Continue")
+        /// Back, to the step before.
+        public static let back = HelpTag("Go back to the previous step",
+                                         control: "first run: Back", label: "Back")
+        /// Start Cluster…, the review step's install for a start.
         public static let start = HelpTag("Install a k3sm server on this Mac, as an administrator",
-                                          control: "first run: Start", label: "Start")
-        /// The Join button.
-        public static let join = HelpTag("Join the cluster at this address, as an administrator",
-                                         control: "first run: Join", label: "Join")
+                                          control: "first run: Start Cluster", label: "Start Cluster…")
+        /// Join Cluster…, the review step's install for a join.
+        public static let join = HelpTag("Install k3sm and join the cluster, as an administrator",
+                                         control: "first run: Join Cluster", label: "Join Cluster…")
+        /// Clear, beside the address and token read from a paste.
+        public static let clearPaste = HelpTag("Forget the pasted address and token",
+                                               control: "first run: Clear", label: "Clear")
+        /// Copy Command, beside a developer build's Terminal command.
+        public static let copyCommand = HelpTag("Put the commands on the clipboard for Terminal",
+                                                control: "first run: Copy Command", label: "Copy Command")
+        /// Open Terminal, beside a developer build's Terminal command.
+        public static let openTerminal = HelpTag("Open the Terminal app to run the commands",
+                                                 control: "first run: Open Terminal", label: "Open Terminal")
+        /// Check Again, after the install ran in Terminal.
+        public static let checkAgain = HelpTag("Look for a k3sm install on this Mac again",
+                                               control: "first run: Check Again", label: "Check Again")
+        /// Try Again, after a failed install.
+        public static let tryAgain = HelpTag("Go back and run the install once more",
+                                             control: "first run: Try Again", label: "Try Again")
+        /// Open Console, after the install.
+        public static let openConsole = HelpTag("Show the console for the new install",
+                                                control: "first run: Open Console", label: "Open Console")
 
-        /// The submit button, which reads Start or Join.
-        public static func submit(join joining: Bool) -> HelpTag { joining ? join : start }
+        /// The install button's tag: why it is disabled, or what it does.
+        public static func install(join joining: Bool, disabledReason: String?) -> String {
+            disabledReason ?? (joining ? join.text : start.text)
+        }
 
-        public static var all: [HelpTag] { [choice, start, join] }
+        public static var all: [HelpTag] {
+            [choice, next, back, start, join, clearPaste, copyCommand, openTerminal, checkAgain, tryAgain, openConsole]
+        }
     }
 
     // MARK: Update panel

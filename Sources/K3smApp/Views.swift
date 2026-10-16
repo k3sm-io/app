@@ -14,12 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import AppKit
 import K3smInstall
 import K3smStatus
 import SwiftUI
 
-/// MainView is the window. Before k3sm is installed it is the first-run
-/// form; once installed it is the console, with the status popover (state,
+/// MainView is the window. Before k3sm is installed it is the guided first
+/// run; once installed it is the console, with the status popover (state,
 /// problems, start, stop and update) behind the console's info button.
 struct MainView: View {
     @ObservedObject var model: AppModel
@@ -32,8 +33,8 @@ struct MainView: View {
     }
 }
 
-/// StatusPanel is the first-run form, then the log of the last root step.
-/// Every string from the CLI renders verbatim.
+/// StatusPanel is the first-run screen: the login item line and the guided
+/// first run (`FirstRunView`).
 struct StatusPanel: View {
     @ObservedObject var model: AppModel
 
@@ -41,15 +42,9 @@ struct StatusPanel: View {
         VStack(alignment: .leading, spacing: 16) {
             LoginApprovalLine(model: model)
             FirstRunView(model: model)
-            if !model.logTail.isEmpty {
-                RootStepLog(text: model.logTail)
-            }
-            if let message = model.outcomeMessage {
-                Text(verbatim: message)
-            }
         }
         .padding(20)
-        .frame(minWidth: 520, minHeight: 420, alignment: .topLeading)
+        .frame(minWidth: 560, minHeight: 460, alignment: .topLeading)
     }
 }
 
@@ -109,39 +104,227 @@ struct RootStepLog: View {
     }
 }
 
-/// FirstRunView asks the one first-run question: start a cluster here, or
-/// join one. The token is typed or pasted, never read from the clipboard.
+/// FirstRunView is the guided first run, one step at a time
+/// (`FirstRunFlow`): choose start or join; for a join, paste the join
+/// command; review what will happen and authenticate; follow the install
+/// phase by phase; then the console, or a plain failure with Try Again. The
+/// token is pasted into a secure field and never shown or read from the
+/// clipboard by the app.
 struct FirstRunView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             Text("Set up k3sm on this Mac").font(.title2)
+            stepList
+            Divider()
+            switch model.firstRunStep {
+            case .choose: choose
+            case .join: join
+            case .review: review
+            case .install: install
+            case .finished: finished
+            }
+            Spacer(minLength: 0)
+            buttons
+        }
+    }
+
+    /// The path's steps, the current one bold.
+    private var stepList: some View {
+        let steps = FirstRunFlow.steps(for: model.choice)
+        return HStack(spacing: 6) {
+            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                if index > 0 { Text(verbatim: "›").foregroundStyle(.secondary) }
+                Text(verbatim: "\(index + 1). \(step.title)")
+                    .fontWeight(step == model.firstRunStep ? .semibold : .regular)
+                    .foregroundStyle(step == model.firstRunStep ? Color.primary : Palette.ink2)
+            }
+        }
+        .font(.callout)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var choose: some View {
+        VStack(alignment: .leading, spacing: 10) {
             Picker("", selection: $model.choice) {
-                ForEach(AppModel.FirstRunChoice.allCases) { Text($0.rawValue).tag($0) }
+                ForEach(FirstRunPath.allCases, id: \.self) { Text(verbatim: $0.title).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .help(Help.FirstRun.choice)
-            if model.choice == .join {
-                TextField("Server address, for example studio.local", text: $model.serverText)
-                    .textFieldStyle(.roundedBorder)
-                if let error = model.addressError {
-                    Text(verbatim: error).foregroundStyle(Palette.errorText)
+            Text(verbatim: model.choice.detail).fixedSize(horizontal: false, vertical: true)
+            if !model.logTail.isEmpty {
+                Text("The last install on this Mac did not finish. Its log:").font(.callout).foregroundStyle(.secondary)
+                RootStepLog(text: model.logTail)
+            }
+        }
+    }
+
+    private var join: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("On the server Mac, run `sudo k3sm token create`, then paste its join command here, or the server's address and the token.")
+                .fixedSize(horizontal: false, vertical: true)
+            SecureField("Paste the join command", text: $model.joinPaste)
+                .textFieldStyle(.roundedBorder)
+            if let error = model.joinPasteError {
+                Text(verbatim: error).foregroundStyle(Palette.errorText).fixedSize(horizontal: false, vertical: true)
+            }
+            if !model.serverText.isEmpty || !model.token.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(verbatim: "Server: " + (model.joinAddress?.description ?? StatusDisplay.clip(model.serverText)))
+                        Text(verbatim: model.token.isEmpty ? "Token: missing" : "Token: received, kept hidden")
+                    }
+                    Spacer()
+                    Button("Clear") { model.clearJoinPaste() }
+                        .help(Help.FirstRun.clearPaste)
                 }
-                SecureField("Join token from `k3sm token create` on the server", text: $model.token)
-                    .textFieldStyle(.roundedBorder)
-            }
-            Text("Pods on one Mac share one trust domain. Run untrusted workloads in the vm runtime class.")
                 .font(.callout)
-                .foregroundStyle(.secondary)
-            if case .disabled(let reason) = model.availability {
-                Text(verbatim: reason).foregroundStyle(.secondary)
             }
-            Button(model.choice == .start ? "Start" : "Join") { model.submitFirstRun() }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!model.canSubmit)
-                .help(Help.FirstRun.submit(join: model.choice == .join))
+        }
+    }
+
+    private var review: some View {
+        let review = model.firstRunReview
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(verbatim: review.title).font(.headline)
+            numbered(review.lines)
+            if let command = review.terminalCommand {
+                Text(verbatim: command)
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Palette.wash)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                HStack {
+                    Button("Copy Command") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(command, forType: .string)
+                    }
+                    .help(Help.FirstRun.copyCommand)
+                    Button("Open Terminal") { NSWorkspace.shared.open(MenuActions.terminal) }
+                        .help(Help.FirstRun.openTerminal)
+                }
+            } else if let reason = model.firstRunInstallDisabledReason {
+                Text(verbatim: reason).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var install: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            phases(FirstRunFlow.progress(path: model.choice, log: model.logTail, outcome: nil))
+            if !model.logTail.isEmpty, FirstRunFlow.phase(log: model.logTail) != .authenticate {
+                RootStepLog(text: model.logTail)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var finished: some View {
+        if let outcome = model.firstRunOutcome {
+            let finish = FirstRunFlow.finish(path: model.choice, outcome: outcome, log: model.logTail)
+            VStack(alignment: .leading, spacing: 10) {
+                Label {
+                    Text(verbatim: finish.title).font(.headline)
+                } icon: {
+                    Image(systemName: finish.succeeded ? RowTone.healthy.symbolName : RowTone.attention.symbolName)
+                        .foregroundStyle(finish.succeeded ? Palette.ok : Palette.warn)
+                }
+                ForEach(Array(finish.lines.enumerated()), id: \.offset) { _, line in
+                    Text(verbatim: line).fixedSize(horizontal: false, vertical: true)
+                }
+                phases(FirstRunFlow.progress(path: model.choice, log: model.logTail, outcome: outcome))
+                if !finish.succeeded, !model.logTail.isEmpty {
+                    RootStepLog(text: model.logTail)
+                }
+            }
+        }
+    }
+
+    /// The step's buttons: Back and Continue, the install, Check Again in a
+    /// developer build, Try Again or Open Console when the install ended.
+    private var buttons: some View {
+        HStack {
+            if FirstRunFlow.previous(before: model.firstRunStep, path: model.choice) != nil {
+                Button("Back") { model.firstRunBack() }
+                    .disabled(model.running)
+                    .help(Help.FirstRun.back)
+            }
+            Spacer()
+            switch model.firstRunStep {
+            case .choose, .join:
+                Button("Continue") { model.firstRunContinue() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!model.firstRunCanContinue)
+                    .help(Help.FirstRun.next)
+            case .review:
+                if let title = model.firstRunReview.installButton {
+                    let reason = model.firstRunInstallDisabledReason
+                    Button(title) { model.firstRunInstall() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(reason != nil)
+                        .help(Help.FirstRun.install(join: model.choice == .join, disabledReason: reason))
+                } else {
+                    Button("Check Again") { Task { await model.refresh() } }
+                        .disabled(model.running)
+                        .help(Help.FirstRun.checkAgain)
+                }
+            case .install:
+                ProgressView().controlSize(.small)
+            case .finished:
+                if model.firstRunOutcome == .succeeded {
+                    Button("Open Console") { Task { await model.refresh() } }
+                        .keyboardShortcut(.defaultAction)
+                        .help(Help.FirstRun.openConsole)
+                } else {
+                    Button("Try Again") { model.firstRunTryAgain() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(model.running)
+                        .help(Help.FirstRun.tryAgain)
+                }
+            }
+        }
+    }
+
+    private func numbered(_ lines: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(verbatim: "\(index + 1).").monospacedDigit().foregroundStyle(Palette.ink2)
+                    Text(verbatim: line).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    /// The install's phases, each with its state's mark.
+    private func phases(_ rows: [FirstRunPhaseRow]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(rows, id: \.phase) { row in
+                HStack(spacing: 8) {
+                    mark(row.state).frame(width: 16)
+                    Text(verbatim: row.title)
+                        .foregroundStyle(row.state == .pending ? Palette.ink2 : Color.primary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func mark(_ state: FirstRunPhaseState) -> some View {
+        switch state {
+        case .pending:
+            Image(systemName: "circle").foregroundStyle(Palette.ink2).accessibilityLabel(Text("pending"))
+        case .active:
+            ProgressView().controlSize(.mini).accessibilityLabel(Text("in progress"))
+        case .done:
+            Image(systemName: RowTone.healthy.symbolName).foregroundStyle(Palette.ok).accessibilityLabel(Text("done"))
+        case .failed:
+            Image(systemName: RowTone.attention.symbolName).foregroundStyle(Palette.warn).accessibilityLabel(Text("failed"))
         }
     }
 }

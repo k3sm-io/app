@@ -76,21 +76,40 @@ Developer ID signed cannot run the administrator step, so its panel shows the
 exact Terminal command instead (`sudo k3sm start`, `sudo k3sm restart`, or the
 install script for an update), with Copy Command and Open Terminal.
 
-With nothing installed on the Mac, the window asks one question:
+With nothing installed on the Mac, the window walks through a short guided
+first run, one step at a time, with the steps listed across its top:
 
-- **Start a cluster on this Mac** installs a k3sm server.
-- **Join a cluster** takes the server's address and a join token from
-  `k3sm token create` on the server. The token is passed to the root step on
-  stdin and written only to a root-owned file that is deleted when the step
-  ends; it never appears in a command line. Tokens expire in minutes, so a
-  failed join asks for a fresh one.
-
-After the administrator prompt, the window streams the step's log as it runs
-and, when the step ends, switches to the status of the new install.
+1. **Choose**: start a cluster on this Mac (it installs a k3sm server), or
+   join a cluster another Mac runs (this Mac installs as a worker).
+2. **Join details** (join only): one field takes the join command pasted from
+   the server, the `sudo k3sm install --agent --server <address> --token <token>`
+   line, or just the server's address and the token from `sudo k3sm token
+   create`. The app reads the address and token out of it: extra spaces, line
+   breaks, quotes, `\` line continuations and a URL such as
+   `https://studio.local:9345/` are fine, and anything a shell would act on
+   (`;`, `|`, `&`, `$`, backquotes, redirections) is refused. Nothing in the
+   paste is ever run. The field is a secure field, the token is never shown or
+   logged, and the window shows only the server and "Token: received".
+3. **Review**: what will happen, then one administrator prompt. The token is
+   passed to the root step on stdin and written only to a root-owned file
+   that is deleted when the step ends; it never appears in a command line.
+4. **Install**: the install runs through the same checked root step as
+   before, and each phase is named as it starts (authenticate, clear old
+   staging files, copy k3sm out of the app, check its signature, install and
+   start or join), with the step's log beneath.
+5. **Done**: the console opens on the new install. If the install failed, the
+   window says so plainly, with the app's reason, the command's own last
+   message and the log, and **Try Again** goes back to the review (for a join,
+   to the join step, since tokens expire in minutes and a fresh one is needed).
 
 Installing, updating and uninstalling need an administrator account and a
 release build of the app. A build from source pins no Developer ID team, so
-it shows status but keeps these actions disabled and says why.
+it shows status but keeps these actions disabled and says why. Its first run
+ends at the review with the exact Terminal commands for the chosen path
+instead (the install script for a start; for a join, the script's
+download-only mode, the token written to a root-only file and the documented
+`k3sm install --agent` line), with Copy Command, Open Terminal and Check
+Again.
 
 The app registers itself as a login item for each user on their first launch.
 It appears under System Settings > General > Login Items, and **Open k3sm at

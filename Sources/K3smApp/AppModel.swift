@@ -21,7 +21,7 @@ import K3smInstall
 import K3smStatus
 
 /// AppModel is the window's state: which screen it shows, the last full
-/// report, the first-run form, the update and uninstall choices, and a
+/// report, the guided first run, the update and uninstall choices, and a
 /// running root step with its log.
 @MainActor
 final class AppModel: ObservableObject {
@@ -31,12 +31,6 @@ final class AppModel: ObservableObject {
         case firstRun
         /// k3sm is installed, healthy or not: show its status.
         case status
-    }
-
-    enum FirstRunChoice: String, CaseIterable, Identifiable {
-        case start = "Start a cluster on this Mac"
-        case join = "Join a cluster"
-        var id: Self { self }
     }
 
     /// How long the log tail waits between reads while a step runs.
@@ -231,9 +225,26 @@ final class AppModel: ObservableObject {
     @Published private(set) var running = false
     @Published private(set) var logTail = ""
     @Published private(set) var outcomeMessage: String?
-    @Published var choice: FirstRunChoice = .start
-    @Published var serverText = ""
-    @Published var token = ""
+    /// The first run's path (start or join) and its step (`FirstRunFlow`).
+    @Published var choice: FirstRunPath = .start
+    @Published private(set) var firstRunStep: FirstRunStep = .choose
+    /// How the first run's install ended; nil before it ends.
+    @Published private(set) var firstRunOutcome: FirstRunOutcome?
+    /// The join step's one field: a pasted join command, or the address and
+    /// token. Each change is read at once (`JoinCommandParser`); a paste that
+    /// parses fills the address and token and empties the field, so the
+    /// token stays only in `token`. Neither is ever logged.
+    @Published var joinPaste = "" {
+        didSet { readJoinPaste() }
+    }
+    /// Why the join field's text is not a join command; nil while it is
+    /// empty or parsed.
+    @Published private(set) var joinPasteError: String?
+    /// The address read from the paste, checked again by `ServerAddress`.
+    @Published private(set) var serverText = ""
+    /// The token read from the paste; handed to the root step on stdin and
+    /// cleared when the install starts.
+    @Published private(set) var token = ""
     /// The worker's join target: the status report's `joinTarget`, or the
     /// installed plist when the report has none.
     @Published private(set) var joinTarget: Result<ServerAddress, AgentJoinTarget.ReadError>?
@@ -367,7 +378,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// The join form's address problem, if the typed text is not valid.
+    /// The join step's address problem, if the pasted address is not valid.
     var addressError: String? {
         let text = serverText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard choice == .join, !text.isEmpty else { return nil }
@@ -384,13 +395,86 @@ final class AppModel: ObservableObject {
         !running && availability == .enabled && payloadVersion != nil
     }
 
-    /// Whether the first-run button is enabled.
-    var canSubmit: Bool {
-        guard canRunPrivileged else { return false }
-        switch choice {
-        case .start: return true
-        case .join: return addressError == nil && !serverText.isEmpty && !token.isEmpty
+    /// The join address the paste gave, when it is valid.
+    var joinAddress: ServerAddress? {
+        try? ServerAddress(parsing: serverText.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Whether the join step has an address and a token to go on with.
+    var joinReady: Bool { joinAddress != nil && !token.isEmpty }
+
+    /// Whether Continue is enabled on the current first-run step.
+    var firstRunCanContinue: Bool {
+        guard FirstRunFlow.next(after: firstRunStep, path: choice) != nil else { return false }
+        return firstRunStep != .join || joinReady
+    }
+
+    /// The review step for the current path (`FirstRunFlow.review`).
+    var firstRunReview: FirstRunReview {
+        let address = choice == .join ? joinAddress : nil
+        return FirstRunFlow.review(path: choice, server: address?.description, serverArgument: address?.argument,
+                                   developerBuild: teamID == nil, payload: payloadVersion)
+    }
+
+    /// Why the review step's install button is disabled, nil when it can run.
+    var firstRunInstallDisabledReason: String? {
+        if running { return "Another change is running." }
+        if case .disabled(let reason) = availability { return reason }
+        if payloadVersion == nil { return "This build of the app carries no k3sm release, so it cannot install one." }
+        if choice == .join && !joinReady { return "Paste the join command first." }
+        return nil
+    }
+
+    /// Reads the join field. Any new text first forgets the last paste's
+    /// address and token; text that parses fills them and empties the field.
+    private func readJoinPaste() {
+        guard !joinPaste.isEmpty else { return }
+        serverText = ""
+        token = ""
+        switch JoinCommandParser.parse(joinPaste) {
+        case .success(let paste):
+            serverText = paste.server
+            token = paste.token
+            joinPasteError = addressError
+            joinPaste = ""
+        case .failure(let error):
+            joinPasteError = error.message
         }
+    }
+
+    /// Forgets the pasted address and token.
+    func clearJoinPaste() {
+        joinPaste = ""
+        serverText = ""
+        token = ""
+        joinPasteError = nil
+    }
+
+    /// Continue: the next step of the first run.
+    func firstRunContinue() {
+        guard firstRunCanContinue, let next = FirstRunFlow.next(after: firstRunStep, path: choice) else { return }
+        firstRunStep = next
+    }
+
+    /// Back: the step before, which keeps what was entered.
+    func firstRunBack() {
+        guard !running, let previous = FirstRunFlow.previous(before: firstRunStep, path: choice) else { return }
+        firstRunStep = previous
+    }
+
+    /// Try Again: back to the review, or for a join to the join step, since
+    /// the token went to the failed run.
+    func firstRunTryAgain() {
+        guard !running else { return }
+        firstRunOutcome = nil
+        firstRunStep = FirstRunFlow.retryStep(for: choice)
+    }
+
+    /// Puts the first run back on its first step, as a new install begins.
+    private func resetFirstRun() {
+        firstRunStep = .choose
+        firstRunOutcome = nil
+        clearJoinPaste()
     }
 
     /// The installed role, from the full report.
@@ -553,6 +637,7 @@ final class AppModel: ObservableObject {
         if next != screen {
             screen = next
             statusPanelShown = false
+            if next == .firstRun, !running { resetFirstRun() }
         }
         guard screen == .status else {
             report = nil
@@ -1280,23 +1365,29 @@ final class AppModel: ObservableObject {
         alert.runModal()
     }
 
-    /// Runs the first-run choice through the privileged runner.
-    func submitFirstRun() {
-        guard canSubmit else { return }
+    /// Runs the first run's install through the existing path (the
+    /// copy-out root step), on the install step, and moves to the finished
+    /// step when it ends. A success has already refreshed onto the console.
+    func firstRunInstall() {
+        guard firstRunStep == .review, firstRunInstallDisabledReason == nil, teamID != nil else { return }
         let action: CopyOutAction
         var input: Data?
         switch choice {
         case .start:
             action = .startServer
         case .join:
-            guard let address = try? ServerAddress(parsing: serverText.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-                return
-            }
+            guard let address = joinAddress else { return }
             action = .join(address)
-            input = Data(token.trimmingCharacters(in: .whitespacesAndNewlines).utf8)
+            input = Data(token.utf8)
             token = ""
         }
-        start(action, input: input)
+        firstRunOutcome = nil
+        firstRunStep = .install
+        start(action, input: input) { [weak self] succeeded, message in
+            guard let self else { return }
+            self.firstRunOutcome = succeeded == true ? .succeeded : .failed(message)
+            self.firstRunStep = .finished
+        }
     }
 
     /// Runs the update the window offers.
