@@ -31,6 +31,17 @@ public enum RowState: Equatable, Sendable {
     /// The `update` row: a node runs a release newer than the latest and
     /// none is behind.
     case ahead
+    /// The `update` row: a managed update is in progress (`wide.phase`,
+    /// `wide.target`, `wide.node`). Drawn as healthy; it never moves the
+    /// verdict.
+    case rolling
+    /// No answer (the `dns` row: none over UDP in 3 s, `wide.tcp` when TCP
+    /// answered). Drawn for attention; the row's `warn` severity is what makes
+    /// the CLI's verdict degraded, and the app reads the verdict as printed.
+    case down
+    /// An answer that is not a good one (the `dns` row: a reply with no
+    /// address). Drawn for attention, like `down`.
+    case unhealthy
     /// Another committed word (stopped, not-ready, skip, ...), shown as printed.
     case reported(String)
     /// The word `unknown`, or a word this build does not know.
@@ -41,6 +52,9 @@ public enum RowState: Equatable, Sendable {
     /// The `update` row's wire words for an older and a newer release.
     public static let behindWord = "behind"
     public static let aheadWord = "ahead"
+    public static let rollingWord = "rolling"
+    public static let downWord = "down"
+    public static let unhealthyWord = "unhealthy"
 
     static let healthyWords: Set<String> = ["running", "ok", "ready", "healthy"]
     static let reportedWords: Set<String> = [
@@ -48,8 +62,8 @@ public enum RowState: Equatable, Sendable {
         "stopped", "not-loaded", "disabled", "failed", "crash-loop", "waiting", "expired", "corrupt",
         "address-mismatch",
         // other row states
-        "down", "not-ready", "wrong-owner", "not-mounted", "absent", "partial", "missing", "skip", "drift",
-        "unhealthy", "stale",
+        "not-ready", "wrong-owner", "not-mounted", "absent", "partial", "missing", "skip", "drift",
+        "stale",
     ]
 
     /// Creates a state from the CLI's wire word.
@@ -60,6 +74,12 @@ public enum RowState: Equatable, Sendable {
             self = .behind
         } else if word == Self.aheadWord {
             self = .ahead
+        } else if word == Self.rollingWord {
+            self = .rolling
+        } else if word == Self.downWord {
+            self = .down
+        } else if word == Self.unhealthyWord {
+            self = .unhealthy
         } else if Self.healthyWords.contains(word) {
             self = .healthy(word)
         } else if Self.reportedWords.contains(word) {
@@ -76,26 +96,31 @@ public enum RowState: Equatable, Sendable {
         case .needsAdmin: return Self.needsAdminWord
         case .behind: return Self.behindWord
         case .ahead: return Self.aheadWord
+        case .rolling: return Self.rollingWord
+        case .down: return Self.downWord
+        case .unhealthy: return Self.unhealthyWord
         }
     }
 
     /// How the row is drawn.
     public var tone: RowTone {
         switch self {
-        case .healthy, .ahead: return .healthy
+        case .healthy, .ahead, .rolling: return .healthy
         case .needsAdmin: return .notChecked
-        case .behind, .reported, .unknown: return .attention
+        case .behind, .down, .unhealthy, .reported, .unknown: return .attention
         }
     }
 
     /// Whether the row may make the app read this Mac as other than its
     /// verdict says it is. A `needs-admin` row never does: the CLI keeps it
     /// out of the verdict, and so does the app. Nor does `behind`: an update
-    /// being available is drawn for attention, and the cluster still runs.
+    /// being available is drawn for attention, and the cluster still runs;
+    /// nor does `rolling`. `down` and `unhealthy` do, as before they had
+    /// states of their own.
     public var degradesVerdict: Bool {
         switch self {
-        case .healthy, .needsAdmin, .behind, .ahead: return false
-        case .reported, .unknown: return true
+        case .healthy, .needsAdmin, .behind, .ahead, .rolling: return false
+        case .down, .unhealthy, .reported, .unknown: return true
         }
     }
 }
@@ -133,7 +158,8 @@ extension StatusDisplay {
 
     /// The detail a row shows, clipped: a `needs-admin` row says it needs an
     /// administrator and names the row's own remedy, for example "needs an
-    /// administrator; run sudo k3sm status". A `behind` or `ahead` row shows
+    /// administrator; run sudo k3sm status". A `behind`, `ahead`, `rolling`,
+    /// `down` or `unhealthy` row shows
     /// its detail as printed, then "; run " and its remedy when it has one.
     /// Any other row shows its detail.
     public static func rowDetail(_ row: StatusRow) -> String {
@@ -141,7 +167,7 @@ extension StatusDisplay {
         switch row.rowState {
         case .needsAdmin:
             return clip(remedy.isEmpty ? needsAdminText : needsAdminText + "; run " + remedy)
-        case .behind, .ahead:
+        case .behind, .ahead, .rolling, .down, .unhealthy:
             let detail = clip(row.detail)
             return remedy.isEmpty ? detail : clip(detail + "; run " + remedy)
         default:

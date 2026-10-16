@@ -61,15 +61,28 @@ public struct StatusRow: Decodable, Equatable, Sendable {
     /// The command the CLI suggests for this row, "" when it names none. A
     /// missing or mistyped field reads as "".
     public let remedy: String
+    /// The row's informational `wide` map, string values only: a key whose
+    /// value is not a string is dropped, and a missing or mistyped map reads
+    /// as empty. Every value is untrusted data.
+    public let wide: [String: String]
 
-    public init(name: String, state: String, detail: String, remedy: String = "") {
+    public init(name: String, state: String, detail: String, remedy: String = "", wide: [String: String] = [:]) {
         self.name = name
         self.state = state
         self.detail = detail
         self.remedy = remedy
+        self.wide = wide
     }
 
-    private enum CodingKeys: String, CodingKey { case name, state, detail, remedy }
+    private enum CodingKeys: String, CodingKey { case name, state, detail, remedy, wide }
+
+    /// Any key of the `wide` map.
+    private struct WideKey: CodingKey {
+        let stringValue: String
+        init?(stringValue: String) { self.stringValue = stringValue }
+        var intValue: Int? { nil }
+        init?(intValue: Int) { nil }
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -77,6 +90,13 @@ public struct StatusRow: Decodable, Equatable, Sendable {
         state = try c.decode(String.self, forKey: .state)
         detail = try c.decode(String.self, forKey: .detail)
         remedy = (try? c.decodeIfPresent(String.self, forKey: .remedy)) ?? ""
+        var wide: [String: String] = [:]
+        if let w = try? c.nestedContainer(keyedBy: WideKey.self, forKey: .wide) {
+            for key in w.allKeys {
+                if let value = try? w.decode(String.self, forKey: key) { wide[key.stringValue] = value }
+            }
+        }
+        self.wide = wide
     }
 
     /// The row's state word, read as what the app does with it.
