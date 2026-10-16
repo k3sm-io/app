@@ -8,7 +8,9 @@
 #   1. swift build
 #   2. swift test (the status decoder, the visibility rule, role detection)
 #   3. hack/build-app.sh into a temp dir (builds, signs and verifies the bundle;
-#      the app icon is in it and reads back with a 1024-pixel member)
+#      the app icon is in it and reads back with a 1024-pixel member; the
+#      MCP server is in it, sealed by the bundle's signature, and answers
+#      initialize and tools/list over stdio with only its read-only tools)
 #   4. shellcheck over every hack/**/*.sh
 #   5. hack/build-app.sh --payload with a fake payload: the refusals, the
 #      manifest, the version stamp; then make-dmg.sh on the result
@@ -84,6 +86,26 @@ big="$tmp/AppIcon.iconset/icon_512x512@2x.png"
 	&& [ "$(sips -g pixelHeight "$big" | awk '/pixelHeight/ {print $2}')" = 1024 ] \
 	|| { echo "FAIL: the 512x512@2x icon is not 1024x1024"; exit 1; }
 echo "    ok (app icon)"
+# The read-only MCP server: in the bundle, signed and sealed with it, and
+# answering on stdio. Only initialize and tools/list are sent, so nothing
+# runs the CLI and no call is logged.
+mcp="$tmp/out/k3sm.app/Contents/MacOS/k3sm-mcp"
+[ -x "$mcp" ] || { echo "FAIL: the bundle has no Contents/MacOS/k3sm-mcp"; exit 1; }
+codesign --verify --strict "$mcp" || { echo "FAIL: k3sm-mcp does not verify"; exit 1; }
+codesign --verify --strict --deep "$tmp/out/k3sm.app" || { echo "FAIL: the bundle does not verify with k3sm-mcp in it"; exit 1; }
+printf '%s\n' \
+	'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+	'{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+	'{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+	| "$mcp" > "$tmp/mcp.out" 2> "$tmp/mcp.err" \
+	|| { echo "FAIL: k3sm-mcp exited non-zero"; cat "$tmp/mcp.err"; exit 1; }
+[ "$(wc -l < "$tmp/mcp.out" | tr -d ' ')" = 2 ] || { echo "FAIL: k3sm-mcp did not write exactly two replies"; cat "$tmp/mcp.out"; exit 1; }
+grep -q '"protocolVersion":"2025-06-18"' "$tmp/mcp.out" || { echo "FAIL: k3sm-mcp did not negotiate 2025-06-18"; cat "$tmp/mcp.out"; exit 1; }
+tools="$(grep -o '"name":"k3sm_[a-z_]*"' "$tmp/mcp.out" | sort -u | tr '\n' ' ')"
+[ "$tools" = '"name":"k3sm_events" "name":"k3sm_metrics" "name":"k3sm_nodes" "name":"k3sm_status" "name":"k3sm_update_status" ' ] \
+	|| { echo "FAIL: k3sm-mcp lists other tools: $tools"; exit 1; }
+! grep -q '"readOnlyHint":false' "$tmp/mcp.out" || { echo "FAIL: a k3sm-mcp tool is not read-only"; exit 1; }
+echo "    ok (k3sm-mcp: signed, sealed, five read-only tools on stdio)"
 
 echo "==> shellcheck (hack/**/*.sh)"
 command -v shellcheck >/dev/null || { echo "FAIL: shellcheck is not installed (brew install shellcheck)"; exit 1; }

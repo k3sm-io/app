@@ -6,16 +6,21 @@ keeps; L-numbers are the resolutions of the k3sm lifecycle plan (stop, start
 and restart, and the menu).
 
 ```
-K3smStatus   (library, Foundation only)   reads k3sm, decides visibility
-K3smInstall  (library, Foundation only)   the root step as data and text
-K3smHost     (library, Foundation, Security) runs the installed CLI after its trust check
-K3smApp      (executable, AppKit/SwiftUI) wires the libraries to the screen and to root
-hack/        build, release and gate scripts
+K3smStatus     (library, Foundation only)   reads k3sm, decides visibility
+K3smInstall    (library, Foundation only)   the root step as data and text
+K3smHost       (library, Foundation, Security) runs the installed CLI after its trust check
+K3smMCP        (library, Foundation only)   the read-only MCP server: JSON-RPC, tools, call log
+K3smApp        (executable, AppKit/SwiftUI) wires the libraries to the screen and to root
+K3smMCPServer  (executable k3sm-mcp)        the MCP server on stdio, inside the bundle
+hack/          build, release and gate scripts
 ```
 
-`K3smInstall` depends on `K3smStatus`; `K3smHost` on both; `K3smApp` on all
-three. No library imports AppKit, so every decision is unit-tested without a
-GUI.
+`K3smInstall` depends on `K3smStatus`; `K3smHost` on both; `K3smMCP` on
+`K3smStatus` only, so its tests run against fake reads. `K3smApp` uses
+`K3smStatus`, `K3smInstall` and `K3smHost`; `K3smMCPServer` uses `K3smMCP`
+and `K3smHost`, so the app and the MCP server read k3sm through one runner
+and one trust check. No library imports AppKit, so every decision is
+unit-tested without a GUI.
 
 ## K3smStatus
 
@@ -105,6 +110,27 @@ GUI.
 | `CLIProcess`, `CLIOutcome` | R6 | runs the CLI by absolute path with the environment the caller built; the child is killed (SIGKILL) at the deadline, once its output passes the run's `OutputLimit` (`.truncated`, the first bytes kept), or when the awaiting task is cancelled; the signal reaches the direct child only, so a `kubectl` the wrapper forked may outlive it; standard error is discarded unless the caller passes `keepErrors` (the console's actions), which puts it on the output pipe under the same limit; `onOutput` hands each chunk kept within the limit to a caller that shows a run as it goes (the build log sheet) |
 | `InstalledCLI` | R4, R8, L9 | `trust(team:)`, the `lstat` plus `SecStaticCode` check of the installed CLI (`InstalledCLITrust.evaluate`) made before every trusted run; `environment()`, the CLI environment from the passwd entry; `home()` |
 
+## K3smMCP
+
+The read-only MCP server's logic, behind a `ClusterReader` seam, so it is
+tested with fake reads (`MCPTests`). The executable wires it to stdio.
+
+| piece | serves | what it does |
+|---|---|---|
+| `MCPServer`, `ServerInfo` | agents | JSON-RPC 2.0, one message at a time: `initialize` (negotiates 2025-11-25, 2025-06-18, 2025-03-26 or 2024-11-05, else offers the newest), `ping`, `tools/list`, `tools/call`; notifications and responses get no reply; a batch, a non-2.0 message, a null id or an unknown method is a JSON-RPC error; an unknown tool is `-32602` and runs nothing; from 2025-06-18 a tool lists its `outputSchema` and a result carries `structuredContent` beside the text block |
+| `StdioTransport`, `LineSplitter` | agents | the stdio transport: newline-delimited input read on its own thread, a CR before LF dropped, a line over 1 MiB discarded and answered with a parse error; replies on standard output, one per line, and nothing else there |
+| `ToolName`, `ToolDefinition`, `Schema` | agents | the five tools, every string a constant: `k3sm_status`, `k3sm_nodes`, `k3sm_update_status`, `k3sm_metrics`, `k3sm_events`; closed input schemas (only `k3sm_events` takes anything: a `namespace` that must pass `ResourceName` and a `limit` from 1 to 50); `readOnlyHint` true and `destructiveHint` false on each |
+| `ReadRequest`, `ReadOutcome`, `ClusterReader` | agents | the only reads that exist: `ReadRequest` has a private initialiser and nine constants over `K3smCLI`'s read lists (report, probe, version, update status, nodes, events, node and pod metrics, the metrics APIService), each with the app's deadline and `OutputLimit`; no tool argument reaches a command line |
+| `ClusterTools`, `ToolResult`, `CallOutcome` | agents | runs each tool through the app's decoders (`StatusReport`, `Nodes`, `UpdateStatus`, `Metrics`, `EventsList`) and builds its result from named fields only, every string through `StatusDisplay.clip`, with `untrustedData: true`; when a read fails, `available: false` with a `condition` (`updating`, `updating-or-unreachable`, `cli-refused`, `stopped`, `not-installed`, `too-large`), a sentence starting "k3sm is updating or unreachable" for the transient ones, `retryAfterSeconds`, and what is known from the launchd probe and the update status; kubectl's error text never reaches a result |
+| `CallLog` | agents | one line per call to `~/Library/Logs/k3sm-mcp.log` (time, tool or `unknown`, outcome, milliseconds; never an argument or a result), created 0600, never through a symlink, only while it is a regular file the user owns, moved to `.1` past 1 MiB |
+| `JSONValue` | agents | the closed JSON tree every message is built from, serialised compactly with sorted keys |
+
+`K3smMCPServer/main.swift` is the `k3sm-mcp` executable: each read runs
+`TrustedCLI` over `InstalledCLI.trust` (a fresh check per run, the pinned
+Team ID when the build has one) and `CLIProcess` with the passwd-based
+environment, so nothing in the environment the MCP client passes reaches
+the CLI. It opens no socket and has no tool that writes.
+
 ## K3smInstall
 
 | piece | serves | what it does |
@@ -166,13 +192,13 @@ GUI.
 
 | script | serves | what it does |
 |---|---|---|
-| `build-app.sh` | R10, A10 | arm64 release build, ad-hoc signed; `--payload` copies and checks a staged tree and writes `payload.sha256`; `--version` stamps Info.plist; `--team-id` compiles the Team ID pin from a source copy under `.build/pinned-src` |
+| `build-app.sh` | R10, A10 | arm64 release build of the app and `k3sm-mcp`, both in `Contents/MacOS`, ad-hoc signed inside out (`k3sm-mcp` as `io.k3sm.app.mcp`, then `k3sm-app`, then the bundle); `--payload` copies and checks a staged tree and writes `payload.sha256`; `--version` stamps Info.plist; `--team-id` compiles the Team ID pin from a source copy under `.build/pinned-src` |
 | `release/make-dmg.sh` | A11 | the UDZO disk image with an `/Applications` symlink |
-| `release/sign-and-notarize.sh` | A5, A11, A18 | attended Developer ID signing, notarization and stapling of the app and the image; refuses agent, loop and non-terminal runs, and an app not built with `--team-id` for its team |
+| `release/sign-and-notarize.sh` | A5, A11, A18 | attended Developer ID signing (inside out: `k3sm-mcp`, `k3sm-app`, the bundle), notarization and stapling of the app and the image; refuses agent, loop and non-terminal runs, and an app whose executables were not built with `--team-id` for its team |
 | `acceptance/B458.sh` | | `swift test` (argv goldens, Team ID pin, update policy, `stoppedBy`), the developer and `--team-id` bundles built and verified with `codesign --verify --strict --deep` |
 | `acceptance/B571.sh` | | the Start flow against a fake `k3sm` first on PATH (bound 1 s, a first start that runs past it and exits still cordoned, a second that succeeds): the bound read, the retrying and final texts, exactly two starts; then the start bound and retry suites |
 | `verify-help.sh` | | every control carries a catalog help tag: no help string literal outside `Help.swift`, no SwiftUI Button, Toggle, Picker, Menu or Stepper without a `.help(` in its own modifier chain unless `help.allow` names it with a reason (a stale entry fails); `--self-test` runs the fixtures in `testdata/verify-help` |
-| `ci.sh` | | the gate: build, tests, bundle builds, shellcheck, payload and refusal checks, headers, workflow dormancy, fixture drift (the status fixtures against k3sm's `pkg/status/testdata`, the datavol fixtures against its `cmd/k3sm/testdata`, byte for byte), the dependency check and the help tag check |
+| `ci.sh` | | the gate: build, tests, bundle builds (with `k3sm-mcp` in the bundle, signed and sealed, answering `initialize` and `tools/list` over stdio with exactly the five read-only tools), shellcheck, payload and refusal checks, headers, workflow dormancy, fixture drift (the status fixtures against k3sm's `pkg/status/testdata`, the datavol fixtures against its `cmd/k3sm/testdata`, byte for byte), the dependency check and the help tag check |
 
 ## Help tags
 

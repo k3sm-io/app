@@ -704,6 +704,67 @@ because the cluster does not depend on its front end. To remove k3sm itself,
 use the app's uninstall action before deleting the app, or run
 `sudo k3sm uninstall` in a terminal.
 
+## Agents: the read-only MCP server
+
+The app carries a Model Context Protocol server for coding agents such as
+Claude Code: `k3sm.app/Contents/MacOS/k3sm-mcp`. It speaks MCP over stdio,
+so the agent starts it as a child process. It only reads: no tool changes the
+cluster, runs a command or a `kubectl` of your choosing, or returns a
+credential. It opens no network port.
+
+The app does not register it anywhere. To give Claude Code the tools, run
+this once yourself:
+
+```sh
+claude mcp add --scope user k3sm -- /Applications/k3sm.app/Contents/MacOS/k3sm-mcp
+```
+
+`claude mcp list` shows it, and `claude mcp remove --scope user k3sm` takes
+it away. Other MCP clients take the same path as a stdio command.
+
+| tool | what it returns |
+|---|---|
+| `k3sm_status` | the status report: verdict, role, each health row (state, severity, detail, suggested command), who stopped k3sm, and versions (the installed CLI, this app, the latest release, each node) |
+| `k3sm_nodes` | each node: name, role, Ready, cordoned, kubelet version, k3sm release, conditions |
+| `k3sm_update_status` | the `update` row (latest release, behind or not) and the managed update's phase, target, per-node from, to and phase, and conditions |
+| `k3sm_metrics` | CPU (millicores) and memory per node from metrics-server, and the 20 pods using the most CPU; says so when the cluster serves no metrics API |
+| `k3sm_events` | recent Warning events, newest first: namespace, reason, message, object, count, last seen; at most 50, 20 by default, optionally one `namespace` |
+
+Each tool reads the way the app does: it runs the installed CLI at
+`/Library/k3sm/k3sm` by absolute path, after the same ownership and signature
+check the app makes before each run, with an environment built from your
+account rather than the agent's. It runs as you, with your kubeconfig, so it
+sees what you can see.
+
+What no tool returns: a join or admin token, a kubeconfig, a key or
+certificate, a Secret's or ConfigMap's data, a pod's logs or environment.
+Results are built from named fields only, and a test plants credentials in
+the CLI's output and checks that none comes back. Names, details and messages
+come from the cluster, so each result carries `"untrustedData": true` and
+every such string is cut to one line of 160 characters. An event's message is
+written by whatever raised the event; it is shortened, not filtered.
+
+While k3sm updates, or whenever the CLI or the API server does not answer, a
+tool returns a result rather than an error:
+
+```json
+{"available": false, "condition": "updating",
+ "message": "k3sm is updating or unreachable: the node list exited 1; the API server may be restarting. A managed update is rolling, so parts of the cluster restart; k3sm_update_status shows its progress.",
+ "retryAfterSeconds": 5,
+ "known": {"verdict": "degraded", "role": "server", "updateRolling": true, "update": {"phase": "Rolling", "target": "v0.1.8"}},
+ "readAt": "2026-10-16T09:00:00Z", "untrustedData": true}
+```
+
+`condition` is `updating`, `updating-or-unreachable`, `cli-refused` (the
+installed CLI did not pass the check, as it may not for a moment mid-update),
+`stopped`, `not-installed` or `too-large`; `known` holds what launchd and the
+update status still report.
+
+Every call is logged to `~/Library/Logs/k3sm-mcp.log`, one line each: the
+time, the tool, the outcome and how long it took. Arguments and results are
+never logged. The file is readable only by you and moves to
+`k3sm-mcp.log.1` once it passes 1 MiB.
+
 ## Build
 
 Requires macOS 26 or later on Apple silicon and Swift 6. The package has no

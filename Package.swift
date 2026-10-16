@@ -24,17 +24,21 @@ let package = Package(
         .library(name: "K3smStatus", targets: ["K3smStatus"]),
         .library(name: "K3smInstall", targets: ["K3smInstall"]),
         .executable(name: "K3smApp", targets: ["K3smApp"]),
+        // The read-only MCP server the bundle ships at Contents/MacOS/k3sm-mcp.
+        .executable(name: "k3sm-mcp", targets: ["K3smMCPServer"]),
     ],
     targets: [
         .target(name: "K3smStatus"),
         .target(name: "K3smInstall", dependencies: ["K3smStatus"]),
-        // Runs the installed CLI after its trust check, for every reader of
-        // k3sm the package builds.
+        // Runs the installed CLI after its trust check: shared by the app
+        // and the MCP server, so both read k3sm the same way.
         .target(name: "K3smHost", dependencies: ["K3smStatus", "K3smInstall"]),
+        .target(name: "K3smMCP", dependencies: ["K3smStatus"]),
         .executableTarget(name: "K3smApp", dependencies: ["K3smStatus", "K3smInstall", "K3smHost"]),
+        .executableTarget(name: "K3smMCPServer", dependencies: ["K3smMCP", "K3smHost", "K3smInstall", "K3smStatus"]),
         .testTarget(
             name: "K3smStatusTests",
-            dependencies: ["K3smStatus"],
+            dependencies: ["K3smStatus", "K3smMCP"],
             resources: [.copy("Fixtures")]
         ),
         .testTarget(name: "K3smInstallTests", dependencies: ["K3smInstall", "K3smStatus"]),
