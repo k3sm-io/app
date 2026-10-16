@@ -185,7 +185,8 @@ struct RepairTests {
             + "and the other arguments its daemon runs with, and its data is kept. An explicit node IP it was installed with is not "
             + "passed again: the worker uses the address the control plane assigned it.\n\n"))
         #expect(!agent.message.contains("control plane, with the server arguments"))
-        #expect(!agent.message.contains("admin kubeconfig is written"))
+        // The worker's own text never mentions a kubeconfig; only the shared refusals do.
+        #expect(!agent.message.replacingOccurrences(of: RepairConfirmation.refusals, with: "").contains("kubeconfig"))
         #expect(!server.message.contains("node credential and"))
 
         // With the role unknown, both, each named.

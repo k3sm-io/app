@@ -115,7 +115,7 @@ struct UpdateAbortTests {
         let runner = LANRunner()
         let asked = Questions()
         let result = await ManagedUpdateTests.driver(StatusSequence([]), runner: runner, answer: true, asked: asked).abort()
-        #expect(result == .ran(.notStarted, .succeeded, "k3sm released every node from the update, and marked an unfinished update Cancelled. Nothing was rolled back: every node keeps the release it runs, and a node already installing may still finish."))
+        #expect(result == .ran(.notStarted, .succeeded, "k3sm released every node from the update, and marked any unfinished update Cancelled. Nothing was rolled back: every node keeps the release it runs, and a node already installing may still finish."))
         #expect(asked.all.map(\.title) == ["Abort the update?"])
         #expect(runner.scripts == [LifecycleScriptBuilder.render(.updateAbort, teamID: Self.team)])
 
@@ -128,7 +128,7 @@ struct UpdateAbortTests {
     func outcomes() {
         // A successful abort claims no more than the question did.
         let done = LifecycleOutcome.text(.succeeded, verb: .updateAbort)
-        #expect(done == "k3sm released every node from the update, and marked an unfinished update Cancelled. Nothing was rolled back: every node keeps the release it runs, and a node already installing may still finish.")
+        #expect(done == "k3sm released every node from the update, and marked any unfinished update Cancelled. Nothing was rolled back: every node keeps the release it runs, and a node already installing may still finish.")
         for words in ["Nothing was rolled back", "every node keeps the release it runs", "a node already installing may still finish"] {
             #expect(done.contains(words) && UpdateConfirmationText.abort.lowercased().contains(words.lowercased().replacingOccurrences(of: "was", with: "is")),
                     "the outcome and the question disagree on: \(words)")
