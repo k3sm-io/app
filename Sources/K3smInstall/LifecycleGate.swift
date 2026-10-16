@@ -72,10 +72,11 @@ public struct LifecycleConfirmation: Equatable, Sendable {
         self.init(verb: verb, report: report, options: verb == .updateApply ? .defaults : nil)
     }
 
-    /// The catch-up's question: the release the server runs, the nodes that
-    /// move to it, and every option that is not the default. It offers no
-    /// downgrade: a node ahead of the server refuses the catch-up instead.
-    public init(catchUp options: UpdateOptions, tag: String, nodes: [String]) {
+    /// The catch-up's question: the release installed on the server, the
+    /// nodes that move to it (this server named when its own Node moves),
+    /// and every option that is not the default. It offers no downgrade: a
+    /// node ahead of the server refuses the catch-up instead.
+    public init(catchUp options: UpdateOptions, tag: String, nodes: [String], server: String) {
         verb = .updateApply
         update = options
         offersDowngrade = false
@@ -84,7 +85,7 @@ public struct LifecycleConfirmation: Equatable, Sendable {
         let release = StatusDisplay.clip(tag)
         title = nodes.count == 1 ? StatusDisplay.clip("Update \(nodes[0]) to k3sm \(tag)?") : "Update \(nodes.count) nodes to k3sm \(release)?"
         let lines = options.confirmationLines
-        let body = UpdateConfirmationText.catchUp(tag: tag, nodes: nodes)
+        let body = UpdateConfirmationText.catchUp(tag: tag, nodes: nodes, server: server)
         message = lines.isEmpty ? body : body + "\n\n" + lines.joined(separator: " ")
         warning = nil
     }

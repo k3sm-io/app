@@ -742,25 +742,32 @@ names nothing newer: it joined from an older install, or the check has not
 run or could not answer. On the server's app, every node the Nodes tab marks
 behind then offers **Update…** in its context menu and its details, and the
 summary line over the list carries one **Update…** for all of them. Each runs
-the update plan, which here is the managed update pinned to the release the
-server itself runs (the `version` that `k3sm status -o json` reports):
+the update plan, which here is the managed update pinned to the release
+installed on the server (the `version` that `k3sm status -o json` reports):
 `/Library/k3sm/k3sm update apply --yes --version <the server's release>`,
 through the same checked root step and with the same options. k3sm's update
-controller moves every node that does not run that release and leaves the
-ones that do, the server among them, as they are.
+controller moves every node whose kubelet does not report that release and
+leaves the ones that do as they are. The app reads each node the same way,
+the server's own node too (the `node` row of `k3sm status -o json`): when the
+server's node still runs an older release than the k3sm installed on it, the
+server moves as well, last.
 
-The question names the release and the nodes that will move, and offers no
-downgrade. Before it asks and again after, the app reads the status and
-refuses, with nothing run, unless this Mac is still the server, no update is
-rolling, the server still reports exactly the release the question named (the
-same text, not only an equal version), its other nodes are listed, at least one
-of them is not on that release, and none runs a newer one; and it refuses if
-the nodes that would move changed while the question was open.
+The question names the release and the nodes that will move, says the server
+restarts last when it is one of them (and that it stays as it is only when it
+is not), says that the server decides the final set when the update starts, so
+a node that joins or changes before then moves to the release too, and offers
+no downgrade. Before it asks and again after, the app reads this Mac's own
+`k3sm status -o json` and refuses, with nothing run, unless this Mac is still
+the server, no update is rolling, the server still reports exactly the release
+the question named (the same text, not only an equal version), its own node
+and its other nodes are listed, at least one node is not on that release, and
+none runs a newer one; and it refuses if the nodes that would move changed
+while the question was open.
 
 When the server's check names a newer release, the same buttons run the
 managed update to that release instead, which moves the node too. When the
-server runs a build from source with no release tag, a node runs a newer
-release than the server, or an update is rolling, the buttons are shown
+server runs a build from source with no release tag, its own node is not
+reported, a node runs a newer release than the server, or an update is rolling, the buttons are shown
 disabled with the reason. A worker's app offers no such button: it offers the
 app-carried update when the app carries a newer release, and otherwise says
 that the server's app updates it.

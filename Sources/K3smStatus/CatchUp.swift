@@ -18,15 +18,19 @@ import Foundation
 
 /// ClusterCatchUp is what a managed update pinned to the server's own
 /// release would do, read from a server's status report: the release the
-/// server runs (`StatusReport.release`), and each other node (`workers`)
-/// sorted into the ones the roll moves, the ones behind, and the ones ahead.
+/// server's k3sm reports (`StatusRelease`), the server's own Node (the `node`
+/// row's `wide.node` and `wide.kubelet`, from the node list the report read),
+/// and each other node (`workers`), sorted into the ones the roll moves, the
+/// ones behind, and the ones ahead.
 ///
-/// It mirrors k3sm's update controller (`pkg/updatectl`): a node whose
-/// kubelet version carries the target's k3sm part (`onTarget`) is skipped
-/// and left as it is, every other node is moved; a node whose release is
-/// newer than the target (`isDowngrade`) refuses the whole roll unless a
-/// downgrade is allowed, which this path never asks for. The server runs
-/// the target, so the roll skips it too.
+/// It mirrors k3sm's update controller (`pkg/updatectl`), and reads every
+/// node, the server's own included, by its Node's kubelet version, the fact
+/// the controller acts on: a node whose kubelet version carries the target's
+/// k3sm part (`onTarget`) is skipped and left as it is, every other node is
+/// moved, the server last; a node whose release is newer than the target
+/// (`isDowngrade`) refuses the whole roll unless a downgrade is allowed,
+/// which this path never asks for. The controller lists the nodes again when
+/// the update starts, so this is the set as the report saw it.
 public struct ClusterCatchUp: Equatable, Sendable {
     /// The release text the server's k3sm reports, exactly as printed; nil
     /// when the report carries none.
@@ -34,21 +38,37 @@ public struct ClusterCatchUp: Equatable, Sendable {
     /// That text when it is a tagged release the roll can be pinned to; nil
     /// for a developer build.
     public let tag: String?
-    /// Other nodes the roll would move: every node not on the server's
-    /// release, by name. Empty without a tag.
+    /// The server's own Node name, from the `node` row; nil when the row
+    /// does not name it.
+    public let server: String?
+    /// Whether the server's own Node and its kubelet version were read; the
+    /// sets below do not cover the server when false.
+    public let serverKnown: Bool
+    /// The nodes the roll would move, in the controller's order: the
+    /// workers, then the other servers, by name, then this server when its
+    /// Node is not on the release. Empty without a tag.
     public let moves: [String]
-    /// Other nodes on an older tagged release than the server's, by name.
+    /// The nodes on an older tagged release than the server's k3sm, by name
+    /// (this server's Node included when it is).
     public let behind: [String]
-    /// Other nodes on a newer release than the server's, by name: the roll
-    /// would refuse to start while any is.
+    /// The nodes on a newer release than the server's k3sm, by name: the
+    /// roll would refuse to start while any is.
     public let ahead: [String]
 
-    public init(serverRelease: String?, tag: String?, moves: [String], behind: [String], ahead: [String]) {
+    public init(serverRelease: String?, tag: String?, server: String?, serverKnown: Bool,
+                moves: [String], behind: [String], ahead: [String]) {
         self.serverRelease = serverRelease
         self.tag = tag
+        self.server = server
+        self.serverKnown = serverKnown
         self.moves = moves
         self.behind = behind
         self.ahead = ahead
+    }
+
+    /// Whether this server's own Node is among the nodes the roll moves.
+    public var serverMoves: Bool {
+        server.map(moves.contains) ?? false
     }
 
     /// The catch-up a server's report describes; nil on a worker, or when
@@ -56,20 +76,29 @@ public struct ClusterCatchUp: Equatable, Sendable {
     public static func decide(report: StatusReport?) -> ClusterCatchUp? {
         guard let report, NodeRole.detect(in: report) == .server, let workers = report.workers else { return nil }
         let text = report.release?.text
+        let nodeRow = report.row(named: "node")
+        let serverName = nodeRow?.wide["node"].flatMap { $0.isEmpty ? nil : $0 }
+        let serverKubelet = nodeRow?.wide["kubelet"].flatMap { $0.isEmpty ? nil : $0 }
+        let serverKnown = serverName != nil && serverKubelet != nil && !workers.contains { $0.name == serverName }
         guard let tag = report.release?.tag, let target = SemanticVersion(tag) else {
-            return ClusterCatchUp(serverRelease: text, tag: nil, moves: [], behind: [], ahead: [])
+            return ClusterCatchUp(serverRelease: text, tag: nil, server: serverName, serverKnown: serverKnown,
+                                  moves: [], behind: [], ahead: [])
         }
         let metadata = buildMetadata(tag)
+        let ordered = workers.filter { $0.role != NodeRole.server.rawValue }.sorted { $0.name < $1.name }
+            + workers.filter { $0.role == NodeRole.server.rawValue }.sorted { $0.name < $1.name }
+        var nodes = ordered.map { (name: $0.name, kubelet: $0.version) }
+        if serverKnown, let serverName { nodes.append((name: serverName, kubelet: serverKubelet)) }
         var moves: [String] = [], behind: [String] = [], ahead: [String] = []
-        for worker in workers.sorted(by: { $0.name < $1.name }) {
-            let part = k3smPart(worker.version)
-            if part == nil || part != metadata { moves.append(worker.name) }
-            if let release = worker.k3smRelease, !release.isUntagged, release < target { behind.append(worker.name) }
-            if let from = fromRelease(worker.version).flatMap(SemanticVersion.init), target < from { ahead.append(worker.name) }
+        for node in nodes {
+            let part = k3smPart(node.kubelet)
+            if part == nil || part != metadata { moves.append(node.name) }
+            if let release = part.flatMap(SemanticVersion.init), !release.isUntagged, release < target { behind.append(node.name) }
+            if let from = fromRelease(node.kubelet).flatMap(SemanticVersion.init), target < from { ahead.append(node.name) }
         }
-        return ClusterCatchUp(serverRelease: text, tag: tag, moves: moves, behind: behind, ahead: ahead)
+        return ClusterCatchUp(serverRelease: text, tag: tag, server: serverName, serverKnown: serverKnown,
+                              moves: moves, behind: behind.sorted(), ahead: ahead.sorted())
     }
-
     /// The k3sm part of a kubelet version, after `+k3sm.`, as the
     /// controller's `nodeRelease` reads it; nil with no marker.
     static func k3smPart(_ kubelet: String?) -> String? {

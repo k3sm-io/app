@@ -43,12 +43,17 @@ struct BehindNodeUpdateTests {
     }
 
     /// A report as `k3sm status -o json` prints it on a server (or, with
-    /// `role: "agent"`, a worker): its own release, the other nodes, and an
-    /// `update` row when given.
+    /// `role: "agent"`, a worker): its k3sm's release, its own Node in the
+    /// `node` row (`node-a`, with `serverKubelet`; no row when nil), the other
+    /// nodes, and an `update` row when given.
     static func report(role: String = "server", release: String? = "v0.1.7", dirty: Bool = false,
+                       serverKubelet: String? = "v1.36.2+k3sm.0.1.7",
                        workers: [StatusWorker]? = [StatusWorker(name: "node-b", role: "agent", version: "v1.36.2+k3sm.0.1.6")],
                        update: StatusRow? = nil) -> StatusReport {
         var rows = [StatusRow(name: role, state: "running", detail: "d")]
+        if let serverKubelet {
+            rows.append(StatusRow(name: "node", state: "ready", detail: "d", wide: ["node": "node-a", "kubelet": serverKubelet]))
+        }
         if let update { rows.append(update) }
         return StatusReport(schemaVersion: 1, verdict: .running, role: role, summary: "s", rows: rows,
                             workers: role == "server" ? workers : nil,
@@ -101,12 +106,31 @@ struct BehindNodeUpdateTests {
                                       StatusWorker(name: "node-c", role: "agent", version: "v1.36.2+k3sm.0.1.9")]),
              nodes: pair + [node("node-c", "v1.36.2+k3sm.0.1.9")],
              plan: .blocked(.nodesAhead(tag: "v0.1.7", nodes: ["node-c"])),
-             control: NodeUpdateControl(enabled: false, reason: UpdateBlock.nodesAhead(tag: "v0.1.7", nodes: ["node-c"]).sentence)),
+             control: NodeUpdateControl(enabled: false, reason: "node-c runs a newer release than the server's v0.1.7, "
+                 + "and updating to it would move that node back. Update the server first.")),
         Case(name: "a dev-build worker beside a behind one moves too, and the question names it",
              report: report(workers: [StatusWorker(name: "node-b", role: "agent", version: "v1.36.2+k3sm.0.1.6"),
                                       StatusWorker(name: "node-d", role: "agent", version: "v1.36.2+k3sm.0.1.5-dirty")]),
              nodes: pair + [node("node-d", "v1.36.2+k3sm.0.1.5-dirty")],
              plan: .catchUp(tag: "v0.1.7", nodes: ["node-b", "node-d"]), control: enabled),
+        Case(name: "the server's own node behind its k3sm, every worker on the release",
+             report: report(serverKubelet: "v1.36.2+k3sm.0.1.6",
+                            workers: [StatusWorker(name: "node-b", role: "agent", version: "v1.36.2+k3sm.0.1.7")]),
+             nodes: [node("node-a", "v1.36.2+k3sm.0.1.6", server: true), node("node-b", "v1.36.2+k3sm.0.1.7")],
+             plan: .catchUp(tag: "v0.1.7", nodes: ["node-a"]), control: nil),
+        Case(name: "the server's own node behind its k3sm, a worker behind too: the server moves last",
+             report: report(serverKubelet: "v1.36.2+k3sm.0.1.6"),
+             nodes: [node("node-a", "v1.36.2+k3sm.0.1.6", server: true), node("node-b", "v1.36.2+k3sm.0.1.6")],
+             plan: .catchUp(tag: "v0.1.7", nodes: ["node-b", "node-a"]), control: nil),
+        Case(name: "the server's own node not reported",
+             report: report(serverKubelet: nil), nodes: pair, plan: .blocked(.serverNodeUnknown),
+             control: NodeUpdateControl(enabled: false, reason: UpdateBlock.serverNodeUnknownText)),
+        Case(name: "the server's own node ahead of its k3sm",
+             report: report(serverKubelet: "v1.36.2+k3sm.0.1.8"),
+             nodes: [node("node-a", "v1.36.2+k3sm.0.1.8", server: true), node("node-b", "v1.36.2+k3sm.0.1.6")],
+             plan: .blocked(.nodesAhead(tag: "v0.1.7", nodes: ["node-a"])),
+             control: NodeUpdateControl(enabled: false, reason: "node-a runs a newer release than the server's v0.1.7, "
+                 + "and updating to it would move that node back. Update the server first.")),
         Case(name: "a worker's app",
              report: report(role: "agent"), nodes: pair, installed: v016, payload: v016,
              plan: .blocked(.workerBehind), control: nil),
@@ -144,7 +168,7 @@ struct BehindNodeUpdateTests {
         if case .catchUp(let tag, let nodes) = plan {
             #expect(plan.menuTitle == (nodes.count == 1 ? "Update \(nodes[0]) to \(tag)…" : "Update \(nodes.count) Nodes to \(tag)…"))
             #expect(plan.buttonTitle == "Update" && plan.disabledReason == nil)
-            #expect(plan.line == "The update moves \(UpdatePath.names(nodes)) to k3sm \(tag), the release the server runs; "
+            #expect(plan.line == "The update moves \(UpdatePath.names(nodes)) to k3sm \(tag), the release installed on the server; "
                 + "nodes already on it stay as they are.")
             #expect(Help.Strip.update(plan) == "Move the nodes behind to the server's k3sm \(tag)")
         }
@@ -195,12 +219,28 @@ struct BehindNodeUpdateTests {
             StatusWorker(name: "pseudo", role: "agent", version: "v1.36.2+k3sm.0.1.8-0.20261015120000-0123456789ab"),
         ]
         let catchUp = ClusterCatchUp.decide(report: Self.report(workers: workers))
-        #expect(catchUp == ClusterCatchUp(serverRelease: "v0.1.7", tag: "v0.1.7", moves: ["new", "none", "old", "pseudo"],
-                                          behind: ["old"], ahead: ["new", "pseudo"]))
+        #expect(catchUp == ClusterCatchUp(serverRelease: "v0.1.7", tag: "v0.1.7", server: "node-a", serverKnown: true,
+                                          moves: ["new", "none", "old", "pseudo"], behind: ["old"], ahead: ["new", "pseudo"]))
+        #expect(catchUp?.serverMoves == false)
+        // The server's own Node is read by its kubelet version, the fact the
+        // controller acts on, not by its k3sm's version: behind, it moves, last,
+        // after the workers and the other servers.
+        let servers = [StatusWorker(name: "srv-b", role: "server", version: "v1.36.2+k3sm.0.1.6"),
+                       StatusWorker(name: "wrk-z", role: "agent", version: "v1.36.2+k3sm.0.1.6")]
+        let lagging = ClusterCatchUp.decide(report: Self.report(serverKubelet: "v1.36.2+k3sm.0.1.6", workers: servers))
+        #expect(lagging?.moves == ["wrk-z", "srv-b", "node-a"] && lagging?.serverMoves == true)
+        #expect(lagging?.behind == ["node-a", "srv-b", "wrk-z"])
+        // An untagged server Node moves (not on the target) and a newer one refuses.
+        #expect(ClusterCatchUp.decide(report: Self.report(serverKubelet: "v1.36.2"))?.ahead == ["node-a"])
+        #expect(ClusterCatchUp.decide(report: Self.report(serverKubelet: "v1.36.2+k3sm.0.1.7-dirty"))?.serverMoves == true)
+        // Not reported, or named among the workers: not known.
+        #expect(ClusterCatchUp.decide(report: Self.report(serverKubelet: nil))?.serverKnown == false)
+        #expect(ClusterCatchUp.decide(report: Self.report(workers: [StatusWorker(name: "node-a", role: "agent", version: "v1.36.2+k3sm.0.1.6")]))?
+            .serverKnown == false)
         #expect(ClusterCatchUp.decide(report: Self.report(role: "agent")) == nil)
         #expect(ClusterCatchUp.decide(report: Self.report(workers: nil)) == nil)
         #expect(ClusterCatchUp.decide(report: Self.report(release: "dev"))
-            == ClusterCatchUp(serverRelease: "dev", tag: nil, moves: [], behind: [], ahead: []))
+            == ClusterCatchUp(serverRelease: "dev", tag: nil, server: "node-a", serverKnown: true, moves: [], behind: [], ahead: []))
     }
 
     @Test("names are clipped, joined and counted")

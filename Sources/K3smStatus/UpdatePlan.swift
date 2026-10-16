@@ -50,7 +50,7 @@ public enum UpdatePath: Equatable, Sendable {
         case .managed(let tag):
             return StatusDisplay.clip("The update moves every node to k3sm \(tag), the server last.")
         case .catchUp(let tag, let nodes):
-            return "The update moves \(UpdatePath.names(nodes)) to k3sm \(StatusDisplay.clip(tag)), the release the server runs; "
+            return "The update moves \(UpdatePath.names(nodes)) to k3sm \(StatusDisplay.clip(tag)), the release installed on the server; "
                 + "nodes already on it stay as they are."
         }
     }
@@ -122,6 +122,9 @@ public enum UpdateBlock: Equatable, Sendable {
     /// A node is behind, but the server runs a developer build with no
     /// release tag, so there is no release to pin the roll to.
     case serverUntagged
+    /// A node is behind, but the report does not name the server's own Node
+    /// and its kubelet version, so which nodes the roll moves is not known.
+    case serverNodeUnknown
     /// A node is behind the server's release, but these nodes run a newer
     /// one, and the roll to the server's release would move them back.
     case nodesAhead(tag: String, nodes: [String])
@@ -132,7 +135,7 @@ public enum UpdateBlock: Equatable, Sendable {
         switch self {
         case .appDeveloperBuild(let path), .refused(_, let path): return path
         case .joinTargetUnknown(let version): return .payload(version)
-        case .roleUnknown, .installedUnknown, .controlPlaneWithWorkers, .workerBehind, .downgrade, .serverUntagged, .nodesAhead:
+        case .roleUnknown, .installedUnknown, .controlPlaneWithWorkers, .workerBehind, .downgrade, .serverUntagged, .serverNodeUnknown, .nodesAhead:
             return nil
         }
     }
@@ -155,6 +158,9 @@ public enum UpdateBlock: Equatable, Sendable {
         "The server runs a developer build of k3sm with no release tag, so there is no release to move the nodes behind to. "
         + "Update them in Terminal."
 
+    public static let serverNodeUnknownText =
+        "k3sm did not report this server's own node and the release its kubelet runs, so the app cannot tell which nodes the update would move."
+
     /// The sentence the disabled control's help tag and line carry.
     public var sentence: String {
         switch self {
@@ -171,6 +177,7 @@ public enum UpdateBlock: Equatable, Sendable {
         case .downgrade(let installed, let payload):
             return "This Mac runs k3sm \(installed), newer than the \(payload) this app carries, and the app never installs an older k3sm."
         case .serverUntagged: return Self.serverUntaggedText
+        case .serverNodeUnknown: return Self.serverNodeUnknownText
         case .nodesAhead(let tag, let nodes):
             return "\(UpdatePath.names(nodes)) \(nodes.count == 1 ? "runs" : "run") a newer release than the server's "
                 + "\(StatusDisplay.clip(tag)), and updating to it would move \(nodes.count == 1 ? "that node" : "them") back. Update the server first."
@@ -278,7 +285,8 @@ public enum UpdatePlan: Equatable, Sendable {
     ///     check found a newer release; else, when a node is behind (in the
     ///     report against the server's release, or on the Nodes tab), the
     ///     catch-up: the roll pinned to the server's own release, blocked when
-    ///     the server has no release tag or a node is ahead of it, nothing when
+    ///     the server has no release tag, its own Node is not reported, or a
+    ///     node (the server's own Node included) is ahead of it, nothing when
     ///     every node already runs it; else, with a newer payload, blocked
     ///     (the control plane of a multi-node cluster updates only by the roll).
     ///  4. A worker: the payload when it is newer than the install; else
@@ -352,6 +360,7 @@ public enum UpdatePlan: Equatable, Sendable {
     static func catchUpStep(_ facts: UpdatePlanFacts) -> Result<UpdatePath, CatchUpBlock>? {
         guard let catchUp = facts.catchUp, !catchUp.behind.isEmpty || !facts.listedBehind.isEmpty else { return nil }
         guard let tag = catchUp.tag else { return .failure(CatchUpBlock(block: .serverUntagged)) }
+        guard catchUp.serverKnown else { return .failure(CatchUpBlock(block: .serverNodeUnknown)) }
         if !catchUp.ahead.isEmpty { return .failure(CatchUpBlock(block: .nodesAhead(tag: tag, nodes: catchUp.ahead))) }
         guard !catchUp.moves.isEmpty else { return nil }
         return .success(.catchUp(tag: tag, nodes: catchUp.moves))
