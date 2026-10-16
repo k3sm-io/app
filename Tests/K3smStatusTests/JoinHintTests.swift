@@ -85,10 +85,13 @@ struct JoinHintTests {
                     #expect(s.text.contains("--token-file"))
                 }
             case .pasteIntoApp:
-                #expect(JoinCommandParser.parse("studio.local K10aa::u:s").isSuccess || !s.text.isEmpty)
+                #expect(s.label.contains(JoinHints.pasteLabel), "\(s.text)")
+                #expect(JoinCommandParser.parse(s.text.replacingOccurrences(of: "K10…", with: "K10aa::u:s")).isSuccess, "\(s.text)")
             }
         }
-        #expect(JoinHints.pasteExample.contains("not Terminal"))
+        #expect(JoinHints.pasteLabel == "to paste into this window, not Terminal")
+        #expect(JoinHints.pasteExample.contains(JoinHints.pasteLabel))
+        #expect(JoinPasteError.notAJoinCommand.message.contains(JoinHints.pasteLabel))
         #expect(JoinHints.terminalJoin.contains("--token-file") && !JoinHints.terminalJoin.contains("--token "))
     }
 }

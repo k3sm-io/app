@@ -32,20 +32,25 @@ public enum JoinHints {
     public struct Suggestion: Equatable, Sendable {
         public let text: String
         public let use: Use
+        /// How the suggestion is labelled when shown; a paste suggestion always carries `pasteLabel`.
+        public let label: String
     }
+
+    /// The label every paste-into-the-app suggestion carries.
+    public static let pasteLabel = "to paste into this window, not Terminal"
 
     /// A Terminal join on a Mac without the app, with the token in a file
     /// that only root can read (`k3sm install` has no `--token` flag).
     public static let terminalJoin = "sudo k3sm install --agent --server <host> --token-file <path>"
 
     /// What to paste into the Join step, with its label.
-    public static let pasteExample = "(for example `studio.local K10…`, to paste into this window, not Terminal)"
+    public static let pasteExample = "(for example `studio.local K10…`, \(pasteLabel))"
 
     /// Every command suggestion the app can show.
     public static let suggestions: [Suggestion] = [
-        Suggestion(text: terminalJoin, use: .terminal),
-        Suggestion(text: "sudo k3sm token create", use: .terminal),
-        Suggestion(text: "studio.local K10…", use: .pasteIntoApp),
+        Suggestion(text: terminalJoin, use: .terminal, label: ""),
+        Suggestion(text: "sudo k3sm token create", use: .terminal, label: ""),
+        Suggestion(text: "studio.local K10…", use: .pasteIntoApp, label: pasteLabel),
     ]
 
     /// The line above the join field.
