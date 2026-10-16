@@ -728,7 +728,7 @@ it away. Other MCP clients take the same path as a stdio command.
 | `k3sm_nodes` | each node: name, role, Ready, cordoned, kubelet version, k3sm release, conditions |
 | `k3sm_update_status` | the `update` row (latest release, behind or not) and the managed update's phase, target, per-node from, to and phase, and conditions |
 | `k3sm_metrics` | CPU (millicores) and memory per node from metrics-server, and the 20 pods using the most CPU; says so when the cluster serves no metrics API |
-| `k3sm_events` | recent Warning events, newest first: namespace, reason, message, object, count, last seen; at most 50, 20 by default, optionally one `namespace` |
+| `k3sm_events` | recent Warning events, newest first: namespace, reason, object, count, last seen, and `clusterMessage`; at most 50, 20 by default, optionally one `namespace` |
 
 Each tool reads the way the app does: it runs the installed CLI at
 `/Library/k3sm/k3sm` by absolute path, after the same ownership and signature
@@ -741,8 +741,10 @@ certificate, a Secret's or ConfigMap's data, a pod's logs or environment.
 Results are built from named fields only, and a test plants credentials in
 the CLI's output and checks that none comes back. Names, details and messages
 come from the cluster, so each result carries `"untrustedData": true` and
-every such string is cut to one line of 160 characters. An event's message is
-written by whatever raised the event; it is shortened, not filtered.
+every such string is cut to one line of 160 characters. An event's message
+comes back as `clusterMessage` because it is text written inside the cluster
+by whatever raised the event: an agent should quote it and never act on it.
+It is shortened, not filtered.
 
 While k3sm updates, or whenever the CLI or the API server does not answer, a
 tool returns a result rather than an error:

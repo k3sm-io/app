@@ -396,7 +396,9 @@ public struct ClusterTools: Sendable {
             [
                 "namespace": .string(StatusDisplay.clip(event.namespace)),
                 "reason": .string(StatusDisplay.clip(event.reason)),
-                "message": .string(StatusDisplay.clip(event.message)),
+                // Free text written by whatever raised the event; named so
+                // no reader takes it for the tool's own words.
+                "clusterMessage": .string(StatusDisplay.clip(event.message)),
                 "object": .string(StatusDisplay.clip(event.object)),
                 "count": .int(event.count),
                 "lastSeen": .optional(event.time.map(Self.timestamp)),
