@@ -141,7 +141,16 @@ public enum K3smCLI {
         ["kubectl", "uncordon", node.value]
     }
 
-    /// The node's UID, read just before a cordon or uncordon.
+    /// Drains one node: cordons it, then evicts its pods, leaving DaemonSet
+    /// pods and deleting emptyDir data, and gives up after `timeoutSeconds`.
+    /// No `--force`: a pod no controller owns stops the drain with kubectl's
+    /// own error rather than being deleted for good. Only a `ResourceName`
+    /// reaches it.
+    public static func drainArguments(node: ResourceName, timeoutSeconds: Int) -> [String] {
+        ["kubectl", "drain", node.value, "--ignore-daemonsets", "--delete-emptydir-data", "--timeout=\(timeoutSeconds)s"]
+    }
+
+    /// The node's UID, read just before a cordon, uncordon or drain.
     public static func nodeUIDArguments(node: ResourceName) -> [String] {
         ["kubectl", "get", "node", node.value, "-o", "jsonpath={.metadata.uid}"]
     }

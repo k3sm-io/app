@@ -76,10 +76,12 @@ struct NodesSection: View {
     }
 }
 
-/// NodeInspector is the Nodes tab's inspector: the selected node's facts and
-/// its Cordon or Uncordon, its live load, conditions, taints and the pods
-/// on it, from `InspectorDetails.node`; rebuilt every 5 s so the sample's
-/// and the conditions' ages stay current.
+/// NodeInspector is the Nodes tab's inspector: the selected node's facts,
+/// its Cordon or Uncordon and Drain on the shared action seam, this Mac's
+/// own Update, Restart and Stop or the line saying where another Mac's are
+/// (`NodeLifecycleOffer`), its live load, conditions, taints and the pods on
+/// it, from `InspectorDetails.node`; rebuilt every 5 s so the sample's and
+/// the conditions' ages stay current.
 struct NodeInspector: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
@@ -91,6 +93,9 @@ struct NodeInspector: View {
                     VStack(alignment: .leading, spacing: 0) {
                         RowInspector(content: body.header, empty: "", actions: RowActions.selected(.nodes, app: app),
                                      fillsHeight: false)
+                        if let offer = lifecycleOffer() {
+                            NodeLifecycleBlock(app: app, offer: offer)
+                        }
                         NodeInspectorSections(content: body)
                     }
                 }
@@ -101,11 +106,63 @@ struct NodeInspector: View {
         }
     }
 
+    private func lifecycleOffer() -> NodeLifecycleOffer? {
+        guard let key = app.selection.selection(in: .nodes)?.key, let nodes = workloads.nodes,
+              let node = nodes.first(where: { $0.name == key }) else { return nil }
+        return NodeLifecycleOffer.decide(node, nodes: nodes, report: app.report)
+    }
+
     private func content(now: Date) -> NodeInspectorBody? {
         guard let key = app.selection.selection(in: .nodes)?.key, let nodes = workloads.nodes,
               let node = nodes.first(where: { $0.name == key }) else { return nil }
         return InspectorDetails.node(node, nodes: nodes, report: app.report, pods: workloads.workloads?.pods,
                                      metrics: workloads.metrics, now: now)
+    }
+}
+
+/// NodeLifecycleBlock is this Mac's own Update, Restart and Stop, each
+/// through the path the rest of the app uses: Update is
+/// `AppModel.performUpdate` (the Settings Updates pane's question and
+/// options, enabled as its Update Now is), Restart and Stop are
+/// `AppModel.perform` (the menu's confirmation, with Stop's warning, and the
+/// administrator prompt). Under them, the offer's line.
+struct NodeLifecycleBlock: View {
+    @ObservedObject var app: AppModel
+    let offer: NodeLifecycleOffer
+
+    var body: some View {
+        let control = UpdateNowControl.decide(offer: app.updateOffer, report: app.lanReport)
+        VStack(alignment: .leading, spacing: 6) {
+            if !offer.actions.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(offer.actions) { action in
+                        Button(action.title) { run(action) }
+                            .disabled(action == .update ? (!control.enabled || app.running) : !app.canRunLifecycle)
+                            .help(Help.Nodes.lifecycle(action, update: control))
+                    }
+                }
+            }
+            if offer.actions.contains(.update), let reason = control.reason {
+                note(reason)
+            }
+            if let line = offer.note { note(line) }
+        }
+        .padding(.horizontal, 18).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
+    }
+
+    private func run(_ action: NodeLifecycleAction) {
+        switch action {
+        case .update: app.performUpdate()
+        case .restart: app.perform(.restart, expected: .running)
+        case .stop: app.perform(.stop, expected: .running)
+        }
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(verbatim: StatusDisplay.clip(text)).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

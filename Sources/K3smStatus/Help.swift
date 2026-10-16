@@ -186,8 +186,28 @@ public enum Help {
         public static let podUsage = HelpTag("CPU and memory the pod uses now, from metrics-server",
                                              control: "node inspector: pod usage")
 
+        /// This Mac's node: Update k3sm…
+        public static let update = HelpTag("Update every node to the newest release, the server last",
+                                           control: "node inspector: Update k3sm", label: NodeLifecycleAction.update.title)
+        /// This Mac's node: Restart k3sm…
+        public static let restart = HelpTag("Stop this Mac's k3sm daemons and start them again",
+                                            control: "node inspector: Restart k3sm", label: NodeLifecycleAction.restart.title)
+        /// This Mac's node: Stop k3sm…
+        public static let stop = HelpTag("Stop this Mac's node and its pods until you start it again",
+                                         control: "node inspector: Stop k3sm", label: NodeLifecycleAction.stop.title)
+
+        /// A lifecycle button's tag: Update's names why it is disabled, as
+        /// the Updates pane's Update Now does.
+        public static func lifecycle(_ action: NodeLifecycleAction, update control: UpdateNowControl) -> String {
+            switch action {
+            case .update: return control.reason ?? update.text
+            case .restart: return restart.text
+            case .stop: return stop.text
+            }
+        }
+
         public static var all: [HelpTag] { [status, version, versionSummary, versionFact, latestFact, load, liveCPU, liveMemory, sparkline,
-                                    podUsage] }
+                                    podUsage, update, restart, stop] }
     }
 
     // MARK: Images tab
@@ -365,6 +385,7 @@ public enum Help {
                            "Delete completed and failed pods"),
             "node-cordon": tag("Stop new pods being placed on the node", "node Cordon", "Cordon"),
             "node-uncordon": tag("Let new pods be placed on the node again", "node Uncordon", "Uncordon"),
+            "node-drain": tag("Cordon the node and move its pods to other nodes", "node Drain", "Drain"),
             "delete-claim": tag("Delete the claim; its volume follows its reclaim policy", "claim Delete", "Delete"),
             "delete-volumes": tag("Delete volumes that no claim holds", "storage cleanup",
                                   "Delete released and unclaimed volumes"),

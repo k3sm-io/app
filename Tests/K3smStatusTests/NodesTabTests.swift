@@ -192,9 +192,9 @@ struct NodesTabTests {
         var testDescription: String { name }
     }
 
-    @Test("a node offers Cordon or Uncordon by its schedulable state", arguments: [
-        Availability(name: "schedulable", node: "mac-a", uid: "u", unschedulable: false, want: [.cordon]),
-        Availability(name: "cordoned", node: "mac-b", uid: "u", unschedulable: true, want: [.uncordon]),
+    @Test("a node offers Cordon or Uncordon by its schedulable state, and Drain", arguments: [
+        Availability(name: "schedulable", node: "mac-a", uid: "u", unschedulable: false, want: [.cordon, .drain]),
+        Availability(name: "cordoned", node: "mac-b", uid: "u", unschedulable: true, want: [.uncordon, .drain]),
         Availability(name: "listed without a UID", node: "mac-a", uid: "", unschedulable: false, want: []),
         Availability(name: "cordoned, without a UID", node: "mac-b", uid: "", unschedulable: true, want: []),
         Availability(name: "a name the guard refuses", node: "--all", uid: "u", unschedulable: false, want: []),

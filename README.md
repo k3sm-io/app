@@ -221,7 +221,9 @@ login** in the app's Settings turns it off or on again (see
     unavailable" with the reason) rather than drawing zero.
 
   The tabs only read. The changes the console makes are a pod's
-  **Restart** and **Delete**, a node's **Cordon** and **Uncordon**, a
+  **Restart** and **Delete**, a node's **Cordon**, **Uncordon** and
+  **Drain**, this Mac's own **Update**, **Restart** and **Stop** in its node
+  details, a
   service's **Delete**, the Workloads cleanup,
   a model's **Unload**, **Load** and **Delete**, a claim's **Delete**, the
   Storage cleanup of unused volumes, and the Builds tab's engine, cache and
@@ -311,8 +313,27 @@ login** in the app's Settings turns it off or on again (see
   recreated under the same name since it was listed; then it runs `k3sm
   kubectl cordon <name>` or `k3sm kubectl uncordon <name>` and leaves one
   line under the buttons. A node whose name is not a valid Kubernetes name,
-  or that was listed without a UID, offers neither. Draining a node is not
-  in the app.
+  or that was listed without a UID, offers neither.
+- **Drain…**, beside Cordon or Uncordon on every node, asks first: the
+  node is cordoned and its pods are evicted, so they move to other nodes
+  that can take them (a pod with nowhere to go waits as Pending); data in
+  their emptyDir volumes is lost; DaemonSet pods stay. It reads the node's
+  UID first like Cordon, then runs `k3sm kubectl drain <name>
+  --ignore-daemonsets --delete-emptydir-data --timeout=120s` (never
+  `--force`, so a pod no controller owns stops the drain with kubectl's own
+  error) and reports how many pods were evicted, or the error after the
+  count. A drained node is cordoned, so it then offers Uncordon.
+- **Update k3sm…**, **Restart k3sm…** and **Stop k3sm…** are in the node
+  details of this Mac's own node only. Update is offered while the node is
+  behind the cluster's target and this Mac is the server; it is the
+  Settings Updates pane's managed update, with the same question and
+  options, enabled when Update Now is. Restart and Stop are the menu's, with
+  the same question (Stop says what stops, and warns when other nodes have
+  joined) and administrator prompt. While a managed update rolls they wait,
+  since the update restarts each node itself. A worker behind the server is
+  updated by the server's managed update. Another Mac's node offers none of
+  them: its details say to update it from the server's managed update or
+  from the k3sm app on that Mac.
 - **Delete completed and failed pods…**, at the right end of the Pods /
   Events row while Workloads shows its pods and some pod has finished, deletes every pod in phase Succeeded
   or Failed, or evicted. The question names how many and in which
