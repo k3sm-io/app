@@ -36,33 +36,44 @@ struct ConsoleView: View {
         self.workloads = app.workloads
     }
 
-    static let minSize = CGSize(width: 1180, height: 700)
+    /// The window's minimum height.
+    static let minHeight: CGFloat = 700
     /// The inspector's fixed width; collapsing it lowers the minimum width by this much.
-    static let inspectorWidth: CGFloat = 320
-    /// The split view's divider.
-    static let dividerWidth: CGFloat = 1
+    static let inspectorWidth = CGFloat(TabStripLayout.inspectorWidth)
 
-    /// The content pane's minimum width (the tabs, and the inspector when shown).
-    static func contentMinWidth(inspectorShown: Bool) -> CGFloat {
-        minSize.width - CGFloat(PanelLayout.minimum) - dividerWidth - (inspectorShown ? 0 : inspectorWidth)
+    /// The strip's minimum width (`TabStripLayout.minimumWidth`): every tab
+    /// label whole, the update button while one is offered, the search field
+    /// at its minimum.
+    static func stripMinWidth(updateTitle: String?) -> Double {
+        TabStripLayout.minimumWidth(labels: ConsoleSection.allCases.map(\.title),
+                                    buttonWidth: updateTitle.map(TabStripLayout.buttonWidth(title:)))
+    }
+
+    /// The content pane's minimum width (the tabs, and the inspector when
+    /// shown): the larger of what the window floor leaves and what the strip needs.
+    static func contentMinWidth(inspectorShown: Bool, updateTitle: String?) -> CGFloat {
+        CGFloat(TabStripLayout.contentMinimumWidth(strip: stripMinWidth(updateTitle: updateTitle), inspectorShown: inspectorShown))
     }
 
     /// The window's minimum size: the panel's minimum, or nothing while it
     /// is collapsed, plus the content pane's minimum.
-    static func minSize(inspectorShown: Bool, panelCollapsed: Bool) -> CGSize {
-        let panel = panelCollapsed ? 0 : CGFloat(PanelLayout.minimum) + dividerWidth
-        return CGSize(width: panel + contentMinWidth(inspectorShown: inspectorShown), height: minSize.height)
+    static func minSize(inspectorShown: Bool, panelCollapsed: Bool, updateTitle: String?) -> CGSize {
+        let width = TabStripLayout.windowMinimumWidth(strip: stripMinWidth(updateTitle: updateTitle),
+                                                      inspectorShown: inspectorShown, panelCollapsed: panelCollapsed)
+        return CGSize(width: CGFloat(width), height: minHeight)
     }
 
     var body: some View {
         let panel = MacPanel(app: app, workloads: workloads)
-        let size = Self.minSize(inspectorShown: app.inspectorShown, panelCollapsed: app.consolePanelCollapsed)
+        let updateTitle = app.updateOffer.buttonTitle
+        let size = Self.minSize(inspectorShown: app.inspectorShown, panelCollapsed: app.consolePanelCollapsed,
+                                updateTitle: updateTitle)
         ConsoleSplit(
             app: app,
             range: PanelLayout.widthRange(content: panel.layoutContent),
             width: app.consolePanelWidth,
             collapsed: app.consolePanelCollapsed,
-            contentMinimum: Double(Self.contentMinWidth(inspectorShown: app.inspectorShown)),
+            contentMinimum: Double(Self.contentMinWidth(inspectorShown: app.inspectorShown, updateTitle: updateTitle)),
             // Each pane is hosted on its own; both run under the transparent
             // title bar, as the whole console did before the split.
             panel: panel.ignoresSafeArea(),
@@ -214,6 +225,6 @@ struct ConsoleStrip: View {
     /// The tab's search field: 180 pt when the strip has room, narrowing to
     /// 100 pt before the tab labels are squeezed.
     private func search(_ text: Binding<String>) -> some View {
-        TextField("Search", text: text).textFieldStyle(.roundedBorder).frame(minWidth: 100, idealWidth: 180, maxWidth: 180)
+        TextField("Search", text: text).textFieldStyle(.roundedBorder).frame(minWidth: CGFloat(TabStripLayout.searchMinimum), idealWidth: 180, maxWidth: 180)
     }
 }

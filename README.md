@@ -145,6 +145,11 @@ turned off.
   minimum width follows: the panel's minimum plus the list's, or the list's
   alone while the panel is hidden. The app remembers the width and whether
   the panel is hidden.
+- The **tab names** above the list stay whole on one line. The window goes
+  no narrower than the row above the list needs for every tab name, the
+  Update button while one is offered, the search field at its narrowest and
+  the buttons beside it; only a tab name longer than 24 characters would be
+  shortened, at its end.
 
 The app reads state only from `k3sm status -o json`, the machine interface the
 k3sm CLI documents. It runs `/Library/k3sm/k3sm` by absolute path with an

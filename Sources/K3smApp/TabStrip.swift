@@ -23,17 +23,26 @@ import SwiftUI
 /// selected tab. It fills the strip's height so the underline sits on the
 /// hairline the strip draws. A tab whose later read runs past
 /// `Waiting.debounce` shows the 10 pt waiting butterfly just after its label,
-/// in the gap to the next tab, so no label moves.
+/// in the gap to the next tab, so no label moves. Each label is one line at
+/// its own width, never wrapped; only one past `TabStripLayout.labelCap`
+/// characters is shortened, at its tail. The window's minimum width keeps
+/// room for every label (`TabStripLayout.minimumWidth`).
 struct TabStrip: View {
     let selected: ConsoleSection
     let waiting: WaitingModel
     let choose: (ConsoleSection) -> Void
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: CGFloat(TabStripLayout.tabSpacing)) {
             ForEach(ConsoleSection.allCases) { s in
-                Button(s.title) { choose(s) }
+                Button { choose(s) } label: {
+                    Text(TabStripLayout.display(s.title))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
                     .buttonStyle(ConsoleTabStyle(selected: selected == s))
+                    .accessibilityLabel(s.title)
                     .accessibilityAddTraits(selected == s ? .isSelected : [])
                     .overlay(alignment: .trailing) {
                         TabWaitingMark(waiting: waiting, section: s, placement: .label).offset(x: 14)
@@ -51,7 +60,7 @@ struct ConsoleTabStyle: ButtonStyle {
     let selected: Bool
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .medium))
+            .font(.system(size: CGFloat(TabStripLayout.fontSize), weight: .medium))
             .foregroundStyle(selected ? Color.primary : Palette.ink2)
             .frame(maxHeight: .infinity)
             .overlay(alignment: .bottom) { Rectangle().fill(selected ? Palette.navy : Color.clear).frame(height: 2) }
