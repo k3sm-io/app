@@ -95,10 +95,16 @@ public enum PodHealth: Equatable, Sendable {
 /// Quantity parses the Kubernetes resource quantities this screen needs: cores
 /// (plain or milli) and bytes (binary and decimal suffixes). Anything else is nil.
 public enum Quantity {
-    /// A CPU quantity as cores: "500m" is 0.5, "2" is 2.
+    /// A CPU quantity as cores: "500m" is 0.5, "2" is 2, and metrics-server's
+    /// "250000u" and "1425378643n" are 0.25 and 1.425378643.
     public static func cores(_ text: String) -> Double? {
-        let v: Double?
-        if text.hasSuffix("m"), let milli = Double(text.dropLast()) { v = milli / 1000 } else { v = Double(text) }
+        let scales: [(String, Double)] = [("n", 1e9), ("u", 1e6), ("m", 1e3)]
+        var v: Double?
+        if let (suffix, scale) = scales.first(where: { text.hasSuffix($0.0) }) {
+            v = Double(text.dropLast(suffix.count)).map { $0 / scale }
+        } else {
+            v = Double(text)
+        }
         guard let v, v.isFinite, v >= 0 else { return nil }
         return v
     }
