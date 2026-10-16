@@ -118,6 +118,14 @@ login** in the app's Settings turns it off or on again (see
 - The **Update** button appears at the top right of the console, beside the
   search field, when k3sm reports a newer release for the cluster. It runs
   the cluster's managed update (see [The managed update](#the-managed-update)).
+- The **info button** opens the status popover: the state of this Mac (and
+  who stopped k3sm, when it is stopped), only the checks that need
+  attention, or "All N checks are ok." when none does, the installed
+  version with an **Update** button while k3sm reports a newer release, and
+  Stop, Restart or Start. **All checks**, closed at first, holds every check
+  and Refresh; the app remembers whether you left it open. The log of an
+  install, update or uninstall shows there only while one runs or after one
+  failed. Connections from other devices and Uninstall are in Settings.
 - The **tabs** above the list are:
   - **Workloads**: every pod, with the Mac it runs on. Its **Events** switch
     shows the cluster's events instead, newest first and at most 200, with a
@@ -405,7 +413,7 @@ The **Advanced** pane:
 - **Uninstall k3sm…**, with **Also delete k3sm's data** (see
   [Uninstalling](#uninstalling)).
 - **Reset to Defaults…** asks, then puts every preference above back to its
-  first value. Open at login,
+  first value, and closes the status popover's All checks. Open at login,
   the window layout and k3sm itself stay as they are.
 
 ## The managed update

@@ -19,8 +19,8 @@ import K3smStatus
 import SwiftUI
 
 /// NetworkPane is the Settings window's Network pane: the "Allow
-/// connections from other devices" switch (`LANSection`, also in the info
-/// popover), then the current state, the listeners it controls,
+/// connections from other devices" switch (`LANSection`, moved here from
+/// the info popover), then the current state, the listeners it controls,
 /// those it never closes and this node's address (`NetworkPaneFacts`). The
 /// report is the last full status read; opening the pane reads it again, so
 /// the switch is never judged on a stale read.

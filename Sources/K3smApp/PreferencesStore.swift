@@ -36,6 +36,10 @@ final class PreferencesStore: ObservableObject {
     @Published var dockAnimation: Bool {
         didSet { if !reloading { preferences.dockAnimation = dockAnimation } }
     }
+    /// The info popover's "All checks" disclosure.
+    @Published var allChecksOpen: Bool {
+        didSet { if !reloading { preferences.allChecksOpen = allChecksOpen } }
+    }
 
     /// Set while `resetToDefaults` reads the defaults back, so nothing is
     /// written over the removed keys.
@@ -46,6 +50,7 @@ final class PreferencesStore: ObservableObject {
         notifyStoppedAtLogin = preferences.notifyStoppedAtLogin
         openWindowAtLogin = preferences.openWindowAtLogin
         dockAnimation = preferences.dockAnimation
+        allChecksOpen = preferences.allChecksOpen
     }
 
     /// Puts every preference back (`AppPreferences.reset`) and shows the
@@ -57,5 +62,6 @@ final class PreferencesStore: ObservableObject {
         notifyStoppedAtLogin = preferences.notifyStoppedAtLogin
         openWindowAtLogin = preferences.openWindowAtLogin
         dockAnimation = preferences.dockAnimation
+        allChecksOpen = preferences.allChecksOpen
     }
 }

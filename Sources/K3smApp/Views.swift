@@ -19,8 +19,8 @@ import K3smStatus
 import SwiftUI
 
 /// MainView is the window. Before k3sm is installed it is the first-run
-/// form; once installed it is the console, with the status panel (start,
-/// stop, connections, uninstall) behind the console's info button.
+/// form; once installed it is the console, with the status popover (state,
+/// problems, start, stop and update) behind the console's info button.
 struct MainView: View {
     @ObservedObject var model: AppModel
 
@@ -32,31 +32,17 @@ struct MainView: View {
     }
 }
 
-/// StatusPanel is the first-run form or the status, then the log of the last
-/// root step. Every string from the CLI renders verbatim.
+/// StatusPanel is the first-run form, then the log of the last root step.
+/// Every string from the CLI renders verbatim.
 struct StatusPanel: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if model.loginItemNeedsApproval {
-                HStack {
-                    Text("k3sm is not allowed to open at login.")
-                    Button("Open Login Items") { LoginItem.openSettings() }
-                }
-            }
-            switch model.screen {
-            case .firstRun: FirstRunView(model: model)
-            case .status: StatusView(model: model)
-            }
+            LoginApprovalLine(model: model)
+            FirstRunView(model: model)
             if !model.logTail.isEmpty {
-                ScrollView {
-                    Text(verbatim: model.logTail)
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .frame(minHeight: 120)
+                RootStepLog(text: model.logTail)
             }
             if let message = model.outcomeMessage {
                 Text(verbatim: message)
@@ -64,6 +50,61 @@ struct StatusPanel: View {
         }
         .padding(20)
         .frame(minWidth: 520, minHeight: 420, alignment: .topLeading)
+    }
+}
+
+/// StatusPopoverPanel is the console's info popover, about 380 pt wide: the
+/// status (`StatusView`), then the last root step's log only while a step
+/// runs or after one failed (`StatusPopover.showsLog`), then the outcome.
+struct StatusPopoverPanel: View {
+    @ObservedObject var model: AppModel
+
+    /// The popover's width.
+    static let width: CGFloat = 380
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            LoginApprovalLine(model: model)
+            StatusView(model: model, preferences: PreferencesStore.shared)
+            if StatusPopover.showsLog(logTail: model.logTail, running: model.running,
+                                      lastStepSucceeded: CopyOutOutcome(log: model.logTail) == .succeeded) {
+                RootStepLog(text: model.logTail)
+            }
+            if let message = model.outcomeMessage {
+                Text(verbatim: message).font(.callout).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .frame(width: Self.width, alignment: .topLeading)
+    }
+}
+
+/// LoginApprovalLine says when macOS waits for the user to allow the login item.
+struct LoginApprovalLine: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        if model.loginItemNeedsApproval {
+            HStack {
+                Text("k3sm is not allowed to open at login.")
+                Button("Open Login Items") { LoginItem.openSettings() }
+            }
+        }
+    }
+}
+
+/// RootStepLog is the tail of the last root step's log, verbatim.
+struct RootStepLog: View {
+    let text: String
+
+    var body: some View {
+        ScrollView {
+            Text(verbatim: text)
+                .font(.system(.caption, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .frame(minHeight: 120)
     }
 }
 
@@ -102,47 +143,114 @@ struct FirstRunView: View {
     }
 }
 
-/// StatusView shows the full report, clipped, the version comparison, and
-/// the Update and Uninstall actions.
+/// StatusView is the popover's status: the headline and the stopped-by
+/// line, only the checks that are not ok (`StatusPopover.problemRows`, or
+/// its all-ok line), the version line with the managed update's button
+/// while the `update` row says behind (`UpdateOffer`), Start, Stop and
+/// Restart, the app-carried update when it offers one, and the full table
+/// with Refresh behind the "All checks" disclosure, closed by default and
+/// remembered (`AppPreferences.allChecksOpen`). The LAN switch is in
+/// Settings > Network and Uninstall in Settings > Advanced.
 struct StatusView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var preferences: PreferencesStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let report = model.report {
-                Text(verbatim: StatusDisplay.headline(report)).font(.title2)
+                Text(verbatim: StatusDisplay.headline(report)).font(.title3).bold()
+                    .fixedSize(horizontal: false, vertical: true)
                 if let stopped = report.stoppedBy {
                     Text(verbatim: StatusDisplay.clip(stopped.line)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
-                    ForEach(Array(StatusDisplay.rows(of: report).enumerated()), id: \.offset) { _, row in
-                        GridRow {
-                            Image(systemName: row.rowState.tone.symbolName)
-                                .foregroundStyle(Palette.row(row.rowState.tone))
-                                .accessibilityLabel(Text(verbatim: row.rowState.tone.word))
-                            Text(verbatim: row.name).bold()
-                            Text(verbatim: row.state)
-                            Text(verbatim: row.detail).foregroundStyle(.secondary)
+                problems(report)
+            } else {
+                Text("k3sm is installed, but its status could not be read.").font(.title3).bold()
+            }
+            versionRow
+            LifecycleSection(model: model)
+            UpdateSection(model: model)
+            if case .disabled(let reason) = model.availability {
+                Text(verbatim: reason).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Divider()
+            DisclosureGroup(StatusPopover.allChecksTitle, isExpanded: $preferences.allChecksOpen) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let report = model.report {
+                        allChecks(report)
+                    }
+                    Button("Refresh") { Task { await model.refresh() } }
+                        .disabled(model.running)
+                }
+                .padding(.top, 6)
+            }
+        }
+    }
+
+    /// The checks that are not ok, each its glyph, name and state over its detail.
+    @ViewBuilder
+    private func problems(_ report: StatusReport) -> some View {
+        if let line = StatusPopover.allOkLine(report) {
+            Label { Text(verbatim: line) } icon: {
+                Image(systemName: RowTone.healthy.symbolName).foregroundStyle(Palette.row(.healthy))
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(StatusPopover.problemRows(of: report).enumerated()), id: \.offset) { _, row in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: row.rowState.tone.symbolName)
+                            .foregroundStyle(Palette.row(row.rowState.tone))
+                            .accessibilityLabel(Text(verbatim: row.rowState.tone.word))
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(verbatim: row.name).bold()
+                                Text(verbatim: row.state)
+                            }
+                            if !row.detail.isEmpty {
+                                Text(verbatim: row.detail).font(.callout).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     }
                 }
-            } else {
-                Text("k3sm is installed, but its status could not be read.").font(.title2)
             }
+        }
+    }
+
+    /// Every check, as the CLI lists them.
+    private func allChecks(_ report: StatusReport) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 4) {
+            ForEach(Array(StatusDisplay.rows(of: report).enumerated()), id: \.offset) { _, row in
+                GridRow {
+                    Image(systemName: row.rowState.tone.symbolName)
+                        .foregroundStyle(Palette.row(row.rowState.tone))
+                        .accessibilityLabel(Text(verbatim: row.rowState.tone.word))
+                    Text(verbatim: row.name).bold()
+                    Text(verbatim: row.state)
+                    Text(verbatim: row.detail).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .font(.callout)
+            }
+        }
+    }
+
+    /// The version line, and the managed update's button while one is offered.
+    private var versionRow: some View {
+        let offer = model.updateOffer
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(verbatim: versionLine)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            Button("Refresh") { Task { await model.refresh() } }
-                .disabled(model.running)
-            Divider()
-            LifecycleSection(model: model)
-            LANSection(model: model)
-            Divider()
-            UpdateSection(model: model)
-            Divider()
-            UninstallSection(model: model)
-            if case .disabled(let reason) = model.availability {
-                Text(verbatim: reason).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let title = offer.buttonTitle {
+                Spacer(minLength: 0)
+                Button(title) { model.performUpdate() }
+                    .controlSize(.small)
+                    .disabled(!offer.isEnabled)
+                    .help(offer.disabledReason ?? offer.tag.map { "Update k3sm on every node to \($0)" } ?? title)
             }
         }
     }
@@ -190,7 +298,8 @@ struct LifecycleSection: View {
     }
 }
 
-/// UpdateSection offers "Update k3sm" when the payload is newer, following
+/// UpdateSection offers "Update k3sm" when the payload is newer (and shows
+/// nothing otherwise, the version line saying how the releases compare), following
 /// the rollout order: a worker any time, the control plane last, behind an
 /// explicit confirmation while the status report carries no worker versions.
 struct UpdateSection: View {
@@ -200,11 +309,9 @@ struct UpdateSection: View {
         VStack(alignment: .leading, spacing: 8) {
             if let decision = model.updateDecision, let payload = model.payloadVersion {
                 switch decision.verdict {
-                case .upToDate:
-                    Text("k3sm is up to date with this app.").foregroundStyle(.secondary)
-                case .needsDowngradeConsent:
-                    Text("This app does not carry a newer k3sm than the one installed, or the installed version could not be read. The app does not downgrade.")
-                        .foregroundStyle(.secondary)
+                case .upToDate, .needsDowngradeConsent:
+                    // The version line already says how the two releases compare.
+                    EmptyView()
                 case .waitForWorkers:
                     Text(verbatim: "Update these workers first: " + decision.workersToUpdate.map(StatusDisplay.clip).joined(separator: ", "))
                 case .confirmWorkersUpdated, .offer:

@@ -221,9 +221,9 @@ struct ConsoleStrip: View {
             .buttonStyle(.plain)
             .tourTarget(.info, app.tour)
             .accessibilityLabel("k3sm status")
-            .help("k3sm on this Mac: start, stop, connections, uninstall")
+            .help("k3sm on this Mac: its state, start, stop and update")
             .popover(isPresented: $app.statusPanelShown, arrowEdge: .bottom) {
-                StatusPanel(model: app).frame(width: 560)
+                StatusPopoverPanel(model: app)
             }
             Button { SettingsWindowController.shared?.show() } label: {
                 Image(systemName: "gearshape").font(.system(size: 16)).foregroundStyle(Palette.navy)

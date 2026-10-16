@@ -65,16 +65,21 @@ public struct StatusRow: Decodable, Equatable, Sendable {
     /// value is not a string is dropped, and a missing or mistyped map reads
     /// as empty. Every value is untrusted data.
     public let wide: [String: String]
+    /// The CLI's `severity` word for the row (`ok`, `warn`, `fail`, `skip`
+    /// or `unknown`), as printed; "" when the field is missing or mistyped.
+    public let severity: String
 
-    public init(name: String, state: String, detail: String, remedy: String = "", wide: [String: String] = [:]) {
+    public init(name: String, state: String, detail: String, remedy: String = "", wide: [String: String] = [:],
+                severity: String = "") {
         self.name = name
         self.state = state
         self.detail = detail
         self.remedy = remedy
         self.wide = wide
+        self.severity = severity
     }
 
-    private enum CodingKeys: String, CodingKey { case name, state, detail, remedy, wide }
+    private enum CodingKeys: String, CodingKey { case name, state, detail, remedy, wide, severity }
 
     /// Any key of the `wide` map.
     private struct WideKey: CodingKey {
@@ -90,6 +95,7 @@ public struct StatusRow: Decodable, Equatable, Sendable {
         state = try c.decode(String.self, forKey: .state)
         detail = try c.decode(String.self, forKey: .detail)
         remedy = (try? c.decodeIfPresent(String.self, forKey: .remedy)) ?? ""
+        severity = ((try? c.decodeIfPresent(String.self, forKey: .severity)) ?? nil) ?? ""
         var wide: [String: String] = [:]
         if let w = try? c.nestedContainer(keyedBy: WideKey.self, forKey: .wide) {
             for key in w.allKeys {

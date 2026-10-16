@@ -33,6 +33,8 @@ public struct AppPreferences: @unchecked Sendable {
         case openWindowAtLogin = "pref.openWindowAtLogin"
         /// Beat the wings of the Dock icon's mark while the console is up.
         case dockAnimation = "pref.dockAnimation"
+        /// Open the info popover's "All checks" disclosure, as the user left it.
+        case allChecksOpen = "pref.allChecksOpen"
 
         /// The value when nothing usable is stored.
         public var defaultValue: Bool {
@@ -40,6 +42,7 @@ public struct AppPreferences: @unchecked Sendable {
             case .notifyStoppedAtLogin: true
             case .openWindowAtLogin: false
             case .dockAnimation: true
+            case .allChecksOpen: false
             }
         }
     }
@@ -89,6 +92,11 @@ public struct AppPreferences: @unchecked Sendable {
         nonmutating set { set(newValue, for: .dockAnimation) }
     }
 
+    public var allChecksOpen: Bool {
+        get { bool(.allChecksOpen) }
+        nonmutating set { set(newValue, for: .allChecksOpen) }
+    }
+
     /// The Settings window's last pane, restored through `SettingsPane.restore`.
     public var settingsPane: SettingsPane {
         get { SettingsPane.restore(from: defaults.object(forKey: Self.settingsPaneKey)) }
@@ -125,7 +133,7 @@ public struct AppPreferences: @unchecked Sendable {
 /// not built yet is not listed, never shown disabled.
 public enum SettingsPane: String, CaseIterable, Sendable {
     case general
-    /// The LAN switch.
+    /// The LAN switch, moved here from the info popover.
     case network
     /// The bug report, the logs, Live Status, Uninstall and Reset to defaults.
     case advanced

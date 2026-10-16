@@ -19,7 +19,7 @@ import SwiftUI
 
 /// AdvancedPane is the Settings window's Advanced pane: Write a Bug Report,
 /// Live Status and Open Logs (the status item's own actions, `MenuActions`),
-/// Uninstall (`UninstallSection`, also in the info popover) and
+/// Uninstall (`UninstallSection`, moved here from the info popover) and
 /// Reset to defaults (`PreferencesStore.resetToDefaults`, behind a
 /// confirmation).
 struct AdvancedPane: View {
@@ -55,7 +55,7 @@ struct AdvancedPane: View {
             Button("Reset", role: .destructive) { settings.resetDefaults() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The notifications, the window at login and the Dock animation go back to their defaults. Open at login, the window layout and k3sm itself stay as they are.")
+            Text("The notifications, the window at login, the Dock animation and the status popover's All checks go back to their defaults. Open at login, the window layout and k3sm itself stay as they are.")
         }
     }
 

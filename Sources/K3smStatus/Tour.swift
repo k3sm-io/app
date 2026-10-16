@@ -97,7 +97,7 @@ public enum Tour {
         TourStep(target: .inspector, title: "The inspector",
                  text: "Click a pod for how it runs, what isolates it, and its logs, events and manifest, straight from the API server."),
         TourStep(target: .info, title: "Start, stop and settings",
-                 text: "k3sm on this Mac: start, stop, connections from other devices, updates and uninstall, behind this button and under Settings in the menu."),
+                 text: "k3sm on this Mac: its state, any check that needs attention, start, stop and update, behind this button. Connections from other devices and uninstall are in Settings, behind the gear."),
     ]
 
     /// Key is what a key does while the tour runs.

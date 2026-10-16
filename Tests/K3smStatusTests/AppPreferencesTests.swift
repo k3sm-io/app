@@ -36,6 +36,7 @@ struct AppPreferencesTests {
         #expect(prefs.notifyStoppedAtLogin == true)
         #expect(prefs.openWindowAtLogin == false)
         #expect(prefs.dockAnimation == true)
+        #expect(prefs.allChecksOpen == false)
         #expect(prefs.settingsPane == .general)
         for key in AppPreferences.Key.allCases {
             #expect(prefs.bool(key) == key.defaultValue)
@@ -45,7 +46,9 @@ struct AppPreferencesTests {
         prefs.notifyStoppedAtLogin = false
         prefs.openWindowAtLogin = true
         prefs.dockAnimation = false
+        prefs.allChecksOpen = true
         prefs.settingsPane = .advanced
+        #expect(AppPreferences(defaults: defaults).allChecksOpen == true)
         #expect(AppPreferences(defaults: defaults).settingsPane == .advanced)
         #expect(AppPreferences(defaults: defaults).notifyStoppedAtLogin == false)
         #expect(AppPreferences(defaults: defaults).openWindowAtLogin == true)
