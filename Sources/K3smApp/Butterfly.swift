@@ -53,3 +53,46 @@ struct Butterfly: Shape {
         return p.applying(t)
     }
 }
+
+/// SideWing is one closed wing seen from the side: a petal standing up from
+/// the hinge at (0.5, 0.72) of its square, drawn as a path so the app ships
+/// no image.
+struct SideWing: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height)
+        }
+        p.move(to: pt(0.5, 0.72))
+        p.addCurve(to: pt(0.5, 0.04), control1: pt(0.14, 0.62), control2: pt(0.16, 0.10))
+        p.addCurve(to: pt(0.5, 0.72), control1: pt(0.84, 0.10), control2: pt(0.86, 0.62))
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// SideButterfly is the perched mark seen from the side: the body level along
+/// the bottom edge, a head at its right end, and two closed wings standing
+/// above the back that part by `parting` degrees and close again.
+struct SideButterfly: View {
+    let parting: Double
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width, h = geo.size.height
+            ZStack {
+                SideWing().fill(color)
+                    .rotationEffect(.degrees(-parting / 2), anchor: UnitPoint(x: 0.5, y: 0.72))
+                SideWing().fill(color)
+                    .rotationEffect(.degrees(parting / 2), anchor: UnitPoint(x: 0.5, y: 0.72))
+                Capsule().fill(color)
+                    .frame(width: w * 0.62, height: h * 0.16)
+                    .position(x: w * 0.5, y: h * 0.84)
+                Circle().fill(color)
+                    .frame(width: w * 0.15, height: w * 0.15)
+                    .position(x: w * 0.85, y: h * 0.82)
+            }
+        }
+    }
+}

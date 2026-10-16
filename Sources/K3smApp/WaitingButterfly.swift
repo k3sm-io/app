@@ -63,7 +63,9 @@ struct TabWaitingMark: View {
 /// only while it is shown, it samples `flight`'s pose (`LabelFlight.pose`) on
 /// the monotonic clock and draws the mark at that offset from its perch,
 /// tilted, its wing pair scaled narrow as they fold and hinged by the beat,
-/// at that opacity. With no flight, or under Reduce Motion, the timeline is
+/// at that opacity; as it lands it turns (a cross-fade with a turn about its
+/// vertical axis, by `sideOn`) to the side view, `SideButterfly`, and turns
+/// back at take-off. With no flight, or under Reduce Motion, the timeline is
 /// paused and the pose is the still perched mark.
 struct PerchingButterfly: View {
     let flight: LabelFlight?
@@ -72,9 +74,16 @@ struct PerchingButterfly: View {
     var body: some View {
         TimelineView(.animation(paused: flight?.reduceMotion ?? true)) { _ in
             let pose = flight?.pose(at: ProcessInfo.processInfo.systemUptime) ?? Perch.still
-            FlappingButterfly(angle: pose.beat, color: Palette.navy)
-                .scaleEffect(x: CGFloat(pose.wingScale), y: 1, anchor: .center)
-                .frame(width: size, height: size)
+            ZStack {
+                FlappingButterfly(angle: pose.beat, color: Palette.navy)
+                    .scaleEffect(x: CGFloat(pose.wingScale), y: 1, anchor: .center)
+                    .rotation3DEffect(.degrees(90 * pose.sideOn), axis: (x: 0, y: 1, z: 0))
+                    .opacity(1 - pose.sideOn)
+                SideButterfly(parting: pose.closedBeat, color: Palette.navy)
+                    .rotation3DEffect(.degrees(-90 * (1 - pose.sideOn)), axis: (x: 0, y: 1, z: 0))
+                    .opacity(pose.sideOn)
+            }
+            .frame(width: size, height: size)
                 .rotationEffect(.degrees(pose.rotation), anchor: .center)
                 .offset(x: CGFloat(pose.dx), y: CGFloat(pose.dy))
                 .opacity(pose.opacity)

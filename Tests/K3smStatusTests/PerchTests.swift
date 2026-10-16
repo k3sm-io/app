@@ -135,7 +135,66 @@ struct PerchTests {
             #expect(pose.dx == 0 && pose.dy == 0 && pose.rotation == 0 && pose.beat == 0 && pose.opacity == 1)
             #expect(pose.opening >= 0 && pose.opening <= Perch.flexOpening)
         }
-        #expect(Perch.still == Perch.pose(.perched, at: 0))
+    }
+
+    @Test("the tab butterfly sits side-on through the perch and beats its closed wings once per beat")
+    func perchedPoseIsSideways() {
+        // Fully side-on, level and in place, through the perched phase.
+        for t in stride(from: 0.0, through: 5, by: 0.05) {
+            let pose = Perch.pose(.perched, at: t)
+            #expect(pose.sideOn == 1)
+            #expect(pose.rotation == 0 && pose.dx == 0 && pose.dy == 0 && pose.beat == 0)
+            #expect(pose.closedBeat >= 0 && pose.closedBeat <= Perch.sidePeak + 1e-9)
+        }
+        // One part-and-close per Flap beat: closed at each beat's ends, parted at its middle, repeating.
+        #expect(Perch.sideBeat == Flap.duration)
+        let d = Flap.duration
+        for k in 0..<3 {
+            let start = Double(k) * d
+            #expect(abs(Perch.pose(.perched, at: start).closedBeat) < 1e-9)
+            #expect(abs(Perch.pose(.perched, at: start + d / 2).closedBeat - Perch.sidePeak) < 1e-9)
+            #expect(abs(Perch.pose(.perched, at: start + d / 4).closedBeat - Perch.sidePeak / 2) < 1e-9)
+        }
+        var rises = 0, last = 0.0
+        for t in stride(from: 0.0, through: d, by: 0.01) {
+            let b = Perch.pose(.perched, at: t).closedBeat
+            if b > last + 1e-12 && last <= 1e-12 { rises += 1 }
+            last = b
+        }
+        #expect(rises == 1)
+        // The landing is the flight view until the settle, then turns side-on by touchdown.
+        for t in [0.0, 0.0625, 0.125, 0.25] {
+            let pose = Perch.pose(.landing, at: t)
+            #expect(abs(pose.sideOn) < 1e-9 && pose.closedBeat == 0)
+        }
+        #expect(abs(Perch.pose(.landing, at: 0.30).sideOn - 0.5) < 1e-9)
+        #expect(Perch.pose(.landing, at: Perch.landing).sideOn == 1)
+        // The take-off turns back to the flight view within turnTime, then matches today's flight.
+        #expect(Perch.pose(.takingOff, at: 0).sideOn == 1)
+        #expect(Perch.pose(.takingOff, at: Perch.turnTime / 2).sideOn == 0.5)
+        for t in [Perch.turnTime, 0.175, Perch.takeOff] {
+            let pose = Perch.pose(.takingOff, at: t)
+            #expect(pose.sideOn == 0 && pose.closedBeat == 0)
+        }
+        // A take-off mid beat parts the closed wings from where they were and closes them as it turns.
+        let held = Perch.pose(.perched, at: 0.2).closedBeat
+        #expect(Perch.pose(.takingOff, at: 0, closed: held).closedBeat == held)
+        #expect(Perch.pose(.takingOff, at: Perch.turnTime, closed: held).closedBeat == 0)
+        let flight = LabelFlight(shownAt: 10, leftAt: 10 + Perch.landing + 0.2, reduceMotion: false)
+        #expect(abs(flight.pose(at: 10 + Perch.landing + 0.2).closedBeat - held) < 1e-9)
+        // The turn is continuous in time, and Reduce Motion stays the still mark, not side-on.
+        let step = 1.0 / 240
+        var prev = Perch.pose(.landing, at: 0).sideOn
+        for i in 1...Int((Perch.landing / step).rounded()) {
+            let s = Perch.pose(.landing, at: Double(i) * step).sideOn
+            #expect(abs(s - prev) < 0.2)
+            prev = s
+        }
+        #expect(Perch.still.sideOn == 0 && Perch.still.closedBeat == 0)
+        let still = LabelFlight(shownAt: 10, leftAt: nil, reduceMotion: true)
+        for t in [10.0, 10.5, 11.2, 13] {
+            #expect(still.pose(at: t) == Perch.still)
+        }
     }
 
     @Test("a flight's phase follows its clock: landing, perched, then taking off once it has left")
