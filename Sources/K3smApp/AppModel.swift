@@ -96,7 +96,9 @@ final class AppModel: ObservableObject {
     let workloads: WorkloadsModel
     /// The wordmark butterfly's wing beat, played while the console is up.
     let flap = FlapModel()
-    @Published private(set) var report: StatusReport?
+    @Published private(set) var report: StatusReport? {
+        didSet { workloads.ownNode = WorkloadsDisplay.ownNode(in: report) }
+    }
     @Published private(set) var installedVersion: SemanticVersion?
     @Published private(set) var availability: PrivilegedAvailability
     @Published var loginItemNeedsApproval = false

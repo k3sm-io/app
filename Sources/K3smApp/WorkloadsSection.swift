@@ -69,7 +69,7 @@ struct NamespaceGroup: View {
             }
             .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 6)
             ForEach(pods, id: \.uid) { pod in
-                PodRow(pod: pod, selected: model.selected == pod.key)
+                PodRow(pod: pod, node: model.nodeLabel(pod), selected: model.selected == pod.key)
                     .contentShape(Rectangle())
                     .onTapGesture { model.select(pod) }
             }
@@ -81,6 +81,7 @@ struct NamespaceGroup: View {
 /// and every row lay out from it.
 enum PodColumns {
     static let dot: CGFloat = 16
+    static let node: CGFloat = 84
     static let runsAs: CGFloat = 74
     static let cores: CGFloat = 54
     static let memory: CGFloat = 66
@@ -91,6 +92,7 @@ enum PodColumns {
         HStack(spacing: spacing) {
             Color.clear.frame(width: dot, height: 1)
             Text("Pod").frame(maxWidth: .infinity, alignment: .leading)
+            Text("Node").frame(width: node, alignment: .leading)
             Text("Runs as").frame(width: runsAs, alignment: .leading)
             Text("Cores").frame(width: cores, alignment: .trailing)
             Text("Memory").frame(width: memory, alignment: .trailing)
@@ -101,9 +103,11 @@ enum PodColumns {
     }
 }
 
-/// PodRow is one line: health dot, name over image, how it runs, requests, age.
+/// PodRow is one line: health dot, name over image, the node it runs on,
+/// how it runs, requests, age.
 struct PodRow: View {
     let pod: Pod
+    let node: PodNodeLabel
     let selected: Bool
 
     var body: some View {
@@ -114,6 +118,7 @@ struct PodRow: View {
                 Text(verbatim: StatusDisplay.clip(pod.image)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.dimText).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            NodeCell(label: node).frame(width: PodColumns.node, alignment: .leading)
             HStack(spacing: 6) {
                 KindMark(kind: pod.kind)
                 Text(verbatim: WorkloadsDisplay.runsAs(pod.kind)).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
@@ -133,6 +138,26 @@ struct PodRow: View {
 
     private func figure(_ text: String, width: CGFloat) -> some View {
         Text(verbatim: text).font(.system(size: 12)).monospacedDigit().foregroundStyle(Palette.ink2).frame(width: width, alignment: .trailing)
+    }
+}
+
+/// NodeCell is the row's node column: a dim dash before the pod is
+/// scheduled, the "this Mac" tag (the navy panel's, on the light surface) for
+/// this Mac's node, the node's clipped name in dim text otherwise.
+struct NodeCell: View {
+    let label: PodNodeLabel
+
+    var body: some View {
+        switch label {
+        case .thisMac:
+            Text(verbatim: label.text).font(.system(size: 10, weight: .semibold)).foregroundStyle(Palette.navy)
+                .padding(.horizontal, 6).padding(.vertical, 1)
+                .overlay(Capsule().strokeBorder(Palette.navy.opacity(0.4), lineWidth: 1))
+                .fixedSize()
+        case .unscheduled, .node:
+            Text(verbatim: label.text).font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
+                .lineLimit(1).truncationMode(.middle)
+        }
     }
 }
 

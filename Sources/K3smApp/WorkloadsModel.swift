@@ -45,6 +45,8 @@ final class WorkloadsModel: ObservableObject {
         from: UserDefaults.standard.object(forKey: ConsoleTabs.queryKey(.workloads))) {
         didSet { UserDefaults.standard.set(query, forKey: ConsoleTabs.queryKey(.workloads)) }
     }
+    /// This Mac's node name, from the last status report; the rows tag it.
+    @Published var ownNode: String?
     @Published var detail: Detail = .logs
     @Published private(set) var detailText = ""
     @Published private(set) var detailLoading = false
@@ -113,7 +115,12 @@ final class WorkloadsModel: ObservableObject {
 
     /// The pods the search leaves visible, by `WorkloadsDisplay.visible`.
     func visible(_ pods: [Pod]) -> [Pod] {
-        WorkloadsDisplay.visible(pods, query: query)
+        WorkloadsDisplay.visible(pods, query: query, ownNode: ownNode)
+    }
+
+    /// The row's node column, by `WorkloadsDisplay.nodeLabel`.
+    func nodeLabel(_ pod: Pod) -> PodNodeLabel {
+        WorkloadsDisplay.nodeLabel(pod, ownNode: ownNode)
     }
 
     func select(_ pod: Pod) {
