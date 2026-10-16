@@ -162,9 +162,11 @@ final class WorkloadsModel: ObservableObject {
         pendingAction = PodActions.request(action, for: pod)
     }
 
-    /// Runs the confirmed action: the installed CLI is checked just before
-    /// the run, the run keeps kubectl's error text for the report, and the
-    /// pod list is read again after it, whatever the outcome.
+    /// Runs the confirmed action: the pod's UID is read first and the action
+    /// runs only when it is still the UID confirmed (`PodActions.verify`);
+    /// the installed CLI is checked just before each run, each run keeps
+    /// kubectl's error text for the report, and the pod list is read again
+    /// after it, whatever the outcome.
     func runPendingAction() {
         guard runningAction == nil, let request = pendingAction else { return }
         pendingAction = nil
@@ -180,20 +182,28 @@ final class WorkloadsModel: ObservableObject {
                     deadline: PollSchedule.listDeadline, limit: OutputLimit.status, keepErrors: true)
             })
         Task { [weak self] in
-            let run: PodActionRun
-            switch await cli.run(request.arguments) {
-            case .refused(let why): run = .refused(why)
-            case .ran(.exited(let status, let stdout)): run = .exited(status: status, output: stdout)
-            case .ran(.missing): run = .missing
-            case .ran(.refused(let why)): run = .refused(why)
-            case .ran(.failedToLaunch), .ran(.killed), .ran(.truncated): run = .noAnswer
+            let report: PodActionReport
+            if let refusal = PodActions.verify(request, run: Self.actionRun(await cli.run(request.verifyArguments))) {
+                report = refusal
+            } else {
+                report = PodActions.report(request, run: Self.actionRun(await cli.run(request.arguments)))
             }
-            let report = PodActions.report(request, run: run)
             log.notice("console: \(request.action.rawValue, privacy: .public) \(report.failed ? "failed" : "asked", privacy: .public)")
             guard let self else { return }
             self.runningAction = nil
             self.actionReport = (request.podKey, report)
             await self.pods?.refresh()
+        }
+    }
+
+    /// One trusted run as the pod actions read it.
+    nonisolated private static func actionRun(_ result: TrustedCLI<CLIOutcome>.Result) -> PodActionRun {
+        switch result {
+        case .refused(let why): return .refused(why)
+        case .ran(.exited(let status, let stdout)): return .exited(status: status, output: stdout)
+        case .ran(.missing): return .missing
+        case .ran(.refused(let why)): return .refused(why)
+        case .ran(.failedToLaunch), .ran(.killed), .ran(.truncated): return .noAnswer
         }
     }
 

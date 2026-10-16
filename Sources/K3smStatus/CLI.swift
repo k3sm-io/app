@@ -92,6 +92,12 @@ public enum K3smCLI {
         ["kubectl", "delete", "pod", pod.value, "-n", namespace.value, "--wait=false"]
     }
 
+    /// One pod's UID, read just before a console action so the action runs
+    /// only on the pod the user confirmed.
+    public static func podUIDArguments(namespace: ResourceName, pod: ResourceName) -> [String] {
+        ["kubectl", "get", "pod", pod.value, "-n", namespace.value, "-o", "jsonpath={.metadata.uid}"]
+    }
+
     /// The PATH every CLI run gets: system directories only.
     public static let systemPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 

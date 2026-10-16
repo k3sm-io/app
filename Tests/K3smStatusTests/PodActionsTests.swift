@@ -28,9 +28,18 @@ struct PodActionsTests {
             == ["kubectl", "delete", "pod", "web-7d9f8-abcde", "-n", "shop", "--wait=false"])
     }
 
+    @Test("the UID read before an action is one fixed argument list")
+    func podUIDArgumentsGolden() throws {
+        let ns = try #require(ResourceName("shop"))
+        let pod = try #require(ResourceName("web-0"))
+        #expect(K3smCLI.podUIDArguments(namespace: ns, pod: pod)
+            == ["kubectl", "get", "pod", "web-0", "-n", "shop", "-o", "jsonpath={.metadata.uid}"])
+    }
+
     @Test("a hostile name never becomes a ResourceName, so it cannot reach the delete", arguments: [
         "--all", "-A", "--force", "a b", "../etc", "web;rm", "Web", "web\n-n", "web\u{202E}x", "", "-", "web-", ".web",
         "web/other", "--grace-period=0", String(repeating: "a", count: 254),
+        "\u{FF57}\u{FF45}\u{FF42}", "web\u{0131}", "web\u{0}x", "a=b", "a,b",
     ])
     func hostileNameCannotReachTheDelete(_ name: String) {
         #expect(ResourceName(name) == nil)
@@ -84,13 +93,52 @@ struct PodActionsTests {
         let request = try #require(PodActions.request(.restart, for: ownedPod()))
         #expect(request.arguments == ["kubectl", "delete", "pod", "web-1", "-n", "shop", "--wait=false"])
         #expect(request.podKey == "shop/web-1")
+        #expect(request.uid == "shop-web-1")
+        #expect(request.verifyArguments == ["kubectl", "get", "pod", "web-1", "-n", "shop", "-o", "jsonpath={.metadata.uid}"])
+    }
+
+    @Test("a pod listed without a UID offers no action, since none can be pinned")
+    func noUIDNoAction() {
+        let pod = Pod(name: "web-1", namespace: "shop", uid: "", image: "", kind: .nativeProcess,
+                      phase: "Running", health: .running, ready: true, restarts: 0, ports: [], owner: "ReplicaSet web-5f6d",
+                      created: nil, cpuRequest: nil, memoryRequest: nil, nodeName: nil)
+        #expect(PodActions.available(for: pod).isEmpty)
+    }
+
+    struct VerifyCase: Sendable, CustomTestStringConvertible {
+        let name: String
+        let run: PodActionRun
+        let want: PodActionReport?
+        var testDescription: String { name }
+    }
+
+    static let changed = PodActionReport.failed("Restart refused: the pod changed since you clicked; nothing was deleted.")
+    static let verifyCases: [VerifyCase] = [
+        VerifyCase(name: "the same UID runs the delete", run: .exited(status: 0, output: Data("shop-web-1".utf8)), want: nil),
+        VerifyCase(name: "a trailing newline is not a change", run: .exited(status: 0, output: Data("shop-web-1\n".utf8)), want: nil),
+        VerifyCase(name: "another UID is refused", run: .exited(status: 0, output: Data("shop-web-1-new".utf8)), want: changed),
+        VerifyCase(name: "an empty UID is refused", run: .exited(status: 0, output: Data()), want: changed),
+        VerifyCase(name: "a gone pod is refused",
+                   run: .exited(status: 1, output: Data("Error from server (NotFound): pods \"web-1\" not found\n".utf8)), want: changed),
+        VerifyCase(name: "another failure quotes kubectl and deletes nothing",
+                   run: .exited(status: 1, output: Data("Unable to connect to the server\n".utf8)),
+                   want: .failed("Restart failed; nothing was deleted. kubectl said: Unable to connect to the server")),
+        VerifyCase(name: "no answer deletes nothing", run: .noAnswer,
+                   want: .failed("Restart failed: the k3sm CLI did not answer the pod check; nothing was deleted.")),
+        VerifyCase(name: "a missing CLI", run: .missing, want: .failed("Restart failed: k3sm is not installed on this Mac.")),
+    ]
+
+    @Test("the UID read before the delete", arguments: verifyCases)
+    func verifyBeforeDelete(_ c: VerifyCase) throws {
+        let request = try #require(PodActions.request(.restart, for: ownedPod()))
+        #expect(PodActions.verify(request, run: c.run) == c.want)
     }
 
     @Test("the restart confirmation says the owner recreates the pod")
     func restartConfirmationWording() throws {
         let request = try #require(PodActions.request(.restart, for: ownedPod()))
         let c = request.confirmation
-        #expect(c.title == "Restart web-1?")
+        #expect(c.title == "Restart shop/web-1?")
         #expect(c.message == "k3sm deletes this pod, and its owner, ReplicaSet web-5f6d, recreates it. Its containers stop now; the new pod may have a new name and run on another node.")
         #expect(c.verbTitle == "Restart")
         #expect(c.cancelTitle == "Cancel")
@@ -117,7 +165,7 @@ struct PodActionsTests {
                    want: .succeeded("Restart asked: ReplicaSet web-5f6d recreates the pod.")),
         ReportCase(name: "a failed delete shows the CLI's text through errorText",
                    run: .exited(status: 1, output: Data("Error from server (NotFound):\n pods \"web-1\"\u{202E} not found\n".utf8)),
-                   want: .failed("Restart failed: Error from server (NotFound): pods \"web-1\" not found")),
+                   want: .failed("Restart failed. kubectl said: Error from server (NotFound): pods \"web-1\" not found")),
         ReportCase(name: "a failed delete with no output names the exit", run: .exited(status: 1, output: Data()),
                    want: .failed("Restart failed: k3sm kubectl exited 1")),
         ReportCase(name: "no answer says the pod may still be deleted", run: .noAnswer,

@@ -46,18 +46,26 @@ public struct PodActionConfirmation: Equatable, Sendable {
 }
 
 /// PodActionRequest is one action on one pod, fixed when the user asks for
-/// it: the names come from the pod as it was listed then, so a later poll or
-/// a new selection cannot change what the confirmed action runs on.
+/// it: the names and UID come from the pod as it was listed then, so a later
+/// poll or a new selection cannot change what the confirmed action runs on,
+/// and a pod recreated under the same name since is refused by its UID.
 public struct PodActionRequest: Equatable, Sendable, Identifiable {
     public let action: PodAction
     public let namespace: ResourceName
     public let pod: ResourceName
     /// The pod's selection key, "namespace/name".
     public let podKey: String
+    /// The pod's UID as listed when the action was asked for.
+    public let uid: String
     /// The owner as "Kind name", clipped; nil for a pod without one.
     public let owner: String?
 
     public var id: String { "\(action.rawValue):\(podKey)" }
+
+    /// The read run just before the action, whose output must be `uid`.
+    public var verifyArguments: [String] {
+        K3smCLI.podUIDArguments(namespace: namespace, pod: pod)
+    }
 
     /// The CLI arguments the action runs.
     public var arguments: [String] {
@@ -71,7 +79,7 @@ public struct PodActionRequest: Equatable, Sendable, Identifiable {
         switch action {
         case .restart:
             return PodActionConfirmation(
-                title: "Restart \(StatusDisplay.clip(pod.value))?",
+                title: "Restart \(StatusDisplay.clip(namespace.value + "/" + pod.value))?",
                 message: "k3sm deletes this pod, and its owner, \(owner ?? "its controller"), recreates it. "
                     + "Its containers stop now; the new pod may have a new name and run on another node.",
                 verbTitle: action.title, cancelTitle: "Cancel", destructive: true)
@@ -137,14 +145,37 @@ public enum PodActions {
     /// The request for one action on a pod, or nil when the pod does not
     /// offer it.
     public static func request(_ action: PodAction, for pod: Pod) -> PodActionRequest? {
-        guard let namespace = pod.namespaceName, let name = pod.resourceName else { return nil }
+        guard let namespace = pod.namespaceName, let name = pod.resourceName, !pod.uid.isEmpty else { return nil }
         let owner = pod.owner.map(StatusDisplay.clip)
         switch action {
         case .restart:
             guard let owner, !owner.isEmpty,
                   let kind = ownerKind(pod.owner), recreatingOwnerKinds.contains(kind) else { return nil }
         }
-        return PodActionRequest(action: action, namespace: namespace, pod: name, podKey: pod.key, owner: owner)
+        return PodActionRequest(action: action, namespace: namespace, pod: name, podKey: pod.key, uid: pod.uid, owner: owner)
+    }
+
+    /// What the UID read just before the action says: nil when the pod is
+    /// still the one confirmed, so the action runs; otherwise the line shown
+    /// instead, and nothing runs. A pod that is gone or carries another UID
+    /// changed since the click.
+    public static func verify(_ request: PodActionRequest, run: PodActionRun) -> PodActionReport? {
+        let verb = request.action.title
+        let changed = PodActionReport.failed("\(verb) refused: the pod changed since you clicked; nothing was deleted.")
+        switch run {
+        case .exited(status: 0, let output):
+            let read = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            return read == request.uid ? nil : changed
+        case .exited(let status, let output):
+            let raw = String(decoding: output, as: UTF8.self)
+            if raw.contains("(NotFound)") { return changed }
+            let text = StatusDisplay.errorText(raw)
+            return .failed("\(verb) failed; nothing was deleted. " + (text.isEmpty ? "k3sm kubectl exited \(status)" : "kubectl said: \(text)"))
+        case .noAnswer:
+            return .failed("\(verb) failed: the k3sm CLI did not answer the pod check; nothing was deleted.")
+        case .missing, .refused:
+            return report(request, run: run)
+        }
     }
 
     /// The line shown after a run. CLI text passes `StatusDisplay.errorText`.
@@ -158,7 +189,7 @@ public enum PodActions {
             }
         case .exited(let status, let output):
             let text = StatusDisplay.errorText(String(decoding: output, as: UTF8.self))
-            return .failed("\(verb) failed: " + (text.isEmpty ? "k3sm kubectl exited \(status)" : text))
+            return .failed(text.isEmpty ? "\(verb) failed: k3sm kubectl exited \(status)" : "\(verb) failed. kubectl said: \(text)")
         case .noAnswer:
             return .failed("\(verb) failed: the k3sm CLI did not answer. Refresh to see whether the pod was deleted.")
         case .missing:
