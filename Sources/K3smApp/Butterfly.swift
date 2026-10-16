@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import K3smStatus
 import SwiftUI
 
 /// Butterfly is the k3sm mark, the wordmark's glyph and the tour's guide,
@@ -54,133 +55,31 @@ struct Butterfly: Shape {
     }
 }
 
-import SwiftUI
-/// SideWing is the two closed wings of a butterfly seen from the side, as one
-/// silhouette facing right: a straight-ish leading edge rising up and forward
-/// from the hinge (`SideWing.hinge`, over the thorax) to the forewing's apex
-/// near the top front, the outer margin sweeping down and back to a rounded
-/// hindwing lobe at the lower rear, clear of the perch, and the lower edge
-/// running forward to the hinge above the abdomen, with a gap between them.
-/// The apex is the highest point and the silhouette is taller than wide.
-/// Drawn as a path so the app ships no image.
-struct SideWing: Shape {
-    /// The hinge, at the thorax, as a fraction of the mark's square.
-    static let hinge = UnitPoint(x: 0.52, y: 0.70)
 
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height)
-        }
-        p.move(to: pt(0.52, 0.70))
-        // Leading edge, up and forward to the forewing's apex, the highest point.
-        p.addCurve(to: pt(0.72, 0.05), control1: pt(0.60, 0.48), control2: pt(0.70, 0.22))
-        // The outer margin, one long gentle curve down and back.
-        p.addCurve(to: pt(0.26, 0.44), control1: pt(0.60, 0.04), control2: pt(0.32, 0.20))
-        // The hindwing's small rounded lobe at the lower rear, clear of the abdomen.
-        p.addCurve(to: pt(0.24, 0.66), control1: pt(0.14, 0.50), control2: pt(0.14, 0.64))
-        // The lower edge, forward to the hinge above the abdomen.
-        p.addCurve(to: pt(0.52, 0.70), control1: pt(0.34, 0.68), control2: pt(0.44, 0.67))
-        p.closeSubpath()
-        return p
-    }
-}
-
-/// SideBody is the butterfly's body seen from the side, facing right: a
-/// round head at the front, the thorax under the wings' hinge, and a slim
-/// abdomen tapering back to a point below the wings, with a gap between them.
-struct SideBody: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height)
-        }
-        p.move(to: pt(0.16, 0.80))
-        p.addCurve(to: pt(0.46, 0.74), control1: pt(0.24, 0.77), control2: pt(0.36, 0.76))
-        p.addCurve(to: pt(0.60, 0.73), control1: pt(0.50, 0.69), control2: pt(0.58, 0.69))
-        p.addCurve(to: pt(0.56, 0.84), control1: pt(0.63, 0.76), control2: pt(0.62, 0.83))
-        p.addCurve(to: pt(0.16, 0.80), control1: pt(0.40, 0.85), control2: pt(0.22, 0.84))
-        p.closeSubpath()
-        p.addEllipse(in: CGRect(x: rect.minX + 0.60 * rect.width, y: rect.minY + 0.68 * rect.height,
-                                width: 0.11 * rect.width, height: 0.11 * rect.height))
-        return p
-    }
-}
-
-/// SideAntennae is the pair of antennae seen from the side: two thin lines
-/// from the head, angled forward and up, each ending in a club
-/// (`SideClubs`).
-struct SideAntennae: Shape {
-    /// Where each antenna leaves the head and where its club is.
-    static let lines: [(from: UnitPoint, to: UnitPoint)] = [
-        (UnitPoint(x: 0.70, y: 0.71), UnitPoint(x: 0.92, y: 0.62)),
-        (UnitPoint(x: 0.68, y: 0.69), UnitPoint(x: 0.88, y: 0.47)),
-    ]
-
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        for line in Self.lines {
-            p.move(to: CGPoint(x: rect.minX + line.from.x * rect.width, y: rect.minY + line.from.y * rect.height))
-            p.addLine(to: CGPoint(x: rect.minX + line.to.x * rect.width, y: rect.minY + line.to.y * rect.height))
-        }
-        return p
-    }
-}
-
-/// SideClubs is the antennae's round clubbed tips.
-struct SideClubs: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        let r = 0.07 * rect.width
-        for line in SideAntennae.lines {
-            let c = CGPoint(x: rect.minX + line.to.x * rect.width, y: rect.minY + line.to.y * rect.height)
-            p.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
-        }
-        return p
-    }
-}
-
-/// SideLegs is three hairline legs from the thorax down to the perch line.
-struct SideLegs: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height)
-        }
-        for (a, b) in [((0.48, 0.81), (0.42, 0.92)), ((0.53, 0.82), (0.53, 0.92)), ((0.57, 0.81), (0.63, 0.92))] {
-            p.move(to: pt(a.0, a.1))
-            p.addLine(to: pt(b.0, b.1))
-        }
-        return p
-    }
-}
-
-/// SideButterfly is the label mark seen from the side, facing right: the far
-/// wing, the near wing over it, the body, the clubbed antennae (0.6 pt shafts and
-/// 1.4 pt clubs at the 10 pt size) and three legs, in one colour, the far wing a
-/// lighter tint of it. As `parting` (degrees) grows the near wing swings open
-/// toward the viewer about the body's axis at the hinge, leaning back a
-/// quarter as far, and the far wing opens a little the other way, so the far
-/// wing's edge shows behind it: the perched beat at the perch's small parting,
-/// the descent's wing strokes at the landing's larger one.
-struct SideButterfly: View {
-    let parting: Double
+/// FoldedButterfly is the label mark perched, seen from the side and facing
+/// right, made only from the mark itself (`FlappingButterfly.half`): the mark
+/// turned 90 degrees clockwise so its centre line, the body, lies level and
+/// its head points right; its right half mirrored across that line onto the
+/// left, so both wing pairs stand together above the body and the lower half
+/// is empty; and the whole scaled along the body to `scale` of its length,
+/// so the wings read as closed (`PerchPose.sideScale`). The body sits on the perch line
+/// (`TabStripLayout.markFoot`), where the flight view's feet are.
+struct FoldedButterfly: View {
+    let scale: Double
     let color: Color
 
     var body: some View {
         GeometryReader { geo in
-            let w = geo.size.width
             ZStack {
-                SideWing().fill(color.opacity(0.55))
-                    .rotation3DEffect(.degrees(-parting * 0.3), axis: (x: 1, y: 0, z: 0), anchor: SideWing.hinge)
-                SideWing().fill(color)
-                    .rotation3DEffect(.degrees(parting), axis: (x: 1, y: 0, z: 0), anchor: SideWing.hinge)
-                    .rotationEffect(.degrees(-parting / 4), anchor: SideWing.hinge)
-                SideBody().fill(color)
-                SideLegs().stroke(color, style: StrokeStyle(lineWidth: w * 0.04, lineCap: .round))
-                SideAntennae().stroke(color, style: StrokeStyle(lineWidth: w * 0.06, lineCap: .round))
-                SideClubs().fill(color)
+                FlappingButterfly.half(left: true, color: color)
+                FlappingButterfly.half(left: false, color: color).scaleEffect(x: -1, y: 1, anchor: .center)
             }
+            .rotationEffect(.degrees(90), anchor: .center)
+            .scaleEffect(x: CGFloat(scale), y: 1, anchor: .center)
+            .offset(y: geo.size.height * CGFloat(TabStripLayout.markFoot - 0.5))
         }
+        // One layer, so a fade shows no seam where the mirrored halves overlap.
+        .compositingGroup()
+        .accessibilityHidden(true)
     }
 }

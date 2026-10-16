@@ -601,15 +601,15 @@ struct FlappingButterfly: View {
 
     var body: some View {
         ZStack {
-            wing(left: true).rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), anchor: .center, perspective: 0.5)
-            wing(left: false).rotation3DEffect(.degrees(-angle), axis: (x: 0, y: 1, z: 0), anchor: .center, perspective: 0.5)
+            Self.half(left: true, color: color).rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), anchor: .center, perspective: 0.5)
+            Self.half(left: false, color: color).rotation3DEffect(.degrees(-angle), axis: (x: 0, y: 1, z: 0), anchor: .center, perspective: 0.5)
         }
         .accessibilityHidden(true)
     }
 
-    /// wing is the half of the mark on the left (`left`) or right of the
-    /// centre line.
-    private func wing(left: Bool) -> some View {
+    /// half is the half of the mark on the left (`left`) or right of the
+    /// centre line, in `color`.
+    static func half(left: Bool, color: Color) -> some View {
         Butterfly().fill(color).mask {
             HStack(spacing: 0) {
                 Rectangle().opacity(left ? 1 : 0)

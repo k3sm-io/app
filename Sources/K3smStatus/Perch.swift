@@ -30,8 +30,8 @@ public enum PerchPhase: Equatable, Sendable {
 /// upright, 1 open), the wings' hinge angle in degrees (`beat`, 0 flat, as
 /// the mark's flap draws it), its opacity, how far it is turned side-on
 /// (`sideOn`, 0 the flight view, 1 seen from the side with its wings closed
-/// together above its back) and the closed wings' parting (`closedBeat`,
-/// degrees between the two wings, 0 closed).
+/// together above its back) and how far the closed wings are parted
+/// (`parting`, 0 closed, 1 the turned mark at its full length).
 public struct PerchPose: Equatable, Sendable {
     public let dx: Double
     public let dy: Double
@@ -40,12 +40,12 @@ public struct PerchPose: Equatable, Sendable {
     public let beat: Double
     public let opacity: Double
     public let sideOn: Double
-    public let closedBeat: Double
+    public let parting: Double
 
     public init(dx: Double, dy: Double, rotation: Double, opening: Double, beat: Double, opacity: Double,
-                sideOn: Double = 0, closedBeat: Double = 0) {
+                sideOn: Double = 0, parting: Double = 0) {
         self.sideOn = sideOn
-        self.closedBeat = closedBeat
+        self.parting = parting
         self.dx = dx
         self.dy = dy
         self.rotation = rotation
@@ -57,6 +57,11 @@ public struct PerchPose: Equatable, Sendable {
     /// The wing pair's horizontal scale: `Perch.folded` with the wings
     /// folded (the pair seen nearly edge-on), 1 with them open.
     public var wingScale: Double { Perch.folded + (1 - Perch.folded) * opening }
+
+    /// The side view's horizontal scale along the body: `Perch.closedScale`
+    /// with the wings closed (the turned mark's wings narrowed toward the
+    /// body, read as closed wings seen edge-on), 1 fully parted.
+    public var sideScale: Double { Perch.closedScale + (1 - Perch.closedScale) * parting }
 }
 
 /// Perch is the label mark's motion: a butterfly landing on the first
@@ -68,15 +73,15 @@ public struct PerchPose: Equatable, Sendable {
 /// Landing (`landing`, 0.35 s): it turns side-on as it appears (`sideOn` 0
 /// to 1 within `turnIn`), so the whole approach is seen in profile, and comes
 /// in from the upper left on a short descending arc, tilted into its travel
-/// and levelling as it arrives, beating fast in profile (`closedBeat`, the
-/// near wing sweeping back by up to `profilePeak`); the wings are closed
+/// and levelling as it arrives, beating fast in profile (`parting` up to
+/// `profilePeak` on each stroke); the wings are closed
 /// upright at touchdown, and it dips `dip` below the perch and recovers while
 /// one slow stroke parts and closes them (`settle`, the landing's last 0.1 s).
 /// The flight view's `opening` and `beat` keep their keyframes underneath.
 /// Perched:
 /// seen from the side, body level, wings closed together above its back, no
 /// drift, and every `sideBeat` (one `Flap` beat) the closed wings part
-/// slightly and close again (`closedBeat`); the legacy `opening` flex
+/// slightly and close again (`parting` up to `sidePeak`); the legacy `opening` flex
 /// continues underneath for the flight view. Take-off (`takeOff`,
 /// 0.35 s): it turns back to the flight view within `turnTime`, the wings open within `openTime` and beat fast, and it lifts up
 /// and away to the upper right, tilting slightly, fading out. Under Reduce
@@ -121,13 +126,16 @@ public enum Perch {
     /// and the turn ends within `fadeIn`, so the cross-fade from the flight
     /// view happens while the mark is still faint.
     public static let turnIn: TimeInterval = 0.04
-    /// The descent's beat seen side-on: the near wing sweeps back from the
-    /// far one by up to `profilePeak` degrees on each fast stroke.
-    public static let profilePeak = 60.0
+    /// The side view's closed wings: the turned mark scaled along the body
+    /// to `closedScale` of its length.
+    public static let closedScale = 0.6
+    /// The descent's beat seen side-on: each fast stroke parts the closed
+    /// wings by up to `profilePeak`.
+    public static let profilePeak = 0.6
     /// The side-on pose's closed-wing beat: one every `sideBeat` seconds (a
-    /// `Flap` beat), parting the wings by `sidePeak` degrees at the top.
+    /// `Flap` beat), parting the wings by `sidePeak` at the top.
     public static let sideBeat: TimeInterval = Flap.duration
-    public static let sidePeak = 24.0
+    public static let sidePeak = 0.2
     /// The perched flex: one every `flexPeriod` seconds, lasting
     /// `flexDuration`, opening the wings to `flexOpening`.
     public static let flexPeriod: TimeInterval = 1.2
@@ -140,14 +148,14 @@ public enum Perch {
     /// pose is the mark `t` seconds into `phase`, a time outside the phase
     /// held at its ends and one that is not a number giving `still`. A
     /// take-off opens the wings from `from`, how open they were when it began,
-    /// and parts the closed wings from `closed`, how far apart they were.
+    /// and parts the closed wings from `parted`, how far apart they were.
     public static func pose(_ phase: PerchPhase, at t: TimeInterval, from opening: Double = 0,
-                            closed: Double = 0) -> PerchPose {
+                            parted: Double = 0) -> PerchPose {
         guard !t.isNaN else { return still }
         switch phase {
         case .landing: return landingPose(at: min(max(t, 0), landing))
         case .perched: return perchedPose(at: max(t, 0))
-        case .takingOff: return takeOffPose(at: min(max(t, 0), takeOff), from: min(max(opening, 0), 1), closed: closed)
+        case .takingOff: return takeOffPose(at: min(max(t, 0), takeOff), from: min(max(opening, 0), 1), parted: min(max(parted, 0), 1))
         }
     }
 
@@ -160,12 +168,12 @@ public enum Perch {
             let p = arc(landingStart, landingControl, (0, 0), s)
             return PerchPose(dx: p.dx, dy: p.dy, rotation: landingTilt * (1 - s), opening: 1,
                              beat: stroke(t), opacity: min(1, t / fadeIn), sideOn: smooth(t / turnIn),
-                             closedBeat: profilePeak * (1 - cos(2 * .pi * t / beatPeriod)) / 2)
+                             parting: profilePeak * (1 - cos(2 * .pi * t / beatPeriod)) / 2)
         }
         let v = (t - flight) / settle
         return PerchPose(dx: 0, dy: dip * sin(.pi * v), rotation: 0, opening: 1 - smooth(v),
                          beat: settleBeat * sin(.pi * v), opacity: 1, sideOn: 1,
-                         closedBeat: sidePeak * sin(.pi * v))
+                         parting: sidePeak * sin(.pi * v))
     }
 
     private static func perchedPose(at t: TimeInterval) -> PerchPose {
@@ -174,23 +182,23 @@ public enum Perch {
         let into = tau - (flexPeriod - flexDuration)
         let opening = into >= 0 ? flexOpening * (1 - cos(2 * .pi * into / flexDuration)) / 2 : 0
         return PerchPose(dx: 0, dy: 0, rotation: 0, opening: opening, beat: 0, opacity: 1,
-                         sideOn: 1, closedBeat: closedBeat(at: t))
+                         sideOn: 1, parting: parting(at: t))
     }
 
-    /// The closed wings' parting `t` seconds into the perch: flat at the
+    /// The closed wings' parting `t` seconds into the perch: closed at the
     /// start of each `sideBeat`, `sidePeak` at its middle.
-    static func closedBeat(at t: TimeInterval) -> Double {
+    static func parting(at t: TimeInterval) -> Double {
         sidePeak * (1 - cos(2 * .pi * t / sideBeat)) / 2
     }
 
-    private static func takeOffPose(at t: TimeInterval, from opening: Double, closed: Double) -> PerchPose {
+    private static func takeOffPose(at t: TimeInterval, from opening: Double, parted: Double) -> PerchPose {
         let u = t / takeOff
         let s = u * u
         let p = arc((0, 0), takeOffControl, takeOffEnd, s)
         let fade = u < fadeFrom ? 1 : 1 - smooth((u - fadeFrom) / (1 - fadeFrom))
         return PerchPose(dx: p.dx, dy: p.dy, rotation: takeOffTilt * s,
                          opening: opening + (1 - opening) * smooth(t / openTime), beat: stroke(t), opacity: fade,
-                         sideOn: 1 - smooth(t / turnTime), closedBeat: closed * (1 - smooth(t / turnTime)))
+                         sideOn: 1 - smooth(t / turnTime), parting: parted * (1 - smooth(t / turnTime)))
     }
 
     /// The in-flight hinge angle `t` seconds into a flight: flat at the
@@ -246,7 +254,7 @@ public struct LabelFlight: Equatable, Sendable {
         case .takingOff:
             let left = leftAt ?? now
             let held = Perch.pose(.perched, at: left - shownAt - Perch.landing)
-            return Perch.pose(.takingOff, at: now - left, from: held.opening, closed: held.closedBeat)
+            return Perch.pose(.takingOff, at: now - left, from: held.opening, parted: held.parting)
         }
     }
 }
