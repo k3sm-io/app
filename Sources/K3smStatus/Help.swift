@@ -592,13 +592,13 @@ public enum Help {
                                           control: "guided panel: Close", label: "Close")
 
         /// The primary button's tag: why it is disabled, or what it does;
-        /// Update's is the update plan's when one is given.
-        public static func primary(_ action: GuidedAction, disabledReason: String?, plan: UpdatePlan? = nil) -> String {
+        /// Update's is the update plan's.
+        public static func primary(_ action: GuidedAction, disabledReason: String?, plan: UpdatePlan) -> String {
             if let disabledReason { return disabledReason }
             switch action {
             case .start: return start.text
             case .restart: return restart.text
-            case .update: return plan.map(Strip.update) ?? update.text
+            case .update: return Strip.update(plan)
             case .repair: return repair.text
             case .refresh: return refresh.text
             }
@@ -776,7 +776,7 @@ public enum Help {
 
         /// Update Now's tag: why it is disabled, or what the update plan's path does.
         public static func updateNow(_ control: UpdateNowControl, plan: UpdatePlan) -> String {
-            control.reason ?? (plan.path == nil ? updateNow.text : Strip.update(plan))
+            control.reason ?? Strip.update(plan)
         }
 
         public static var all: [HelpTag] { [installed, available, state, updateNow, drain, allowDowngrade, signature] }

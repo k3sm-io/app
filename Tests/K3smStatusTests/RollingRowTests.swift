@@ -40,9 +40,7 @@ struct RollingRowTests {
         #expect(!row.rowState.degradesVerdict)
         #expect(StatusDisplay.rowDetail(row) == "updating the cluster to k3sm v0.1.8: Rolling, node laptop Installing")
         #expect(UpdateOffer.rowRolling(in: report))
-        let offer = UpdateOffer.decide(report: report, progress: UpdateProgress(), developerBuild: false, blocked: nil)
-        #expect(offer == .updating)
-        #expect(offer.menuTitle == "Updating…" && !offer.isEnabled)
+        #expect(UpdateOffer.decide(report: report, progress: UpdateProgress()) == .updating)
         // The row makes an idle app read the update status, to follow the roll.
         #expect(UpdateProgress().readsStatus(offerShown: false, rowRolling: true))
         #expect(!UpdateProgress().readsStatus(offerShown: false, rowRolling: false))
@@ -56,7 +54,7 @@ struct RollingRowTests {
         let report = try Self.rolling(phase: phase)
         #expect(UpdateOffer.rowRolling(in: report) == rolls)
         #expect(UpdatePhase(word: phase ?? "").isFinished == !rolls)
-        let offer = UpdateOffer.decide(report: report, progress: UpdateProgress(), developerBuild: false, blocked: nil)
+        let offer = UpdateOffer.decide(report: report, progress: UpdateProgress())
         #expect(offer == (rolls ? .updating : .hidden))
     }
 

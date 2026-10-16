@@ -964,7 +964,7 @@ final class AppModel: ObservableObject {
     /// screen and an update offered, to find a roll started in Terminal.
     private func syncUpdateReader() {
         let offered: Bool
-        if case .available = UpdateOffer.decide(report: lanReport, progress: updateProgress, developerBuild: false, blocked: nil) {
+        if case .available = UpdateOffer.decide(report: lanReport, progress: updateProgress) {
             offered = consoleShown
         } else {
             offered = false

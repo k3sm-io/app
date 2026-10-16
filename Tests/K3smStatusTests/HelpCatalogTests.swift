@@ -93,7 +93,8 @@ struct HelpCatalogTests {
         }
         #expect(Help.Strip.update(.rolling) == UpdatePlan.rollingReason)
         #expect(Help.Guided.primary(.update, disabledReason: nil, plan: payload) == Help.Strip.update(payload))
-        #expect(Help.Guided.primary(.update, disabledReason: nil) == Help.Guided.update.text)
+        #expect(Help.Guided.primary(.update, disabledReason: "Wait.", plan: payload) == "Wait.")
+        #expect(Help.Guided.primary(.start, disabledReason: nil, plan: payload) == Help.Guided.start.text)
         #expect(Help.Update.cancel(reason: nil) == Help.Update.cancel.text)
         #expect(Help.Update.cancel(reason: "Wait.") == "Wait.")
         #expect(Help.General.tour(available: false) == Help.General.tourUnavailable)

@@ -61,9 +61,9 @@ public enum ManagedUpdateState: Equatable, Sendable {
     /// The state from the full report's `update` row and the app's progress,
     /// by the managed update's own reading (`UpdateOffer.decide`).
     public init(report: StatusReport?, progress: UpdateProgress) {
-        switch UpdateOffer.decide(report: report, progress: progress, developerBuild: false, blocked: nil) {
+        switch UpdateOffer.decide(report: report, progress: progress) {
         case .updating: self = .rolling
-        case .available(let tag, _): self = .behind(tag: tag)
+        case .available(let tag): self = .behind(tag: tag)
         case .hidden: self = .nothingNewer
         }
     }

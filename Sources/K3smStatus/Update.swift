@@ -464,17 +464,16 @@ public struct UpdateNodeLine: Equatable, Sendable {
     }
 }
 
-/// UpdateOffer is whether the status item's menu and the console offer the
-/// managed update, decided from the full report's `update` row: only a
-/// `behind` row with a valid latest tag offers one, and only while no update
-/// is under way. `ok`, `ahead`, `unknown`, any other word, and no row offer
-/// nothing. While an update rolls, both read "Updating…", disabled. A
-/// privileged action, it is shown disabled with the reason on a developer
-/// build or when the app cannot run it as root.
+/// UpdateOffer is the managed update's reading of the full report's
+/// `update` row and the app's progress, which `ManagedUpdateState` (and
+/// through it `UpdatePlan`) takes: only a `behind` row with a valid latest
+/// tag offers a release, and only while no update is under way. `ok`,
+/// `ahead`, `unknown`, any other word, and no row offer nothing. Whether the
+/// app can run the update is the plan's to decide, never this reading's.
 public enum UpdateOffer: Equatable, Sendable {
     case hidden
-    /// The update to `tag` is offered; disabled when `disabledReason` is set.
-    case available(tag: String, disabledReason: String?)
+    /// The server's update check names this newer release.
+    case available(tag: String)
     /// An update is under way.
     case updating
 
@@ -485,7 +484,7 @@ public enum UpdateOffer: Equatable, Sendable {
     /// The longest tag accepted.
     static let maxTagLength = 40
 
-    public static func decide(report: StatusReport?, progress: UpdateProgress, developerBuild: Bool, blocked: String?) -> UpdateOffer {
+    public static func decide(report: StatusReport?, progress: UpdateProgress) -> UpdateOffer {
         if progress.isRolling || rowRolling(in: report) { return .updating }
         guard let row = report?.row(named: "update"), row.rowState == .behind, let tag = latestTag(in: row) else {
             return .hidden
@@ -493,7 +492,7 @@ public enum UpdateOffer: Equatable, Sendable {
         if let done = progress.completedVersion.flatMap(SemanticVersion.init), SemanticVersion(tag) == done {
             return .hidden
         }
-        return .available(tag: tag, disabledReason: developerBuild ? developerBuildReason : blocked)
+        return .available(tag: tag)
     }
 
     /// Whether the report's `update` row says a managed update is in
@@ -521,44 +520,5 @@ public enum UpdateOffer: Equatable, Sendable {
 
     static func valid(_ tag: String) -> Bool {
         !tag.isEmpty && tag.count <= maxTagLength && tag.allSatisfy(\.isASCII) && SemanticVersion(tag) != nil
-    }
-
-    /// The status item's menu title, nil when hidden.
-    public var menuTitle: String? {
-        switch self {
-        case .hidden: return nil
-        case .available(let tag, _): return "Update to \(StatusDisplay.clip(tag))…"
-        case .updating: return "Updating…"
-        }
-    }
-
-    /// The console button's title, nil when hidden.
-    public var buttonTitle: String? {
-        switch self {
-        case .hidden: return nil
-        case .available: return "Update"
-        case .updating: return "Updating…"
-        }
-    }
-
-    /// Whether the item and the button can be clicked.
-    public var isEnabled: Bool {
-        if case .available(_, nil) = self { return true }
-        return false
-    }
-
-    /// Why the item is disabled, nil when enabled or hidden.
-    public var disabledReason: String? {
-        switch self {
-        case .available(_, let reason): return reason
-        case .updating: return "An update is rolling; the window shows its progress."
-        case .hidden: return nil
-        }
-    }
-
-    /// The tag offered, nil unless available.
-    public var tag: String? {
-        if case .available(let tag, _) = self { return tag }
-        return nil
     }
 }

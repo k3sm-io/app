@@ -30,20 +30,14 @@ struct UpdateOfferTests {
         name: "update", state: "behind", detail: "k3sm v0.1.8 is available; behind: mac-2 (v0.1.7)",
         remedy: "curl -fsSL https://k3sm.io/install.sh | sh", wide: ["latest": "v0.1.8", "checked": "2026-10-15T09:00:00Z"])
 
-    static func decide(_ row: StatusRow?, progress: UpdateProgress = UpdateProgress(), developerBuild: Bool = false,
-                       blocked: String? = nil) -> UpdateOffer {
-        UpdateOffer.decide(report: report(row), progress: progress, developerBuild: developerBuild, blocked: blocked)
+    static func decide(_ row: StatusRow?, progress: UpdateProgress = UpdateProgress()) -> UpdateOffer {
+        UpdateOffer.decide(report: report(row), progress: progress)
     }
 
-    @Test("the item and the button show only when the row is behind with a tag; rolling reads Updating…")
+    @Test("a release is offered only when the row is behind with a tag; a roll reads as updating")
     func updateMenuItemShowsOnlyWhenNewer() throws {
-        // behind with a latest tag: offered, enabled, titled with the tag.
-        let offer = Self.decide(Self.behind)
-        #expect(offer == .available(tag: "v0.1.8", disabledReason: nil))
-        #expect(offer.menuTitle == "Update to v0.1.8…")
-        #expect(offer.buttonTitle == "Update")
-        #expect(offer.isEnabled)
-        #expect(offer.disabledReason == nil)
+        // behind with a latest tag: that release.
+        #expect(Self.decide(Self.behind) == .available(tag: "v0.1.8"))
 
         // ok, ahead, unknown and no row: nothing.
         for row in [
@@ -52,28 +46,15 @@ struct UpdateOfferTests {
             StatusRow(name: "update", state: "unknown", detail: "no update check is recorded yet", remedy: "sudo k3sm update check"),
             nil,
         ] {
-            let hidden = Self.decide(row)
-            #expect(hidden == .hidden)
-            #expect(hidden.menuTitle == nil)
-            #expect(hidden.buttonTitle == nil)
+            #expect(Self.decide(row) == .hidden)
         }
 
-        // rolling: Updating…, disabled, whatever the row says.
+        // rolling: updating, whatever the row says.
         var progress = UpdateProgress()
         progress.applyStarted()
         for row in [Self.behind, nil] {
-            let updating = Self.decide(row, progress: progress)
-            #expect(updating == .updating)
-            #expect(updating.menuTitle == "Updating…")
-            #expect(updating.buttonTitle == "Updating…")
-            #expect(!updating.isEnabled)
+            #expect(Self.decide(row, progress: progress) == .updating)
         }
-
-        // a developer build: shown, disabled, with the reason.
-        let dev = Self.decide(Self.behind, developerBuild: true)
-        #expect(dev.menuTitle == "Update to v0.1.8…")
-        #expect(!dev.isEnabled)
-        #expect(dev.disabledReason == UpdateOffer.developerBuildReason)
         #expect(UpdateOffer.developerBuildReason.contains("not Developer ID signed"))
 
         // the progress decode.
@@ -84,13 +65,6 @@ struct UpdateOfferTests {
         #expect(status.nodes[0] == UpdateNode(name: "mac-2", from: "v0.1.7", to: "v0.1.8", phase: "Succeeded",
                                               message: "updated", lastProgress: "2026-10-15T10:00:00Z"))
         #expect(status.conditions == [UpdateCondition(type: "Progressing", status: "True", reason: "NodeUpdated", message: "1 of 2 nodes updated")])
-    }
-
-    @Test("a blocked reason disables the offer; a developer build's reason comes first")
-    func blocked() {
-        #expect(Self.decide(Self.behind, blocked: "Another change is running.")
-            == .available(tag: "v0.1.8", disabledReason: "Another change is running."))
-        #expect(Self.decide(Self.behind, developerBuild: true, blocked: "x").disabledReason == UpdateOffer.developerBuildReason)
     }
 
     @Test("the tag comes from wide.latest, else the detail, and must be a release version")
@@ -118,7 +92,7 @@ struct UpdateOfferTests {
     @Test("the vendored server reports, with no check recorded, offer nothing", arguments: UpdateRowTests.serverReports)
     func fixtures(_ file: String) throws {
         let report = try StatusReport.decode(try fixture(file))
-        #expect(UpdateOffer.decide(report: report, progress: UpdateProgress(), developerBuild: false, blocked: nil) == .hidden)
+        #expect(UpdateOffer.decide(report: report, progress: UpdateProgress()) == .hidden)
     }
 
     @Test("the state machine: apply, reads, finish, dismiss")
@@ -152,7 +126,7 @@ struct UpdateOfferTests {
         #expect(p.stage == .idle && p.panel == nil)
         #expect(Self.decide(Self.behind, progress: p) == .hidden)
         #expect(Self.decide(StatusRow(name: "update", state: "behind", detail: "d", wide: ["latest": "v0.1.9"]), progress: p)
-            == .available(tag: "v0.1.9", disabledReason: nil))
+            == .available(tag: "v0.1.9"))
 
         // A failed roll shows the failed node's message and the remedy.
         var f = UpdateProgress(stage: .rolling(nil))
@@ -256,7 +230,7 @@ struct UpdateOfferTests {
         var idle = UpdateProgress()
         idle.read(none)
         #expect(idle.stage == .idle && !idle.isRolling)
-        #expect(UpdateOfferTests.decide(UpdateOfferTests.behind, progress: idle) == .available(tag: "v0.1.8", disabledReason: nil))
+        #expect(UpdateOfferTests.decide(UpdateOfferTests.behind, progress: idle) == .available(tag: "v0.1.8"))
         // A followed roll whose Update is gone (deleted) ends with nothing shown.
         var following = UpdateProgress(stage: .rolling(nil))
         following.read(none)
