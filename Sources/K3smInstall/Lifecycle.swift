@@ -22,10 +22,12 @@ import K3smStatus
 /// and the three managed update verbs, `k3sm update apply --yes`,
 /// `k3sm update cancel` and `k3sm update abort`.
 /// Nothing else, and no string from the user or the CLI, ever reaches the
-/// root script: each verb's argv is a compile-time constant
-/// (`LifecycleScriptBuilder.arguments(for:)`), and the apply adds only the
-/// fixed flags its `UpdateOptions` name and `--version` with the release the
-/// user confirmed, a `ReleaseTag` (`arguments(for:update:release:)`).
+/// root script: each verb's argv but the apply's is a compile-time constant
+/// (`LifecycleScriptBuilder.arguments(for:)`, over `FixedVerb`), and the
+/// apply's is only the fixed flags its `UpdateOptions` name and `--version`
+/// with the release the user confirmed, a `ReleaseTag`
+/// (`updateApplyArguments(options:release:)`), which it cannot be rendered
+/// without.
 public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
     case stop
     case start
@@ -140,29 +142,46 @@ public enum LifecycleScriptBuilder {
     /// The fixed reason every app-run verb records (`--reason`).
     public static let reason = "from the k3sm app"
 
+    /// FixedVerb is every verb whose argv is a compile-time constant: all of
+    /// them but the apply, which carries the release the user confirmed and
+    /// is rendered only by `renderUpdateApply(teamID:options:release:)`. So no
+    /// path can render an apply without its release.
+    public enum FixedVerb: String, CaseIterable, Hashable, Sendable {
+        case stop, start, restart
+        case lanOn = "lan-on"
+        case lanOff = "lan-off"
+        case updateCancel = "update-cancel"
+        case updateAbort = "update-abort"
+
+        /// `verb` as a fixed verb, or nil for the apply.
+        public init?(_ verb: LifecycleVerb) {
+            self.init(rawValue: verb.rawValue)
+        }
+
+        /// The verb this is.
+        public var verb: LifecycleVerb { LifecycleVerb(rawValue: rawValue)! }
+    }
+
     /// The argv after the CLI path, the one definition of the command line.
     /// The golden tests pin it against `cmd/k3sm/lifecycle.go`.
-    public static func arguments(for verb: LifecycleVerb) -> [String] {
+    public static func arguments(for verb: FixedVerb) -> [String] {
         switch verb {
         case .stop: return ["stop", "--actor", "user", "--reason", reason]
         case .start: return ["start", "--actor", "user", "--reason", reason]
         case .restart: return ["restart", "--actor", "user", "--reason", reason]
         case .lanOn: return ["network", "lan", "on"]
         case .lanOff: return ["network", "lan", "off"]
-        case .updateApply: return K3smCLI.updateApplyArguments
         case .updateCancel: return K3smCLI.updateCancelArguments
         case .updateAbort: return K3smCLI.updateAbortArguments
         }
     }
 
-    /// The argv for `verb` with the update's options and release: the
-    /// apply's flags (`UpdateOptions.arguments`, a fixed vocabulary), then
-    /// `--version` and the confirmed release, so the CLI moves to that
-    /// release and does not resolve the latest one again at run time. Every
-    /// other verb's argv is unchanged by either.
-    public static func arguments(for verb: LifecycleVerb, update options: UpdateOptions, release: ReleaseTag? = nil) -> [String] {
-        guard verb == .updateApply else { return arguments(for: verb) }
-        return options.arguments + (release.map { ["--version", $0.value] } ?? [])
+    /// The apply's argv: its flags (`UpdateOptions.arguments`, a fixed
+    /// vocabulary), then `--version` and the release the user confirmed, so
+    /// the CLI moves to that release and does not resolve the latest one
+    /// again at run time. The release is required.
+    public static func updateApplyArguments(options: UpdateOptions, release: ReleaseTag) -> [String] {
+        options.arguments + ["--version", release.value]
     }
 
     /// Every path the script checks before running the CLI: `/`, each
@@ -177,23 +196,28 @@ public enum LifecycleScriptBuilder {
         return paths
     }
 
-    /// Renders the script for the installed CLI at `K3smCLI.path`; the
-    /// apply carries `options` (the defaults add no flag) and `release`.
-    /// `UpdateDriver.apply`, the one caller that runs an apply, always
-    /// passes the release the user confirmed.
-    public static func render(_ verb: LifecycleVerb, teamID: TeamID, update options: UpdateOptions = .defaults,
-                              release: ReleaseTag? = nil) -> RootScript {
-        render(verb, teamID: teamID, cliPath: K3smCLI.path, update: options, release: release)
+    /// Renders the script for a fixed verb's CLI at `K3smCLI.path`.
+    public static func render(_ verb: FixedVerb, teamID: TeamID) -> RootScript {
+        render(verb.verb, argv: arguments(for: verb), teamID: teamID, cliPath: K3smCLI.path)
     }
 
-    /// Renders the script for a CLI at `cliPath`. Only the tests pass another
-    /// path, to prove the refusals against real directories.
-    static func render(_ verb: LifecycleVerb, teamID: TeamID, cliPath: String, update options: UpdateOptions = .defaults,
-                       release: ReleaseTag? = nil) -> RootScript {
+    /// Renders the apply's script, pinned to `release`, with `options`
+    /// (the defaults add no flag). `UpdateDriver.apply` is its one caller.
+    public static func renderUpdateApply(teamID: TeamID, options: UpdateOptions, release: ReleaseTag) -> RootScript {
+        render(.updateApply, argv: updateApplyArguments(options: options, release: release), teamID: teamID, cliPath: K3smCLI.path)
+    }
+
+    /// Renders a fixed verb's script for a CLI at `cliPath`. Only the tests
+    /// pass another path, to prove the refusals against real directories.
+    static func render(_ verb: FixedVerb, teamID: TeamID, cliPath: String) -> RootScript {
+        render(verb.verb, argv: arguments(for: verb), teamID: teamID, cliPath: cliPath)
+    }
+
+    private static func render(_ verb: LifecycleVerb, argv words: [String], teamID: TeamID, cliPath: String) -> RootScript {
         let q = ShellQuote.quote
         let paths = checkedPaths(cliPath: cliPath).map(q).joined(separator: " ")
         let requirement = "-R=" + DesignatedRequirement.developerID(teamID: teamID)
-        let argv = arguments(for: verb, update: options, release: release).map(q).joined(separator: " ")
+        let argv = words.map(q).joined(separator: " ")
         let text = #"""
             set -eu
             umask 077

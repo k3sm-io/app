@@ -207,7 +207,9 @@ public struct LifecycleDriver: Sendable {
     }
 
     public func perform(_ verb: LifecycleVerb, expected: LifecycleState) async -> Result {
-        guard !verb.isLAN, !verb.isUpdate else { return .refused("\(verb.title) is not a lifecycle verb. Nothing was changed.") }
+        guard !verb.isLAN, !verb.isUpdate, let fixed = LifecycleScriptBuilder.FixedVerb(verb) else {
+            return .refused("\(verb.title) is not a lifecycle verb. Nothing was changed.")
+        }
         let first = await readStatus()
         if case .refused(let why) = LifecyclePrecondition.check(verb, expected: expected, live: LifecycleState(report: first)) {
             return .refused(why)
@@ -221,7 +223,7 @@ public struct LifecycleDriver: Sendable {
             return .refused(why)
         }
         if verb == .start { return await start() }
-        let outcome = await runner.runAsRoot(LifecycleScriptBuilder.render(verb, teamID: teamID), input: nil)
+        let outcome = await runner.runAsRoot(LifecycleScriptBuilder.render(fixed, teamID: teamID), input: nil)
         return .ran(outcome, LifecycleOutcome.text(outcome, verb: verb))
     }
 

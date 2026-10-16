@@ -313,7 +313,10 @@ public struct LANDriver: Sendable {
                 return .refused(Self.changedWhileAsking)
             }
         }
-        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(verb, teamID: teamID), input: nil)
+        guard verb.isLAN, let fixed = LifecycleScriptBuilder.FixedVerb(verb) else {
+            return .refused("\(verb.title) is not a LAN access verb. Nothing was changed.")
+        }
+        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(fixed, teamID: teamID), input: nil)
         let after = await readStatus()
         let confirmed = after.map { $0.hasLANSwitch ? $0.network.setting : .unknown } ?? .unknown
         return .ran(run.outcome, LANOutcome.text(run, verb: verb, confirmed: confirmed), confirmed: confirmed)

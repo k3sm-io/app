@@ -137,17 +137,42 @@ struct UpdateVersionPinTests {
         #expect(reads.reads == 0 && asked.all.isEmpty && runner.scripts.isEmpty)
     }
 
-    @Test("only the apply takes the release; the other verbs' argv is unchanged by it", arguments: LifecycleVerb.allCases)
-    func onlyTheApplyTakesIt(_ verb: LifecycleVerb) {
+    @Test("the apply's argv is its options, then --version and the release")
+    func applyArguments() {
         let release = ReleaseTag("v0.1.8")!
-        let pinned = LifecycleScriptBuilder.arguments(for: verb, update: .defaults, release: release)
-        if verb == .updateApply {
-            #expect(pinned == ["update", "apply", "--yes", "--version", "v0.1.8"])
-        } else {
-            #expect(pinned == LifecycleScriptBuilder.arguments(for: verb))
-            #expect(LifecycleScriptBuilder.render(verb, teamID: Self.team, release: release)
-                == LifecycleScriptBuilder.render(verb, teamID: Self.team))
-        }
+        #expect(LifecycleScriptBuilder.updateApplyArguments(options: .defaults, release: release)
+            == ["update", "apply", "--yes", "--version", "v0.1.8"])
+        #expect(LifecycleScriptBuilder.updateApplyArguments(options: UpdateOptions(drain: true, allowDowngrade: false, signature: .ifSigned), release: release)
+            == ["update", "apply", "--yes", "--drain", "--version", "v0.1.8"])
+    }
+
+    /// The row names v0.1.8; a tag of the same version written otherwise is
+    /// not the release the row offers, so the apply asks nothing and runs
+    /// nothing.
+    @Test("a tag that is the row's version but not its text is refused before any question or prompt",
+          arguments: ["0.1.8", "v0.1.8+x", "v0.1.8+build.5", "V0.1.8"])
+    func otherSpellingRefused(_ tag: String) async {
+        let reads = StatusSequence([ManagedUpdateTests.report(latest: "v0.1.8"), ManagedUpdateTests.report(latest: "v0.1.8")])
+        let runner = LANRunner()
+        let asked = Questions()
+        let result = await ManagedUpdateTests.driver(reads, runner: runner, answer: true, asked: asked).apply(tag: tag)
+        #expect(result == .refused("k3sm no longer reports \(tag) as an update for this cluster. Nothing was changed."))
+        #expect(asked.all.isEmpty && runner.scripts.isEmpty)
+        #expect(UpdatePrecondition.check(tag: tag, live: ManagedUpdateTests.report(latest: "v0.1.8")) != .proceed)
+    }
+
+    @Test("a passed check pins the row's own text")
+    func pinsTheRowText() async {
+        let live = ManagedUpdateTests.report(latest: "v0.1.8")
+        #expect(UpdatePrecondition.release(tag: "v0.1.8", live: live) == .proceed(ReleaseTag("v0.1.8")!))
+        #expect(UpdatePrecondition.check(tag: "v0.1.8", live: live) == .proceed)
+        // The row's text changing while the question is open, even to an equal version, runs nothing.
+        let reads = StatusSequence([live, ManagedUpdateTests.report(latest: "0.1.8")])
+        let runner = LANRunner()
+        let asked = Questions()
+        let result = await ManagedUpdateTests.driver(reads, runner: runner, answer: true, asked: asked).apply(tag: "v0.1.8")
+        #expect(result == .refused("k3sm no longer reports v0.1.8 as an update for this cluster. Nothing was changed."))
+        #expect(asked.all.count == 1 && runner.scripts.isEmpty)
     }
 
     // MARK: the k3sm CLI contract

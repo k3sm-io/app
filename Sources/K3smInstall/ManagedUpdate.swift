@@ -31,9 +31,25 @@ public enum UpdateConfirmationText {
 
 /// UpdatePrecondition decides, from a status report read just now, whether
 /// the apply may go ahead: the live `update` row must still offer the release
-/// the user chose.
+/// the user chose, the same text, not only an equal version (`0.1.8` or
+/// `v0.1.8+x` is not the `v0.1.8` the row names).
 public enum UpdatePrecondition {
+    /// The release a passed check pins the apply to: the live row's own tag.
+    public enum Release: Equatable, Sendable {
+        case proceed(ReleaseTag)
+        case refused(String)
+    }
+
     public static func check(tag: String, live: StatusReport?) -> LifecyclePrecondition.Verdict {
+        switch release(tag: tag, live: live) {
+        case .proceed: return .proceed
+        case .refused(let why): return .refused(why)
+        }
+    }
+
+    /// The check, returning the live row's tag as a `ReleaseTag` when it
+    /// passes: the text `--version` carries is the text re-checked.
+    public static func release(tag: String, live: StatusReport?) -> Release {
         guard let live else {
             return .refused("k3sm could not read the status of this Mac just now, so it did not start the update.")
         }
@@ -41,11 +57,11 @@ public enum UpdatePrecondition {
             return .refused("An update is already rolling. The window shows its progress.")
         }
         guard let row = live.row(named: "update"), row.rowState == .behind,
-              let now = UpdateOffer.latestTag(in: row), SemanticVersion(now) == SemanticVersion(tag)
+              let now = UpdateOffer.latestTag(in: row), now == tag, let pinned = ReleaseTag(now)
         else {
             return .refused("k3sm no longer reports \(StatusDisplay.clip(tag)) as an update for this cluster. Nothing was changed.")
         }
-        return .proceed
+        return .proceed(pinned)
     }
 }
 
@@ -62,8 +78,8 @@ public enum UpdateApplyAnswer: Equatable, Sendable {
 /// option that is not the default, and offering a downgrade only when the
 /// row names a node newer than the latest), re-reads and checks again, then
 /// hands `k3sm update apply --yes`, with exactly the options the question
-/// showed, the downgrade answer and `--version` with the release it
-/// re-checked, to the administrator prompt through the checked lifecycle
+/// showed, the downgrade answer and `--version` with the live row's tag, the
+/// text it re-checked, to the administrator prompt through the checked lifecycle
 /// script. A tag that is not a release tag (`ReleaseTag`) is refused before
 /// anything is read or asked. The options are frozen when `apply` is called;
 /// nothing is read from the preferences after that. The cancel asks, then runs
@@ -116,18 +132,22 @@ public struct UpdateDriver: Sendable {
     /// `--version`, so a release published after the last check is not the
     /// one rolled.
     public func apply(tag: String, options: UpdateOptions = .defaults) async -> Result {
-        guard let release = ReleaseTag(tag) else { return .refused(Self.invalidTagText) }
+        guard ReleaseTag(tag) != nil else { return .refused(Self.invalidTagText) }
         let frozen = UpdateOptions(drain: options.drain, allowDowngrade: false, signature: options.signature)
         let first = await readStatus()
-        if case .refused(let why) = UpdatePrecondition.check(tag: tag, live: first) { return .refused(why) }
+        if case .refused(let why) = UpdatePrecondition.release(tag: tag, live: first) { return .refused(why) }
         guard let first else { return .refused("k3sm could not read the status of this Mac just now.") }
         let question = LifecycleConfirmation(update: frozen, report: first)
         guard case .confirmed(let downgrade) = await confirmApply(question) else { return .declined }
         var confirmed = frozen
         confirmed.allowDowngrade = downgrade && question.offersDowngrade
         let second = await readStatus()
-        if case .refused(let why) = UpdatePrecondition.check(tag: tag, live: second) { return .refused(why) }
-        let script = LifecycleScriptBuilder.render(.updateApply, teamID: teamID, update: confirmed, release: release)
+        let release: ReleaseTag
+        switch UpdatePrecondition.release(tag: tag, live: second) {
+        case .proceed(let pinned): release = pinned
+        case .refused(let why): return .refused(why)
+        }
+        let script = LifecycleScriptBuilder.renderUpdateApply(teamID: teamID, options: confirmed, release: release)
         let run = await runner.runAsRootReportingError(script, input: nil)
         return Self.classify(run, verb: .updateApply)
     }

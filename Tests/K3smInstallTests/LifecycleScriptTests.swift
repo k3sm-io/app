@@ -49,16 +49,33 @@ struct LifecycleScriptTests {
     /// pins the one the user confirmed.
     static let release = ReleaseTag("v0.1.8")!
 
-    /// The script `verb` runs: the apply with its release.
+    /// The script `verb` runs: a fixed verb's, or the apply with its release.
     static func rendered(_ verb: LifecycleVerb) -> RootScript {
-        LifecycleScriptBuilder.render(verb, teamID: team, release: release)
+        guard let fixed = LifecycleScriptBuilder.FixedVerb(verb) else {
+            return LifecycleScriptBuilder.renderUpdateApply(teamID: team, options: .defaults, release: release)
+        }
+        return LifecycleScriptBuilder.render(fixed, teamID: team)
+    }
+
+    /// The argv `verb` runs with: a fixed verb's constant, or the apply's,
+    /// which always carries its release.
+    static func argv(_ verb: LifecycleVerb) -> [String] {
+        guard let fixed = LifecycleScriptBuilder.FixedVerb(verb) else {
+            return LifecycleScriptBuilder.updateApplyArguments(options: .defaults, release: release)
+        }
+        return LifecycleScriptBuilder.arguments(for: fixed)
     }
 
     @Test("the argument list", arguments: LifecycleVerb.allCases)
     func argumentList(_ verb: LifecycleVerb) {
-        #expect(LifecycleScriptBuilder.arguments(for: verb, update: .defaults, release: Self.release) == Self.goldenArgv[verb])
-        // The verb's own words; the apply adds its options and release to them.
-        #expect(LifecycleScriptBuilder.arguments(for: verb) == (verb == .updateApply ? K3smCLI.updateApplyArguments : Self.goldenArgv[verb]))
+        #expect(Self.argv(verb) == Self.goldenArgv[verb])
+    }
+
+    @Test("every verb but the apply is a fixed verb")
+    func fixedVerbs() {
+        #expect(LifecycleScriptBuilder.FixedVerb.allCases.map(\.verb) == LifecycleVerb.allCases.filter { $0 != .updateApply })
+        #expect(LifecycleScriptBuilder.FixedVerb(.updateApply) == nil)
+        #expect(LifecycleVerb.allCases.allSatisfy { v in LifecycleScriptBuilder.FixedVerb(v).map { $0.verb == v } ?? (v == .updateApply) })
     }
 
     /// The single CLI line of a rendered script.
@@ -131,7 +148,7 @@ struct LifecycleScriptTests {
 
     @Test("the prompt names the verb", arguments: LifecycleVerb.lifecycleVerbs)
     func prompt(_ verb: LifecycleVerb) {
-        let script = LifecycleScriptBuilder.render(verb, teamID: Self.team)
+        let script = Self.rendered(verb)
         #expect(script.prompt == "k3sm wants to \(verb.rawValue) k3sm on this Mac.")
         #expect(!script.readsInput)
     }
@@ -201,7 +218,7 @@ struct LifecycleScriptTests {
         for verb in LifecycleVerb.lifecycleVerbs {
             #expect(main.contains("case \"\(verb.rawValue)\":"), "k3sm has no \(verb.rawValue) verb")
             #expect(lifecycle.contains("lifecycleFlags(\"\(verb.rawValue)\""), "\(verb.rawValue) does not parse the shared flags")
-            for f in LifecycleScriptBuilder.arguments(for: verb).filter({ $0.hasPrefix("--") }) {
+            for f in Self.argv(verb).filter({ $0.hasPrefix("--") }) {
                 #expect(flags.contains(String(f.dropFirst(2))), "--\(f.dropFirst(2)) is not a k3sm \(verb.rawValue) flag")
             }
         }

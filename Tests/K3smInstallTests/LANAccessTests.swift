@@ -96,17 +96,17 @@ struct LANScriptTests {
     @Test("the LAN scripts run the stop script's checks under env -i", arguments: LifecycleVerb.lanVerbs)
     func sameChecks(_ verb: LifecycleVerb) throws {
         let stop = LifecycleScriptBuilder.render(.stop, teamID: Self.team).text
-        let lan = LifecycleScriptBuilder.render(verb, teamID: Self.team).text
+        let lan = LifecycleScriptTests.rendered(verb).text
         let head = { (t: String) in String(t[..<t.range(of: "exec \"$k3sm\"")!.lowerBound]) }
         #expect(head(lan) == head(stop))
-        let line = LifecycleScriptBuilder.render(verb, teamID: Self.team).command(inputPath: "/dev/null")
+        let line = LifecycleScriptTests.rendered(verb).command(inputPath: "/dev/null")
         #expect(line.hasPrefix("/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /bin/sh -c "))
     }
 
     @Test("a LAN script's refusals stop before the CLI runs", arguments: LifecycleVerb.lanVerbs)
     func refusals(_ verb: LifecycleVerb) throws {
         for r in LifecycleScriptTests.refusals {
-            let line = LifecycleScriptBuilder.render(verb, teamID: Self.team, cliPath: r.cliPath).command(inputPath: "/dev/null")
+            let line = LifecycleScriptBuilder.render(LifecycleScriptBuilder.FixedVerb(verb)!, teamID: Self.team, cliPath: r.cliPath).command(inputPath: "/dev/null")
             let result = try LifecycleScriptTests.run(line)
             #expect(result.status == r.status, "\(r.name): \(result.stderr)")
             #expect(result.stderr.contains(r.message), "\(r.name): \(result.stderr)")
@@ -155,7 +155,7 @@ struct LANScriptTests {
         #expect(network.contains("args[0] != \"lan\""), "k3sm network has no lan subcommand")
         #expect(network.contains("case string(install.LANOn), string(install.LANOff):"), "k3sm network lan takes no on/off")
         for verb in LifecycleVerb.lanVerbs {
-            let argv = LifecycleScriptBuilder.arguments(for: verb)
+            let argv = LifecycleScriptTests.argv(verb)
             #expect(network.contains("sudo k3sm " + argv.joined(separator: " ")), "the usage does not document k3sm \(verb.command)")
             #expect(install.contains("= \"\(argv[2])\""), "\(argv[2]) is not a LAN value the CLI declares")
             #expect(argv.allSatisfy { !$0.hasPrefix("-") }, "a LAN verb passes a flag")

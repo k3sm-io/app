@@ -71,7 +71,7 @@ struct ManagedUpdateTests {
     func scripts() {
         #expect(LifecycleVerb.updateVerbs == [.updateApply, .updateCancel, .updateAbort])
         #expect(LifecycleVerb.updateVerbs.allSatisfy { $0.isUpdate && !$0.isLAN && $0.requiredState == nil })
-        let apply = LifecycleScriptBuilder.render(.updateApply, teamID: Self.team, release: Self.release)
+        let apply = LifecycleScriptBuilder.renderUpdateApply(teamID: Self.team, options: .defaults, release: Self.release)
         #expect(apply.text.hasSuffix("exec \"$k3sm\" 'update' 'apply' '--yes' '--version' 'v0.1.8'\n"))
         #expect(apply.text.contains("/usr/bin/codesign --verify --strict"))
         #expect(apply.prompt == "k3sm wants to update k3sm on every node of this cluster.")
@@ -102,17 +102,15 @@ struct ManagedUpdateTests {
         #expect(reads.reads == 2)
         #expect(asked.all.map(\.title) == ["Update k3sm to v0.1.8?"])
         #expect(asked.all.first?.message == UpdateConfirmationText.apply)
-        #expect(runner.scripts == [LifecycleScriptBuilder.render(.updateApply, teamID: Self.team, release: Self.release)])
+        #expect(runner.scripts == [LifecycleScriptBuilder.renderUpdateApply(teamID: Self.team, options: .defaults, release: Self.release)])
     }
 
     @Test("the apply's options reach the root script as fixed flags; the cancel takes none")
     func applyOptionsScript() {
         let options = UpdateOptions(drain: true, allowDowngrade: false, signature: .required)
-        let script = LifecycleScriptBuilder.render(.updateApply, teamID: Self.team, update: options, release: Self.release)
+        let script = LifecycleScriptBuilder.renderUpdateApply(teamID: Self.team, options: options, release: Self.release)
         #expect(script.text.hasSuffix("exec \"$k3sm\" 'update' 'apply' '--yes' '--drain' '--signature' 'required' '--version' 'v0.1.8'\n"))
-        #expect(LifecycleScriptBuilder.arguments(for: .updateCancel, update: options) == ["update", "cancel"])
-        #expect(LifecycleScriptBuilder.render(.updateCancel, teamID: Self.team, update: options)
-            == LifecycleScriptBuilder.render(.updateCancel, teamID: Self.team))
+        #expect(LifecycleScriptBuilder.arguments(for: .updateCancel) == ["update", "cancel"])
     }
 
     @Test("the apply's question names every option that is not the default")
@@ -154,7 +152,7 @@ struct ManagedUpdateTests {
         #expect(result == .ran(.started, .succeeded, "The update has started. Each node updates in turn, the server last."))
         let confirmed = UpdateOptions(drain: true, allowDowngrade: false, signature: .required)
         #expect(asked.all.map(\.update) == [confirmed])
-        #expect(runner.scripts == [LifecycleScriptBuilder.render(.updateApply, teamID: Self.team, update: confirmed, release: Self.release)])
+        #expect(runner.scripts == [LifecycleScriptBuilder.renderUpdateApply(teamID: Self.team, options: confirmed, release: Self.release)])
         #expect(prefs.updateOptions == .defaults)
     }
 
@@ -175,13 +173,13 @@ struct ManagedUpdateTests {
         #expect(asked.all.count == 2)
         #expect(asked.all.allSatisfy { $0.update?.allowDowngrade == false && $0.offersDowngrade })
         let allowed = UpdateOptions(drain: false, allowDowngrade: true, signature: .ifSigned)
-        #expect(runner.scripts == Array(repeating: LifecycleScriptBuilder.render(.updateApply, teamID: Self.team, update: allowed, release: Self.release), count: 2))
+        #expect(runner.scripts == Array(repeating: LifecycleScriptBuilder.renderUpdateApply(teamID: Self.team, options: allowed, release: Self.release), count: 2))
         #expect(runner.scripts[0].text.contains("'--allow-downgrade'"))
         // Where no node is newer the checkbox is not offered, so a yes adds no flag.
         let plainRunner = LANRunner()
         let reads = StatusSequence([Self.report(latest: "v0.1.8"), Self.report(latest: "v0.1.8")])
         _ = await Self.driver(reads, runner: plainRunner, answer: true, downgrade: true).apply(tag: "v0.1.8", options: downgrade)
-        #expect(plainRunner.scripts == [LifecycleScriptBuilder.render(.updateApply, teamID: Self.team, release: Self.release)])
+        #expect(plainRunner.scripts == [LifecycleScriptBuilder.renderUpdateApply(teamID: Self.team, options: .defaults, release: Self.release)])
     }
 
     @Test("apply refuses when the live row no longer offers the tag", arguments: [

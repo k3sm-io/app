@@ -65,10 +65,8 @@ struct UpdateAbortTests {
         #expect(script.text == want)
         #expect(script.prompt == "k3sm wants to abort the k3sm update and release every node.")
         #expect(!script.readsInput && !script.usesStagingLock)
-        // The update's options never reach the abort.
-        let options = UpdateOptions(drain: true, allowDowngrade: true, signature: .required)
-        #expect(LifecycleScriptBuilder.render(.updateAbort, teamID: Self.team, update: options) == script)
-        #expect(LifecycleScriptBuilder.arguments(for: .updateAbort, update: options) == ["update", "abort"])
+        // The abort's argv is a constant: no option or release reaches it.
+        #expect(LifecycleScriptBuilder.arguments(for: .updateAbort) == ["update", "abort"])
     }
 
     @Test("each refusal stops the abort script before the CLI runs", arguments: LifecycleScriptTests.refusals)
@@ -211,8 +209,8 @@ struct UpdateAbortTests {
         #expect(apply.contains("fsFlags.String(\"signature\", string(updatesv1alpha1.UpdateSignatureIfSigned)"))
         // --version carries the release the user confirmed (UpdateVersionPinTests); with it, the app
         // passes every flag the apply declares.
-        let pinned = LifecycleScriptBuilder.arguments(for: .updateApply, update: UpdateOptions(drain: true, allowDowngrade: true, signature: .required),
-                                                      release: ReleaseTag("v0.1.8")!)
+        let pinned = LifecycleScriptBuilder.updateApplyArguments(options: UpdateOptions(drain: true, allowDowngrade: true, signature: .required),
+                                                                 release: ReleaseTag("v0.1.8")!)
         #expect(pinned == all + ["--version", "v0.1.8"])
         let passed = Set(pinned.filter { $0.hasPrefix("--") }.map { String($0.dropFirst(2)) })
         #expect(passed == declared, "the app and k3sm update apply disagree on the flags: app \(passed), CLI \(declared)")
