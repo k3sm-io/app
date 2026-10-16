@@ -61,6 +61,8 @@ final class AppModel: ObservableObject {
             // The inspector follows the tab: the new tab's own selection, or
             // nothing, never the row of the tab just left.
             selection.switchTo(section, present: presentKeys(section))
+            // The tab on screen times its label mark differently.
+            waiting.changed()
             guard section != oldValue, consoleShown else { return }
             if oldValue != .workloads { loaders[oldValue]?.stop() }
             let chosen = loader(for: section)
@@ -297,6 +299,7 @@ final class AppModel: ObservableObject {
             case .models: return self.models?.load
             }
         }
+        waiting.selected = { [weak self] in self?.section }
         waitingObservations.append(workloads.objectWillChange.sink { [weak self] _ in
             MainActor.assumeIsolated { self?.waiting.changed() }
         })

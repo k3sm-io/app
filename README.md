@@ -360,10 +360,12 @@ login** in the app's Settings turns it off or on again (see
 - A tab that is **reading** says so with a small butterfly, beating: in the
   middle of the tab while its first read runs, and landed on the first
   letter of the tab's name while a later read runs behind the list it
-  already shows; the names never move to make room for it. A read that ends
-  within 0.3 seconds shows nothing, and once the butterfly appears it stays at
-  least half a second, so a quick read never flashes. With Reduce Motion on
-  the butterfly is shown still.
+  already shows; the names never move to make room for it. On the tab you
+  are looking at, every refresh lands the butterfly on the name for at least
+  0.8 seconds, however quick the read. A first read that ends within 0.3
+  seconds shows nothing, and once the big butterfly appears it stays at least
+  half a second, so a quick read never flashes. With Reduce Motion on the
+  butterfly is shown still.
 - The **details button**, beside the info button above the list, collapses
   the details on the right and shows them again; Command-Option-I does the same, and the app remembers the choice.
 - The **left panel** is resizable: drag the divider between it and the list.

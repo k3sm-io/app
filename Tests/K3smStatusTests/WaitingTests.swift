@@ -23,50 +23,112 @@ import Testing
 struct WaitingTests {
     @Test("a slow first read shows the butterfly in the content area once the debounce passes")
     func slowFirstReadShowsAfterDebounce() {
-        #expect(Waiting.shows(firstReadDone: false, inFlight: true, elapsed: 0, shownFor: nil) == nil)
-        #expect(Waiting.shows(firstReadDone: false, inFlight: true, elapsed: Waiting.debounce - 0.01, shownFor: nil) == nil)
-        #expect(Waiting.shows(firstReadDone: false, inFlight: true, elapsed: Waiting.debounce, shownFor: nil) == .content)
-        #expect(Waiting.shows(firstReadDone: false, inFlight: true, elapsed: 5, shownFor: 4.7) == .content)
+        for selected in [true, false] {
+            #expect(Waiting.shows(firstReadDone: false, inFlight: true, elapsed: 0, shownFor: nil, selected: selected) == nil)
+            #expect(Waiting.shows(firstReadDone: false, inFlight: true, elapsed: Waiting.debounce - 0.01, shownFor: nil, selected: selected) == nil)
+            #expect(Waiting.shows(firstReadDone: false, inFlight: true, elapsed: Waiting.debounce, shownFor: nil, selected: selected) == .content)
+            #expect(Waiting.shows(firstReadDone: false, inFlight: true, elapsed: 5, shownFor: 4.7, selected: selected) == .content)
+        }
         // A later read sits beside the label.
-        #expect(Waiting.shows(firstReadDone: true, inFlight: true, elapsed: Waiting.debounce, shownFor: nil) == .label)
+        #expect(Waiting.shows(firstReadDone: true, inFlight: true, elapsed: Waiting.debounce, shownFor: nil, selected: false) == .label)
     }
 
-    @Test("a read that ends inside the debounce never shows the butterfly")
+    @Test("a first read that ends inside the debounce never shows the butterfly")
     func fastReadNeverFlashes() {
         var tracker = WaitingTracker()
-        #expect(tracker.update(load: .firstRead, now: 10) == nil)
-        #expect(tracker.update(load: .firstRead, now: 10 + Waiting.debounce - 0.05) == nil)
-        #expect(tracker.update(load: .loaded(Date()), now: 10 + Waiting.debounce - 0.01) == nil)
-        #expect(tracker.update(load: .loaded(Date()), now: 20) == nil)
+        #expect(tracker.update(load: .firstRead, now: 10, selected: true) == nil)
+        #expect(tracker.update(load: .firstRead, now: 10 + Waiting.debounce - 0.05, selected: true) == nil)
+        #expect(tracker.update(load: .loaded(Date()), now: 10 + Waiting.debounce - 0.01, selected: true) == nil)
+        #expect(tracker.update(load: .loaded(Date()), now: 20, selected: true) == nil)
         #expect(!tracker.active)
-        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0.1, shownFor: nil) == nil)
+        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0.1, shownFor: nil, selected: true) == nil)
+        // A tab not on screen keeps the debounce for its later reads too.
+        var hidden = WaitingTracker()
+        #expect(hidden.update(load: .refreshing, now: 10, selected: false) == nil)
+        #expect(hidden.update(load: .loaded(Date()), now: 10.09, selected: false) == nil)
+        #expect(!hidden.active)
     }
 
-    @Test("once shown the butterfly stays the minimum time after the read ends")
+    @Test("once shown the butterfly stays its minimum time after the read ends")
     func minimumShownTime() {
-        #expect(Waiting.shows(firstReadDone: false, inFlight: false, elapsed: 0, shownFor: 0.05) == .content)
-        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0, shownFor: Waiting.minimumShown - 0.01) == .label)
-        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0, shownFor: Waiting.minimumShown) == nil)
-        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0, shownFor: .nan) == nil)
+        #expect(Waiting.shows(firstReadDone: false, inFlight: false, elapsed: 0, shownFor: 0.05, selected: true) == .content)
+        #expect(Waiting.shows(firstReadDone: false, inFlight: false, elapsed: 0, shownFor: Waiting.minimumShown, selected: true) == nil)
+        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0, shownFor: Waiting.labelMinimumShown - 0.01, selected: true) == .label)
+        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0, shownFor: Waiting.labelMinimumShown, selected: true) == nil)
+        #expect(Waiting.shows(firstReadDone: true, inFlight: false, elapsed: 0, shownFor: .nan, selected: true) == nil)
 
         var tracker = WaitingTracker()
-        _ = tracker.update(load: .refreshing, now: 0)
-        #expect(tracker.update(load: .refreshing, now: 0.35) == .label)
+        #expect(tracker.update(load: .refreshing, now: 0, selected: false) == nil)
+        #expect(tracker.update(load: .refreshing, now: 0.35, selected: false) == .label)
         // The read ends 50 ms after the butterfly appeared: it stays, as a
-        // later read's mark, until the minimum has passed.
-        #expect(tracker.update(load: .loaded(Date()), now: 0.4) == .label)
-        #expect(tracker.update(load: .loaded(Date()), now: 0.35 + Waiting.minimumShown - 0.01) == .label)
+        // later read's mark, until the label's minimum has passed.
+        #expect(tracker.update(load: .loaded(Date()), now: 0.4, selected: false) == .label)
+        #expect(tracker.update(load: .loaded(Date()), now: 0.35 + Waiting.labelMinimumShown - 0.01, selected: false) == .label)
         #expect(tracker.active)
-        #expect(tracker.update(load: .loaded(Date()), now: 0.35 + Waiting.minimumShown) == nil)
+        #expect(tracker.update(load: .loaded(Date()), now: 0.35 + Waiting.labelMinimumShown + 0.001, selected: false) == nil)
         #expect(!tracker.active)
     }
 
     @Test("a first read's tail stays in the content area")
     func firstReadTailStaysInContent() {
         var tracker = WaitingTracker()
-        _ = tracker.update(load: .firstRead, now: 0)
-        #expect(tracker.update(load: .firstRead, now: 0.3) == .content)
-        #expect(tracker.update(load: .loaded(Date()), now: 0.5) == .content)
+        _ = tracker.update(load: .firstRead, now: 0, selected: true)
+        #expect(tracker.update(load: .firstRead, now: 0.3, selected: true) == .content)
+        #expect(tracker.update(load: .loaded(Date()), now: 0.5, selected: true) == .content)
+    }
+
+    /// The reads of the visible tab, one row each: whether the tab had a
+    /// value when the read began, how long the read ran, and then, sampled
+    /// at `at` seconds after it began, where the butterfly is drawn.
+    @Test("the visible tab's later read perches on its label at once and stays; a first read keeps the debounce", arguments: [
+        // A 90 ms later read shows the label mark at once and keeps it 0.8 s.
+        (true, 0.09, 0.0, WaitingMark?.some(.label)),
+        (true, 0.09, 0.05, .label),
+        (true, 0.09, 0.5, .label),
+        (true, 0.09, Waiting.labelMinimumShown - 0.01, .label),
+        (true, 0.09, Waiting.labelMinimumShown + 0.005, nil),
+        // A 90 ms first read shows no content mark.
+        (false, 0.09, 0.0, nil),
+        (false, 0.09, 0.05, nil),
+        (false, 0.09, 0.5, nil),
+        // A 400 ms first read shows the content mark past the debounce, for the minimum.
+        (false, 0.4, 0.29, nil),
+        (false, 0.4, 0.305, .content),
+        (false, 0.4, 0.75, .content),
+        (false, 0.4, 0.3 + Waiting.minimumShown + 0.015, nil),
+    ] as [(Bool, TimeInterval, TimeInterval, WaitingMark?)])
+    func visibleTabReads(_ hadValue: Bool, _ duration: TimeInterval, _ at: TimeInterval, _ want: WaitingMark?) {
+        var tracker = WaitingTracker()
+        let reading: TabLoad = hadValue ? .refreshing : .firstRead
+        var mark: WaitingMark?
+        // Fed as the app feeds it: on the change that starts the read, on a
+        // 10 ms tick, and on the change that ends it.
+        for tick in 0... {
+            let t = Double(tick) * 0.01
+            guard t < at else { break }
+            mark = tracker.update(load: t < duration ? reading : .loaded(Date()), now: 100 + t, selected: true)
+        }
+        mark = tracker.update(load: at < duration ? reading : .loaded(Date()), now: 100 + at, selected: true)
+        #expect(mark == want)
+    }
+
+    @Test("a later read of a tab not on screen keeps the debounce")
+    func hiddenTabKeepsTheDebounce() {
+        #expect(Waiting.shows(firstReadDone: true, inFlight: true, elapsed: 0.09, shownFor: nil, selected: false) == nil)
+        #expect(Waiting.shows(firstReadDone: true, inFlight: true, elapsed: Waiting.debounce, shownFor: nil, selected: false) == .label)
+        #expect(Waiting.shows(firstReadDone: true, inFlight: true, elapsed: 0, shownFor: nil, selected: true) == .label)
+        #expect(Waiting.shows(firstReadDone: false, inFlight: true, elapsed: 0.09, shownFor: nil, selected: true) == nil)
+        #expect(Waiting.labelMinimumShown >= 0.8)
+    }
+
+    @Test("a refresh that comes back while the label mark is shown keeps it")
+    func refreshWhileShownStays() {
+        var tracker = WaitingTracker()
+        #expect(tracker.update(load: .refreshing, now: 0, selected: true) == .label)
+        #expect(tracker.update(load: .loaded(Date()), now: 0.09, selected: true) == .label)
+        #expect(tracker.update(load: .refreshing, now: 0.5, selected: true) == .label)
+        #expect(tracker.update(load: .refreshing, now: 2, selected: true) == .label)
+        #expect(tracker.update(load: .loaded(Date()), now: 2.1, selected: true) == nil)
     }
 
     /// menuOpen, readInFlight, elapsed, shownFor, and the verdict.

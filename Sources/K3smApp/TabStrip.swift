@@ -22,8 +22,10 @@ import SwiftUI
 /// the navy panel's own strip (`PanelTabStyle`) carried onto the light
 /// surface: text, and a 2 pt underline on the strip's hairline under the
 /// selected tab. It fills the strip's height so the underline sits on the
-/// hairline the strip draws. A tab whose later read runs past
-/// `Waiting.debounce` shows the 10 pt waiting butterfly landed at its word's
+/// hairline the strip draws, and the label is centred in that height, which
+/// is the box `TabStripLayout.waitingMarkFrame` measures from. The tab on
+/// screen shows the 10 pt waiting butterfly for each of its later reads, at
+/// once and for at least `Waiting.labelMinimumShown`, landed at its word's
 /// upper-left corner: its feet on the first letter's cap top, its left edge on
 /// the label's leading edge (`TabStripLayout.waitingMarkFrame`), in the room
 /// the strip's fixed height (`TabStripLayout.height`) leaves above the labels,
