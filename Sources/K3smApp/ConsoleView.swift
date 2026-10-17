@@ -17,8 +17,10 @@ limitations under the License.
 import K3smStatus
 import SwiftUI
 
-/// ConsoleView is the window once k3sm is installed: this Mac on the left,
-/// the chosen tab (`ConsoleSection`) in the middle, the inspector on the right unless the
+/// ConsoleView is the window, from its first opening: this Mac on the left,
+/// and in the content pane the guided first run while nothing is installed
+/// (`ConsolePane`), else the chosen tab (`ConsoleSection`) in the middle,
+/// the inspector on the right unless the
 /// details button has collapsed it. The three are the panes of a split view
 /// (`ConsoleSplit`); the inspector opens at its default width and keeps the
 /// width the user drags its divider to (`InspectorWidth`). The left panel
@@ -66,7 +68,10 @@ struct ConsoleView: View {
 
     var body: some View {
         let panel = MacPanel(app: app, workloads: workloads)
-        let size = Self.minSize(inspectorShown: app.inspectorShown, panelCollapsed: app.consolePanelCollapsed)
+        // The inspector and the log pane follow the tabs: while the set-up
+        // flow fills the content pane neither shows.
+        let tabs = app.pane.stripShown
+        let size = Self.minSize(inspectorShown: app.inspectorShown && tabs, panelCollapsed: app.consolePanelCollapsed)
         // Only before the first layout does the content's width reach the split.
         let estimate = PanelLayout.naturalWidth(regions: panel.layoutRegions, measured: app.consolePanelMeasured)
         ConsoleSplit(
@@ -76,7 +81,7 @@ struct ConsoleView: View {
             collapsed: app.consolePanelCollapsed,
             contentMinimum: Double(Self.contentMinWidth()),
             inspectorWidth: app.inspectorWidth,
-            inspectorShown: app.inspectorShown,
+            inspectorShown: app.inspectorShown && tabs,
             // Each pane is hosted on its own; all run under the transparent
             // title bar, as the whole console did before the split.
             panel: panel.ignoresSafeArea(),
@@ -87,7 +92,7 @@ struct ConsoleView: View {
                 .tourTarget(.inspector, app.tour)
                 .ignoresSafeArea(),
             logHeight: app.logPaneHeight,
-            logOpen: app.logPane.isOpen,
+            logOpen: app.logPane.isOpen && tabs,
             logPane: LogPaneView(app: app).ignoresSafeArea())
         .frame(minWidth: size.width, minHeight: size.height)
         .background(Palette.surface)
@@ -95,18 +100,28 @@ struct ConsoleView: View {
         .ignoresSafeArea()
         .onAppear {
             app.panelOpened(natural: naturalWidth(panel), measured: app.consolePanelMeasured != nil)
-            app.startTabs()
-            app.startReportPolling()
-            app.flap.start()
+            if app.pane.readsCluster { startReads() }
         }
-        .onDisappear {
-            app.stopTabs()
-            app.flap.stop()
-            app.stopReportPolling()
-        }
+        .onDisappear { stopReads() }
+        // The install check succeeding flips the pane to the tabs in place:
+        // the reads start here, not from a new window.
+        .onChange(of: app.pane.readsCluster) { _, reads in reads ? startReads() : stopReads() }
         // The first measurement after the window opened lays the panel out;
         // later ones (live content) are ignored by `PanelWidth.measured`.
         .onChange(of: app.consolePanelMeasured) { app.panelLaidOut(natural: naturalWidth(panel)) }
+    }
+
+    /// Starts the console's reads: the tabs, the report loop and the flap.
+    private func startReads() {
+        app.startTabs()
+        app.startReportPolling()
+        app.flap.start()
+    }
+
+    private func stopReads() {
+        app.stopTabs()
+        app.flap.stop()
+        app.stopReportPolling()
     }
 
     /// The panel's natural width for its content now.
@@ -115,14 +130,24 @@ struct ConsoleView: View {
     }
 }
 
-/// ConsoleContent is the split view's middle pane: the strip, the health
-/// banner while the health check finds a problem (`HealthBanner`, which opens
-/// the guided panel), and the chosen tab. The inspector (`ConsoleInspector`,
-/// following the tab) is the split's third pane.
+/// ConsoleContent is the split view's middle pane. While nothing is
+/// installed it is the set-up flow (`SetUpPane`) with no strip; once k3sm is
+/// installed, the strip, the health banner while the health check finds a
+/// problem (`HealthBanner`, which opens the guided panel), and the chosen
+/// tab. The inspector (`ConsoleInspector`, following the tab) is the split's
+/// third pane. Before the first health check it is empty.
 struct ConsoleContent: View {
     @ObservedObject var app: AppModel
 
     var body: some View {
+        switch app.pane {
+        case .tabs: tabs
+        case .setUp: SetUpPane(model: app).background(Palette.surface)
+        case .checking: Palette.surface
+        }
+    }
+
+    private var tabs: some View {
         VStack(spacing: 0) {
             ConsoleStrip(app: app)
             if let plan = app.guidedPlan {

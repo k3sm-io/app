@@ -26,10 +26,10 @@ import K3smStatus
 @MainActor
 final class AppModel: ObservableObject {
     enum Screen: Equatable {
-        /// Nothing installed (`HealthState.showsFirstRun`): offer to start
-        /// or join a cluster.
+        /// Nothing installed (`HealthState.showsFirstRun`), or not checked
+        /// yet: the console's content pane offers to start or join a cluster.
         case firstRun
-        /// k3sm is installed, healthy or not: show its status.
+        /// k3sm is installed, healthy or not: the content pane shows the tabs.
         case status
     }
 
@@ -39,6 +39,9 @@ final class AppModel: ObservableObject {
     private static let tailBytes = 16 * 1024
 
     @Published private(set) var screen: Screen = .firstRun
+    /// What the console's content pane shows (`ConsolePane`), decided with
+    /// `screen` in `refresh()`: the window itself never changes.
+    @Published private(set) var pane: ConsolePane = .checking
     /// What the startup health check found on the last `refresh()`
     /// (`HealthClassifier`); nil until the first one finishes. It picks the
     /// screen; the console shows its line.
@@ -819,8 +822,9 @@ final class AppModel: ObservableObject {
     /// and, on a worker, its join target. The full report runs only here:
     /// when the window is shown, and on the console's report loop. The
     /// screen follows the health check (`HealthClassifier`) over the file
-    /// facts, the trust check, the report and the versions: the first run
-    /// only when nothing is installed, the console for every other state.
+    /// facts, the trust check, the report and the versions: the console's
+    /// content pane holds the first run only when nothing is installed, the
+    /// tabs for every other state (`ConsolePane`).
     func refresh() async {
         refreshesInFlight += 1
         defer { refreshesInFlight -= 1 }
@@ -838,10 +842,12 @@ final class AppModel: ObservableObject {
             installRootExists: files.rootExists, cliPresent: files.cliPresent, cliTrust: trust, report: read,
             payloadVersion: payloadVersion, installedVersion: files.rootExists ? installedVersion : nil))
         if state != health { health = state }
-        // While the install watch runs, the first run holds the screen until
-        // the watch decides k3sm is up, so a half-started install does not
-        // flash the console.
-        let next: Screen = state.showsFirstRun || installWatchTask != nil ? .firstRun : .status
+        // While the install watch runs, the first run holds the content pane
+        // until the watch decides k3sm is up, so a half-started install does
+        // not flash the tabs. The window stays the console throughout.
+        let shown = ConsolePane.of(health: state, watching: installWatchTask != nil)
+        if shown != pane { pane = shown }
+        let next: Screen = shown == .tabs ? .status : .firstRun
         if next != screen {
             screen = next
             syncInstallWatch()

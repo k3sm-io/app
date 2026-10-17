@@ -65,33 +65,45 @@ struct MacPanel: View {
         .background(Palette.deep)
     }
 
-    /// The column, top to bottom: the switch, the view, then the daemons. It
-    /// scrolls, so nothing is cut off in a short window.
+    /// The column, top to bottom: the wordmark, then the figures, or while
+    /// the set-up flow fills the content pane (`ConsolePane.setUp`) the
+    /// "Not installed" state and a note. It scrolls, so nothing is cut off in
+    /// a short window.
     private var content: some View {
         VStack(alignment: .leading, spacing: 14) {
             Wordmark(flap: app.flap, tour: tour)
                 .padding(.top, 44)
-            if PanelMode.showsSwitch(nodeCount: cluster.nodeCount) {
-                HStack(spacing: 18) {
-                    ForEach(PanelMode.allCases, id: \.self) { m in
-                        Button(m.title) { app.panelMode = m }
-                            .buttonStyle(PanelTabStyle(selected: mode == m))
-                            .accessibilityAddTraits(mode == m ? .isSelected : [])
-                            .help(Help.Panel.mode(m))
-                    }
-                    Spacer(minLength: 0)
-                }
-                .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.12)).frame(height: 1) }
-            }
-            if mode == .cluster {
-                clusterView
+            if !app.pane.stripShown {
+                stateRow
+                Footnote(ConsolePane.setUpPanelNote)
             } else {
-                thisMacView
+                figures
             }
-            interconnectBlock
-            daemonRows
-            Footnote("Start, stop and uninstall are behind the info button.")
         }
+    }
+
+    /// The figures once k3sm is installed: the switch, the view, then the daemons.
+    @ViewBuilder private var figures: some View {
+        if PanelMode.showsSwitch(nodeCount: cluster.nodeCount) {
+            HStack(spacing: 18) {
+                ForEach(PanelMode.allCases, id: \.self) { m in
+                    Button(m.title) { app.panelMode = m }
+                        .buttonStyle(PanelTabStyle(selected: mode == m))
+                        .accessibilityAddTraits(mode == m ? .isSelected : [])
+                        .help(Help.Panel.mode(m))
+                }
+                Spacer(minLength: 0)
+            }
+            .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.12)).frame(height: 1) }
+        }
+        if mode == .cluster {
+            clusterView
+        } else {
+            thisMacView
+        }
+        interconnectBlock
+        daemonRows
+        Footnote("Start, stop and uninstall are behind the info button.")
     }
 
     /// The figures as the 2 by 2 tile grid.
@@ -219,7 +231,7 @@ struct MacPanel: View {
     /// lock while checks need an administrator; accessibility reads the
     /// whole, with the pod count and the needs-admin count.
     private var stateRow: some View {
-        let headline = StatusHeadline.of(report, podCount: pods.count)
+        let headline = app.pane.panelHeadline(report: report, podCount: pods.count)
         return HStack(spacing: 7) {
             HStack(spacing: 7) {
                 Circle().fill(Palette.rowOnDark(headline.tone)).frame(width: 8, height: 8)

@@ -208,4 +208,60 @@ struct FirstRunFlowTests {
         #expect(!paste.description.contains(t) && !paste.debugDescription.contains(t))
         #expect(!String(describing: paste).contains(t) && !String(reflecting: paste).contains(t))
     }
+    @Test("the set-up flow fills the console's content pane, with the strip hidden, until k3sm is installed")
+    func setUpRunsInsideTheConsolePane() {
+        // Before the first health check the pane is empty and nothing reads.
+        #expect(ConsolePane.of(health: nil, watching: false) == .checking)
+        #expect(!ConsolePane.checking.stripShown && !ConsolePane.checking.readsCluster)
+
+        // Not installed: the set-up content in the pane, the strip hidden, no
+        // cluster reads, and the panel says "Not installed".
+        let notInstalled = ConsolePane.of(health: .notInstalled, watching: false)
+        #expect(notInstalled == .setUp)
+        #expect(!notInstalled.stripShown && !notInstalled.readsCluster)
+        let headline = notInstalled.panelHeadline(report: nil, podCount: 0)
+        #expect(headline.state == "Not installed" && headline.tone == .notChecked && !headline.showsLock)
+        #expect(!ConsolePane.setUpPanelNote.isEmpty)
+
+        // Installed, healthy or not: the tabs and the strip.
+        let installed: [HealthState] = [.healthy, .installedStopped(nil), .partlyRunning(down: ["io.k3sm.netd"]),
+                                        .cliMissing, .cliUntrusted("unsigned"), .statusUnreadable,
+                                        .versionMismatch(payload: Self.v017, installed: SemanticVersion("0.1.6")!, relation: .newer)]
+        for state in installed {
+            let pane = ConsolePane.of(health: state, watching: false)
+            #expect(pane == .tabs, "\(state)")
+            #expect(pane.stripShown && pane.readsCluster)
+            #expect(pane.panelHeadline(report: nil, podCount: nil) == StatusHeadline.of(nil), "the report's headline")
+        }
+
+        // One window for every pane: the title bar never changes, so no pane
+        // swaps or restyles the window.
+        #expect(Set(ConsolePane.allCases.map { "\($0.titleBar)" }).count == 1)
+
+        // The transition on the poll's success, as AppModel.refresh decides
+        // it: one window made once, its pane recomputed after each check.
+        struct Window { let id: Int; var pane: ConsolePane }
+        var made = 0
+        func makeWindow() -> Window { made += 1; return Window(id: made, pane: .checking) }
+        var window = makeWindow()
+        let opened = window.id
+        var watch: InstallWatch? = InstallWatch(now: 0)
+        window.pane = ConsolePane.of(health: .notInstalled, watching: watch != nil)
+        #expect(window.pane == .setUp && !window.pane.stripShown)
+        // A flight that finds nothing keeps the set-up pane.
+        #expect(watch?.arrive(now: 5) == true)
+        #expect(watch?.end(state: .notInstalled, now: 5.2) == false)
+        window.pane = ConsolePane.of(health: .notInstalled, watching: watch != nil)
+        #expect(window.pane == .setUp)
+        // Installed but the watch still running (its check not ended): still
+        // set up, so a half-started install does not flash the tabs.
+        #expect(watch?.arrive(now: 10.2) == true)
+        #expect(ConsolePane.of(health: .healthy, watching: watch != nil) == .setUp)
+        // The check succeeds: the watch ends and the same window flips to the tabs.
+        #expect(watch?.end(state: .healthy, now: 10.4) == true)
+        watch = nil
+        window.pane = ConsolePane.of(health: .healthy, watching: watch != nil)
+        #expect(window.pane == .tabs && window.pane.stripShown && window.pane.readsCluster)
+        #expect(window.id == opened && made == 1, "the pane changed in place; no window was made")
+    }
 }

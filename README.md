@@ -51,9 +51,11 @@ command passes the app's trust check, what `k3sm status` reports, and whether
 the installed release matches the one the app carries. The result is one of
 not installed, stopped, partly running (netd or the node daemon down while the
 other runs), command missing, command not trusted, status unreadable, version
-mismatch (behind or ahead of the app) or healthy. Only "not installed" opens the
-first run; every other state opens the console, whose status names the state
-in one line.
+mismatch (behind or ahead of the app) or healthy. The window is always the
+console, with its left panel. Only "not installed" puts the first run in the
+console's content pane, where the tabs go, with the tab strip hidden and the
+left panel reading "Not installed"; every other state shows the tabs, and the
+console's status names the state in one line.
 
 While the state is not healthy, a banner across the top of the console says it
 in one sentence, with a button that names the next step. The button opens a
@@ -82,8 +84,8 @@ install in a new Terminal window, where `sudo` asks for your password. A
 worker, or a Mac whose role the app cannot read, keeps the command to read,
 since a plain install there could start a second cluster.
 
-With nothing installed on the Mac, the window walks through a short guided
-first run, one step at a time, with the steps listed across its top:
+With nothing installed on the Mac, the console's content pane walks through a
+short guided first run, one step at a time, with the steps listed across its top:
 
 1. **Choose**: start a cluster on this Mac (it installs a k3sm server), or
    join a cluster another Mac runs (this Mac installs as a worker).
@@ -103,7 +105,8 @@ first run, one step at a time, with the steps listed across its top:
    before, and each phase is named as it starts (authenticate, clear old
    staging files, copy k3sm out of the app, check its signature, install and
    start or join), with the step's log beneath.
-5. **Done**: the console opens on the new install. If the install failed, the
+5. **Done**: the content pane shows the tabs for the new install, in the same
+   window, and the left panel fills with its figures. If the install failed, the
    window says so plainly, with the app's reason, the command's own last
    message and the log, and **Try Again** goes back to the review (for a join,
    to the join step, since tokens expire in minutes and a fresh one is needed).
@@ -126,7 +129,9 @@ a command line. The script's private folder, with anything it downloaded, is
 removed when it ends. While the window waits, a small butterfly flies a dotted
 path under the buttons and checks for k3sm each time it reaches the right end,
 every 5 seconds (Check Again checks at once; with Reduce Motion it stands
-still at the end). Once k3sm is up, the console opens.
+still at the end). Once a check finds k3sm up, the content pane flips to the
+tabs and the left panel fills with the cluster's figures, in place: the window
+is not replaced.
 
 The app registers itself as a login item for each user on their first launch.
 It appears under System Settings > General > Login Items, and **Open k3sm at

@@ -29,7 +29,6 @@ import SwiftUI
 final class MainWindowController: NSObject, NSWindowDelegate {
     private let model: AppModel
     private var window: NSWindow?
-    private var chrome: AnyCancellable?
     private var dockFlap: AnyCancellable?
     /// The Delete key monitor, for the selected row's delete action.
     private var deleteKeys: Any?
@@ -124,9 +123,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     /// The console's minimum size as `ConsoleView` lays it out
-    /// (`TabStripLayout`); the first-run screens have none of their own here.
+    /// (`TabStripLayout`), the same while the set-up flow fills its pane.
     private func minimum() -> WindowFrame.Size {
-        guard model.screen == .status else { return WindowFrame.Size(width: 0, height: 0) }
         let size = ConsoleView.minSize(inspectorShown: model.inspectorShown, panelCollapsed: model.consolePanelCollapsed)
         return WindowFrame.Size(width: Double(size.width), height: Double(size.height))
     }
@@ -152,7 +150,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             guard let window = self?.window else { return false }
             return window.isVisible && !window.isMiniaturized && !NSApp.isHidden
         }
-        chrome = model.$screen.sink { [weak window] screen in window?.setChrome(for: screen) }
+        window.setConsoleChrome(model.pane.titleBar)
         // Delete or Forward Delete on this window asks for the selected row's
         // delete action behind the console's confirmation, unless text
         // is being edited, a sheet is up or the tour runs (`DeleteKey`); a
@@ -211,18 +209,17 @@ extension NSScreen {
 
 extension NSWindow {
     /// The console draws its own top edge: the title bar is transparent and
-    /// the content runs under it, so the traffic lights sit on the panel. The
-    /// first-run form keeps the standard title bar.
+    /// the content runs under it, so the traffic lights sit on the panel. It
+    /// is set once, when the window is made: the set-up flow runs inside the
+    /// console's content pane (`ConsolePane.titleBar`), so no pane restyles it.
     @MainActor
-    func setChrome(for screen: AppModel.Screen) {
-        let console = screen == .status
-        titlebarAppearsTransparent = console
-        titleVisibility = console ? .hidden : .visible
-        isMovableByWindowBackground = console
-        if console {
+    func setConsoleChrome(_ titleBar: ConsoleTitleBar) {
+        switch titleBar {
+        case .transparent:
+            titlebarAppearsTransparent = true
+            titleVisibility = .hidden
+            isMovableByWindowBackground = true
             styleMask.insert(.fullSizeContentView)
-        } else {
-            styleMask.remove(.fullSizeContentView)
         }
     }
 }

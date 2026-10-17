@@ -19,23 +19,22 @@ import K3smInstall
 import K3smStatus
 import SwiftUI
 
-/// MainView is the window. Before k3sm is installed it is the guided first
-/// run; once installed it is the console, with the status popover (state,
-/// problems, start, stop and update) behind the console's info button.
+/// MainView is the window: always the console (`ConsoleView`). Before k3sm
+/// is installed its content pane holds the guided first run (`SetUpPane`);
+/// once installed, the tabs, with the status popover (state, problems,
+/// start, stop and update) behind the console's info button.
 struct MainView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        switch model.screen {
-        case .firstRun: StatusPanel(model: model)
-        case .status: ConsoleView(app: model)
-        }
+        ConsoleView(app: model)
     }
 }
 
-/// StatusPanel is the first-run screen: the login item line and the guided
-/// first run (`FirstRunView`).
-struct StatusPanel: View {
+/// SetUpPane is the console's content pane while nothing is installed
+/// (`ConsolePane.setUp`): the login item line and the guided first run
+/// (`FirstRunView`), below the strip's height so it clears the title bar.
+struct SetUpPane: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
@@ -44,7 +43,8 @@ struct StatusPanel: View {
             FirstRunView(model: model)
         }
         .padding(20)
-        .frame(minWidth: 560, minHeight: 460, alignment: .topLeading)
+        .padding(.top, CGFloat(TabStripLayout.height))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
