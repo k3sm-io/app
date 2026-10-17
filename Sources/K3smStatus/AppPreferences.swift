@@ -188,8 +188,12 @@ public struct AppPreferences: @unchecked Sendable {
 /// not built yet is not listed, never shown disabled.
 public enum SettingsPane: String, CaseIterable, Sendable {
     case general
+    /// The node's role and its cluster install settings, read-only.
+    case cluster
     /// The LAN switch, moved here from the info popover.
     case network
+    /// The data volume and the release base, read-only.
+    case storage
     /// The installed and available releases, Update Now, the roll's
     /// progress and the update options.
     case updates
@@ -197,13 +201,15 @@ public enum SettingsPane: String, CaseIterable, Sendable {
     case advanced
 
     /// The panes the window shows, in order.
-    public static let shown: [SettingsPane] = [.general, .network, .updates, .advanced]
+    public static let shown: [SettingsPane] = [.general, .cluster, .network, .storage, .updates, .advanced]
 
     /// The toolbar label and the window title.
     public var title: String {
         switch self {
         case .general: "General"
+        case .cluster: "Cluster"
         case .network: "Network"
+        case .storage: "Storage"
         case .updates: "Updates"
         case .advanced: "Advanced"
         }
@@ -213,7 +219,9 @@ public enum SettingsPane: String, CaseIterable, Sendable {
     public var symbol: String {
         switch self {
         case .general: "gearshape"
+        case .cluster: "server.rack"
         case .network: "network"
+        case .storage: "externaldrive"
         case .updates: "arrow.triangle.2.circlepath"
         case .advanced: "wrench.and.screwdriver"
         }

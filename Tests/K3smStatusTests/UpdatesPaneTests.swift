@@ -79,7 +79,7 @@ struct UpdatesPaneTests {
 
     @Test("the Updates pane is listed after Network")
     func paneListed() {
-        #expect(SettingsPane.shown == [.general, .network, .updates, .advanced])
+        #expect(SettingsPane.shown == [.general, .cluster, .network, .storage, .updates, .advanced])
         #expect(SettingsPane.updates.title == "Updates")
         #expect(SettingsPane.updates.symbol == "arrow.triangle.2.circlepath")
         #expect(SettingsPane.restore(from: "updates") == .updates)

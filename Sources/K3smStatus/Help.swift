@@ -53,7 +53,7 @@ public enum Help {
     public static var all: [HelpTag] {
         Strip.all + Workloads.all + Nodes.all + Images.all + Builds.all + Services.all + Storage.all + Models.all + Stats.all
             + Inspector.all + Actions.all + Status.all + Panel.all + Popover.all + Guided.all + FirstRun.all + Update.all
-            + Tour.all + General.all + Network.all + Updates.all + Advanced.all + SettingsWindow.all + Menus.all + Columns.all
+            + Tour.all + General.all + Network.all + InstallSettings.all + Updates.all + Advanced.all + SettingsWindow.all + Menus.all + Columns.all
     }
 
     // MARK: Table columns
@@ -874,6 +874,17 @@ public enum Help {
         public static var all: [HelpTag] { [bugReport, liveStatus, openLogs, resetDefaults, purge, uninstall] }
     }
 
+    /// The Settings window's Cluster and Storage panes (`NodeSettingsPanes`).
+    public enum InstallSettings {
+        /// A setting line's Copy button.
+        public static let copy = HelpTag("Put this value on the clipboard", control: "settings: setting Copy", label: "Copy")
+        /// The lock beside a value only root can read.
+        public static let restricted = HelpTag("Only an administrator can read this value, with sudo k3sm status",
+                                               control: "settings: restricted value lock")
+
+        public static var all: [HelpTag] { [copy, restricted] }
+    }
+
     // MARK: Settings window
 
     /// The Settings window's toolbar.
@@ -883,6 +894,8 @@ public enum Help {
             let text: String
             switch pane {
             case .general: text = "Show the login, Dock and window settings"
+            case .cluster: text = "Show the node's role and its cluster install settings"
+            case .storage: text = "Show the data volume and where updates come from"
             case .network: text = "Show whether other devices may connect to pods"
             case .updates: text = "Show the releases, the update button and how an update runs"
             case .advanced: text = "Show diagnostics, uninstall and the preferences reset"

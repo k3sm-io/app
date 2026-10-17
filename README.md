@@ -708,6 +708,21 @@ The **General** pane:
 - **Version** names the app and its own version, `k3sm.app v0.2.0` for a
   release build or the pseudo-version for a development build.
 
+The **Cluster** pane shows this node's install settings as k3sm reports them
+in its status: the node's role, then on a server the mesh address, the extra
+names on the API server's certificate (TLS SANs), the NodePort addresses, the
+node registry's port and the name the admin kubeconfig is merged under, and
+on any node LAN access. A worker shows its NodePort addresses and LAN access
+and says the rest is set on the server. The **Storage** pane shows the data
+volume (none for a plain directory, else its name, quota and encryption),
+whether the data root is mounted, and the release base the managed update
+reads. Every value is selectable, and a value worth pasting has a **Copy**
+button. A value only an administrator can read shows a lock and "needs an
+administrator; run sudo k3sm status". A k3sm from before this report shows
+each setting as "not reported by this k3sm". Both panes are read-only for
+now: these settings are set by `k3sm install`, and changing them from the app
+comes later. Opening either pane reads the status again.
+
 The **Network** pane holds **Allow connections from other devices** (see
 [Connections from other devices](#connections-from-other-devices)), with
 the setting now, the listeners it controls, those it never closes, and the
