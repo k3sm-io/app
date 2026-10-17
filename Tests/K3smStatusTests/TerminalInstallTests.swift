@@ -31,13 +31,13 @@ struct TerminalInstallTests {
     static let prologue = #"""
         set -e
         dir=$(cd "$(dirname "$0")" && pwd)
-        trap 'case "$dir" in */k3sm-app.*) rm -rf "$dir" ;; esac' EXIT
+        trap 'case "${dir##*/}" in k3sm-app.*) if [ -f "$dir/$(basename "$0")" ]; then rm -rf "$dir"; fi ;; esac' EXIT
         cd "$dir"
         """#
     static let joinPrologue = #"""
         set -e
         dir=$(cd "$(dirname "$0")" && pwd)
-        trap 'stty echo 2>/dev/null || true; case "$dir" in */k3sm-app.*) rm -rf "$dir" ;; esac' EXIT
+        trap 'stty echo 2>/dev/null || true; case "${dir##*/}" in k3sm-app.*) if [ -f "$dir/$(basename "$0")" ]; then rm -rf "$dir"; fi ;; esac' EXIT
         cd "$dir"
         """#
     static let done = #"printf '%s\n' 'k3sm is installed; you can close this window and return to k3sm.app.'"#
@@ -325,5 +325,47 @@ struct TerminalInstallTests {
         let r18 = still.arrive(now: 4.9)
         let r19 = still.arrive(now: 5)
         #expect(!r18 && r19)
+    }
+
+    @Test("the exit trap removes only the script's own k3sm-app folder")
+    func scriptRemovesOnlyItsOwnFolder() throws {
+        let base = FileManager.default.temporaryDirectory.appending(path: "k3sm-trap-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        func run(in dir: URL) throws {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let script = dir.appending(path: TerminalScript.fileName)
+            let text = "#!/bin/sh\n" + TerminalScript.prologue(join: false).joined(separator: "\n") + "\nexit 0\n"
+            try text.write(to: script, atomically: true, encoding: .utf8)
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/sh")
+            p.arguments = [script.path]
+            try p.run()
+            p.waitUntilExit()
+            #expect(p.terminationStatus == 0)
+        }
+        // Its own folder goes, with what it downloaded.
+        let own = base.appending(path: "k3sm-app.abc123")
+        try run(in: own)
+        #expect(!FileManager.default.fileExists(atPath: own.path))
+        // Under a k3sm-app ancestor, a folder of another name stays.
+        let nested = base.appending(path: "k3sm-app.parent").appending(path: "other")
+        try run(in: nested)
+        #expect(FileManager.default.fileExists(atPath: nested.path))
+        #expect(FileManager.default.fileExists(atPath: nested.deletingLastPathComponent().path))
+        // A k3sm-app folder that does not hold the running script stays.
+        let elsewhere = base.appending(path: "k3sm-app.target")
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        let script = base.appending(path: "runner").appending(path: TerminalScript.fileName)
+        try FileManager.default.createDirectory(at: script.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let lines = TerminalScript.prologue(join: false).map {
+            $0.hasPrefix("dir=") ? "dir=\(elsewhere.path)" : $0
+        }
+        try ("#!/bin/sh\n" + lines.joined(separator: "\n") + "\nexit 0\n").write(to: script, atomically: true, encoding: .utf8)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = [script.path]
+        try p.run()
+        p.waitUntilExit()
+        #expect(FileManager.default.fileExists(atPath: elsewhere.path))
     }
 }

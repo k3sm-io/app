@@ -138,13 +138,15 @@ public enum TerminalScript {
     /// The script's first lines: stop on the first failure, work in the
     /// script's own private directory, and remove that directory (the
     /// script, a download and anything unpacked) on exit, restoring the
-    /// terminal's echo first for a join.
-    private static func prologue(join: Bool) -> [String] {
+    /// terminal's echo first for a join. The removal needs the directory's
+    /// own name to carry `directoryPrefix` and the directory to hold the
+    /// running script, so no other folder is ever removed.
+    static func prologue(join: Bool) -> [String] {
         let restore = join ? "stty echo 2>/dev/null || true; " : ""
         return [
             "set -e",
             #"dir=$(cd "$(dirname "$0")" && pwd)"#,
-            #"trap '\#(restore)case "$dir" in */\#(directoryPrefix)*) rm -rf "$dir" ;; esac' EXIT"#,
+            #"trap '\#(restore)case "${dir##*/}" in \#(directoryPrefix)*) if [ -f "$dir/$(basename "$0")" ]; then rm -rf "$dir"; fi ;; esac' EXIT"#,
             #"cd "$dir""#,
         ]
     }
