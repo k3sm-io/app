@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 import AppKit
+import Combine
 import K3smStatus
 
 /// AppDelegate wires the parts together: the poller feeds the status item,
@@ -34,6 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var noticePending = false
     private var activity: NSObjectProtocol?
     private var sessionObservers: [NSObjectProtocol] = []
+    /// Applies the appearance preference to the app, now and on every change.
+    private var appearanceObserver: AnyCancellable?
     /// The scripted demo tour, when `--demo-tour` named one.
     private var demo: DemoTourRunner?
 
@@ -46,6 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let model = AppModel(runner: AppleScriptPrivilegedRunner(), environment: environment)
         let windowController = MainWindowController(model: model)
         let preferences = PreferencesStore.shared
+        // The publisher gives the stored value at once, then every change,
+        // so the app follows the preference from launch with no relaunch.
+        appearanceObserver = preferences.$appearance.sink { Self.apply($0) }
         let settings = SettingsWindowController(model: SettingsModel(
             app: model, preferences: preferences, showConsole: { [weak windowController] in windowController?.show() }))
         SettingsWindowController.shared = settings
@@ -106,6 +112,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if preferences.preferences.opensWindow(loginLaunch: loginLaunch) {
             windowController.show()
         }
+    }
+
+    /// Sets the app's appearance, which every window, the popover and the
+    /// menus inherit; System clears it so they follow macOS. The status
+    /// item's button is drawn in the menu bar and keeps the menu bar's own.
+    private static func apply(_ appearance: AppAppearance) {
+        NSApplication.shared.appearance = appearance.appearanceName.flatMap { NSAppearance(named: NSAppearance.Name($0)) }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

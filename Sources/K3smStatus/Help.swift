@@ -863,12 +863,15 @@ public enum Help {
         /// The status refresh popup.
         public static let pollProfile = HelpTag("How often the app reads k3sm; the slower choice saves battery",
                                                 control: "general: poll profile popup", label: "Status refresh")
+        /// The appearance picker.
+        public static let appearance = HelpTag("Show the app's windows light or dark, or as macOS is set",
+                                               control: "general: appearance picker", label: "Appearance")
 
         /// Take the Tour's tag.
         public static func tour(available: Bool) -> HelpTag { available ? tour : tourUnavailable }
 
         public static var all: [HelpTag] {
-            [openAtLogin, windowAtLogin, notifyStopped, dockAnimation, tour, tourUnavailable, resetLayout, pollProfile]
+            [openAtLogin, windowAtLogin, notifyStopped, dockAnimation, tour, tourUnavailable, resetLayout, pollProfile, appearance]
         }
     }
 

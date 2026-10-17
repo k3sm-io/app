@@ -58,6 +58,8 @@ public struct AppPreferences: @unchecked Sendable {
     public static let updateSignatureKey = "pref.updateSignature"
     /// How often the app reads k3sm, a `PollProfile` word.
     public static let pollProfileKey = "pref.pollProfile"
+    /// The app's appearance, an `AppAppearance` word.
+    public static let appearanceKey = "pref.appearance"
     /// The release the update notification last named (`UpdateNotice.release`).
     /// It is a record, not a preference: Reset to Defaults keeps it, so the
     /// same release is never announced twice.
@@ -137,6 +139,12 @@ public struct AppPreferences: @unchecked Sendable {
         nonmutating set { defaults.set(newValue.rawValue, forKey: Self.pollProfileKey) }
     }
 
+    /// The stored appearance, through `AppAppearance.restore`.
+    public var appearance: AppAppearance {
+        get { AppAppearance.restore(from: defaults.object(forKey: Self.appearanceKey)) }
+        nonmutating set { defaults.set(newValue.rawValue, forKey: Self.appearanceKey) }
+    }
+
     /// The release the update notification last named; nil before the first.
     public var updateNotifiedRelease: String? {
         get { defaults.object(forKey: Self.updateNotifiedKey) as? String }
@@ -169,6 +177,7 @@ public struct AppPreferences: @unchecked Sendable {
         for key in Key.allCases { defaults.removeObject(forKey: key.rawValue) }
         defaults.removeObject(forKey: Self.updateSignatureKey)
         defaults.removeObject(forKey: Self.pollProfileKey)
+        defaults.removeObject(forKey: Self.appearanceKey)
         defaults.removeObject(forKey: Self.settingsPaneKey)
     }
 
@@ -207,6 +216,45 @@ public struct AppPreferences: @unchecked Sendable {
     /// notice: only at login, and only with `notifyStoppedAtLogin`.
     public func checksStoppedNotice(loginLaunch: Bool) -> Bool {
         loginLaunch && notifyStoppedAtLogin
+    }
+}
+
+/// AppAppearance is the app's appearance, a General preference: System,
+/// which follows macOS as the app always has, or Light or Dark for the
+/// app's own windows, popover and menus whatever macOS is set to. The menu
+/// bar item is not the app's to change: it follows the menu bar.
+public enum AppAppearance: String, CaseIterable, Sendable {
+    case system
+    case light
+    case dark
+
+    /// The appearance when nothing usable is stored.
+    public static let defaultAppearance: AppAppearance = .system
+
+    /// The picker's item.
+    public var title: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    /// The `NSAppearance.Name` raw value the app sets on itself, nil for
+    /// System, which clears the app's own so it follows macOS again. Kept
+    /// as strings here so the mapping is tested without AppKit's runtime.
+    public var appearanceName: String? {
+        switch self {
+        case .system: nil
+        case .light: "NSAppearanceNameAqua"
+        case .dark: "NSAppearanceNameDarkAqua"
+        }
+    }
+
+    /// A stored appearance word, or System for anything else (absent,
+    /// another type, a word this build does not know).
+    public static func restore(from stored: Any?) -> AppAppearance {
+        (stored as? String).flatMap(AppAppearance.init(rawValue:)) ?? defaultAppearance
     }
 }
 

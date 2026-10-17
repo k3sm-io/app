@@ -18,7 +18,8 @@ import Combine
 import K3smStatus
 
 /// PreferencesStore mirrors `AppPreferences` for the views and for the
-/// parts that follow a preference while running (the Dock icon): each
+/// parts that follow a preference while running (the Dock icon, the app's
+/// appearance): each
 /// property is read once and written through on every change. There is one
 /// for the app, since the user defaults it stands for are one domain.
 @MainActor
@@ -61,6 +62,11 @@ final class PreferencesStore: ObservableObject {
         }
     }
 
+    /// The app's appearance; `AppDelegate` applies it to the app on every change.
+    @Published var appearance: AppAppearance {
+        didSet { if !reloading { preferences.appearance = appearance } }
+    }
+
     /// Set while `resetToDefaults` reads the defaults back, so nothing is
     /// written over the removed keys.
     private var reloading = false
@@ -75,6 +81,7 @@ final class PreferencesStore: ObservableObject {
         updateSignature = preferences.updateSignature
         notifyUpdate = preferences.notifyUpdate
         pollProfile = preferences.pollProfile
+        appearance = preferences.appearance
         PollSchedule.profile = pollProfile
     }
 
@@ -92,5 +99,6 @@ final class PreferencesStore: ObservableObject {
         updateSignature = preferences.updateSignature
         notifyUpdate = preferences.notifyUpdate
         pollProfile = preferences.pollProfile
+        appearance = preferences.appearance
     }
 }

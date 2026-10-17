@@ -769,6 +769,7 @@ The **General** pane:
   at login, not only the status item. It is off at first.
 - **Notify me at login when k3sm is stopped** posts the "k3sm is stopped"
   notice with its Start button. It is on at first.
+- **Appearance** is **System** (as macOS is set), **Light** or **Dark** for the app's windows, popover and menus; the menu bar item follows the menu bar. It is System at first.
 - **Animate the Dock icon while the window is open** beats the wings of the
   mark on the Dock icon. With Reduce Motion on in Accessibility settings the
   icon is always still, and the checkbox says so.
