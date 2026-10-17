@@ -463,14 +463,7 @@ struct StatusView: View {
     }
 
     private var versionLine: String {
-        let installed = model.installedVersion?.description ?? "unknown"
-        guard let payload = model.payloadVersion else { return "Installed: \(installed)" }
-        guard let current = model.installedVersion else { return "Installed: \(installed) · this app carries \(payload)" }
-        switch PayloadRelation(payload: payload, installed: current) {
-        case .newer: return "Installed: \(current) · this app carries \(payload), a newer release"
-        case .same: return "Installed: \(current) · up to date with this app"
-        case .older: return "Installed: \(current) · this app carries an older release, \(payload)"
-        }
+        model.appVersion.versionLine(installed: model.installedVersion, payload: model.payloadVersion)
     }
 }
 

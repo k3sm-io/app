@@ -330,6 +330,8 @@ final class AppModel: ObservableObject {
     private var updateStatus: TabLoader<UpdateStatus>?
 
     let payloadVersion: SemanticVersion?
+    /// The version the app shows for itself.
+    let appVersion: AppVersion
     private let teamID: TeamID?
     private let user: ConsoleUser?
     private let runner: any PrivilegedRunner
@@ -348,6 +350,7 @@ final class AppModel: ObservableObject {
         self.actions = ActionRunner(environment: environment, teamID: teamID)
         self.user = SelfCheck.consoleUser()
         self.payloadVersion = SelfCheck.payloadVersion()
+        self.appVersion = SelfCheck.appVersion()
         var availability = SelfCheck.availability()
         if availability == .enabled, user == nil {
             availability = .disabled(reason: "k3sm could not read a non-root account name for this user, so it cannot install k3sm.")

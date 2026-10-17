@@ -648,6 +648,8 @@ The **General** pane:
   its natural width (fitting itself again) and first view, shown, shows the details column, and puts every
   table's columns back to their first widths. Tabs, searches and selections
   stay as they are.
+- **Version** names the app and its own version, `k3sm.app v0.2.0` for a
+  release build or the pseudo-version for a development build.
 
 The **Network** pane holds **Allow connections from other devices** (see
 [Connections from other devices](#connections-from-other-devices)), with
@@ -1024,8 +1026,14 @@ report, computed by `hack/build-version.sh` from the checkout: the next patch
 after the latest `vX.Y.Z` tag (or `v0.0.0`), the commit time in UTC and the
 commit's first 12 hex digits, plus `+dirty` for a modified tree, for example
 `v0.0.0-0.20261016221530-2eda966a1b2c`. A copy of the source outside a git
-checkout gets `v0.0.0-unknown`. The About panel and `k3sm-mcp` show that
-version; a release build (`--version x.y.z`) shows `x.y.z`.
+checkout gets `v0.0.0-unknown`. The About panel, Settings > General, the
+status popover's version line and `k3sm-mcp` show that version; a release
+build (`--version x.y.z`) shows `x.y.z`. A short version of `0.0.0` is no
+release, so a development build carries no payload release: it offers no
+install, update or repair from its payload, its guided steps give the
+install script to run in Terminal, and the popover's version line reads
+`Installed: <release> · k3sm.app <pseudo-version>` instead of comparing the
+installed release with the app's.
 
 `hack/release/README.md` describes the release signing order. The bundle id
 is `io.k3sm.app`, and the app logs to the unified log under the same

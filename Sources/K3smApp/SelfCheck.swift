@@ -43,10 +43,16 @@ enum SelfCheck {
         return ConsoleUser(String(cString: entry.pointee.pw_name))
     }
 
-    /// The payload version: the bundle's own short version, which the build
-    /// stamps with the same release version as the payload.
+    /// The payload version: the bundle's own short version, which a release
+    /// build stamps with the same release version as the payload; nil for a
+    /// development build's `0.0.0` (`AppVersion.payloadRelease`).
     static func payloadVersion(in bundle: Bundle = .main) -> SemanticVersion? {
-        (bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String).flatMap(SemanticVersion.init)
+        AppVersion.payloadRelease(shortVersion: bundle.object(forInfoDictionaryKey: AppVersion.shortVersionKey) as? String)
+    }
+
+    /// The version the app shows for itself (`AppVersion`).
+    static func appVersion(in bundle: Bundle = .main) -> AppVersion {
+        AppVersion(info: bundle.infoDictionary)
     }
 
     /// Verifies the whole bundle (nested code and every sealed resource,

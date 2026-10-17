@@ -76,4 +76,53 @@ struct AppVersionTests {
         #expect(AppVersion(info: ["CFBundleShortVersionString": 3]).text == nil)
         #expect(AppVersion.buildVersionKey == "K3smBuildVersion")
     }
+
+    /// A development build keeps its short version at `0.0.0`: that is no
+    /// release, so the app names its pseudo-version and every path that
+    /// needs the payload's release takes its "no payload" branch.
+    @Test func developmentBuildCarriesNoRelease() throws {
+        #expect(AppVersion.payloadRelease(shortVersion: "0.0.0") == nil)
+        #expect(AppVersion.payloadRelease(shortVersion: "0.0.0-rc.1") == nil)
+        #expect(AppVersion.payloadRelease(shortVersion: "1.2.3") == SemanticVersion("1.2.3"))
+        #expect(AppVersion.payloadRelease(shortVersion: "0.1.0") == SemanticVersion("0.1.0"))
+        #expect(AppVersion.payloadRelease(shortVersion: "dev") == nil)
+        #expect(AppVersion.payloadRelease(shortVersion: nil) == nil)
+
+        let pseudo = "v0.0.0-0.20261017002053-910af952ea03"
+        let development = AppVersion(shortVersion: "0.0.0", buildVersion: pseudo)
+        let payload = AppVersion.payloadRelease(shortVersion: "0.0.0")
+        let installed = try #require(SemanticVersion("0.1.8"))
+
+        // The popover's version line names the app's build, never 0.0.0.
+        let line = development.versionLine(installed: installed, payload: payload)
+        #expect(line == "Installed: 0.1.8 · k3sm.app " + pseudo)
+        #expect(!line.contains("carries"))
+        #expect(!line.replacingOccurrences(of: pseudo, with: "").contains("0.0.0"))
+        #expect(development.versionLine(installed: nil, payload: payload) == "Installed: unknown · k3sm.app " + pseudo)
+        // A release build keeps the payload sentences.
+        let release = AppVersion(shortVersion: "0.1.9", buildVersion: nil)
+        let carried = AppVersion.payloadRelease(shortVersion: "0.1.9")
+        #expect(release.versionLine(installed: installed, payload: carried) == "Installed: 0.1.8 · this app carries 0.1.9, a newer release")
+        #expect(release.versionLine(installed: carried, payload: carried) == "Installed: 0.1.9 · up to date with this app")
+        #expect(release.versionLine(installed: nil, payload: carried) == "Installed: unknown · this app carries 0.1.9")
+
+        // The guided plan takes the Terminal fallback, unpinned, signed or not.
+        for rootStep in [false, true] {
+            let plan = try #require(GuidedSteps.plan(for: .cliMissing, rootStep: rootStep, role: .server, payload: payload))
+            #expect(plan.primary == nil)
+            #expect(plan.terminalCommand == GuidedSteps.installScriptCommand(version: nil))
+            #expect(!(plan.terminalCommand ?? "").contains("0.0.0"))
+            #expect(!plan.steps.joined().contains("0.0.0"))
+        }
+        let partly = try #require(GuidedSteps.plan(for: .partlyRunning(down: [HealthClassifier.netdLabel]),
+                                                   rootStep: true, role: .server, payload: payload))
+        #expect(partly.secondary == nil)
+
+        // The update plan offers no payload install, and no downgrade block
+        // naming 0.0.0 either.
+        for role in [NodeRole.server, .agent] {
+            let plan = UpdatePlan.decide(UpdatePlanFacts(role: role, installed: installed, payload: payload, workers: 0))
+            #expect(plan == .none)
+        }
+    }
 }

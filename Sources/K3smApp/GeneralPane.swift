@@ -21,7 +21,8 @@ import SwiftUI
 /// real login item, with the system's reason when it needs approval or
 /// refused), the stopped notice at login, the window at login, the Dock
 /// animation (off and disabled under Reduce Motion), the tour and Reset
-/// Window Layout. Its state is on `SettingsModel` and `PreferencesStore`.
+/// Window Layout, and the app's own version (`AppVersion.title`). Its state
+/// is on `SettingsModel` and `PreferencesStore`.
 struct GeneralPane: View {
     @ObservedObject var settings: SettingsModel
     @ObservedObject var preferences: PreferencesStore
@@ -59,6 +60,10 @@ struct GeneralPane: View {
                     Button("Reset Window Layout…") { settings.confirmingReset = true }
                         .help(Help.General.resetLayout)
                 }
+            }
+            group("Version") {
+                Text(verbatim: SelfCheck.appVersion().title)
+                    .textSelection(.enabled)
             }
         }
         .padding(20)

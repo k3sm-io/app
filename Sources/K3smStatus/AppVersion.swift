@@ -14,8 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-/// AppVersion is the version the app shows for itself (the About panel and
-/// `k3sm-mcp`'s server and `versions.app`), from two Info.plist keys
+/// AppVersion is the version the app shows for itself (the About panel, the
+/// status popover's version line without a payload release, Settings >
+/// General, and `k3sm-mcp`'s server and `versions.app`), from two Info.plist keys
 /// `hack/build-app.sh` writes:
 ///
 /// - a release build (`--version x.y.z`) stamps `CFBundleShortVersionString`
@@ -66,6 +67,33 @@ public struct AppVersion: Equatable, Sendable {
     public var title: String {
         guard let text else { return "k3sm.app unknown" }
         return "k3sm.app " + (text.hasPrefix("v") ? text : "v" + text)
+    }
+
+    /// The release the app carries as its payload, from the bundle's short
+    /// version, which a release build stamps with the payload's own version.
+    /// Nil when it does not parse, and nil for `0.0.0`, which is how a
+    /// development build marks that it carries no release (a pseudo-version
+    /// with a `0.0.0` core counts the same): every path that needs the
+    /// payload's release then takes its "no payload" branch.
+    public static func payloadRelease(shortVersion: String?) -> SemanticVersion? {
+        guard let short = shortVersion, let version = SemanticVersion(short) else { return nil }
+        if version.major == 0, version.minor == 0, version.patch == 0 { return nil }
+        return version
+    }
+
+    /// The status popover's version line. With a payload release it compares
+    /// the installed release with it ("this app carries 1.2.3, a newer
+    /// release"); without one it names the installed release and the app
+    /// itself ("Installed: 0.1.8 · k3sm.app v0.0.0-0.20261017002053-910af952ea03").
+    public func versionLine(installed: SemanticVersion?, payload: SemanticVersion?) -> String {
+        let shown = installed?.description ?? "unknown"
+        guard let payload else { return "Installed: \(shown) · \(title)" }
+        guard let current = installed else { return "Installed: \(shown) · this app carries \(payload)" }
+        switch PayloadRelation(payload: payload, installed: current) {
+        case .newer: return "Installed: \(current) · this app carries \(payload), a newer release"
+        case .same: return "Installed: \(current) · up to date with this app"
+        case .older: return "Installed: \(current) · this app carries an older release, \(payload)"
+        }
     }
 
     /// AboutPanel is what the standard About panel is given in place of the
