@@ -126,14 +126,28 @@ enum MenuActions {
         }
     }
 
-    private static func openCommand(_ text: String, named name: String) {
+    /// Opens a developer build's install script (`TerminalScript`) in a new
+    /// Terminal window; false when it could not be written.
+    @discardableResult
+    static func openInTerminal(_ script: String) -> Bool {
+        let opened = openCommand(script, named: TerminalScript.fileName)
+        if opened { log.notice("first run: install opened in Terminal") }
+        return opened
+    }
+
+    /// Writes `text` as a `.command` into a fresh 0700 directory
+    /// (`CommandFile`) and opens it with Terminal, so no Automation
+    /// permission is asked for.
+    @discardableResult
+    private static func openCommand(_ text: String, named name: String) -> Bool {
         let path: String
         do {
             path = try CommandFile.write(text, named: name, under: NSTemporaryDirectory())
         } catch {
             AppModel.alert(title: "k3sm could not write \(name)", text: "The temporary folder is not writable.")
-            return
+            return false
         }
         NSWorkspace.shared.open([URL(fileURLWithPath: path)], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
+        return true
     }
 }

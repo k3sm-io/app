@@ -66,6 +66,9 @@ public struct GuidedPlan: Equatable, Sendable {
     /// developer build in place of a root step, and for a missing or
     /// untrusted command when the app cannot run Repair.
     public let terminalCommand: String?
+    /// The `.command` script Run in Terminal opens for an install command
+    /// (`TerminalScript.install`), nil for every other command.
+    public let terminalScript: String?
     /// Whether the panel offers Open Logs.
     public let opensLogs: Bool
     /// Whether the panel offers Refresh beside a primary that is not Refresh,
@@ -102,11 +105,21 @@ public enum GuidedSteps {
     /// Where every k3sm release is listed.
     public static let releasesURL = "https://k3sm.io/releases/"
 
-    /// The install script's command line, pinned to `version` when known
-    /// (a repair pins the release; an unpinned run installs the latest).
+    /// The install script's command line, pinned to `version` when it is a
+    /// release (a repair pins the release; an unpinned run installs the
+    /// latest). A development build's `0.0.0` names no release, so it pins
+    /// nothing (`releasePin`).
     public static func installScriptCommand(version: SemanticVersion?) -> String {
-        guard let version else { return "curl -fsSL \(installScriptURL) | sh" }
+        guard let version = releasePin(version) else { return "curl -fsSL \(installScriptURL) | sh" }
         return "curl -fsSL \(installScriptURL) | K3SM_INSTALL_VERSION=v\(version) sh"
+    }
+
+    /// The release `version` names, nil for none and for `0.0.0`, which a
+    /// development build carries in place of a release (`AppVersion`): no
+    /// release of that number exists to download.
+    public static func releasePin(_ version: SemanticVersion?) -> SemanticVersion? {
+        guard let version, version != SemanticVersion("0.0.0") else { return nil }
+        return version
     }
 
     /// The step a partly running Mac takes: Restart while the node daemon
@@ -119,7 +132,10 @@ public enum GuidedSteps {
     /// The plan for `state`, nil when healthy or not installed.
     /// `rootStep` is whether this build can run the checked root step (a
     /// Team ID is pinned); `payload` is the release the app carries.
-    public static func plan(for state: HealthState, rootStep: Bool, role: NodeRole?, payload: SemanticVersion?) -> GuidedPlan? {
+    /// `payloadCLI` is the k3sm inside the app's payload, which a Terminal
+    /// install runs in place of the install script when the bundle has one.
+    public static func plan(for state: HealthState, rootStep: Bool, role: NodeRole?, payload: SemanticVersion?,
+                            payloadCLI: TerminalScript.Payload? = nil) -> GuidedPlan? {
         guard let banner = state.line, !state.showsFirstRun else { return nil }
         switch state {
         case .notInstalled, .healthy:
@@ -144,14 +160,15 @@ public enum GuidedSteps {
                         "k3sm keeps running as it is. The app never installs an older k3sm over a newer one.",
                         "To match them, download the k3sm app for \(installed) from \(releasesURL).",
                     ],
-                    primary: nil, secondary: nil, terminalCommand: nil, opensLogs: false, offersRefresh: false)
+                    primary: nil, secondary: nil, terminalCommand: nil, terminalScript: nil, opensLogs: false, offersRefresh: false)
             }
-            return update(state: state, banner: banner, rootStep: rootStep, role: role, payload: payloadVersion, installed: installed)
+            return update(state: state, banner: banner, rootStep: rootStep, role: role, payload: payloadVersion, installed: installed,
+                          payloadCLI: payloadCLI)
         case .cliMissing:
-            return repair(state: state, banner: banner, rootStep: rootStep, payload: payload,
+            return repair(state: state, banner: banner, rootStep: rootStep, payload: payload, payloadCLI: payloadCLI,
                           why: "/Library/k3sm is here, but the k3sm command in it is missing.")
         case .cliUntrusted(let why):
-            return repair(state: state, banner: banner, rootStep: rootStep, payload: payload,
+            return repair(state: state, banner: banner, rootStep: rootStep, payload: payload, payloadCLI: payloadCLI,
                           why: "The installed k3sm failed the app's check: \(StatusDisplay.clip(why)). The app runs nothing until it passes.")
         case .statusUnreadable:
             return GuidedPlan(
@@ -162,7 +179,7 @@ public enum GuidedSteps {
                     "Click Refresh to read it again.",
                     "If it still fails, open the logs to see why.",
                 ],
-                primary: .refresh, secondary: nil, terminalCommand: nil, opensLogs: true, offersRefresh: false)
+                primary: .refresh, secondary: nil, terminalCommand: nil, terminalScript: nil, opensLogs: true, offersRefresh: false)
         }
     }
 
@@ -196,21 +213,23 @@ public enum GuidedSteps {
             title: action.title,
             steps: why + rootSteps(action, rootStep: rootStep) + (repair ? [repairBesideLine] : []),
             primary: rootStep ? action : nil, secondary: repair ? .repair : nil,
-            terminalCommand: rootStep ? nil : command,
+            terminalCommand: rootStep ? nil : command, terminalScript: nil,
             opensLogs: false, offersRefresh: !rootStep)
     }
 
     private static func update(state: HealthState, banner: String, rootStep: Bool, role: NodeRole?,
-                               payload: SemanticVersion, installed: SemanticVersion) -> GuidedPlan {
+                               payload: SemanticVersion, installed: SemanticVersion, payloadCLI: TerminalScript.Payload?) -> GuidedPlan {
         var steps = ["This Mac runs k3sm \(installed); this app carries \(payload), a newer release."]
         if role == .server {
             steps.append("This Mac runs the control plane, so update every worker first.")
         }
         let command: String
+        var script: String?
         if role == .agent {
             command = managedUpdateCommand
         } else {
-            command = installScriptCommand(version: payload)
+            command = TerminalScript.installCommand(version: payload, payload: payloadCLI)
+            script = rootStep ? nil : TerminalScript.install(version: payload, payload: payloadCLI)
         }
         if rootStep {
             steps += rootSteps(.update, rootStep: true)
@@ -226,20 +245,21 @@ public enum GuidedSteps {
             state: state, banner: banner, bannerButton: GuidedAction.update.title + "…",
             title: GuidedAction.update.title, steps: steps,
             primary: rootStep ? .update : nil, secondary: nil, terminalCommand: rootStep ? nil : command,
-            opensLogs: false, offersRefresh: !rootStep)
+            terminalScript: script, opensLogs: false, offersRefresh: !rootStep)
     }
 
     /// The plan for a missing or untrusted command: Repair, the install run
     /// again from the app's verified payload, when this build can run the
     /// root step and knows the release it carries; else the install script
     /// in Terminal, then Refresh.
-    private static func repair(state: HealthState, banner: String, rootStep: Bool, payload: SemanticVersion?, why: String) -> GuidedPlan {
+    private static func repair(state: HealthState, banner: String, rootStep: Bool, payload: SemanticVersion?,
+                               payloadCLI: TerminalScript.Payload?, why: String) -> GuidedPlan {
         if rootStep, payload != nil {
             return GuidedPlan(
                 state: state, banner: banner, bannerButton: GuidedAction.repair.title + "…",
                 title: GuidedAction.repair.title,
                 steps: [why, repairWhatLine] + rootSteps(.repair, rootStep: true),
-                primary: .repair, secondary: nil, terminalCommand: nil,
+                primary: .repair, secondary: nil, terminalCommand: nil, terminalScript: nil,
                 opensLogs: false, offersRefresh: false)
         }
         let first = rootStep
@@ -254,7 +274,9 @@ public enum GuidedSteps {
                 "On a worker, rejoin instead, as k3sm's multi-node guide describes.",
                 "When it ends, click Refresh.",
             ],
-            primary: nil, secondary: nil, terminalCommand: installScriptCommand(version: payload),
+            primary: nil, secondary: nil,
+            terminalCommand: TerminalScript.installCommand(version: payload, payload: payloadCLI),
+            terminalScript: rootStep ? nil : TerminalScript.install(version: payload, payload: payloadCLI),
             opensLogs: false, offersRefresh: true)
     }
 }

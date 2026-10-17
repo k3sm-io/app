@@ -70,6 +70,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             model.startReportPolling()
             model.flap.start()
         }
+        model.setWindowVisible(true)
         Task { await model.refresh() }
     }
 
@@ -86,6 +87,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         model.tour.end()
         model.stopTabs()
         model.stopReportPolling()
+        model.setWindowVisible(false)
         model.flap.stop()
         NSApp.applicationIconImage = nil
         AppActivation.closed(.console)

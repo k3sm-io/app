@@ -274,9 +274,21 @@ final class AppModel: ObservableObject {
     @Published private(set) var outcomeMessage: String?
     /// The first run's path (start or join) and its step (`FirstRunFlow`).
     @Published var choice: FirstRunPath = .start
-    @Published private(set) var firstRunStep: FirstRunStep = .choose
+    @Published private(set) var firstRunStep: FirstRunStep = .choose {
+        didSet { if firstRunStep != oldValue { syncInstallWatch() } }
+    }
     /// How the first run's install ended; nil before it ends.
     @Published private(set) var firstRunOutcome: FirstRunOutcome?
+    /// Whether a developer build's install was opened in Terminal.
+    @Published private(set) var firstRunInTerminal = false
+    /// A developer build's wait for an install on the review step
+    /// (`InstallWatch`): the butterfly's flight and the check at each
+    /// arrival. Nil while the window does not wait.
+    @Published private(set) var installWatch: InstallWatch?
+    /// The loop that runs a check at each arrival.
+    private var installWatchTask: Task<Void, Never>?
+    /// Whether the window is on screen (the main window controller says).
+    private var windowVisible = false
     /// The join step's one field: a pasted join command, or the address and
     /// token. Each change is read at once (`JoinCommandParser`); a paste that
     /// parses fills the address and token and empties the field, so the
@@ -332,6 +344,9 @@ final class AppModel: ObservableObject {
     let payloadVersion: SemanticVersion?
     /// The version the app shows for itself.
     let appVersion: AppVersion
+    /// The k3sm in the bundle's payload, for a Terminal install; nil when
+    /// the bundle carries none.
+    private let payloadCLI: TerminalScript.Payload?
     private let teamID: TeamID?
     private let user: ConsoleUser?
     private let runner: any PrivilegedRunner
@@ -351,6 +366,7 @@ final class AppModel: ObservableObject {
         self.user = SelfCheck.consoleUser()
         self.payloadVersion = SelfCheck.payloadVersion()
         self.appVersion = SelfCheck.appVersion()
+        self.payloadCLI = SelfCheck.payloadCLI()
         var availability = SelfCheck.availability()
         if availability == .enabled, user == nil {
             availability = .disabled(reason: "k3sm could not read a non-root account name for this user, so it cannot install k3sm.")
@@ -460,7 +476,7 @@ final class AppModel: ObservableObject {
     var firstRunReview: FirstRunReview {
         let address = choice == .join ? joinAddress : nil
         return FirstRunFlow.review(path: choice, server: address?.description, serverArgument: address?.argument,
-                                   developerBuild: teamID == nil, payload: payloadVersion)
+                                   developerBuild: teamID == nil, payload: payloadVersion, payloadCLI: payloadCLI)
     }
 
     /// Why the review step's install button is disabled, nil when it can run.
@@ -507,6 +523,79 @@ final class AppModel: ObservableObject {
     func firstRunBack() {
         guard !running, let previous = FirstRunFlow.previous(before: firstRunStep, path: choice) else { return }
         firstRunStep = previous
+    }
+
+    /// Install in Terminal, a developer build's install: opens the review's
+    /// script in Terminal. The review's install watch, already running,
+    /// sees k3sm come up and moves to the finished step.
+    func firstRunInstallInTerminal() {
+        guard firstRunStep == .review, teamID == nil, let script = firstRunReview.terminalScript,
+              MenuActions.openInTerminal(script) else { return }
+        firstRunInTerminal = true
+    }
+
+    /// The window came on screen or went away; the install watch runs only
+    /// while it is shown.
+    func setWindowVisible(_ visible: Bool) {
+        windowVisible = visible
+        syncInstallWatch()
+    }
+
+    /// Check Again on the first run: with the install watch running, lands
+    /// the butterfly and checks now (never beside a running check), and the
+    /// next flight starts when it returns; otherwise a plain refresh.
+    func checkAgain() {
+        guard installWatch != nil else {
+            Task { await refresh() }
+            return
+        }
+        if installWatch?.checkNow(now: Self.uptime) == true {
+            Task { await runInstallCheck() }
+        }
+    }
+
+    private static var uptime: TimeInterval { ProcessInfo.processInfo.systemUptime }
+
+    /// Starts or stops the install watch to match `InstallWatch.waits`.
+    private func syncInstallWatch() {
+        let wanted = InstallWatch.waits(developerBuild: teamID == nil, firstRunShown: screen == .firstRun,
+                                        step: firstRunStep, windowVisible: windowVisible)
+        if wanted, installWatchTask == nil {
+            installWatch = InstallWatch(now: Self.uptime)
+            installWatchTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    guard let self, let arrival = self.installWatch?.arrival else {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        continue
+                    }
+                    let wait = max(0, arrival - Self.uptime)
+                    if wait > 0 { try? await Task.sleep(for: .seconds(min(wait, 0.25))) }
+                    guard !Task.isCancelled else { return }
+                    if self.installWatch?.arrive(now: Self.uptime) == true {
+                        await self.runInstallCheck()
+                    }
+                }
+            }
+        } else if !wanted, installWatchTask != nil {
+            installWatchTask?.cancel()
+            installWatchTask = nil
+            installWatch = nil
+            firstRunInTerminal = false
+        }
+    }
+
+    /// One check: the health check read again, then the next flight, or the
+    /// finished step once k3sm is up (the console opens on it).
+    private func runInstallCheck() async {
+        await refresh()
+        guard installWatch != nil else { return }
+        if installWatch?.end(state: health, now: Self.uptime) == true {
+            firstRunOutcome = .succeeded
+            firstRunStep = .finished
+            // The step change ended the watch (and cancelled this loop), so the
+            // screen follows the health check again on a read of its own.
+            Task { await self.refresh() }
+        }
     }
 
     /// Try Again: back to the review, or for a join to the join step, since
@@ -595,7 +684,9 @@ final class AppModel: ObservableObject {
     /// with no Team ID pin cannot run the root step, so its plan shows the
     /// Terminal command instead.
     var guidedPlan: GuidedPlan? {
-        health.flatMap { GuidedSteps.plan(for: $0, rootStep: teamID != nil, role: role, payload: payloadVersion) }
+        health.flatMap {
+            GuidedSteps.plan(for: $0, rootStep: teamID != nil, role: role, payload: payloadVersion, payloadCLI: payloadCLI)
+        }
     }
 
     /// Why the guided panel's Update cannot run, from the one update plan;
@@ -710,9 +801,13 @@ final class AppModel: ObservableObject {
             installRootExists: files.rootExists, cliPresent: files.cliPresent, cliTrust: trust, report: read,
             payloadVersion: payloadVersion, installedVersion: files.rootExists ? installedVersion : nil))
         if state != health { health = state }
-        let next: Screen = state.showsFirstRun ? .firstRun : .status
+        // While the install watch runs, the first run holds the screen until
+        // the watch decides k3sm is up, so a half-started install does not
+        // flash the console.
+        let next: Screen = state.showsFirstRun || installWatchTask != nil ? .firstRun : .status
         if next != screen {
             screen = next
+            syncInstallWatch()
             statusPanelShown = false
             if next == .firstRun, !running { resetFirstRun() }
         }

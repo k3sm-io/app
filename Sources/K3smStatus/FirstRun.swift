@@ -44,7 +44,7 @@ public enum FirstRunStep: String, CaseIterable, Equatable, Sendable {
     /// Join only: paste the server's address and the join token.
     case join
     /// What will happen, and the administrator prompt (or, in a developer
-    /// build, the exact Terminal command).
+    /// build, Install in Terminal and the exact commands it runs).
     case review
     /// The install running through the checked root step, each phase named.
     case install
@@ -65,16 +65,22 @@ public enum FirstRunStep: String, CaseIterable, Equatable, Sendable {
 
 /// FirstRunReview is the review step: a title, what will happen, and either
 /// the button that asks for an administrator (the checked root step) or, in a
-/// developer build, the exact command to run in Terminal.
+/// developer build, Install in Terminal with the exact commands it runs.
 public struct FirstRunReview: Equatable, Sendable {
     public let title: String
     /// What will happen, in order.
     public let lines: [String]
     /// The button that runs the install; nil in a developer build.
     public let installButton: String?
-    /// The exact Terminal command, shown with Copy Command and Open
-    /// Terminal; set only in a developer build. It never carries the token.
+    /// The exact Terminal commands, shown with Copy Command beside Install
+    /// in Terminal; set only in a developer build. They never carry the token.
     public let terminalCommand: String?
+    /// The developer build's primary button, which opens `terminalScript`
+    /// in Terminal; nil in a signed build.
+    public let terminalButton: String?
+    /// The `.command` script Install in Terminal runs (`TerminalScript`);
+    /// nil in a signed build. It never carries the token.
+    public let terminalScript: String?
 }
 
 /// FirstRunInstallPhase is one named phase of the install as it runs, read
@@ -161,8 +167,10 @@ public struct FirstRunFinish: Equatable, Sendable {
 /// | join | choose, join, review, install, finished |
 ///
 /// A developer build (no Team ID pin) cannot run the checked root step, so
-/// its review step shows the exact Terminal command and no install button,
-/// and the flow stops there.
+/// its review step offers Install in Terminal instead: a fixed script
+/// (`TerminalScript`) opened in Terminal, where `sudo` asks for the password.
+/// The flow stays on the review, re-reading the health check
+/// (`InstallWatch`), and moves to the finished step once k3sm is up.
 public enum FirstRunFlow {
     /// The documented install script (the script channel).
     public static let installScriptURL = GuidedSteps.installScriptURL
@@ -170,6 +178,10 @@ public enum FirstRunFlow {
     public static let joinTokenFile = "/var/root/k3sm-join-token"
     /// The administrator prompt's own words.
     static let promptLine = "macOS asks for an administrator's name and password once. The install runs as root through the app's checked step."
+    /// A developer build's primary button on the review step.
+    public static let terminalButton = "Install in Terminal"
+    /// The review step's line while the install runs in Terminal.
+    public static let terminalInstallingLine = "Installing in Terminal: enter your password there when asked"
 
     /// The steps `path` takes, in order.
     public static func steps(for path: FirstRunPath) -> [FirstRunStep] {
@@ -210,10 +222,13 @@ public enum FirstRunFlow {
     /// The review step for `path`. `server` is the validated join address
     /// as shown (`host:port`) and `serverArgument` the host the CLI takes;
     /// both are nil for a start. `developerBuild` is a build with no Team ID
-    /// pin; `payload` the release the app carries.
+    /// pin; `payload` the release the app carries, and `payloadCLI` its
+    /// k3sm, when the bundle holds one, which a developer build installs
+    /// in place of a download.
     public static func review(path: FirstRunPath, server: String?, serverArgument: String?,
-                              developerBuild: Bool, payload: SemanticVersion?) -> FirstRunReview {
-        let release = payload.map { "k3sm \($0)" } ?? "k3sm"
+                              developerBuild: Bool, payload: SemanticVersion?,
+                              payloadCLI: TerminalScript.Payload? = nil) -> FirstRunReview {
+        let release = GuidedSteps.releasePin(payload).map { "k3sm \($0)" } ?? "k3sm"
         var lines: [String]
         switch path {
         case .start:
@@ -233,37 +248,38 @@ public enum FirstRunFlow {
             lines.append(promptLine)
             return FirstRunReview(title: "Review and install", lines: lines,
                                   installButton: path == .join ? "Join Cluster…" : "Start Cluster…",
-                                  terminalCommand: nil)
+                                  terminalCommand: nil, terminalButton: nil, terminalScript: nil)
         }
-        lines.append("This build of k3sm is not Developer ID signed, so it cannot run the administrator step. Run the command below in Terminal instead.")
+        lines.append("This build of k3sm is not Developer ID signed, so it cannot run the administrator step. Install in Terminal runs the commands below in a new Terminal window instead.")
         if path == .join {
-            lines.append("When the third line waits, paste the join token, press Return, then Control-D.")
+            lines.append("When Terminal asks for the join token, paste it and press Return. The token is not shown or saved in a file.")
         }
-        lines.append("When it ends, reopen this window.")
+        lines.append("Enter your password in Terminal when it asks. This window moves on once k3sm is installed.")
+        let script: String?
+        switch path {
+        case .start: script = TerminalScript.install(version: payload, payload: payloadCLI)
+        case .join: script = TerminalScript.join(serverArgument: serverArgument, payload: payloadCLI, version: payload)
+        }
         return FirstRunReview(title: "Install in Terminal", lines: lines, installButton: nil,
-                              terminalCommand: terminalCommand(path: path, serverArgument: serverArgument, payload: payload))
+                              terminalCommand: terminalCommand(path: path, serverArgument: serverArgument, payload: payload,
+                                                               payloadCLI: payloadCLI),
+                              terminalButton: script == nil ? nil : terminalButton, terminalScript: script)
     }
 
-    /// The exact Terminal command a developer build shows: the install script
-    /// for a start; for a join, the script's download-only mode, the token
-    /// written to a root-only file, and the documented agent install from the
-    /// downloaded release. Nil for a join whose host is missing or holds a
+    /// The exact Terminal commands a developer build shows: the payload's
+    /// install, or the install script, for a start; for a join, the release
+    /// (the payload, or the script's download-only mode), the token written
+    /// to a root-only file, and the documented agent install
+    /// (`TerminalScript`). Nil for a join whose host is missing or holds a
     /// character outside the address grammar. The token is never in it.
-    public static func terminalCommand(path: FirstRunPath, serverArgument: String?, payload: SemanticVersion?) -> String? {
+    public static func terminalCommand(path: FirstRunPath, serverArgument: String?, payload: SemanticVersion?,
+                                       payloadCLI: TerminalScript.Payload? = nil) -> String? {
         switch path {
         case .start:
-            return GuidedSteps.installScriptCommand(version: payload)
+            return TerminalScript.installCommand(version: payload, payload: payloadCLI)
         case .join:
-            guard let host = serverArgument, !host.isEmpty, host.utf8.count <= 253,
-                  host.utf8.allSatisfy(JoinCommandParser.isAddressByte) else { return nil }
-            let pin = payload.map { "K3SM_INSTALL_VERSION=v\($0) " } ?? ""
-            let archive = payload.map { "k3sm_\($0)_darwin_arm64.tar.gz" } ?? "k3sm_*_darwin_arm64.tar.gz"
-            return [
-                "curl -fsSL \(installScriptURL) | \(pin)K3SM_INSTALL_DOWNLOAD_ONLY=1 sh",
-                "tar -xzf \(archive)",
-                "sudo sh -c 'umask 077; cat > \(joinTokenFile)'",
-                "sudo ./k3sm install --agent --server \(host) --token-file \(joinTokenFile)",
-            ].joined(separator: "\n")
+            return TerminalScript.joinCommands(serverArgument: serverArgument, payload: payloadCLI, version: payload)?
+                .joined(separator: "\n")
         }
     }
 

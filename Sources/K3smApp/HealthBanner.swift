@@ -66,7 +66,7 @@ struct GuidedPanelView: View {
                 }
             }
             if let command = plan.terminalCommand {
-                terminal(command)
+                terminal(command, script: plan.terminalScript)
             }
             if plan.primary == .update {
                 updateLine
@@ -105,8 +105,10 @@ struct GuidedPanelView: View {
         .frame(width: 520, alignment: .topLeading)
     }
 
-    /// The exact command, selectable, with Copy and Open Terminal.
-    private func terminal(_ command: String) -> some View {
+    /// The exact command, selectable, with Copy, and Run in Terminal for an
+    /// install command (its fixed script, `TerminalScript`) or Open Terminal
+    /// for any other.
+    private func terminal(_ command: String, script: String?) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(verbatim: command)
                 .font(.system(.callout, design: .monospaced))
@@ -121,8 +123,13 @@ struct GuidedPanelView: View {
                     NSPasteboard.general.setString(command, forType: .string)
                 }
                 .help(Help.Guided.copyCommand)
-                Button("Open Terminal") { NSWorkspace.shared.open(MenuActions.terminal) }
-                    .help(Help.Guided.openTerminal)
+                if let script {
+                    Button("Run in Terminal") { MenuActions.openInTerminal(script) }
+                        .help(Help.Guided.runInTerminal)
+                } else {
+                    Button("Open Terminal") { NSWorkspace.shared.open(MenuActions.terminal) }
+                        .help(Help.Guided.openTerminal)
+                }
             }
         }
     }

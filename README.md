@@ -74,8 +74,11 @@ While the step runs, the panel shows its progress, and it ends on a plain
 "Done" or "Failed" line with the step's own message. A build that is not
 Developer ID signed cannot run the administrator step, so its panel shows the
 exact Terminal command instead (`sudo k3sm start`, `sudo k3sm restart`, or the
-install script for an update or a repair, pinned to the app's release), with
-Copy Command and Open Terminal, and no Repair button.
+install for an update or a repair: the k3sm the app carries when it has one,
+else the install script pinned to the app's release), with Copy Command and
+Open Terminal, and no Repair button. For an install, **Run in Terminal**
+replaces Open Terminal and runs that install in a new Terminal window, where
+`sudo` asks for your password.
 
 With nothing installed on the Mac, the window walks through a short guided
 first run, one step at a time, with the steps listed across its top:
@@ -106,11 +109,20 @@ first run, one step at a time, with the steps listed across its top:
 Installing, updating and uninstalling need an administrator account and a
 release build of the app. A build from source pins no Developer ID team, so
 it shows status but keeps these actions disabled and says why. Its first run
-ends at the review with the exact Terminal commands for the chosen path
-instead (the install script for a start; for a join, the script's
-download-only mode, the token written to a root-only file and the
-`k3sm install --agent --server <address> --token-file <path>` line), with Copy Command, Open Terminal and Check
-Again.
+ends at the review, which shows the exact Terminal commands for the chosen
+path with Copy Command and **Install in Terminal**. Install in Terminal writes
+those commands to a script in a private folder and opens it in a new Terminal
+window, where `sudo` asks for your password; the app itself runs nothing as
+root. When the app carries a k3sm, that k3sm is installed (`sudo <app>/Contents/Resources/payload/k3sm install`);
+otherwise the install script is (`curl -fsSL https://k3sm.io/install.sh | sh`,
+pinned to the app's release, unpinned for a development build). For a join,
+Terminal asks for the join token with echo off and writes it to a root-only
+file for `k3sm install --agent --server <address> --token-file <path>`; the
+token is never in the script or a command line, and the file is removed when
+the script ends. While the window waits, a small butterfly flies a dotted
+path under the buttons and checks for k3sm each time it reaches the right end,
+every 5 seconds (Check Again checks at once; with Reduce Motion it stands
+still at the end). Once k3sm is up, the console opens.
 
 The app registers itself as a login item for each user on their first launch.
 It appears under System Settings > General > Login Items, and **Open k3sm at

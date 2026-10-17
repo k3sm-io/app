@@ -204,8 +204,18 @@ struct FirstRunView: View {
                         NSPasteboard.general.setString(command, forType: .string)
                     }
                     .help(Help.FirstRun.copyCommand)
-                    Button("Open Terminal") { NSWorkspace.shared.open(MenuActions.terminal) }
-                        .help(Help.FirstRun.openTerminal)
+                    if let title = review.terminalButton {
+                        Button(title) { model.firstRunInstallInTerminal() }
+                            .keyboardShortcut(.defaultAction)
+                            .disabled(model.running)
+                            .help(Help.FirstRun.installInTerminal)
+                    }
+                }
+                if model.firstRunInTerminal {
+                    Text(verbatim: FirstRunFlow.terminalInstallingLine).font(.callout)
+                }
+                if let watch = model.installWatch {
+                    InstallPathView(watch: watch)
                 }
             } else if let reason = model.firstRunInstallDisabledReason {
                 Text(verbatim: reason).font(.callout).foregroundStyle(.secondary)
@@ -245,8 +255,10 @@ struct FirstRunView: View {
         }
     }
 
-    /// The step's buttons: Back and Continue, the install, Check Again in a
-    /// developer build, Try Again or Open Console when the install ended.
+    /// The step's buttons: Back and Continue, the install (Check Again in a
+    /// developer build, whose Install in Terminal sits beside Copy Command
+    /// above the install watch's path), Try Again or Open Console when the
+    /// install ended.
     private var buttons: some View {
         HStack {
             if FirstRunFlow.previous(before: model.firstRunStep, path: model.choice) != nil {
@@ -269,8 +281,8 @@ struct FirstRunView: View {
                         .disabled(reason != nil)
                         .help(Help.FirstRun.install(join: model.choice == .join, disabledReason: reason))
                 } else {
-                    Button("Check Again") { Task { await model.refresh() } }
-                        .disabled(model.running)
+                    Button("Check Again") { model.checkAgain() }
+                        .disabled(model.running || model.installWatch?.checking == true)
                         .help(Help.FirstRun.checkAgain)
                 }
             case .install:

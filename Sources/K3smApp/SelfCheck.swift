@@ -55,6 +55,22 @@ enum SelfCheck {
         AppVersion(info: bundle.infoDictionary)
     }
 
+    /// The k3sm inside the bundle's payload (`Contents/Resources/payload`),
+    /// as one quoted shell word for a Terminal install: only when the
+    /// directory resolves inside the running bundle and holds a regular
+    /// `k3sm` file (`TerminalScript.payloadCLIPath`); nil otherwise.
+    static func payloadCLI(in bundle: Bundle = .main) -> TerminalScript.Payload? {
+        guard let resources = bundle.resourceURL else { return nil }
+        let directory = resources.appendingPathComponent("payload").resolvingSymlinksInPath().standardizedFileURL.path
+        let root = bundle.bundleURL.resolvingSymlinksInPath().standardizedFileURL.path
+        var st = stat()
+        let regular = lstat(directory + "/k3sm", &st) == 0 && (st.st_mode & S_IFMT) == S_IFREG
+        guard let cli = TerminalScript.payloadCLIPath(payloadDirectory: directory, bundle: root, cliIsRegularFile: regular) else {
+            return nil
+        }
+        return TerminalScript.Payload(quotedCLI: ShellQuote.quote(cli))
+    }
+
     /// Verifies the whole bundle (nested code and every sealed resource,
     /// the payload included) against the Developer ID requirement for `team`.
     static func signatureValid(bundleURL: URL = Bundle.main.bundleURL, team: TeamID) -> Bool {

@@ -630,9 +630,12 @@ public enum Help {
         /// Copy Command, beside the Terminal command.
         public static let copyCommand = HelpTag("Put the command on the clipboard to paste into Terminal",
                                                 control: "guided panel: Copy Command", label: "Copy Command")
-        /// Open Terminal, beside the Terminal command.
+        /// Open Terminal, beside a Terminal command that is not an install.
         public static let openTerminal = HelpTag("Open the Terminal app to run the command",
                                                  control: "guided panel: Open Terminal", label: "Open Terminal")
+        /// Run in Terminal, beside the install command of a developer build.
+        public static let runInTerminal = HelpTag("Run the install command in a new Terminal window",
+                                                  control: "guided panel: Run in Terminal", label: "Run in Terminal")
         /// Close, which puts the panel away.
         public static let close = HelpTag("Put this panel away (Escape)",
                                           control: "guided panel: Close", label: "Close")
@@ -651,7 +654,7 @@ public enum Help {
         }
 
         public static var all: [HelpTag] {
-            [banner, start, restart, update, repair, refresh, openLogs, copyCommand, openTerminal, close]
+            [banner, start, restart, update, repair, refresh, openLogs, copyCommand, openTerminal, runInTerminal, close]
         }
     }
 
@@ -680,10 +683,13 @@ public enum Help {
         /// Copy Command, beside a developer build's Terminal command.
         public static let copyCommand = HelpTag("Put the commands on the clipboard for Terminal",
                                                 control: "first run: Copy Command", label: "Copy Command")
-        /// Open Terminal, beside a developer build's Terminal command.
-        public static let openTerminal = HelpTag("Open the Terminal app to run the commands",
-                                                 control: "first run: Open Terminal", label: "Open Terminal")
-        /// Check Again, after the install ran in Terminal.
+        /// Install in Terminal, a developer build's install on the review step.
+        public static let installInTerminal = HelpTag("Run the commands below in a new Terminal window",
+                                                      control: "first run: Install in Terminal", label: "Install in Terminal")
+        /// The install watch's path, where the butterfly flies between checks.
+        public static let installPath = HelpTag("Checks for k3sm every 5 seconds; the button below checks now",
+                                                control: "first run: install watch path")
+        /// Check Again, which checks for an install now.
         public static let checkAgain = HelpTag("Look for a k3sm install on this Mac again",
                                                control: "first run: Check Again", label: "Check Again")
         /// Try Again, after a failed install.
@@ -699,7 +705,7 @@ public enum Help {
         }
 
         public static var all: [HelpTag] {
-            [choice, next, back, start, join, clearPaste, copyCommand, openTerminal, checkAgain, tryAgain, openConsole]
+            [choice, next, back, start, join, clearPaste, copyCommand, installInTerminal, installPath, checkAgain, tryAgain, openConsole]
         }
     }
 
