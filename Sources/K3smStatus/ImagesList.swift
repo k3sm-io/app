@@ -34,6 +34,10 @@ public struct NodeImage: Equatable, Sendable {
     public let sizeBytes: Int64?
     /// The nodes holding it, by name, sorted.
     public let nodes: [String]
+    /// Its tags on each node, by node name: the names reported without a
+    /// digest that pass `ImageRef`, unclipped and sorted, so Untag names
+    /// exactly what the node holds and never a clipped look-alike.
+    public internal(set) var tags: [String: [ImageRef]] = [:]
 
     /// The name the row shows: the first tag, else the first name.
     public var title: String {
@@ -68,7 +72,7 @@ public enum ImagesList {
     static func read(_ objects: [[String: Any]]) -> ImagesReading {
         var reported = false
         var order: [String] = []
-        var groups: [String: (digest: String?, names: Set<String>, size: Int64?, nodes: Set<String>)] = [:]
+        var groups: [String: (digest: String?, names: Set<String>, size: Int64?, nodes: Set<String>, tags: [String: Set<String>])] = [:]
         for object in objects {
             let metadata = object["metadata"] as? [String: Any] ?? [:]
             guard let raw = metadata["name"] as? String, let node = ResourceName(raw) else { continue }
@@ -80,11 +84,13 @@ public enum ImagesList {
                 guard let first = names.first else { continue }
                 let digest = names.lazy.compactMap(Self.digest(of:)).first
                 let key = digest ?? rowKey(first)
-                var group = groups[key] ?? (digest, [], nil, [])
+                var group = groups[key] ?? (digest, [], nil, [], [:])
                 if groups[key] == nil { order.append(key) }
                 group.names.formUnion(names.map(StatusDisplay.clip))
                 group.size = group.size ?? Self.size(entry["sizeBytes"])
                 group.nodes.insert(node.value)
+                let refs = names.filter { !$0.contains("@") }.compactMap(ImageRef.init).map(\.value)
+                group.tags[node.value, default: []].formUnion(refs)
                 groups[key] = group
             }
         }
@@ -93,7 +99,9 @@ public enum ImagesList {
             guard let g = groups[key] else { return nil }
             let tags = g.names.filter { !$0.contains("@") }.sorted()
             let refs = g.names.filter { $0.contains("@") }.sorted()
-            return NodeImage(key: key, digest: g.digest, names: tags + refs, sizeBytes: g.size, nodes: g.nodes.sorted())
+            var image = NodeImage(key: key, digest: g.digest, names: tags + refs, sizeBytes: g.size, nodes: g.nodes.sorted())
+            image.tags = g.tags.mapValues { $0.sorted().compactMap(ImageRef.init) }.filter { !$0.value.isEmpty }
+            return image
         }
         return .listed(images.sorted { ($0.title, $0.key) < ($1.title, $1.key) })
     }

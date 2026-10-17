@@ -240,6 +240,8 @@ final class AppModel: ObservableObject {
     let workloads: WorkloadsModel
     /// Every tab's writes: the one confirmation, the run and its report.
     let actions: ActionRunner
+    /// The Images tab's writes through the root step (Untag, Prune, Pull).
+    let imageStore: ImageStoreModel
     /// The wordmark butterfly's wing beat, played while the console is up.
     let flap = FlapModel()
     /// Every tab's table column widths, as the user dragged them.
@@ -372,6 +374,7 @@ final class AppModel: ObservableObject {
         self.teamID = teamID
         self.workloads = WorkloadsModel(environment: environment)
         self.actions = ActionRunner(environment: environment, teamID: teamID)
+        self.imageStore = ImageStoreModel(teamID: teamID, runner: runner)
         self.user = SelfCheck.consoleUser()
         self.payloadVersion = SelfCheck.payloadVersion()
         self.appVersion = SelfCheck.appVersion()
@@ -440,6 +443,8 @@ final class AppModel: ObservableObject {
                 await self.workloads.nodeList.refresh()
             }
         }
+        // An image write reads the node list, and so the Images tab, again.
+        imageStore.refresh = { [weak self] in await self?.workloads.nodeList.refresh() }
         // The Builds tab's Show Log opens the log sheet.
         LocalActions.showBuildLog = { [weak self] target in self?.showBuildLog(target) }
         // An unfinished or failed earlier run is the first thing the window

@@ -259,7 +259,34 @@ public enum Help {
         public static let nodes = HelpTag("Nodes that hold a copy of the image",
                                           control: "images: Nodes column", label: "Nodes")
 
-        public static var all: [HelpTag] { [size, nodes] }
+        /// The Pods column header.
+        public static let pods = HelpTag("Listed pods that run this image",
+                                         control: "images: Pods column", label: "Pods")
+        /// The header row's Pull button, which opens the Pull sheet.
+        public static let pull = HelpTag("Fetch an image into this Mac's image store",
+                                         control: "images: Pull button", label: "Pull…")
+        /// The header row's Prune button, which runs the dry run first.
+        public static let prune = HelpTag("List what a prune would delete on this Mac, then ask",
+                                          control: "images: Prune button", label: "Prune…")
+        /// One of the image inspector's Untag buttons, each naming a tag.
+        public static let untag = HelpTag("Remove this name from this Mac's image store, as an administrator",
+                                          control: "image inspector: Untag button", label: "Untag")
+        /// The Pull sheet's Pull button.
+        public static let pullConfirm = HelpTag("Fetch the reference on this Mac, as an administrator",
+                                                control: "pull sheet: Pull button", label: "Pull")
+        /// The prune preview sheet's Prune button.
+        public static let pruneConfirm = HelpTag("Delete the listed content from this Mac, as an administrator",
+                                                 control: "prune sheet: Prune button", label: "Prune")
+        /// The Pull and prune sheets' Cancel button.
+        public static let cancel = HelpTag("Close the sheet without changing anything",
+                                           control: "image sheets: Cancel button", label: "Cancel")
+
+        /// A write control's tag: its own, or the reason it is disabled.
+        public static func write(_ tag: HelpTag, disabled reason: String?) -> String {
+            reason ?? tag.text
+        }
+
+        public static var all: [HelpTag] { [size, nodes, pods, pull, prune, untag, pullConfirm, pruneConfirm, cancel] }
     }
 
     // MARK: Builds tab

@@ -17,9 +17,9 @@ limitations under the License.
 /// TabHeader places a tab's bulk actions (its buttons over many rows and
 /// the last bulk action's line) on the tab's own header row, at its
 /// trailing edge, rather than in the console's strip. Workloads always has
-/// that row, for its Pods / Events switch; Storage and Builds show one only
-/// while it holds something; the other tabs offer no bulk action and keep
-/// no header row.
+/// that row, for its Pods / Events switch; Storage, Builds and Images show
+/// one only while it holds something (Images: this Mac's Pull and Prune);
+/// the other tabs offer no bulk action and keep no header row.
 public enum TabHeader {
     /// Where a tab's bulk actions go.
     public enum Placement: Equatable, Sendable {
@@ -44,8 +44,8 @@ public enum TabHeader {
     public static func placement(_ section: ConsoleSection) -> Placement {
         switch section {
         case .workloads: return .switchRow
-        case .storage, .builds: return .ownRow
-        case .nodes, .images, .services, .models, .stats: return .none
+        case .storage, .builds, .images: return .ownRow
+        case .nodes, .services, .models, .stats: return .none
         }
     }
 

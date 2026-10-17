@@ -35,8 +35,9 @@ struct AppleScriptPrivilegedRunner: PrivilegedRunner {
     }
 
     /// Runs the step and keeps `do shell script`'s error message, which is
-    /// the script's standard error when it exits non-zero. The text is raw;
-    /// the caller cleans it before showing it.
+    /// the script's standard error when it exits non-zero, or its result,
+    /// the script's standard output, when it exits 0. The text is raw; the
+    /// caller parses or cleans it before showing it.
     func runAsRootReportingError(_ script: RootScript, input: Data?) async -> PrivilegedRun {
         if let input, input.count > Self.maxInput {
             return PrivilegedRun(outcome: .couldNotStart)
@@ -61,8 +62,10 @@ struct AppleScriptPrivilegedRunner: PrivilegedRunner {
             + " with administrator privileges"
         guard let compiled = NSAppleScript(source: source) else { return PrivilegedRun(outcome: .couldNotStart) }
         var error: NSDictionary?
-        compiled.executeAndReturnError(&error)
-        guard let error else { return PrivilegedRun(outcome: .succeeded) }
+        let result = compiled.executeAndReturnError(&error)
+        // `do shell script` returns the script's standard output, its line
+        // endings turned into carriage returns and its last newline dropped.
+        guard let error else { return PrivilegedRun(outcome: .succeeded, output: result.stringValue) }
         let number = (error[NSAppleScript.errorNumber] as? NSNumber)?.int32Value ?? -1
         // -128 is userCanceledErr: the prompt was dismissed.
         if number == -128 { return PrivilegedRun(outcome: .cancelled) }

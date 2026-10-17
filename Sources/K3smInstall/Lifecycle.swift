@@ -213,7 +213,69 @@ public enum LifecycleScriptBuilder {
         render(verb.verb, argv: arguments(for: verb), teamID: teamID, cliPath: cliPath)
     }
 
+    /// ImageVerb is every `k3sm image` verb the Images tab runs as root: each
+    /// talks to the root-owned runtimed socket and acts on this Mac's store.
+    /// The two prune verbs are compile-time constants; untag and pull carry
+    /// only an `ImageRef`, which they cannot be rendered without, so no free
+    /// text reaches the script.
+    public enum ImageVerb: Hashable, Sendable {
+        /// `k3sm image prune`: the CLI's default dry run, a read.
+        case pruneDryRun
+        /// `k3sm image prune --force`.
+        case prune
+        /// `k3sm image untag <reference>`.
+        case untag(ImageRef)
+        /// `k3sm image pull <reference>`.
+        case pull(ImageRef)
+
+        /// The CLI command, as a user would type it after `k3sm`.
+        public var command: String {
+            switch self {
+            case .pruneDryRun: return "image prune"
+            case .prune: return "image prune --force"
+            case .untag: return "image untag"
+            case .pull: return "image pull"
+            }
+        }
+
+        /// The administrator prompt, which names this Mac and, for untag
+        /// and pull, the reference.
+        public var prompt: String {
+            switch self {
+            case .pruneDryRun: return ImageStoreText.promptPruneDryRun
+            case .prune: return ImageStoreText.promptPrune
+            case .untag(let reference): return ImageStoreText.prompt(untag: reference)
+            case .pull(let reference): return ImageStoreText.prompt(pull: reference)
+            }
+        }
+    }
+
+    /// An image verb's argv after the CLI path, from `K3smCLI`; the golden
+    /// tests pin it against `cmd/k3sm/image.go`.
+    public static func imageArguments(_ verb: ImageVerb) -> [String] {
+        switch verb {
+        case .pruneDryRun: return K3smCLI.imagePruneDryRunArguments
+        case .prune: return K3smCLI.imagePruneArguments
+        case .untag(let reference): return K3smCLI.imageUntagArguments(reference)
+        case .pull(let reference): return K3smCLI.imagePullArguments(reference)
+        }
+    }
+
+    /// Renders an image verb's script for the CLI at `K3smCLI.path`: the
+    /// same checks as every lifecycle verb, then the one CLI line.
+    public static func renderImage(_ verb: ImageVerb, teamID: TeamID) -> RootScript {
+        renderImage(verb, teamID: teamID, cliPath: K3smCLI.path)
+    }
+
+    static func renderImage(_ verb: ImageVerb, teamID: TeamID, cliPath: String) -> RootScript {
+        render(prompt: verb.prompt, argv: imageArguments(verb), teamID: teamID, cliPath: cliPath)
+    }
+
     private static func render(_ verb: LifecycleVerb, argv words: [String], teamID: TeamID, cliPath: String) -> RootScript {
+        render(prompt: verb.prompt, argv: words, teamID: teamID, cliPath: cliPath)
+    }
+
+    private static func render(prompt: String, argv words: [String], teamID: TeamID, cliPath: String) -> RootScript {
         let q = ShellQuote.quote
         let paths = checkedPaths(cliPath: cliPath).map(q).joined(separator: " ")
         let requirement = "-R=" + DesignatedRequirement.developerID(teamID: teamID)
@@ -248,7 +310,7 @@ public enum LifecycleScriptBuilder {
             fi
             exec "$k3sm" \#(argv)
             """#
-        return RootScript(text: text + "\n", prompt: verb.prompt, readsInput: false, usesStagingLock: false)
+        return RootScript(text: text + "\n", prompt: prompt, readsInput: false, usesStagingLock: false)
     }
 }
 

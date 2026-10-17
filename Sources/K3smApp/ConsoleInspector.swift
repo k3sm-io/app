@@ -71,21 +71,32 @@ struct ConsoleInspector: View {
 }
 
 /// ImageInspector is the Images tab's inspector: the selected image from the
-/// shared node list, with the pods using it once the pod list has been read.
+/// shared node list, its Untag buttons for this Mac's node or the line
+/// saying where it is managed (`ImageUntagBlock`), and the pods using it
+/// once the pod list has been read.
 struct ImageInspector: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
 
     var body: some View {
-        RowInspector(content: content, empty: InspectorDetails.emptyText(.images),
-                     actions: content == nil ? nil : RowActions.selected(.images, app: app))
+        if let image = selected {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    RowInspector(content: InspectorDetails.image(image, pods: workloads.workloads?.pods),
+                                 empty: "", actions: RowActions.selected(.images, app: app), fillsHeight: false)
+                    ImageUntagBlock(app: app, store: app.imageStore, image: image)
+                }
+            }
+            .background(Palette.surface)
+        } else {
+            RowInspector(content: nil, empty: InspectorDetails.emptyText(.images))
+        }
     }
 
-    private var content: InspectorBody? {
+    private var selected: NodeImage? {
         guard let key = app.selection.selection(in: .images)?.key,
-              case .listed(let images)? = workloads.nodeList.value?.images,
-              let image = images.first(where: { $0.key == key }) else { return nil }
-        return InspectorDetails.image(image, pods: workloads.workloads?.pods)
+              case .listed(let images)? = workloads.nodeList.value?.images else { return nil }
+        return images.first { $0.key == key }
     }
 }
 

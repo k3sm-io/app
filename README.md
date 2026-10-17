@@ -234,8 +234,10 @@ login** in the app's Settings turns it off or on again (see
     that is behind offers **Update…** in its context menu and its details,
     and the summary line carries one **Update…** for every node behind
     (see [A node behind the server](#a-node-behind-the-server)).
-  - **Images**: the images the nodes report holding, one row per digest;
-    until a node reports them the tab says so.
+  - **Images**: the images the nodes report holding, one row per digest,
+    with its size, the number of listed pods running it and the nodes that
+    hold it; until a node reports them the tab says so. Its header row names
+    this Mac's node and offers **Pull…** and **Prune…** (see below).
   - **Builds**: the build engine's state, then your build history, newest
     first (from `k3sm build ls -o json`, the builds your account ran on this
     Mac): each build's image, status, start time and duration.
@@ -546,6 +548,34 @@ login** in the app's Settings turns it off or on again (see
   and run as your own account. A build's id reaches a command only as the
   twelve hexadecimal characters `k3sm build ls` gives it; a row with any
   other id offers no action.
+- The **Images** tab changes this Mac's own image store, and only that:
+  every `k3sm image` command talks to the root-owned image daemon on the Mac
+  it runs on, so each runs as an administrator through the same checked step
+  as Stop and Restart (the installed k3sm and every folder above it owned by
+  root and not writable by others, and the k3sm Developer ID signature, are
+  checked first). The administrator prompt and the tab's header row name
+  this Mac and its node.
+  - **Untag…**, in an image's details and its Control-click menu, offers each
+    tag the image has on this Mac's node. It asks first, naming the image and
+    the node, then runs `k3sm image untag <reference>`. It removes the name,
+    not the content: pods using it keep running, other nodes keep their
+    copies, and a prune reclaims the bytes later. An image held only by
+    another Mac's node offers nothing and says that images are managed on
+    that Mac.
+  - **Pull…** opens a field for an image reference and pulls it with
+    `k3sm image pull <reference>`, through the daemon's own puller, which
+    checks every blob's digest. The field accepts only a reference in the
+    registry grammar (an optional registry host and port, lowercase path
+    parts, then a tag, a `sha256:` digest or both, at most 456 characters),
+    so nothing else can reach the command. A pulled image stays until you
+    untag it.
+  - **Prune…** first runs `k3sm image prune`, whose default is a dry run,
+    and shows what it would delete: the blobs, their size and what it kept
+    and why. Only if you confirm that list does it run
+    `k3sm image prune --force`. The prune works out again what nothing
+    references when it runs, so content a pull or a new pod picks up in
+    between is kept. A dry run whose output k3sm cannot read is refused, and
+    nothing is deleted. Each step asks for the administrator password.
 - The **details** on the right follow the tab. Click a row on any tab (on
   Builds, the engine card or a build) and its details show there: a pod's facts
   and its logs, events or manifest; a node's role, readiness, whether it
@@ -555,7 +585,8 @@ login** in the app's Settings turns it off or on again (see
   its conditions (Ready first) with how long ago each last changed and why,
   its taints, and the pods on it that have not finished with what each uses
   now; an image's reference, digest, size, the
-  nodes holding it and the pods using it; the build engine's state, pod,
+  nodes holding it and the pods using it, with its Untag buttons for this
+  Mac's node; the build engine's state, pod,
   node and cache; a build's image, status, start time, duration, context,
   platform, digest or error, and record id; a service's type, cluster IP, ports, ready endpoints and
   ingress hosts; a

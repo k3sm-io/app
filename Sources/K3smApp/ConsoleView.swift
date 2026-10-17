@@ -160,7 +160,7 @@ struct ConsoleContent: View {
         switch app.section {
         case .workloads: WorkloadsTab(app: app).tourTarget(.pods, app.tour)
         case .nodes: NodesSection(app: app, workloads: app.workloads, columns: app.columns)
-        case .images: ImagesSection(app: app, workloads: app.workloads, columns: app.columns)
+        case .images: ImagesSection(app: app, workloads: app.workloads, columns: app.columns, store: app.imageStore)
         case .builds:
             if let builds = app.builds, let history = app.buildHistory {
                 BuildsSection(app: app, loader: builds, history: history, runner: app.actions, columns: app.columns)

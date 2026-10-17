@@ -20,12 +20,13 @@ import Testing
 
 @Suite("where a tab's bulk actions go")
 struct TabHeaderTests {
-    @Test("Workloads puts them on its switch row; Storage and Builds on their own; the rest nowhere")
+    @Test("Workloads puts them on its switch row; Storage, Builds and Images on their own; the rest nowhere")
     func placement() {
         #expect(TabHeader.placement(.workloads) == .switchRow)
         #expect(TabHeader.placement(.storage) == .ownRow)
         #expect(TabHeader.placement(.builds) == .ownRow)
-        for section in [ConsoleSection.nodes, .images, .services, .models] {
+        #expect(TabHeader.placement(.images) == .ownRow)
+        for section in [ConsoleSection.nodes, .services, .models] {
             #expect(TabHeader.placement(section) == .none)
         }
     }

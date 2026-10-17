@@ -41,14 +41,18 @@ public protocol PrivilegedRunner: Sendable {
 }
 
 /// PrivilegedRun is a finished root step and, when it failed, its raw error
-/// output (nil when there was none or the runner cannot read it).
+/// output (nil when there was none or the runner cannot read it); when it
+/// succeeded, its raw standard output, which a read verb (a prune's dry run)
+/// parses and every caller shows only through its parser or `StatusDisplay`.
 public struct PrivilegedRun: Equatable, Sendable {
     public let outcome: PrivilegedOutcome
     public let errorOutput: String?
+    public let output: String?
 
-    public init(outcome: PrivilegedOutcome, errorOutput: String? = nil) {
+    public init(outcome: PrivilegedOutcome, errorOutput: String? = nil, output: String? = nil) {
         self.outcome = outcome
         self.errorOutput = errorOutput
+        self.output = output
     }
 }
 
