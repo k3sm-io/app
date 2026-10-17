@@ -138,11 +138,14 @@ public enum PodActions {
     /// The pod's actions as its context menu, the inspector and the Delete
     /// key show them: one list, built here once, with its local actions.
     /// With the controller read, Pause or Resume of the pod's resolved
-    /// controller (`WorkloadPause.requests`) follows Restart.
+    /// controller (`WorkloadPause.requests`) follows Restart, then Rollout
+    /// Restart of that controller, or of the pod's DaemonSet
+    /// (`WorkloadControls.rolloutRestart`).
     public static func menu(for pod: Pod, controllers: WorkloadControllers? = nil) -> ActionMenu {
         var requests: [any ConsoleActionRequest] = []
         if let restart = request(.restart, for: pod) { requests.append(restart) }
         requests += WorkloadPause.requests(for: pod, in: controllers) as [any ConsoleActionRequest]
+        if let rollout = WorkloadControls.rolloutRestart(for: pod, in: controllers) { requests.append(rollout) }
         if let delete = request(.delete, for: pod) { requests.append(delete) }
         return ActionMenu(requests, local: localActions(for: pod))
     }

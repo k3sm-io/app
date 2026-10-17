@@ -209,6 +209,27 @@ public enum K3smCLI {
         ["kubectl", "scale", "\(kind.resource)/\(name.value)", "-n", namespace.value, "--replicas=\(replicas)"]
     }
 
+    /// Restarts a Deployment, StatefulSet or DaemonSet's pods: kubectl stamps
+    /// the restart time on its pod template, and the controller replaces its
+    /// pods by its own update strategy. Only `ResourceName` values reach it.
+    public static func rolloutRestartArguments(kind: RolloutKind, namespace: ResourceName, name: ResourceName) -> [String] {
+        ["kubectl", "rollout", "restart", "\(kind.resource)/\(name.value)", "-n", namespace.value]
+    }
+
+    /// One Deployment, StatefulSet or DaemonSet's UID, read just before its
+    /// rollout restart so it runs only on the controller the user confirmed.
+    public static func rolloutUIDArguments(kind: RolloutKind, namespace: ResourceName, name: ResourceName) -> [String] {
+        ["kubectl", "get", "\(kind.resource)/\(name.value)", "-n", namespace.value, "-o", "jsonpath={.metadata.uid}"]
+    }
+
+    /// The inspector's followed log: the last `logTail` lines of one pod,
+    /// then each new line as it is written, until the app stops the run. A
+    /// pod of several containers names the one followed.
+    public static func followLogsArguments(namespace: ResourceName, pod: ResourceName, container: ResourceName?) -> [String] {
+        ["kubectl", "logs", "-f", "--tail=\(logTail)", pod.value, "-n", namespace.value]
+            + (container.map { ["-c", $0.value] } ?? [])
+    }
+
     /// Every pod's "namespace/name uid", one per line, read just before the
     /// cleanup so it deletes only the pods the user confirmed.
     public static let podUIDsArguments = [
@@ -346,6 +367,10 @@ public enum PollSchedule {
     public static let builderUpDeadline: Duration = .seconds(360)
     public static let builderDeadline: Duration = .seconds(180)
     public static let buildPruneDeadline: Duration = .seconds(600)
+
+    /// The longest the inspector follows a pod's log before the app stops
+    /// reading; the pane says so, and Follow starts it again.
+    public static let logFollowDeadline: Duration = .seconds(30 * 60)
 
     /// The managed update's progress cadence while it is read.
     public static let updateStatusInterval: Duration = .seconds(5)

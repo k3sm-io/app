@@ -268,7 +268,7 @@ login** in the app's Settings turns it off or on again (see
     unavailable" with the reason) rather than drawing zero.
 
   The tabs only read. The changes the console makes are a pod's
-  **Restart** and **Delete**, a workload's **Pause** and **Resume**, a node's **Cordon**, **Uncordon** and
+  **Restart** and **Delete**, a workload's **Pause**, **Resume**, **Scale** and **Rollout Restart**, a node's **Cordon**, **Uncordon** and
   **Drain**, this Mac's own **Update**, **Restart** and **Stop** in its node
   details, a
   service's **Delete**, the Workloads cleanup,
@@ -342,6 +342,39 @@ login** in the app's Settings turns it off or on again (see
   the buttons and on the paused row says the result, including a pause
   that recorded the count but did not scale (Resume clears it). Neither
   is on the Delete key.
+- **Scale…** in the pod details sets the replica count of the pod's
+  Deployment or StatefulSet, the controller Pause follows. A stepper from
+  1 to 50 starts at the count the controller has now; Scale is enabled
+  once the stepper names another one. The question names the controller
+  and both counts and, for a scale down, how many pods stop. After you
+  confirm, the app reads the controller's UID, replicas and Pause record
+  (the same read as Pause) and changes nothing when it is gone, was
+  recreated, now asks for another count than the one you clicked on, or
+  was paused since; otherwise it runs `k3sm kubectl scale <kind>/<name> -n
+  <namespace> --replicas=<count>`. A paused controller shows "paused:
+  Resume it first, then scale" in place of the stepper, and one whose Pause
+  is half done says to finish it first. A DaemonSet runs one pod per node
+  and has no Scale.
+- **Rollout Restart…** in the pod details (and on the Control-click menu)
+  replaces the pods of the pod's Deployment, StatefulSet or DaemonSet by
+  the controller's own update strategy, one at a time by default, as a new
+  version rolls out; the controller and its count stay. After you confirm,
+  the app reads the controller's UID with `k3sm kubectl get <kind>/<name>
+  -n <namespace> -o jsonpath={.metadata.uid}` and changes nothing when it
+  is gone or was recreated; otherwise it runs `k3sm kubectl rollout restart
+  <kind>/<name> -n <namespace>`. A controller with the OnDelete strategy
+  replaces each pod only when it is deleted. Scale and Rollout Restart run
+  with the same trust check and account as Restart, and their line shows
+  under the buttons beside Pause's. Neither is on the Delete key.
+- **Follow** on the pod details' Logs tab streams the log into the pane:
+  `k3sm kubectl logs -f --tail=200 <pod> -n <namespace>`, with `-c
+  <container>` from the Follow menu for a pod of several containers. The
+  pane keeps the newest line in view and the line under it says how the
+  follow stands. **Stop** ends it, keeping the lines read so far; so does
+  selecting another pod or tab, or closing the inspector. The pane holds
+  64 KiB, the inspector's limit for a log, and a follow stops there and
+  says so, as it does after 30 minutes; Follow starts it again with the
+  newest lines. It only reads.
 - A **service**'s details and its Control-click menu offer **Copy Cluster
   IP** (not for a headless service) and **Copy DNS Name**
   (`<name>.<namespace>.svc.cluster.local`), which put the text on the

@@ -383,6 +383,24 @@ public enum Help {
         public static let buildLogClose = HelpTag("Stop reading the log and close it (Escape)",
                                                   control: "build log sheet: Close", label: "Close")
 
+        /// The Scale stepper on the pod's Deployment or StatefulSet.
+        public static let scaleStepper = HelpTag("Choose the replica count to scale to, from 1 to 50",
+                                                 control: "inspector: Scale stepper")
+        /// The Scale button beside it.
+        public static let scale = Actions.byVerb["controller-scale"] ?? Actions.other
+        /// Follow, on the Logs tab of a pod of one container.
+        public static let follow = HelpTag("Stream the pod's new log lines into the pane",
+                                           control: "inspector: Follow", label: "Follow")
+        /// Follow, on the Logs tab of a pod of several containers.
+        public static let followMenu = HelpTag("Choose a container and stream its new log lines",
+                                               control: "inspector: Follow menu", label: "Follow")
+        /// One container's item in that menu.
+        public static let followContainer = HelpTag("Stream this container's new log lines into the pane",
+                                                    control: "inspector: Follow menu item")
+        /// Stop, while a log is followed.
+        public static let followStop = HelpTag("End the stream; the lines read so far stay",
+                                               control: "inspector: Follow Stop", label: "Stop")
+
         /// One of the pod's detail tabs, by its label.
         public static func detail(_ label: String) -> HelpTag {
             switch label {
@@ -393,7 +411,8 @@ public enum Help {
         }
 
         public static var all: [HelpTag] {
-            [logs, events, manifest, summaryCancel, summaryCopy, summaryClose, healthDot, buildLogClose]
+            [logs, events, manifest, summaryCancel, summaryCopy, summaryClose, healthDot, buildLogClose,
+             scaleStepper, follow, followMenu, followContainer, followStop]
         }
     }
 
@@ -413,6 +432,9 @@ public enum Help {
             "workload-resume": tag("Scale the controller back to its recorded replicas", "controller Resume", "Resume"),
             "workload-resume-clear": tag("Remove the recorded count once the controller is back", "controller Resume",
                                          "Resume"),
+            "rollout-restart": tag("Replace the controller's pods one by one, by its update strategy",
+                                   "pod Rollout Restart", "Rollout Restart"),
+            "controller-scale": tag("Set the controller's replicas to the stepper's count", "inspector Scale", "Scale"),
             "service-delete": tag("Delete the service and its cluster address", "service Delete", "Delete"),
             "model-unload": tag("Scale the model to zero; Load brings it back", "model Unload", "Unload"),
             "model-load": tag("Scale the model back to its recorded replicas", "model Load", "Load"),

@@ -19,9 +19,11 @@ import SwiftUI
 
 /// Inspector is the right column: the selected pod's facts, the actions it
 /// offers (its `ActionMenu`, each asked of the shared `ActionRunner`, whose
-/// confirmation the console shows), the last action's line, the Summarize
-/// Logs panel when it ran on this pod, then its logs, events or manifest
-/// verbatim.
+/// confirmation the console shows), Scale on its Deployment or StatefulSet,
+/// the last action's line, the Summarize Logs panel when it ran on this
+/// pod, then its logs, events or manifest verbatim; on the Logs tab, Follow
+/// streams the log into the pane until Stop, another pod or tab, or the
+/// inspector closing ends it.
 struct Inspector: View {
     @ObservedObject var model: WorkloadsModel
     @ObservedObject var runner: ActionRunner
@@ -32,19 +34,16 @@ struct Inspector: View {
                 heading(pod)
                 facts(pod)
                 actions
+                scale(pod)
                 LogSummaryPanel(summaries: model.summaries, podKey: pod.key)
-                detailTabs
-                ScrollView {
-                    Text(verbatim: model.detailLoading ? "loading…" : model.detailText)
-                        .font(.system(size: 11, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .padding(12)
+                detailTabs(pod)
+                pane
+                if let follow = model.shownFollow {
+                    Text(verbatim: follow.status).font(.system(size: 11.5))
+                        .foregroundStyle(Palette.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 18).padding(.bottom, 10)
                 }
-                .background(Palette.wash)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.line))
-                .padding([.horizontal, .bottom], 14)
             } else {
                 Text("Select a pod.").foregroundStyle(Palette.ink2).padding(18)
                 Spacer()
@@ -52,6 +51,59 @@ struct Inspector: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Palette.surface)
+        .onDisappear { model.endFollow(.closed) }
+    }
+
+    /// The detail pane: the followed log while one is shown, otherwise the
+    /// selected tab's read; a followed log keeps its end in view.
+    private var pane: some View {
+        let follow = model.shownFollow
+        return ScrollViewReader { proxy in
+            ScrollView {
+                Text(verbatim: follow?.text ?? (model.detailLoading ? "loading…" : model.detailText))
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(12)
+                Color.clear.frame(height: 1).id("end")
+            }
+            .onChange(of: follow?.data.count ?? -1) { if follow != nil { proxy.scrollTo("end", anchor: .bottom) } }
+        }
+        .background(Palette.wash)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.line))
+        .padding([.horizontal, .bottom], 14)
+    }
+
+    /// Scale on the pod's Deployment or StatefulSet (`WorkloadControls.scaleOffer`):
+    /// a stepper from 1 to 50 and Scale, asked of the runner behind its
+    /// confirmation; the line saying to Resume first while it is paused;
+    /// nothing for a DaemonSet's pod or any other.
+    @ViewBuilder
+    private func scale(_ pod: Pod) -> some View {
+        switch WorkloadControls.scaleOffer(for: pod, in: model.controllers) {
+        case .scalable(let controller, let current)?:
+            let count = model.scaleCount(for: controller, current: current)
+            let request = WorkloadControls.scaleRequest(for: controller, to: count)
+            HStack(spacing: 10) {
+                Stepper(value: Binding(get: { count }, set: { model.setScaleCount($0, for: controller) }),
+                        in: WorkloadControls.scaleRange) {
+                    Text(verbatim: "Replicas: \(count)").font(.system(size: 12.5).monospacedDigit())
+                }
+                .help(Help.Inspector.scaleStepper)
+                Button("Scale…") { if let request { runner.ask(request) } }
+                    .disabled(request == nil || runner.busy || runner.pending != nil)
+                    .help(Help.Inspector.scale)
+            }
+            .padding(.horizontal, 18).padding(.vertical, 10)
+            .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
+        case .refused(let note)?:
+            Text(verbatim: "Scale: " + note).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
+                .padding(.horizontal, 18).padding(.vertical, 10)
+                .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
+        case nil:
+            EmptyView()
+        }
     }
 
     /// The selected pod's actions and the last action's line (`RowActions`,
@@ -59,9 +111,10 @@ struct Inspector: View {
     private var actions: some View {
         VStack(alignment: .leading, spacing: 0) {
             RowActions(menu: model.selectedMenu, section: .workloads, rowKey: model.selected, runner: runner)
-            // Pause and Resume report on the controller's row key, so their
-            // line stays while the pod is gone; it shows here too.
-            if let pod = model.selectedPod, let key = WorkloadPause.controllerKey(for: pod, in: model.controllers),
+            // Pause, Resume, Scale and Rollout Restart report on the
+            // controller's row key, so their line stays while the pod is
+            // gone; it shows here too.
+            if let pod = model.selectedPod, let key = WorkloadControls.controllerKey(for: pod, in: model.controllers),
                let report = runner.report(section: .workloads, rowKey: key) {
                 Text(verbatim: report.text).font(.system(size: 11.5))
                     .foregroundStyle(report.failed ? Palette.bad : Palette.ink2)
@@ -102,7 +155,7 @@ struct Inspector: View {
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
     }
 
-    private var detailTabs: some View {
+    private func detailTabs(_ pod: Pod) -> some View {
         HStack(spacing: 4) {
             ForEach(WorkloadsModel.Detail.allCases) { d in
                 Button(d.rawValue) { model.detail = d; model.loadDetail() }
@@ -113,8 +166,35 @@ struct Inspector: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     .help(Help.Inspector.detail(d.rawValue))
             }
+            Spacer()
+            if model.detail == .logs { followControl(pod) }
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
+    }
+
+    /// Stop while the pod's log is followed; otherwise Follow, or a menu of
+    /// its containers for a pod of several (`LogFollow.targets`).
+    @ViewBuilder
+    private func followControl(_ pod: Pod) -> some View {
+        let targets = LogFollow.targets(for: pod)
+        if let follow = model.shownFollow, follow.reading {
+            Button("Stop") { model.stopFollow() }
+                .controlSize(.small)
+                .help(Help.Inspector.followStop)
+        } else if targets.count == 1, let target = targets.first {
+            Button("Follow") { model.startFollow(target) }
+                .controlSize(.small)
+                .help(Help.Inspector.follow)
+        } else if !targets.isEmpty {
+            Menu("Follow") {
+                ForEach(targets) { target in
+                    Button(target.container?.value ?? target.title) { model.startFollow(target) }
+                        .help(Help.Inspector.followContainer)
+                }
+            }
+            .controlSize(.small).fixedSize()
+            .help(Help.Inspector.followMenu)
+        }
     }
 
     private func fact(_ label: String, _ value: String, mono: Bool = false) -> some View {

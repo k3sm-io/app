@@ -41,7 +41,11 @@ final class WorkloadsModel: ObservableObject {
     let nodeList: TabLoader<NodeListRead>
     @Published var selected: String? = ConsoleTabs.restoreSelected(
         from: UserDefaults.standard.object(forKey: ConsoleTabs.selectedKey(.workloads))) {
-        didSet { UserDefaults.standard.set(selected, forKey: ConsoleTabs.selectedKey(.workloads)) }
+        didSet {
+            UserDefaults.standard.set(selected, forKey: ConsoleTabs.selectedKey(.workloads))
+            // A follow belongs to its pod: another selection, by any path, ends it.
+            if let follow, follow.target.podKey != selected { endFollow(.moved) }
+        }
     }
     @Published var query = ConsoleTabs.restoreQuery(
         from: UserDefaults.standard.object(forKey: ConsoleTabs.queryKey(.workloads))) {
@@ -49,9 +53,19 @@ final class WorkloadsModel: ObservableObject {
     }
     /// This Mac's node name, from the last status report; the rows tag it.
     @Published var ownNode: String?
-    @Published var detail: Detail = .logs
+    @Published var detail: Detail = .logs {
+        didSet { if detail != .logs { endFollow(.moved) } }
+    }
     @Published private(set) var detailText = ""
     @Published private(set) var detailLoading = false
+    /// The inspector's followed log (`LogFollowRead`); nil when none was
+    /// started for the selected pod. A new pod, another detail tab or the
+    /// inspector closing stops it.
+    @Published private(set) var follow: LogFollowRead?
+    /// The Scale stepper's count and the controller key it was set for: a
+    /// stepper on another controller starts at that one's own count.
+    @Published private(set) var scaleCount = 1
+    @Published private(set) var scaleKey: String?
     /// The host's memory and data-root use, read with every node-list read
     /// so the panel holds no view state (the Command Line Tools have no
     /// SwiftUI macro plugin).
@@ -182,6 +196,55 @@ final class WorkloadsModel: ObservableObject {
     func select(_ pod: Pod) {
         selected = pod.key
         loadDetail()
+    }
+
+    /// The Scale stepper's count for `controller`, at `current` until the
+    /// user moves it (`WorkloadControls.stepperValue`).
+    func scaleCount(for controller: WorkloadController, current: Int) -> Int {
+        scaleKey == controller.key ? scaleCount : WorkloadControls.stepperValue(current: current)
+    }
+
+    func setScaleCount(_ count: Int, for controller: WorkloadController) {
+        scaleKey = controller.key
+        scaleCount = WorkloadControls.stepperValue(current: count)
+    }
+
+    /// Starts following one log in the pane, after stopping any follow on screen.
+    func startFollow(_ target: LogFollowTarget) {
+        follow?.stop(.moved)
+        let read = LogFollowRead(target: target)
+        read.changed = { [weak self] in self?.objectWillChange.send() }
+        follow = read
+        let environment = environment
+        read.start { arguments, onOutput in
+            let outcome = await CLIProcess.run(
+                path: K3smCLI.path, arguments: arguments, environment: environment,
+                deadline: PollSchedule.logFollowDeadline, limit: OutputLimit.detail, onOutput: onOutput)
+            switch outcome {
+            case .exited(let status, _): return .exited(status)
+            case .truncated: return .limit
+            case .killed, .failedToLaunch: return .timedOut
+            case .missing: return .missing
+            case .refused(let why): return .refused(why)
+            }
+        }
+    }
+
+    /// Stops the follow on screen, keeping its lines and its line saying why.
+    func stopFollow() {
+        follow?.stop(.user)
+    }
+
+    /// Stops the follow and clears it: the pane goes back to its read.
+    func endFollow(_ reason: LogFollow.StopReason) {
+        follow?.stop(reason)
+        follow = nil
+    }
+
+    /// The follow the pane shows: the one on the selected pod, on the Logs tab.
+    var shownFollow: LogFollowRead? {
+        guard detail == .logs, let follow, follow.target.podKey == selected else { return nil }
+        return follow
     }
 
     /// The selected pod's actions, by `PodActions.menu`: the list the
