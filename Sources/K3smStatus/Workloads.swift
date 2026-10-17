@@ -156,8 +156,12 @@ public struct Pod: Equatable, Sendable {
     public let ready: Bool
     public let restarts: Int
     public let ports: [Int]
-    /// The owning controller as "Kind name", or nil for a bare pod. Restart is
-    /// offered only when an owner will recreate the pod.
+    /// The controller as "Kind name", what `kubectl describe` shows as
+    /// "Controlled By": the owner reference marked `controller: true`, the
+    /// same one `controllerRef` keeps; nil for a bare pod or one whose
+    /// references are all unmarked (an ownership link for garbage collection,
+    /// not the object that recreates the pod). Restart is offered only when
+    /// this owner will recreate the pod.
     public let owner: String?
     public let created: Date?
     /// Requested cores and bytes, summed over containers; nil when no container
@@ -336,10 +340,9 @@ extension Pod {
         kind = WorkloadKind(runtimeClassName: wire.spec.runtimeClassName)
         phase = wire.status?.phase ?? ""
         ports = wire.spec.containers.flatMap { ($0.ports ?? []).map(\.containerPort) }
-        if let o = wire.metadata.ownerReferences?.first { owner = "\(o.kind) \(o.name)" } else { owner = nil }
-        controllerRef = wire.metadata.ownerReferences?.first { $0.controller == true }.map {
-            OwnerRef(apiVersion: $0.apiVersion ?? "", kind: $0.kind, name: $0.name, uid: $0.uid ?? "")
-        }
+        let controller = wire.metadata.ownerReferences?.first { $0.controller == true }
+        owner = controller.map { "\($0.kind) \($0.name)" }
+        controllerRef = controller.map { OwnerRef(apiVersion: $0.apiVersion ?? "", kind: $0.kind, name: $0.name, uid: $0.uid ?? "") }
         created = wire.metadata.creationTimestamp
         let cpu = wire.spec.containers.compactMap { $0.resources?.requests?["cpu"] }.compactMap(Quantity.cores)
         cpuRequest = cpu.isEmpty ? nil : cpu.reduce(0, +)

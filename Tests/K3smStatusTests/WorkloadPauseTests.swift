@@ -137,7 +137,7 @@ struct WorkloadPauseTests {
         #expect(WorkloadPause.resolve(pod, in: controllers) == .none)
     }
 
-    @Test("the pod decode takes the owner reference marked controller, not the first")
+    @Test("the pod decode takes the owner reference marked controller, not the first, for the owner and the reference alike")
     func podDecodeTakesTheControllerReference() throws {
         let json = #"""
         {"kind":"PodList","items":[{"metadata":{"name":"web-1","namespace":"default","uid":"u",
@@ -147,7 +147,7 @@ struct WorkloadPauseTests {
         """#
         let pod = try #require(try Workloads.decode(Data(json.utf8)).pods.first)
         #expect(pod.controllerRef == apps("ReplicaSet", "web-6bcddf6f77", "rs-web"))
-        #expect(pod.owner == "Widget w")
+        #expect(pod.owner == "ReplicaSet web-6bcddf6f77")
     }
 
     @Test("the pre-check runs a step only on the controller and count confirmed")

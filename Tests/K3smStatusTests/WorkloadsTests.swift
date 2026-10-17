@@ -155,6 +155,18 @@ struct QuantityTests {
         #expect(w.pods.first?.memoryRequest == nil)
     }
 
+    @Test("a pod's owner is its controller reference, not its first reference")
+    func podController() throws {
+        let pods = try Workloads.decode(try fixture("kubectl_pods_two_owners.json")).pods
+        let web = try #require(pods.first { $0.name == "web-5d8f9c7b6-h4k2p" })
+        #expect(web.owner == "ReplicaSet web-5d8f9c7b6")
+        #expect(web.controllerRef == OwnerRef(apiVersion: "apps/v1", kind: "ReplicaSet", name: "web-5d8f9c7b6", uid: "b"))
+        // Its only reference is unmarked: an adopted pod nothing recreates.
+        let adopted = try #require(pods.first { $0.name == "adopted-worker" })
+        #expect(adopted.owner == nil)
+        #expect(adopted.controllerRef == nil)
+    }
+
     @Test("an oversized request on one pod does not stop the list decoding")
     func oversizedPod() throws {
         let json = #"""

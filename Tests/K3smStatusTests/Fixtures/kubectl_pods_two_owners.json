@@ -1,0 +1,104 @@
+{
+ "apiVersion": "v1",
+ "kind": "PodList",
+ "metadata": {
+  "resourceVersion": "1"
+ },
+ "items": [
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "web-5d8f9c7b6-h4k2p",
+    "namespace": "default",
+    "uid": "00000000-0000-4000-8000-000000000019",
+    "creationTimestamp": "2026-10-16T06:00:00Z",
+    "ownerReferences": [
+     {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "name": "web-settings",
+      "uid": "a"
+     },
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "web-5d8f9c7b6",
+      "uid": "b",
+      "controller": true,
+      "blockOwnerDeletion": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "c",
+      "image": "registry.local/web:1.4"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "containerStatuses": [
+     {
+      "name": "c",
+      "ready": true,
+      "restartCount": 0,
+      "image": "registry.local/web:1.4",
+      "imageID": "",
+      "state": {
+       "running": {
+        "startedAt": "2026-10-16T06:00:01Z"
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "adopted-worker",
+    "namespace": "default",
+    "uid": "00000000-0000-4000-8000-000000000014",
+    "creationTimestamp": "2026-10-16T06:00:00Z",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "workers-7f6d",
+      "uid": "c",
+      "controller": false
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "c",
+      "image": "registry.local/web:1.4"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "containerStatuses": [
+     {
+      "name": "c",
+      "ready": true,
+      "restartCount": 0,
+      "image": "registry.local/web:1.4",
+      "imageID": "",
+      "state": {
+       "running": {
+        "startedAt": "2026-10-16T06:00:01Z"
+       }
+      }
+     }
+    ]
+   }
+  }
+ ]
+}
