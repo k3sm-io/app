@@ -190,7 +190,7 @@ login** in the app's Settings turns it off or on again (see
   and the line says why (from the APIService's condition, or the read's
   error); the app then looks again every minute. Nothing is written to
   disk; the Stats tab keeps the last hour of samples in memory.
-- The **Update** button is on the Cluster tab's first card ("2 nodes behind
+- The **Update** button is on the Alerts tab's first card ("2 nodes behind
   v0.1.9", or "Updating…" while a roll runs), when the update plan has an update for this Mac: the
   app-carried update or the cluster's managed update (see
   [Updating](#updating)).
@@ -210,7 +210,6 @@ login** in the app's Settings turns it off or on again (see
   install, update or uninstall shows there only while one runs or after one
   failed. Connections from other devices and Uninstall are in Settings.
 - The **tabs** above the list are:
-  - **Cluster**: the checks behind the status headline (click the headline to open it), worst first, each with its state, detail and fix (a command has **Copy**), then the report's next steps; "Nothing needs attention." with the check's age when all is well. It shows the status report the app already reads.
   - **Workloads**: every pod, with the Mac it runs on. Its **Events** switch
     shows the cluster's events instead, newest first and at most 200, with a
     menu that picks one namespace or all of them. Events are read only while
@@ -266,6 +265,7 @@ login** in the app's Settings turns it off or on again (see
     are kept in memory only, so the charts start empty after a relaunch. A
     chart with nothing to draw says why ("No samples yet", or "Metrics
     unavailable" with the reason) rather than drawing zero.
+  - **Alerts**: the checks that are failing or need attention (click the status headline to open it), worst first, each with its state, detail and fix (a command has **Copy**), then the report's next steps. Checks that were skipped or could not tell are not listed, and neither is the workloads check, which the Workloads, Nodes and Images tabs show. When all is well the tab says "Everything is healthy" with the check's age, over a small field where the butterfly flies (it perches still under Reduce Motion). It shows the status report the app already reads.
 
   The tabs only read. The changes the console makes are a pod's
   **Restart** and **Delete**, a workload's **Pause**, **Resume**, **Scale** and **Rollout Restart**, a node's **Cordon**, **Uncordon** and
@@ -877,7 +877,7 @@ A server checks for a new k3sm release at most once an hour (`sudo k3sm
 update check` checks now), and its status report says when a node runs an
 older release than the latest. The app reads only that report: it never
 contacts the network itself. While the report names a newer release, the
-menu offers **Update to <release>…**, the Cluster tab shows the **Update**
+menu offers **Update to <release>…**, the Alerts tab shows the **Update**
 card, and Settings > Updates enables **Update Now**. When every node runs the latest release, runs a newer one, or the
 check has no answer, neither appears.
 
@@ -1235,7 +1235,7 @@ A tour is a JSON object whose `steps` list holds one step per line:
 
 | step | what it does |
 |---|---|
-| `selectTab <tab>` | chooses a tab: `cluster`, `workloads`, `nodes`, `images`, `builds`, `services`, `storage`, `models` or `stats` |
+| `selectTab <tab>` | chooses a tab: `workloads`, `nodes`, `images`, `builds`, `services`, `storage`, `models`, `stats` or `alerts` (or `cluster`) |
 | `selectWorkloadsView <pods\|events>` | chooses the Workloads tab's view |
 | `selectRow pod <namespace>/<name>` | selects a pod; a name ending in `*` is a prefix, for a StatefulSet's pod |
 | `selectRow node <name>` | selects a node; `@server` is the control-plane node |

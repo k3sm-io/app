@@ -76,11 +76,15 @@ struct DemoTourTests {
     }
 
     @Test("an unknown step, a malformed line or a malformed file is refused before anything runs")
-    func demoTourStepsRefuseUnknown() {
+    func demoTourStepsRefuseUnknown() throws {
         #expect(Self.refusal(["click 10 10", "end"]) == .unknownStep(index: 1, verb: "click"))
         #expect(Self.refusal(["selectTab workloads", "deletePod default/x", "end"]) == .unknownStep(index: 2, verb: "deletePod"))
         #expect(Self.refusal(["uninstall", "end"]) == .unknownStep(index: 1, verb: "uninstall"))
         #expect(Self.refusal(["selectTab settings", "end"]) != nil)
+        // The Alerts tab is named by its label or by its stored id; it reads back by its label.
+        #expect(try DemoTour.step("selectTab alerts", index: 1) == .selectTab(.cluster))
+        #expect(try DemoTour.step("selectTab cluster", index: 1) == .selectTab(.cluster))
+        #expect(DemoTour.describe(.selectTab(.cluster)) == "selectTab alerts")
         #expect(Self.refusal(["selectTab", "end"]) != nil)
         #expect(Self.refusal(["openInspector now", "end"]) != nil)
         #expect(Self.refusal(["pause 0", "end"]) != nil)

@@ -19,7 +19,6 @@ limitations under the License.
 /// its cadence in `PollSchedule.interval(for:engineReady:)` and a view in
 /// the console.
 public enum ConsoleSection: String, CaseIterable, Identifiable, Sendable {
-    case cluster
     case workloads
     case nodes
     case images
@@ -28,13 +27,17 @@ public enum ConsoleSection: String, CaseIterable, Identifiable, Sendable {
     case storage
     case models
     case stats
+    /// The Alerts tab, last in the strip. The user sees it named Alerts; the
+    /// case and its stored id keep the name `cluster`, so a tab choice saved
+    /// by an earlier build still restores it.
+    case cluster
 
     public var id: Self { self }
 
     /// The tab's label in the strip.
     public var title: String {
         switch self {
-        case .cluster: return "Cluster"
+        case .cluster: return "Alerts"
         case .workloads: return "Workloads"
         case .nodes: return "Nodes"
         case .images: return "Images"

@@ -45,7 +45,7 @@ struct ConsoleView: View {
 
     /// The strip's minimum width (`TabStripLayout.minimumWidth`): every tab
     /// label whole and the search field at its minimum. Update is on the
-    /// Cluster tab's card, not in the strip, so it costs the strip nothing.
+    /// Alerts tab's card, not in the strip, so it costs the strip nothing.
     static func stripMinWidth() -> Double {
         TabStripLayout.minimumWidth(labels: ConsoleSection.allCases.map(\.title), buttonWidth: nil)
     }
@@ -158,7 +158,7 @@ struct ConsoleContent: View {
     @ViewBuilder
     private var section: some View {
         switch app.section {
-        case .cluster: ClusterSection(app: app)
+        case .cluster: AlertsSection(app: app)
         case .workloads: WorkloadsTab(app: app).tourTarget(.pods, app.tour)
         case .nodes: NodesSection(app: app, workloads: app.workloads, columns: app.columns)
         case .images: ImagesSection(app: app, workloads: app.workloads, columns: app.columns, store: app.imageStore)

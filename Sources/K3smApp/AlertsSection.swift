@@ -19,57 +19,74 @@ import K3smInstall
 import K3smStatus
 import SwiftUI
 
-/// ClusterSection is the Cluster tab: the issues behind the status headline
-/// (`ClusterIssues`), one card per check that is not ok, grouped worst first,
-/// then the report's next commands; when nothing is wrong it says so with the
-/// report's age. While the update plan offers Update its card comes first
-/// (`UpdateCard`), the console's one Update button. It reads only
+/// AlertsSection is the Alerts tab: the issues behind the status headline
+/// (`ClusterIssues`), one card per check that is failing or needs attention,
+/// grouped worst first, then the report's next commands. While the update
+/// plan offers Update its card comes first (`UpdateCard`), the console's one
+/// Update button. When the report is clean and there is no card to show, the
+/// tab rests: one sentence saying everything is healthy with the report's
+/// age, over the butterfly's field (`FieldScene`). It reads only
 /// `AppModel.report` and the update plan, so it has no loader of its own.
-struct ClusterSection: View {
+struct AlertsSection: View {
     @ObservedObject var app: AppModel
 
     var body: some View {
         let issues = ClusterIssues.of(app.report)
+        let card = UpdateCard.of(plan: app.updatePlan, report: app.report)
         return TimelineView(.periodic(from: .now, by: 5)) { context in
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
+                if issues.rests(withCard: card != nil) {
+                    VStack(spacing: 18) {
                         HStack(spacing: 7) {
-                            Image(systemName: issues.isClean ? RowTone.healthy.symbolName : RowTone.attention.symbolName)
-                                .foregroundStyle(Palette.row(issues.isClean ? .healthy : .attention))
+                            Image(systemName: RowTone.healthy.symbolName)
+                                .foregroundStyle(Palette.row(.healthy))
                                 .accessibilityHidden(true)
-                            Text(verbatim: issues.headline).font(.system(size: 15, weight: .semibold))
+                            Text(verbatim: issues.healthyLine(now: context.date)).font(.system(size: 15, weight: .semibold))
                         }
-                        if let summary = issues.summary {
-                            Text(verbatim: summary).font(.callout).foregroundStyle(Palette.ink2)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        if app.report != nil {
-                            Text(verbatim: issues.checkedLine(now: context.date)).font(.caption).foregroundStyle(Palette.ink2)
-                        }
+                        FieldScene()
                     }
-                    if let card = UpdateCard.of(plan: app.updatePlan, report: app.report) {
-                        UpdateCardView(app: app, card: card)
-                    }
-                    ForEach(Array(issues.groups.enumerated()), id: \.offset) { _, group in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(verbatim: group.heading).font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.ink2)
-                            ForEach(Array(group.issues.enumerated()), id: \.offset) { _, issue in
-                                IssueCard(issue: issue)
+                    .padding(.horizontal, 20).padding(.vertical, 28)
+                    .frame(maxWidth: .infinity, alignment: .top)
+                } else {
+                    VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 7) {
+                                Image(systemName: issues.isClean ? RowTone.healthy.symbolName : RowTone.attention.symbolName)
+                                    .foregroundStyle(Palette.row(issues.isClean ? .healthy : .attention))
+                                    .accessibilityHidden(true)
+                                Text(verbatim: issues.headline).font(.system(size: 15, weight: .semibold))
+                            }
+                            if let summary = issues.summary {
+                                Text(verbatim: summary).font(.callout).foregroundStyle(Palette.ink2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            if app.report != nil {
+                                Text(verbatim: issues.checkedLine(now: context.date)).font(.caption).foregroundStyle(Palette.ink2)
+                            }
+                        }
+                        if let card {
+                            UpdateCardView(app: app, card: card)
+                        }
+                        ForEach(Array(issues.groups.enumerated()), id: \.offset) { _, group in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(verbatim: group.heading).font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.ink2)
+                                ForEach(Array(group.issues.enumerated()), id: \.offset) { _, issue in
+                                    IssueCard(issue: issue)
+                                }
+                            }
+                        }
+                        if !issues.next.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(verbatim: ClusterIssues.nextTitle).font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.ink2)
+                                ForEach(Array(issues.next.enumerated()), id: \.offset) { _, step in
+                                    RemedyLine(step: step)
+                                }
                             }
                         }
                     }
-                    if !issues.next.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(verbatim: ClusterIssues.nextTitle).font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.ink2)
-                            ForEach(Array(issues.next.enumerated()), id: \.offset) { _, step in
-                                RemedyLine(step: step)
-                            }
-                        }
-                    }
+                    .padding(.horizontal, 20).padding(.vertical, 16)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                .padding(.horizontal, 20).padding(.vertical, 16)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
         .background(Palette.surface)
@@ -116,7 +133,7 @@ private struct UpdateCardView: View {
     }
 }
 
-/// IssueCard is one check that is not ok: its name and state badge, its
+/// IssueCard is one listed check: its name and state badge, its
 /// detail, and its remedy's steps.
 private struct IssueCard: View {
     let issue: ClusterIssue
@@ -130,7 +147,7 @@ private struct IssueCard: View {
                     .foregroundStyle(Self.colour(issue.level))
                     .padding(.horizontal, 6).padding(.vertical, 1)
                     .background(Capsule().stroke(Self.colour(issue.level), lineWidth: 1))
-                    .help(Help.Cluster.stateBadge)
+                    .help(Help.Alerts.stateBadge)
                     .accessibilityLabel(Text(verbatim: issue.level.title + ": " + issue.state))
             }
             if !issue.detail.isEmpty {
@@ -147,13 +164,11 @@ private struct IssueCard: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.line, lineWidth: 1))
     }
 
-    /// The badge's colour for a level: red failing, amber for the other
-    /// faults, grey for a check that could not tell or did not run.
+    /// The badge's colour for a level: red failing, amber for the other faults.
     static func colour(_ level: IssueLevel) -> Color {
         switch level {
         case .failing: return Palette.bad
         case .warning, .reported: return Palette.warn
-        case .unknown, .notChecked: return Palette.unknown
         }
     }
 }
@@ -180,14 +195,14 @@ private struct RemedyLine: View {
                     NSPasteboard.general.setString(command, forType: .string)
                 }
                 .controlSize(.small)
-                .help(Help.Cluster.copyCommand)
+                .help(Help.Alerts.copyCommand)
             }
         }
     }
 }
 
 /// OpensClusterTab makes the panel's status headline a plain button that
-/// selects the Cluster tab, the way the tab strip selects one
+/// selects the Alerts tab, the way the tab strip selects one
 /// (`AppModel.section`).
 struct OpensClusterTab: ViewModifier {
     let app: AppModel
@@ -200,7 +215,7 @@ struct OpensClusterTab: ViewModifier {
 }
 
 extension View {
-    /// Selects the Cluster tab when clicked (`OpensClusterTab`).
+    /// Selects the Alerts tab when clicked (`OpensClusterTab`).
     func opensClusterTab(_ app: AppModel) -> some View {
         modifier(OpensClusterTab(app: app))
     }

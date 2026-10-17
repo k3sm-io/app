@@ -51,7 +51,7 @@ public struct HelpTag: Equatable, Sendable {
 public enum Help {
     /// Every tag in the catalog, area by area.
     public static var all: [HelpTag] {
-        Strip.all + Cluster.all + Workloads.all + Nodes.all + Images.all + Builds.all + Services.all + Storage.all + Models.all + Stats.all
+        Strip.all + Workloads.all + Nodes.all + Images.all + Builds.all + Services.all + Storage.all + Models.all + Stats.all + Alerts.all
             + Inspector.all + Actions.all + Status.all + Panel.all + Popover.all + Guided.all + FirstRun.all + Update.all
             + Tour.all + General.all + Network.all + InstallSettings.all + Updates.all + Advanced.all + SettingsWindow.all + Menus.all + Columns.all
     }
@@ -88,7 +88,7 @@ public enum Help {
                                              control: "console strip: gear button")
         /// The update button's tag when an update is offered with no tag to name.
         public static let updateAny = HelpTag("Update every node to the newest k3sm release",
-                                              control: "cluster: update card button", label: "Update")
+                                              control: "alerts: update card button", label: "Update")
 
         /// The details button's tag.
         public static func details(shown: Bool) -> HelpTag { shown ? hideDetails : showDetails }
@@ -107,14 +107,14 @@ public enum Help {
             case .models: text = "Show the MLX models the cluster serves"
             case .stats: text = "Chart the load, pods, restarts, images, storage and updates"
             }
-            return HelpTag(text, control: "console strip: \(section.rawValue) tab", label: section.title)
+            return HelpTag(text, control: "console strip: \(section.title.lowercased()) tab", label: section.title)
         }
 
         /// The update button's tag when it installs the app's release on this Mac.
         public static let updateThisMac = HelpTag("Install the release this app carries on this Mac, as an administrator",
-                                                  control: "cluster: update card button, this Mac", label: "Update")
+                                                  control: "alerts: update card button, this Mac", label: "Update")
 
-        /// Every Update control's tag (the Cluster tab's update card, the popover's
+        /// Every Update control's tag (the Alerts tab's update card, the popover's
         /// version row, the status item's menu, and through them the node
         /// inspector, the Updates pane and the guided panel), from the one
         /// `UpdatePlan`: why it is disabled, or what its path does.
@@ -381,16 +381,16 @@ public enum Help {
         public static var all: [HelpTag] { StatsChart.allCases.map(tag(for:)) }
     }
 
-    // MARK: Cluster tab
+    // MARK: Alerts tab
 
-    /// The Cluster tab's issue cards.
-    public enum Cluster {
+    /// The Alerts tab's issue cards.
+    public enum Alerts {
         /// The Copy button beside a command remedy or next step.
         public static let copyCommand = HelpTag("Copy the command to paste into Terminal",
-                                                control: "cluster: Copy button", label: "Copy")
+                                                control: "alerts: Copy button", label: "Copy")
         /// The badge with a check's state word.
         public static let stateBadge = HelpTag("The state word k3sm status printed for this check",
-                                               control: "cluster: state badge")
+                                               control: "alerts: state badge")
 
         public static let all = [copyCommand, stateBadge]
     }
@@ -570,7 +570,7 @@ public enum Help {
             return HelpTag("Needs an administrator to read \(checks); \(see)", control: "status headline: needs-admin lock")
         }
 
-        /// The panel's headline, which opens the Cluster tab.
+        /// The panel's headline, which opens the Alerts tab.
         public static let headline = HelpTag("Show the checks behind this state and how to fix them",
                                              control: "status headline: panel")
 

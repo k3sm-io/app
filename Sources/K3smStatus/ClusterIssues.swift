@@ -16,11 +16,13 @@ limitations under the License.
 
 import Foundation
 
-/// IssueLevel is how bad one status row is, from its `severity` word, worst
-/// first: the order the Cluster tab groups its issues in. A severity word
-/// this build does not know is `reported`, drawn for attention after the
-/// warnings; a row with no severity is `unknown` unless its state is a
-/// healthy word.
+/// IssueLevel is how bad one listed status row is, from its `severity`
+/// word, worst first: the order the Alerts tab groups its issues in. A
+/// severity word this build does not know is `reported`, drawn for attention
+/// after the warnings, so a newer k3sm's rows still show. Only a fault is
+/// listed: an `ok` row, a row the check could not tell (`unknown`) or did not
+/// run (`skip`, a check that needs an administrator included), and a row with
+/// no severity, are not.
 public enum IssueLevel: Int, CaseIterable, Comparable, Sendable {
     /// `fail`: the subsystem is not working.
     case failing
@@ -28,23 +30,14 @@ public enum IssueLevel: Int, CaseIterable, Comparable, Sendable {
     case warning
     /// A severity word this build does not know, kept as printed.
     case reported
-    /// `unknown`: the check could not tell.
-    case unknown
-    /// `skip`: the check did not run, a check that needs an administrator included.
-    case notChecked
 
-    /// The level of a row, nil for an `ok` row (and a row with no severity
-    /// whose state is healthy).
+    /// The level of a row, nil for a row the tab does not list: `ok`,
+    /// `unknown`, `skip` and an empty severity.
     public init?(row: StatusRow) {
         switch row.severity {
-        case "ok": return nil
+        case "ok", "unknown", "skip", "": return nil
         case "fail": self = .failing
         case "warn": self = .warning
-        case "unknown": self = .unknown
-        case "skip": self = .notChecked
-        case "":
-            if row.rowState.tone == .healthy { return nil }
-            self = .unknown
         default: self = .reported
         }
     }
@@ -55,20 +48,7 @@ public enum IssueLevel: Int, CaseIterable, Comparable, Sendable {
         case .failing: return "Failing"
         case .warning: return "Needs attention"
         case .reported: return "Reported"
-        case .unknown: return "Not known"
-        case .notChecked: return "Not checked"
         }
-    }
-
-    /// How the group's badges are drawn.
-    public var tone: RowTone {
-        self == .notChecked ? .notChecked : .attention
-    }
-
-    /// Whether a row at this level means something is wrong. A row the check
-    /// could not read or did not run is listed, but it is not a fault.
-    public var isProblem: Bool {
-        self == .failing || self == .warning || self == .reported
     }
 
     public static func < (a: IssueLevel, b: IssueLevel) -> Bool { a.rawValue < b.rawValue }
@@ -110,7 +90,7 @@ public struct RemedyStep: Equatable, Sendable {
     }
 }
 
-/// ClusterIssue is one status row that is not ok, as the Cluster tab's card
+/// ClusterIssue is one status row that is not ok, as the Alerts tab's card
 /// shows it: the row's name, its state word, its detail and its remedy, each
 /// clipped.
 public struct ClusterIssue: Equatable, Sendable {
@@ -131,11 +111,13 @@ public struct ClusterIssueGroup: Equatable, Sendable {
     public var heading: String { "\(level.title) (\(issues.count))" }
 }
 
-/// ClusterIssues is the Cluster tab: the issues behind the status headline,
+/// ClusterIssues is the Alerts tab: the issues behind the status headline,
 /// read only from the full status report the app already polls. Every row
-/// whose severity is not `ok` is an issue, grouped by `IssueLevel` worst
-/// first, each with its detail and remedy; under them the report's `next`
-/// commands. The report carries no rows for its workers (each is a name, a
+/// that is failing, needs attention or carries a severity this build does
+/// not know is an issue, grouped by `IssueLevel` worst first, each with its
+/// detail and remedy; under them the report's `next` commands. The
+/// `workloads` row is never listed, whatever its state: the Workloads,
+/// Nodes and Images tabs are that check. The report carries no rows for its workers (each is a name, a
 /// role and a version), so every issue is this Mac's report; a worker's own
 /// checks are read on that Mac. Every string is clipped, the report's text
 /// being node-reported.
@@ -146,7 +128,7 @@ public struct ClusterIssues: Equatable, Sendable {
     public let groups: [ClusterIssueGroup]
     public let next: [RemedyStep]
     /// Whether nothing is wrong: the verdict is running and no row is
-    /// failing, warning or at a level this build does not know.
+    /// listed.
     public let isClean: Bool
     /// The tab's first line.
     public let headline: String
@@ -160,6 +142,10 @@ public struct ClusterIssues: Equatable, Sendable {
     public static let notRead = "No status report has been read yet."
     /// The headline when nothing is wrong.
     public static let cleanText = "Nothing needs attention."
+    /// The resting line when nothing is wrong and no card is shown.
+    public static let healthyText = "Everything is healthy"
+    /// The status row the tab never lists: its own tabs show it.
+    public static let workloadsRow = "workloads"
     /// The line when the report's time is not known.
     public static let checkedUnknown = "Last check time not reported"
     /// The heading over the `next` commands.
@@ -174,7 +160,7 @@ public struct ClusterIssues: Equatable, Sendable {
         }
         var byLevel: [IssueLevel: [ClusterIssue]] = [:]
         for row in report.rows.prefix(StatusDisplay.maxRows) {
-            guard let level = IssueLevel(row: row) else { continue }
+            guard row.name != workloadsRow, let level = IssueLevel(row: row) else { continue }
             byLevel[level, default: []].append(ClusterIssue(
                 name: StatusDisplay.clip(row.name), state: StatusDisplay.clip(row.state),
                 detail: StatusDisplay.clip(row.detail), level: level, remedy: RemedyStep.steps(row.remedy)))
@@ -182,7 +168,7 @@ public struct ClusterIssues: Equatable, Sendable {
         let groups = IssueLevel.allCases.compactMap { level in
             byLevel[level].map { ClusterIssueGroup(level: level, issues: $0) }
         }
-        let problems = groups.filter(\.level.isProblem).reduce(0) { $0 + $1.issues.count }
+        let problems = groups.reduce(0) { $0 + $1.issues.count }
         let clean = problems == 0 && report.verdict == .running
         let summary = StatusDisplay.clip(report.summary)
         return ClusterIssues(
@@ -218,6 +204,19 @@ public struct ClusterIssues: Equatable, Sendable {
         }
     }
 
+    /// The one sentence the tab rests on when nothing is wrong and no card
+    /// is shown: "Everything is healthy, last checked 3 min ago.", or with no
+    /// known check time "Everything is healthy."
+    public func healthyLine(now: Date = Date()) -> String {
+        guard checkedAt != nil else { return Self.healthyText + "." }
+        let line = checkedLine(now: now)
+        return Self.healthyText + ", " + line.prefix(1).lowercased() + line.dropFirst() + "."
+    }
+
+    /// Whether the tab rests in its field: the report is clean and no update
+    /// card is shown.
+    public func rests(withCard card: Bool) -> Bool { isClean && groups.isEmpty && !card }
+
     /// The report's RFC 3339 timestamp, with or without fractional seconds.
     static func parse(_ text: String) -> Date? {
         guard !text.isEmpty, text.count <= 64 else { return nil }
@@ -230,7 +229,7 @@ public struct ClusterIssues: Equatable, Sendable {
     }
 }
 
-/// UpdateCard is the Cluster tab's first card while the update plan offers
+/// UpdateCard is the Alerts tab's first card while the update plan offers
 /// Update (`UpdatePlan.buttonTitle`, the condition the console strip's button
 /// had): a title naming what is behind, the plan's line, and the button with
 /// the plan's own title ("Update", or "Updating…" while a roll runs) and
@@ -279,5 +278,70 @@ public struct UpdateCard: Equatable, Sendable {
         guard let report, let target = SemanticVersion(tag) else { return 0 }
         let releases = [report.release.flatMap { SemanticVersion($0.text) }] + (report.workers ?? []).map(\.k3smRelease)
         return releases.compactMap { $0 }.filter { $0 < target }.count
+    }
+}
+
+/// FieldPose is where the Alerts tab's resting butterfly is at one moment,
+/// in the field's unit square (x right, y down): its centre, its wing beat
+/// (`FlappingButterfly`'s hinge angle in degrees), its tilt in degrees, and
+/// whether it is perched, drawn side-on and still.
+public struct FieldPose: Equatable, Sendable {
+    public let x: Double
+    public let y: Double
+    public let beat: Double
+    public let tilt: Double
+    public let perched: Bool
+}
+
+/// FieldFlight is the field the Alerts tab rests in when nothing is wrong
+/// and the butterfly's slow loop over it, as pure functions of the time so
+/// the view only samples them. The field is a gentle hill line with a few
+/// flowers on it; the loop is a figure of eight above the flowers, one lap
+/// in `period`, with a slow flutter and a small bob, leaning into the way
+/// it flies. Under Reduce Motion the butterfly perches on the tallest
+/// flower instead and does not move.
+public enum FieldFlight {
+    /// One lap of the loop, in seconds.
+    public static let period: TimeInterval = 18
+    /// One wing beat, in seconds, slower than the waiting mark's.
+    public static let beatPeriod: TimeInterval = 0.6
+    /// The widest the wings open on a beat, in degrees.
+    public static let beatPeak: Double = 50
+    /// The most the butterfly leans into a turn, in degrees.
+    public static let maxTilt: Double = 12
+    /// Where the ground lies, as a fraction of the field's height from the top.
+    public static let ground: Double = 0.82
+    /// The flowers: each one's x and its height above the ground, both as
+    /// fractions of the field.
+    public static let flowers: [(x: Double, height: Double)] = [
+        (0.12, 0.10), (0.27, 0.16), (0.44, 0.09), (0.63, 0.22), (0.78, 0.12), (0.91, 0.08),
+    ]
+    /// The flower the butterfly perches on under Reduce Motion: the tallest.
+    public static let perch = 3
+
+    /// The hill line's height above `ground` at `x`, a fraction of the
+    /// field's height: two long, low swells.
+    public static func hill(at x: Double) -> Double {
+        0.035 * sin(2 * .pi * (x * 1.3 + 0.1)) + 0.02 * sin(2 * .pi * x * 0.55)
+    }
+
+    /// The top of flower `index`, where a perched butterfly's feet are.
+    public static func flowerTop(_ index: Int) -> (x: Double, y: Double) {
+        let flower = flowers[index]
+        return (flower.x, ground - hill(at: flower.x) - flower.height)
+    }
+
+    /// The pose `now` seconds into the flight; perched and still under
+    /// `reduceMotion`.
+    public static func pose(at now: TimeInterval, reduceMotion: Bool) -> FieldPose {
+        if reduceMotion {
+            let top = flowerTop(perch)
+            return FieldPose(x: top.x, y: top.y, beat: 0, tilt: 0, perched: true)
+        }
+        let theta = 2 * .pi * now / period
+        let x = 0.5 + 0.36 * sin(theta)
+        let y = 0.33 + 0.1 * sin(2 * theta) + 0.02 * sin(2 * .pi * now / (period / 5))
+        let beat = beatPeak * (0.5 - 0.5 * cos(2 * .pi * now / beatPeriod))
+        return FieldPose(x: x, y: y, beat: beat, tilt: maxTilt * cos(theta), perched: false)
     }
 }

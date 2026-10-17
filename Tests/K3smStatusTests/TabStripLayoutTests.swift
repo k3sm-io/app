@@ -65,7 +65,7 @@ struct TabStripLayoutTests {
         #expect(wider > window)
     }
 
-    @Test("with the Nodes tab the window's minimum still fits a 1440 pt wide display, Update being the Cluster tab's card")
+    @Test("with the Nodes tab the window's minimum still fits a 1440 pt wide display, Update being the Alerts tab's card")
     func nodesTabFitsTheNarrowestLaptop() {
         #expect(Self.titles.contains("Nodes"))
         let without = Self.titles.filter { $0 != "Nodes" }
@@ -80,10 +80,10 @@ struct TabStripLayoutTests {
         }
     }
 
-    @Test("with the Stats and Cluster tabs the window's minimum still fits a 1440 pt wide display")
+    @Test("with the Stats and Alerts tabs, Alerts last, the window's minimum still fits a 1440 pt wide display")
     func statsTabFitsTheNarrowestLaptop() {
-        #expect(Self.titles.last == "Stats")
-        #expect(Self.titles.first == "Cluster")
+        #expect(Self.titles.suffix(2) == ["Stats", "Alerts"])
+        #expect(Self.titles.first == "Workloads")
         let without = Self.titles.filter { $0 != "Stats" }
         do {
             let button: Double? = nil

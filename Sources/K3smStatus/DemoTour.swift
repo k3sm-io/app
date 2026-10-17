@@ -249,8 +249,11 @@ public enum DemoTour {
         switch verb {
         case "selectTab":
             try count(1)
-            guard let s = ConsoleSection(rawValue: args[0]) else {
-                throw bad("the tab is one of \(ConsoleSection.allCases.map(\.rawValue).joined(separator: ", "))")
+            // A tab is named by its id or by its label in lower case, so the
+            // Alerts tab (id `cluster`) is `alerts` too.
+            guard let s = ConsoleSection(rawValue: args[0])
+                ?? ConsoleSection.allCases.first(where: { $0.title.lowercased() == args[0] }) else {
+                throw bad("the tab is one of \(ConsoleSection.allCases.map { $0.title.lowercased() }.joined(separator: ", "))")
             }
             return .selectTab(s)
         case "selectWorkloadsView":
@@ -368,7 +371,7 @@ public enum DemoTour {
     /// A step as a tour line, for the failure line.
     public static func describe(_ step: Step) -> String {
         switch step {
-        case .selectTab(let s): return "selectTab \(s.rawValue)"
+        case .selectTab(let s): return "selectTab \(s.title.lowercased())"
         case .selectWorkloadsView(let v): return "selectWorkloadsView \(v.rawValue)"
         case .selectRow(.pod(let m)): return "selectRow pod \(m.text)"
         case .selectRow(.node(.server)): return "selectRow node @server"

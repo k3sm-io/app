@@ -32,7 +32,7 @@ public enum ConsoleRow: Hashable, Sendable {
     /// The Stats tab draws charts and lists no rows; a stored key of its
     /// own is cleared on the tab's first showing.
     case stat(String)
-    /// The Cluster tab lists the report's issues as cards, not rows; a
+    /// The Alerts tab lists the report's issues as cards, not rows; a
     /// stored key of its own is cleared on the tab's first showing.
     case issue(String)
 

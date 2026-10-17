@@ -869,7 +869,7 @@ final class AppModel: ObservableObject {
 
     /// The loader behind a tab, created on its first selection; nil for
     /// Nodes and Images, which render the shared node list, and for
-    /// Cluster, which renders the status report. Stats has the
+    /// Alerts, which renders the status report. Stats has the
     /// Storage tab's loader (its claims and data volume reads); its other
     /// charts render what the other reads fetched.
     private func loader(for section: ConsoleSection) -> (any TabLoading)? {
@@ -881,7 +881,7 @@ final class AppModel: ObservableObject {
             pods.interval = { [weak self] _ in PollSchedule.podsInterval(selected: self?.section == .workloads) }
             made = pods
         case .nodes, .images, .cluster:
-            // Cluster renders the status report the app already polls.
+            // Alerts renders the status report the app already polls.
             made = nil
         case .stats:
             // The Storage tab's own loader, the same reads at the same

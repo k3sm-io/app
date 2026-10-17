@@ -258,7 +258,7 @@ public struct UpdatePlanFacts: Equatable, Sendable {
 
 /// UpdatePlan is the one decision of which update applies to this Mac.
 /// Every place that offers Update (the status item's menu, the console's
-/// Cluster tab's update card, the popover's version line, the Settings Updates pane, the
+/// Alerts tab's update card, the popover's version line, the Settings Updates pane, the
 /// node inspector and the guided panel) reads this plan, so no two offer
 /// different updates.
 public enum UpdatePlan: Equatable, Sendable {

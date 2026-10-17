@@ -413,7 +413,7 @@ public enum PollSchedule {
     /// `imagesInterval`; Builds at `visibleInterval` until the engine is
     /// ready, then `buildsReadyInterval`; Services, Storage and Models at
     /// `objectsInterval`; Stats, which only renders what the other reads
-    /// fetched, and Cluster, which renders the status report, at
+    /// fetched, and Alerts, which renders the status report, at
     /// `objectsInterval`. The shared node list follows the
     /// selected tab's cadence too.
     public static func interval(for section: ConsoleSection, engineReady: Bool,
