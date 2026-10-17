@@ -56,6 +56,15 @@ public enum K3smCLI {
     /// The cluster's nodes, through the same bundled kubectl: names, Ready,
     /// versions, addresses, capacity and allocatable.
     public static let nodesArguments = ["kubectl", "get", "nodes", "-o", "json"]
+    /// One kind's held watch (`WatchStream`): every object, then one compact
+    /// JSON event per line (`{"type":"ADDED","object":{...}}`) until
+    /// `requestTimeout`, which the caller spreads by `PollJitter`. kubectl
+    /// watches one resource type per process, so each kind is its own.
+    public static func watchArguments(kind: WatchKind, requestTimeout: Duration) -> [String] {
+        let seconds = max(1, Int(requestTimeout.components.seconds))
+        return ["kubectl", "get", kind.resource, "-A", "-w", "--output-watch-events", "-o", "json",
+                "--request-timeout=\(seconds)s"]
+    }
     /// The build engine: the pods and claims in its namespace, through the
     /// same bundled kubectl. A cluster without an engine lists none.
     public static let buildEngineArguments = ["kubectl", "get", "pods,pvc", "-n", "k3sm-builder", "-o", "json"]

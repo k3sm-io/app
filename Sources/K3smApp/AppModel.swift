@@ -1157,6 +1157,7 @@ final class AppModel: ObservableObject {
     func startTabs() {
         consoleShown = true
         syncUpdateReader()
+        workloads.startStreams()
         workloads.nodeList.start()
         workloads.startMetrics { [weak self] in self?.flap.windowVisible() ?? false }
         loader(for: .workloads)?.start()
@@ -1169,6 +1170,7 @@ final class AppModel: ObservableObject {
     func stopTabs() {
         consoleShown = false
         syncUpdateReader()
+        workloads.stopStreams()
         workloads.nodeList.stop()
         workloads.stopMetrics()
         loaders[.workloads]?.stop()

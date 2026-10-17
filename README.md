@@ -166,15 +166,22 @@ login** in the app's Settings turns it off or on again (see
   "versions differ", or "versions: some unknown" when a node's version cannot
   be read. The app remembers the choice; a single-node cluster always shows
   This Mac. The panel scrolls in a short window. While the window is open the
-  node list and the selected tab's list are re-read every 5 seconds (Nodes
-  included; every 15
+  pods and the nodes are followed live: the app holds one `k3sm kubectl get
+  -w` per kind and shows each change as it comes, re-reading the whole list
+  about every 5 minutes. Only those two kinds are watched, so the app holds
+  at most two watches at once, whatever tab is shown. If a watch cannot be
+  held the app reads that list on a timer instead, retrying the watch after
+  a growing, randomized wait of at most a minute; if the cluster refuses
+  the admin kubeconfig in the watch, the tab says so, and the watch waits
+  until the window opens again. The selected tab's list is re-read every 5 seconds (every 15
   seconds on Images, Services, Storage, Models and Stats (whose storage chart
   uses the Storage tab's reads), and on Builds once the
   build engine is ready) and the
   status report is re-read every 30 seconds, so the panel follows nodes as
-  they join and leave. The pod list keeps being read every 30 seconds while
-  another tab is selected, so the panel's pod figures stay current; the panel
-  shows their age beside its state when that read is late. No other tab is
+  they join and leave. The pods stay followed while another tab is selected
+  (without a watch, the pod list is read every 30 seconds), so the panel's
+  pod figures stay current; the panel shows their age beside its state when
+  that read is late. No other tab is
   read while it is not selected; when you come back to it, it shows what it
   last read and how long ago. When the cluster has an interconnect (the
   cable network between Macs) and an administrator has armed it, the panel

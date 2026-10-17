@@ -39,6 +39,14 @@
 # app or one of the app's descendants seen by eslogger; a child the app
 # started before eslogger attached is not seen, nor are its children.
 #
+# Measuring the held watches (pods and nodes, at most two kubectl processes
+# held): use a --window of at least 360 seconds, so it spans one relist
+# (about every 5 minutes, jittered), or the spawn count misses it. A held
+# watch is one spawn that lives the whole window, so spawns alone undercount
+# what is running: alongside the run, sample the live kubectl pids (for
+# example `pgrep -P <app pid>` and their children every few seconds) and
+# report the most held at once beside the spawn count.
+#
 # --self-test runs the aggregation, the capture filter, the eslogger line
 # conversion and the output directory check against canned input: a good
 # log's summary, and a refusal for each malformed one.

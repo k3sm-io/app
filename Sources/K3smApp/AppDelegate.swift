@@ -16,6 +16,7 @@ limitations under the License.
 
 import AppKit
 import Combine
+import K3smHost
 import K3smStatus
 
 /// AppDelegate wires the parts together: the poller feeds the status item,
@@ -137,6 +138,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A tour still running puts the user's layout back before it is saved.
         model?.tour.end()
         poller?.stop()
+        // No held kubectl watch outlives the app.
+        model?.workloads.stopStreams()
+        CLIStream.killAll()
         if let activity {
             ProcessInfo.processInfo.endActivity(activity)
         }
@@ -168,6 +172,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         sessionObservers.append(center.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.poller?.start() }
+        })
+        // A held watch may be half-open after sleep: each is restarted once.
+        sessionObservers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.model?.workloads.wakeStreams() }
         })
     }
 

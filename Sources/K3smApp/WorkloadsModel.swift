@@ -18,6 +18,7 @@ import Combine
 import Foundation
 import K3smHost
 import K3smStatus
+import Synchronization
 
 /// WorkloadsModel is the Workloads tab's state and the panel's lists: the
 /// pod list (the tab's `TabLoader`, created when the console first comes on
@@ -26,7 +27,11 @@ import K3smStatus
 /// and the Images tab), the search, the selected pod and its detail. The
 /// search and the selection are kept in the user defaults per tab. A change
 /// in either loader is published here, so the views observing this model
-/// follow both.
+/// follow both. While the console is on screen the pods and the nodes are
+/// each followed by a held kubectl watch (`WatchStream`, through
+/// `CLIStream`): a loader's read takes the stream's list while it is live,
+/// each change the stream publishes is read at once, and a stream that is
+/// loading, retrying or degraded leaves the loader on its list poll.
 @MainActor
 final class WorkloadsModel: ObservableObject {
     /// A pod's reads; the inspector shows `PodDetail.inspectorTabs`, and
@@ -90,19 +95,45 @@ final class WorkloadsModel: ObservableObject {
     private var logTask: Task<Void, Never>?
     private var forwarding: [AnyCancellable] = []
     private var metricsPoller: MetricsPoller?
+    /// The held watches: started and stopped with the console's reads.
+    let podStream: WatchStream
+    let nodeStream: WatchStream
+    /// The controllers read beside the streamed pod list.
+    private let controllersCache = ControllersCache()
 
     init(environment: [String: String]) {
         self.environment = environment
         summaries = LogSummaryModel(environment: environment)
+        let launcher = CLIStream(environment: environment)
+        let clock = WatchSystemClock()
+        let spacer = WatchRelistSpacer()
+        let podStream = WatchStream(kind: .pods, launcher: launcher, clock: clock, spacer: spacer)
+        let nodeStream = WatchStream(kind: .nodes, launcher: launcher, clock: clock, spacer: spacer)
+        self.podStream = podStream
+        self.nodeStream = nodeStream
         nodeList = TabLoader(
-            arguments: K3smCLI.nodesArguments, what: "node list", environment: environment,
-            decode: NodeListRead.tabResult(exitCode:stdout:),
+            read: {
+                await WatchRead.read(
+                    stream: nodeStream, decode: { NodeListRead.tabResult(exitCode: 0, stdout: $0) },
+                    poll: {
+                        let outcome = await TabLoader<NodeListRead>.run(arguments: K3smCLI.nodesArguments, environment: environment)
+                        return TabLoader<NodeListRead>.result(of: outcome, what: "node list", decode: NodeListRead.tabResult(exitCode:stdout:))
+                    })
+            },
             interval: { _ in PollSchedule.visibleInterval })
         nodeList.onRead = { [weak self] in
             self?.load = HostLoad.read()
             self?.onNodesRead?()
         }
         forward(nodeList)
+        nodeStream.onPublish = { [weak self] in
+            Task { await self?.nodeList.refresh() }
+        }
+        podStream.onPublish = { [weak self] in
+            guard let self, let pods = self.pods else { return }
+            self.controllersCache.markPush()
+            Task { await pods.refresh() }
+        }
         LocalActions.summarize = { [weak summaries] in summaries?.summarize($0) }
         metricsPoller = MetricsPoller(environment: environment) { [weak self] reading, at in
             self?.metrics.apply(reading, at: at)
@@ -121,6 +152,25 @@ final class WorkloadsModel: ObservableObject {
         metricsPoller?.stop()
     }
 
+    /// Starts the pod and node watches with the console's reads: at most
+    /// these two are held at once.
+    func startStreams() {
+        podStream.start()
+        nodeStream.start()
+    }
+
+    /// Stops both watches, killing their processes; the lists stay.
+    func stopStreams() {
+        podStream.stop()
+        nodeStream.stop()
+    }
+
+    /// After a system wake: each running watch is restarted once.
+    func wakeStreams() {
+        podStream.wake()
+        nodeStream.wake()
+    }
+
     /// Records a full status report's update row for the Stats tab.
     func noteUpdate(_ report: StatusReport, at time: Date) {
         stats.record(update: report, at: time)
@@ -135,8 +185,10 @@ final class WorkloadsModel: ObservableObject {
     func podsLoader() -> TabLoader<Workloads> {
         if let pods { return pods }
         let environment = environment
+        let stream = podStream
+        let cache = controllersCache
         let loader = TabLoader<Workloads>(
-            read: { await WorkloadsRead.read(environment: environment) },
+            read: { await WorkloadsRead.read(environment: environment, stream: stream, cache: cache) },
             interval: { _ in PollSchedule.interval(for: .workloads, engineReady: false) })
         loader.onRead = { [weak self] in
             guard let self else { return }
@@ -361,12 +413,29 @@ final class WorkloadsModel: ObservableObject {
 /// through `TabLoader.run`. The pods decide the tab's result; the
 /// controllers only add Pause and Resume
 /// (`Workloads.tabResult(podsExit:podsStdout:controllers:)`), so a
-/// controller read that fails leaves them off.
+/// controller read that fails leaves them off. While the pod watch is live
+/// the pod list is the stream's and no pod list is run; the controllers
+/// stay on the loader's timer, and a read the stream asked for reuses the
+/// last controllers rather than running them again.
 enum WorkloadsRead {
-    nonisolated static func read(environment: [String: String]) async -> TabResult<Workloads> {
+    nonisolated static func read(environment: [String: String], stream: WatchStream, cache: ControllersCache) async -> TabResult<Workloads> {
+        let pushed = cache.takePush()
+        if await stream.currentList() != nil {
+            var controllers = pushed ? cache.last : nil
+            if controllers == nil, case .exited(let code, let out) = await TabLoader<Workloads>.run(
+                arguments: K3smCLI.controllersArguments, environment: environment) {
+                controllers = (code, out)
+                cache.store(code, out)
+            }
+            // The list is taken after the controllers read, so it is the newest.
+            if let list = await stream.liveList {
+                return Workloads.tabResult(podsExit: 0, podsStdout: list, controllers: controllers)
+            }
+        }
         let list = await TabLoader<Workloads>.run(arguments: K3smCLI.workloadsArguments, environment: environment)
         guard case .exited(let status, let stdout) = list, status == 0, !Task.isCancelled else {
-            return TabLoader<Workloads>.result(of: list, what: "pod list", decode: Workloads.tabResult(exitCode:stdout:))
+            let result = TabLoader<Workloads>.result(of: list, what: "pod list", decode: Workloads.tabResult(exitCode:stdout:))
+            return WatchRead.fallback(result, state: await stream.state)
         }
         var controllers: (exit: Int32, stdout: Data)?
         if case .exited(let code, let out) = await TabLoader<Workloads>.run(
@@ -375,4 +444,28 @@ enum WorkloadsRead {
         }
         return Workloads.tabResult(podsExit: status, podsStdout: stdout, controllers: controllers)
     }
+}
+
+/// ControllersCache keeps the last controllers read beside the streamed pod
+/// list, and whether the next pod read was asked for by the stream.
+final class ControllersCache: Sendable {
+    private struct State {
+        var push = false
+        var last: (exit: Int32, stdout: Data)?
+    }
+    private let state = Mutex(State())
+
+    func markPush() { state.withLock { $0.push = true } }
+
+    /// Whether the read now starting was the stream's; the flag is cleared.
+    func takePush() -> Bool {
+        state.withLock { s in
+            defer { s.push = false }
+            return s.push
+        }
+    }
+
+    var last: (exit: Int32, stdout: Data)? { state.withLock { $0.last } }
+
+    func store(_ exit: Int32, _ stdout: Data) { state.withLock { $0.last = (exit, stdout) } }
 }
