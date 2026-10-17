@@ -68,18 +68,23 @@ public struct StatusRow: Decodable, Equatable, Sendable {
     /// The CLI's `severity` word for the row (`ok`, `warn`, `fail`, `skip`
     /// or `unknown`), as printed; "" when the field is missing or mistyped.
     public let severity: String
+    /// What is wrong and how to fix it, on a row that needs attention
+    /// (`StatusAlert`); nil when the row carries none, as on an older k3sm,
+    /// or when the field is not an alert this build can read.
+    public let alert: StatusAlert?
 
     public init(name: String, state: String, detail: String, remedy: String = "", wide: [String: String] = [:],
-                severity: String = "") {
+                severity: String = "", alert: StatusAlert? = nil) {
         self.name = name
         self.state = state
         self.detail = detail
         self.remedy = remedy
         self.wide = wide
         self.severity = severity
+        self.alert = alert
     }
 
-    private enum CodingKeys: String, CodingKey { case name, state, detail, remedy, wide, severity }
+    private enum CodingKeys: String, CodingKey { case name, state, detail, remedy, wide, severity, alert }
 
     /// Any key of the `wide` map.
     private struct WideKey: CodingKey {
@@ -96,6 +101,7 @@ public struct StatusRow: Decodable, Equatable, Sendable {
         detail = try c.decode(String.self, forKey: .detail)
         remedy = (try? c.decodeIfPresent(String.self, forKey: .remedy)) ?? ""
         severity = ((try? c.decodeIfPresent(String.self, forKey: .severity)) ?? nil) ?? ""
+        alert = (try? c.decodeIfPresent(StatusAlert.self, forKey: .alert)) ?? nil
         var wide: [String: String] = [:]
         if let w = try? c.nestedContainer(keyedBy: WideKey.self, forKey: .wide) {
             for key in w.allKeys {

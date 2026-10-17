@@ -20,13 +20,16 @@ import K3smStatus
 import SwiftUI
 
 /// AlertsSection is the Alerts tab: the issues behind the status headline
-/// (`ClusterIssues`), one card per check that is failing or needs attention,
-/// grouped worst first, then the report's next commands. While the update
-/// plan offers Update its card comes first (`UpdateCard`), the console's one
-/// Update button. When the report is clean and there is no card to show, the
-/// tab rests: one sentence saying everything is healthy with the report's
-/// age, over the butterfly's field (`FieldScene`). It reads only
-/// `AppModel.report` and the update plan, so it has no loader of its own.
+/// (`ClusterIssues`), one card per listed check, grouped worst first, then
+/// the report's next commands. A card with an alert leads with its cause,
+/// then its evidence, numbered fix steps (Copy only, never run) and guide
+/// link. While the update plan offers Update its card comes first
+/// (`UpdateCard`), the console's one Update button. When the report is clean
+/// and there is no card to show, the tab rests: one sentence saying
+/// everything is healthy with the report's age, over the butterfly's field
+/// (`FieldScene`), with any check that could not tell or needs an
+/// administrator listed under it. It reads only `AppModel.report` and the
+/// update plan, so it has no loader of its own.
 struct AlertsSection: View {
     @ObservedObject var app: AppModel
 
@@ -44,6 +47,7 @@ struct AlertsSection: View {
                             Text(verbatim: issues.healthyLine(now: context.date)).font(.system(size: 15, weight: .semibold))
                         }
                         FieldScene()
+                        IssueGroups(groups: issues.groups)
                     }
                     .padding(.horizontal, 20).padding(.vertical, 28)
                     .frame(maxWidth: .infinity, alignment: .top)
@@ -67,14 +71,7 @@ struct AlertsSection: View {
                         if let card {
                             UpdateCardView(app: app, card: card)
                         }
-                        ForEach(Array(issues.groups.enumerated()), id: \.offset) { _, group in
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(verbatim: group.heading).font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.ink2)
-                                ForEach(Array(group.issues.enumerated()), id: \.offset) { _, issue in
-                                    IssueCard(issue: issue)
-                                }
-                            }
-                        }
+                        IssueGroups(groups: issues.groups)
                         if !issues.next.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(verbatim: ClusterIssues.nextTitle).font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.ink2)
@@ -133,8 +130,29 @@ private struct UpdateCardView: View {
     }
 }
 
-/// IssueCard is one listed check: its name and state badge, its
-/// detail, and its remedy's steps.
+/// IssueGroups is the listed checks, a heading over each level's cards.
+private struct IssueGroups: View {
+    let groups: [ClusterIssueGroup]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(verbatim: group.heading).font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.ink2)
+                    ForEach(Array(group.issues.enumerated()), id: \.offset) { _, issue in
+                        IssueCard(issue: issue)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// IssueCard is one listed check: its name and state badge, then its alert
+/// (`AlertBody`), or, from a k3sm that prints none, its detail; then its
+/// remedy's lines (`ClusterIssue.remedyLines`: all without an alert, and
+/// under an alert only when it has no fix step).
 private struct IssueCard: View {
     let issue: ClusterIssue
 
@@ -150,11 +168,13 @@ private struct IssueCard: View {
                     .help(Help.Alerts.stateBadge)
                     .accessibilityLabel(Text(verbatim: issue.level.title + ": " + issue.state))
             }
-            if !issue.detail.isEmpty {
+            if let alert = issue.alert {
+                AlertBody(alert: alert)
+            } else if !issue.detail.isEmpty {
                 Text(verbatim: issue.detail).font(.callout).foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            ForEach(Array(issue.remedy.enumerated()), id: \.offset) { _, step in
+            ForEach(Array(issue.remedyLines.enumerated()), id: \.offset) { _, step in
                 RemedyLine(step: step)
             }
         }
@@ -164,11 +184,112 @@ private struct IssueCard: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.line, lineWidth: 1))
     }
 
-    /// The badge's colour for a level: red failing, amber for the other faults.
+    /// The badge's colour for a level: red failing, amber for the other
+    /// faults, grey for a check that could not tell or needs an administrator.
     static func colour(_ level: IssueLevel) -> Color {
         switch level {
         case .failing: return Palette.bad
         case .warning, .reported: return Palette.warn
+        case .unknown, .needsAdmin: return Palette.unknown
+        }
+    }
+}
+
+/// AlertBody is a card's alert: the cause as the lead line, when it began,
+/// the evidence behind a disclosure, the numbered fix steps, and the guide
+/// link. It shows and copies; nothing here runs a step.
+private struct AlertBody: View {
+    let alert: IssueAlert
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(verbatim: alert.cause).font(.callout).foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let since = alert.since {
+                Text(verbatim: since).font(.caption).foregroundStyle(Palette.ink2)
+            }
+            if !alert.evidence.isEmpty {
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(alert.evidence.enumerated()), id: \.offset) { _, line in
+                            Text(verbatim: line).font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let more = alert.moreEvidence {
+                            Text(verbatim: more).font(.caption).foregroundStyle(Palette.ink2)
+                        }
+                    }
+                    .padding(.top, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } label: {
+                    Text(verbatim: alert.evidenceTitle).font(.caption).foregroundStyle(Palette.ink2)
+                }
+                .help(Help.Alerts.evidence)
+            }
+            ForEach(Array(alert.steps.enumerated()), id: \.offset) { _, step in
+                FixStepLine(step: step)
+            }
+            if let more = alert.moreSteps {
+                Text(verbatim: more).font(.caption).foregroundStyle(Palette.ink2)
+            }
+            if let url = alert.docs {
+                Button(IssueAlert.docsTitle) { NSWorkspace.shared.open(url) }
+                    .buttonStyle(.link)
+                    .controlSize(.small)
+                    .help(Help.Alerts.docs)
+            }
+        }
+    }
+}
+
+/// FixStepLine is one numbered fix step: its text, its administrator and
+/// confirm marks, and its command in the monospaced well with a Copy button
+/// when the command may be copied (`IssueStep.copy`). There is no Run.
+private struct FixStepLine: View {
+    let step: IssueStep
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(verbatim: step.numberText).font(.callout.monospacedDigit()).foregroundStyle(Palette.ink2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verbatim: step.text).font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                if step.needsAdmin || step.confirm {
+                    HStack(spacing: 10) {
+                        if step.needsAdmin {
+                            Label { Text(verbatim: IssueAlert.adminMark) } icon: { Image(systemName: "lock.fill") }
+                                .font(.caption).foregroundStyle(Palette.ink2)
+                                .help(Help.Alerts.adminMark)
+                        }
+                        if step.confirm {
+                            Label { Text(verbatim: IssueAlert.confirmMark) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                                .font(.caption.weight(.semibold)).foregroundStyle(Palette.warn)
+                                .help(Help.Alerts.confirmMark)
+                        }
+                    }
+                }
+                if let command = step.command {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(verbatim: command)
+                            .font(.system(.callout, design: .monospaced))
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Palette.wash)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        if let copy = step.copy {
+                            Button("Copy") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(copy, forType: .string)
+                            }
+                            .controlSize(.small)
+                            .help(Help.Alerts.copyStep)
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -392,7 +392,23 @@ public enum Help {
         public static let stateBadge = HelpTag("The state word k3sm status printed for this check",
                                                control: "alerts: state badge")
 
-        public static let all = [copyCommand, stateBadge]
+        /// The Copy button beside an alert's fix step command.
+        public static let copyStep = HelpTag("Copy this step's command exactly as k3sm printed it",
+                                             control: "alerts: fix step Copy button", label: "Copy")
+        /// The disclosure that shows an alert's evidence.
+        public static let evidence = HelpTag("Show the facts the check saw",
+                                             control: "alerts: Evidence disclosure", label: "Evidence")
+        /// The link to the guide page that covers an alert.
+        public static let docs = HelpTag("Open the k3sm guide page about this problem in your browser",
+                                         control: "alerts: Read the guide link", label: IssueAlert.docsTitle)
+        /// The lock mark on a fix step that needs an administrator.
+        public static let adminMark = HelpTag("Its command asks for an administrator password in Terminal",
+                                              control: "alerts: needs an administrator mark", label: IssueAlert.adminMark)
+        /// The mark on a fix step that destroys state or relaxes trust.
+        public static let confirmMark = HelpTag("This step deletes state or relaxes trust; read it first",
+                                                control: "alerts: Check before running mark", label: IssueAlert.confirmMark)
+
+        public static let all = [copyCommand, stateBadge, copyStep, evidence, docs, adminMark, confirmMark]
     }
 
     // MARK: Inspector

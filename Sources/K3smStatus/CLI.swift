@@ -476,6 +476,14 @@ public enum StatusDisplay {
     /// and kubelet reasons, so none of them may reorder or hide what is
     /// shown around them.
     public static func clip(_ text: String) -> String {
+        let flat = oneLine(text)
+        guard flat.count > maxLength else { return flat }
+        return String(flat.prefix(maxLength - 1)) + "…"
+    }
+
+    /// `clip` without the length cap: a line-breaking character becomes a
+    /// space and format characters are removed.
+    public static func oneLine(_ text: String) -> String {
         var flat = ""
         for character in text {
             let scalars = character.unicodeScalars
@@ -487,8 +495,7 @@ public enum StatusDisplay {
             kept.append(contentsOf: scalars.filter { $0.properties.generalCategory != .format })
             flat.append(contentsOf: String(kept))
         }
-        guard flat.count > maxLength else { return flat }
-        return String(flat.prefix(maxLength - 1)) + "…"
+        return flat
     }
 
     /// Returns cluster output safe to show as a block of text (the
