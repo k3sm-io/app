@@ -87,6 +87,7 @@ refuses to install from it; install the staged tree through the CLI instead
 ```sh
 hack/release/verify-release.sh vX.Y.Z [--repo <owner/name>] [--team-id <TEAMID>]
 hack/release/verify-release.sh --image <file.dmg> --checksums <file> [--team-id <TEAMID>]
+hack/release/verify-release.sh --stable-url [--repo <owner/name>]
 hack/release/verify-release.sh --self-test [<k3sm.app>]
 ```
 
@@ -103,6 +104,12 @@ into a fresh private temporary directory and checks, failing on any miss:
    exactly `k3sm.app` and an `Applications` symlink to `/Applications`
 4. the app's bundle id, version and `codesign --verify --strict --deep`; for a
    release, its Developer ID team, staple and compiled Team ID pin
+
+`--stable-url` checks the latest release's stable link instead (network; the
+self-test uses fixtures): the release carries both `k3sm_<version>_darwin_arm64.dmg`
+and `k3sm_darwin_arm64.dmg`, the checksums file has exactly one line for each
+with the same sha256, the release's asset digests match it, and a HEAD request
+for `releases/latest/download/k3sm_darwin_arm64.dmg` redirects to that tag.
 
 Nothing is mounted until 1 and 2 pass. `--image` runs the same checks on a
 local image; an image named `-unsigned.dmg` is a rehearsal and must instead be

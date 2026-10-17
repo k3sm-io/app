@@ -7,6 +7,7 @@
 #   hack/release/verify-release.sh <tag> [--repo <owner/name>] [--team-id <TEAMID>]
 #   hack/release/verify-release.sh --image <file.dmg> --checksums <file>
 #                                  [--team-id <TEAMID>]
+#   hack/release/verify-release.sh --stable-url [--repo <owner/name>]
 #   hack/release/verify-release.sh --self-test [<k3sm.app>]
 #
 # <tag> downloads k3sm_<version>_darwin_arm64.dmg and k3sm_<version>_checksums.txt
@@ -15,6 +16,17 @@
 # temporary directory, checks them, and removes the directory. --image checks a
 # local image against a local checksums file the same way; release.sh
 # --rehearsal runs it on the rehearsal image.
+#
+# --stable-url checks the stable link of the LATEST release (network, https
+# only, no credential; --self-test drives the same decision from fixtures and
+# makes no request). Every one required; any miss is a failure (exit 1):
+#   a. the latest release carries k3sm_<v>_darwin_arm64.dmg, the same image
+#      under the fixed alias k3sm_darwin_arm64.dmg, and the checksums file
+#   b. the checksums file has exactly one line for each image name, with the
+#      same sha256
+#   c. each image asset's digest, as the API reports it, is that sha256
+#   d. a HEAD request for releases/latest/download/k3sm_darwin_arm64.dmg
+#      redirects (not followed) to that same tag's alias asset
 #
 # THE CHECKS, every one required; any miss is a failure (exit 1):
 #   1. the image is named exactly k3sm_<version>_darwin_arm64.dmg (a release)
@@ -72,7 +84,7 @@ TEAM_PIN_MARKER='k3sm-team-id-pin:'
 CURL_PROTO='=https'
 
 die() { echo "verify-release: $*" >&2; exit 1; }
-usage() { sed -n '7,10p' "$0" | sed 's/^# //' >&2; exit 2; }
+usage() { sed -n '7,11p' "$0" | sed 's/^# //' >&2; exit 2; }
 
 valid_version() { [[ "$1" =~ ^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-rc\.[0-9]{1,4})?$ ]]; }
 core_version() { local v="${1#v}"; printf '%s' "${v%-rc.*}"; }
@@ -286,6 +298,87 @@ verify_tag() (
 	fetch "$base/$sums" "$d/$sums" || { echo "verify-release: FAIL cannot download $base/$sums" >&2; exit 1; }
 	fetch "$base/$img" "$d/$img" || { echo "verify-release: FAIL cannot download $base/$img (does the release carry a disk image?)" >&2; exit 1; }
 	verify_image "$d/$img" "$d/$sums" "$pin"
+)
+
+# ---- the stable link ------------------------------------------------------------------
+STABLE_NAME=k3sm_darwin_arm64.dmg
+
+# release_facts <release.json>: prints the tag on line 1 and one
+# "<asset name> <sha256 digest or ->" line per asset.
+release_facts() {
+	/usr/bin/python3 -I -c '
+import json, sys
+r = json.load(open(sys.argv[1]))
+print(r.get("tag_name", ""))
+for a in r.get("assets", []):
+    d = a.get("digest") or "-"
+    print(a.get("name", ""), d[7:] if d.startswith("sha256:") else d)
+' "$1"
+}
+
+# stable_problems <repo> <release.json> <checksums> <location>: prints every
+# problem of the --stable-url header; zero only when all pass. <location> is the
+# Location header of the HEAD request for the latest/download alias.
+stable_problems() {
+	local repo="$1" json="$2" sums="$3" loc="$4" rc=0 facts tag img n line count want digest
+	facts="$(release_facts "$json" 2>/dev/null)" || { echo "    the release JSON does not parse"; return 1; }
+	tag="$(sed -n 1p <<<"$facts")"
+	valid_version "$tag" || { echo "    the latest release's tag '$tag' is not vMAJOR.MINOR.PATCH[-rc.N]"; return 1; }
+	img="$(image_name "$tag")"
+	for n in "$img" "$STABLE_NAME" "$(checksums_name "$tag")"; do
+		sed 1d <<<"$facts" | awk -v n="$n" '$1 == n { f = 1 } END { exit !f }' ||
+			{ echo "    the release $tag has no asset $n"; rc=1; }
+	done
+	if [ -L "$sums" ] || [ ! -f "$sums" ]; then
+		echo "    no checksums file at $sums"; rc=1
+	else
+		want=""
+		for n in "$img" "$STABLE_NAME"; do
+			line="$(awk -v n="$n" 'substr($0, 67) == n' "$sums")"
+			count="$(printf '%s' "$line" | grep -c . || true)"
+			if [ "$count" != 1 ]; then
+				echo "    $(basename "$sums") has $count lines for $n, not exactly one"; rc=1
+				continue
+			fi
+			line="${line%%  *}"
+			[[ "$line" =~ ^[0-9a-f]{64}$ ]] || { echo "    the line for $n is not a sha256"; rc=1; continue; }
+			if [ -z "$want" ]; then want="$line"; elif [ "$line" != "$want" ]; then
+				echo "    $STABLE_NAME and $img list different sha256 values ($line, $want)"; rc=1
+			fi
+			digest="$(sed 1d <<<"$facts" | awk -v n="$n" '$1 == n { print $2 }')"
+			[ "$digest" = "$line" ] || { echo "    the release's digest for $n is '$digest', not $line as the checksums list"; rc=1; }
+		done
+	fi
+	loc="${loc%$'\r'}"
+	if [ "$loc" != "https://github.com/$repo/releases/download/$tag/$STABLE_NAME" ] &&
+		[ "$loc" != "/$repo/releases/download/$tag/$STABLE_NAME" ]; then
+		echo "    the latest/download alias redirects to '$loc', not to the $tag asset $STABLE_NAME"; rc=1
+	fi
+	return "$rc"
+}
+
+# verify_stable <repo>: fetch the latest release, its checksums file and the
+# alias redirect into a private directory, then decide.
+verify_stable() (
+	local repo="$1" d tag problems loc
+	d="$(mktemp -d)"
+	chmod 700 "$d"
+	trap 'rm -rf "$d"' EXIT
+	fetch "https://api.github.com/repos/$repo/releases/latest" "$d/release.json" ||
+		{ echo "verify-release: FAIL cannot read the latest release of $repo" >&2; exit 1; }
+	tag="$(release_facts "$d/release.json" | sed -n 1p)"
+	valid_version "$tag" || { echo "verify-release: FAIL the latest release's tag '$tag' is not a version" >&2; exit 1; }
+	fetch "https://github.com/$repo/releases/download/$tag/$(checksums_name "$tag")" "$d/sums.txt" ||
+		{ echo "verify-release: FAIL cannot download the checksums file of $tag" >&2; exit 1; }
+	loc="$(curl -sS -I --proto "$CURL_PROTO" --max-redirs 0 --retry 2 "https://github.com/$repo/releases/latest/download/$STABLE_NAME" 2>/dev/null |
+		awk 'tolower($1) == "location:" { print $2 }' | tail -1 || true)"
+	if problems="$(stable_problems "$repo" "$d/release.json" "$d/sums.txt" "$loc")"; then
+		echo "verify-release: ok stable $STABLE_NAME is $tag"
+		return 0
+	fi
+	echo "verify-release: FAIL the stable link of $tag" >&2
+	printf '%s\n' "$problems" >&2
+	return 1
 )
 
 # ---- self-test ----------------------------------------------------------------------
@@ -506,6 +599,47 @@ EOF
 	expect "the CLI refuses a repo that is not owner/name" 2 "not owner/name" bash "$0" v1.2.3 --repo 'a/b;c'
 	expect "the CLI refuses a malformed --team-id" 2 "not a 10-character Team ID" bash "$0" --image "$good" --checksums "$T/x" --team-id abc
 
+	echo "the stable link (JSON and header fixtures; no request is made)"
+	local V="$T/stable" st="v1.2.3" sh1 sh2 vn sn cn
+	mkdir -p "$V"
+	vn="$(image_name "$st")"; sn="$STABLE_NAME"; cn="$(checksums_name "$st")"
+	sh1="$(printf 'a%.0s' $(seq 64))"; sh2="$(printf 'b%.0s' $(seq 64))"
+	# rel_json <file> <tag> <assets...>: each asset is name:digest.
+	rel_json() {
+		local f="$1" t="$2" a first=1
+		shift 2
+		{ printf '{"tag_name":"%s","assets":[' "$t"
+			for a in "$@"; do
+				[ "$first" = 1 ] || printf ','
+				first=0
+				printf '{"name":"%s","digest":"sha256:%s"}' "${a%%:*}" "${a#*:}"
+			done
+			printf ']}\n'; } >"$f"
+	}
+	good_loc="https://github.com/$DEFAULT_REPO/releases/download/$st/$sn"
+	rel_json "$V/good.json" "$st" "$vn:$sh1" "$sn:$sh1" "$cn:$sh2"
+	printf '%s  %s\n%s  %s\n' "$sh1" "$vn" "$sh1" "$sn" >"$V/good.txt"
+	expect "a good latest release passes" 0 "" stable_problems "$DEFAULT_REPO" "$V/good.json" "$V/good.txt" "$good_loc"
+	expect "a path-only Location passes" 0 "" stable_problems "$DEFAULT_REPO" "$V/good.json" "$V/good.txt" "/$DEFAULT_REPO/releases/download/$st/$sn"
+	expect "a CRLF Location passes" 0 "" stable_problems "$DEFAULT_REPO" "$V/good.json" "$V/good.txt" "$good_loc"$'\r'
+	rel_json "$V/nostable.json" "$st" "$vn:$sh1" "$cn:$sh2"
+	expect "a release missing the stable name fails" 1 "has no asset $sn" stable_problems "$DEFAULT_REPO" "$V/nostable.json" "$V/good.txt" "$good_loc"
+	rel_json "$V/noversioned.json" "$st" "$sn:$sh1" "$cn:$sh2"
+	expect "a release missing the versioned name fails" 1 "has no asset $vn" stable_problems "$DEFAULT_REPO" "$V/noversioned.json" "$V/good.txt" "$good_loc"
+	printf '%s  %s\n%s  %s\n' "$sh1" "$vn" "$sh2" "$sn" >"$V/differ.txt"
+	expect "two different sha256 lines fail" 1 "list different sha256" stable_problems "$DEFAULT_REPO" "$V/good.json" "$V/differ.txt" "$good_loc"
+	printf '%s  %s\n' "$sh1" "$vn" >"$V/oneline.txt"
+	expect "a checksums file with no stable line fails" 1 "has 0 lines for $sn" stable_problems "$DEFAULT_REPO" "$V/good.json" "$V/oneline.txt" "$good_loc"
+	printf '%s  %s\n%s  %s\n%s  %s\n' "$sh1" "$vn" "$sh1" "$sn" "$sh1" "$sn" >"$V/dup.txt"
+	expect "two stable lines fail" 1 "has 2 lines for $sn" stable_problems "$DEFAULT_REPO" "$V/good.json" "$V/dup.txt" "$good_loc"
+	rel_json "$V/baddigest.json" "$st" "$vn:$sh1" "$sn:$sh2" "$cn:$sh2"
+	expect "an asset digest that differs from the checksums fails" 1 "digest for $sn" stable_problems "$DEFAULT_REPO" "$V/baddigest.json" "$V/good.txt" "$good_loc"
+	expect "a redirect to the wrong tag fails" 1 "redirects to" stable_problems "$DEFAULT_REPO" "$V/good.json" "$V/good.txt" "https://github.com/$DEFAULT_REPO/releases/download/v1.2.2/$sn"
+	expect "no redirect at all fails" 1 "redirects to ''" stable_problems "$DEFAULT_REPO" "$V/good.json" "$V/good.txt" ""
+	printf 'not json\n' >"$V/bad.json"
+	expect "release JSON that does not parse fails" 1 "does not parse" stable_problems "$DEFAULT_REPO" "$V/bad.json" "$V/good.txt" "$good_loc"
+	expect "the CLI refuses --stable-url with a tag" 2 "" bash "$0" --stable-url v1.2.3
+
 	# Read the list whole: grep -q would end the pipe early, and under pipefail
 	# hdiutil's SIGPIPE would read as "not found".
 	local attached_now
@@ -522,7 +656,7 @@ EOF
 
 # ---- main -------------------------------------------------------------------------
 main() {
-	local tag="" repo="$DEFAULT_REPO" image="" sums="" pin=""
+	local tag="" repo="$DEFAULT_REPO" image="" sums="" pin="" stable=0
 	case "${1:-}" in
 	--self-test)
 		[ "$#" -le 2 ] || usage
@@ -535,6 +669,7 @@ main() {
 		case "$1" in
 		--repo) repo="${2:?--repo needs a value}"; shift 2 ;;
 		--team-id) pin="${2:?--team-id needs a value}"; shift 2 ;;
+		--stable-url) stable=1; shift ;;
 		--image) image="${2:?--image needs a value}"; shift 2 ;;
 		--checksums) sums="${2:?--checksums needs a value}"; shift 2 ;;
 		-*) echo "verify-release: unknown argument: $1" >&2; usage ;;
@@ -542,6 +677,12 @@ main() {
 		esac
 	done
 	[ -z "$pin" ] || [[ "$pin" =~ ^[A-Z0-9]{10}$ ]] || { echo "verify-release: --team-id '$pin' is not a 10-character Team ID" >&2; exit 2; }
+	if [ "$stable" = 1 ]; then
+		[ -z "$tag" ] && [ -z "$image" ] && [ -z "$sums" ] && [ -z "$pin" ] || usage
+		[[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "verify-release: --repo '$repo' is not owner/name" >&2; exit 2; }
+		verify_stable "$repo"
+		return
+	fi
 	if [ -n "$image" ] || [ -n "$sums" ]; then
 		[ -z "$tag" ] && [ -n "$image" ] && [ -n "$sums" ] || usage
 		verify_image "$image" "$sums" "$pin"
