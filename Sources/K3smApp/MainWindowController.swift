@@ -38,6 +38,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         self.model = model
     }
 
+    /// The console window, nil until it is first shown.
+    var consoleWindow: NSWindow? { window }
+
     /// Shows the window, creating it on first use, and refreshes the model.
     func show() {
         let window = self.window ?? makeWindow()

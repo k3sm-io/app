@@ -34,8 +34,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var noticePending = false
     private var activity: NSObjectProtocol?
     private var sessionObservers: [NSObjectProtocol] = []
+    /// The scripted demo tour, when `--demo-tour` named one.
+    private var demo: DemoTourRunner?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // A refused --demo-tour argument or file ends the process here,
+        // before anything is built.
+        let demoTour = DemoTourRunner.load()
         let loginLaunch = Self.launchedAsLoginItem()
         let environment = SelfCheck.cliEnvironment()
         let model = AppModel(runner: AppleScriptPrivilegedRunner(), environment: environment)
@@ -70,14 +75,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             options: [.userInitiatedAllowingIdleSystemSleep],
             reason: "Polls k3sm status for the menu bar item"
         )
-        model.loginItemNeedsApproval = LoginItem.registerOnFirstLaunch() == .requiresApproval
+        // A demo tour run registers no login item: it is a recording, not
+        // the user's first launch.
+        if demoTour == nil {
+            model.loginItemNeedsApproval = LoginItem.registerOnFirstLaunch() == .requiresApproval
+        }
         observeSession()
         poller.start()
         log.notice("k3sm app started")
         // A login-item launch shows only the status item, unless Settings asks
         // for the window at login too; any launch the user made (Finder,
         // Spotlight, the Dock) shows the window.
-        if preferences.preferences.opensWindow(loginLaunch: loginLaunch) {
+        if let demoTour {
+            // The demo tour always shows the window, then walks it and quits.
+            windowController.show()
+            let demo = DemoTourRunner(entries: demoTour, model: model, window: { [weak windowController] in windowController?.consoleWindow })
+            self.demo = demo
+            demo.start()
+        } else if preferences.preferences.opensWindow(loginLaunch: loginLaunch) {
             windowController.show()
         }
     }

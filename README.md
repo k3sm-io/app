@@ -1043,6 +1043,43 @@ the swift-testing macro plugin path; `hack/ci.sh` adds it for you.
 `docs/ARCHITECTURE.md` maps the source targets.
 Every control's tooltip follows the help tag standard in its § Help tags.
 
+### The demo tour
+
+The release recording drives the console with a scripted tour instead of a
+pointer:
+
+```sh
+.build/debug/K3smApp --demo-tour hack/demo/release-tour.json
+out/k3sm.app/Contents/MacOS/k3sm-app --demo-tour hack/demo/release-tour.json
+```
+
+A tour is a JSON object whose `steps` list holds one step per line:
+
+| step | what it does |
+|---|---|
+| `selectTab <tab>` | chooses a tab: `workloads`, `nodes`, `images`, `builds`, `services`, `storage`, `models` or `stats` |
+| `selectWorkloadsView <pods\|events>` | chooses the Workloads tab's view |
+| `selectRow pod <namespace>/<name>` | selects a pod; a name ending in `*` is a prefix, for a StatefulSet's pod |
+| `selectRow node <name>` | selects a node; `@server` is the control-plane node |
+| `openInspector`, `closeInspector` | shows or hides the inspector |
+| `runRead <logs\|events\|manifest\|refresh>` | shows the selected pod's logs, events or manifest, or reads the tab again |
+| `waitFor modelReady <namespace>/<name> [seconds]` | waits until the MLXModel is Ready |
+| `waitFor podRunning <namespace>/<name> [seconds]` | waits until the pod is Running and ready |
+| `waitFor nodesReady <count> [seconds]` | waits until that many nodes are Ready |
+| `pause <seconds>` | waits, up to 60 seconds |
+| `windowFrame <x> <y> <width> <height>` | places the window, from the main screen's top-left corner |
+| `end` | the last step: the app quits |
+
+A wait gives up after its timeout (120 seconds unless given, 900 at most).
+The app reads a tour only from the checkout's `hack/demo` or the bundle's
+`Resources/demo`, and refuses the whole tour before it starts if any step is
+unknown, out of order (a row before its tab is chosen, a pod read with no pod
+selected) or names anything but a read. A tour cannot reach any change to the
+cluster or the administrator step. The app quits with status 0 when the tour
+ends, 1 with the failed step on standard error, and 2 when the tour was
+refused. Reduce Motion turns off the tour's animations, and the stored tab,
+selection, inspector and window frame are put back before the app quits.
+
 ## Releases
 
 A k3sm release that carries the app attaches

@@ -953,6 +953,13 @@ final class AppModel: ObservableObject {
         return ModelsList.tabResult(listExit: status, listStdout: stdout, discovery: discovery)
     }
 
+    /// One read of the cluster's MLXModels, for the demo tour's
+    /// `waitFor modelReady`: nil when the read failed or the API is absent.
+    func readModelsOnce() async -> [ModelRow]? {
+        if case .value(let rows) = await Self.readModels(environment: environment) { return rows }
+        return nil
+    }
+
     /// The Events read, created on the sub-tab's first selection.
     private func eventsLoader() -> TabLoader<[ClusterEvent]> {
         if let events { return events }
