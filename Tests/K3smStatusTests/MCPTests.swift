@@ -56,6 +56,25 @@ final class FakeCluster: Sendable {
     }
 }
 
+/// ReadGate holds every read that enters it until `open()`, and counts them.
+actor ReadGate {
+    private(set) var entered = 0
+    private var isOpen = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func enter() async {
+        entered += 1
+        if isOpen { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        for continuation in waiting { continuation.resume() }
+        waiting = []
+    }
+}
+
 actor ReadRecord {
     private(set) var all: [ReadRequest] = []
     private(set) var cancelled = 0
@@ -77,8 +96,7 @@ enum MCPFixtures {
             ReadRequest.updateStatus.arguments: ok(try fixture("update-status-rolling.json")),
             ReadRequest.nodes.arguments: ok(try fixture("kubectl_nodes_two.json")),
             ReadRequest.events.arguments: ok(try fixture("kubectl_events.json")),
-            ReadRequest.nodeMetrics.arguments: ok(try fixture("kubectl_metrics_nodes.json")),
-            ReadRequest.podMetrics.arguments: ok(try fixture("kubectl_metrics_pods.json")),
+            ReadRequest.metrics.arguments: ok(try fixture("kubectl_metrics_combined.json")),
         ]
     }
 
@@ -165,9 +183,12 @@ enum MCPFixtures {
         update["nodes"] = updateNodes
         table[ReadRequest.updateStatus.arguments] = ok(try data(update))
 
-        var metrics = try json(try fixture("kubectl_metrics_pods.json"))
+        var metrics = try json(try fixture("kubectl_metrics_combined.json"))
         plant(&metrics)
-        table[ReadRequest.podMetrics.arguments] = ok(try data(metrics))
+        var metricItems = try #require(metrics["items"] as? [[String: Any]])
+        for i in metricItems.indices { plant(&metricItems[i]) }
+        metrics["items"] = metricItems
+        table[ReadRequest.metrics.arguments] = ok(try data(metrics))
         return table
     }
 
@@ -312,7 +333,7 @@ struct MCPTests {
         // The reads that exist: the fixed K3smCLI read lists, nothing else.
         #expect(ReadRequest.all.map(\.arguments) == [
             K3smCLI.reportArguments, K3smCLI.probeArguments, K3smCLI.versionArguments, K3smCLI.updateStatusArguments,
-            K3smCLI.nodesArguments, K3smCLI.eventsArguments, K3smCLI.nodeMetricsArguments, K3smCLI.podMetricsArguments,
+            K3smCLI.nodesArguments, K3smCLI.eventsArguments, K3smCLI.metricsArguments,
             K3smCLI.metricsAPIServiceArguments,
         ])
         let readWords = ["logs", "exec", "secret", "configmap", "yaml", "token", "kubeconfig", "config", "delete",
@@ -482,6 +503,52 @@ struct MCPTests {
         #expect(log.contains("tool=k3sm_nodes outcome=cancelled"))
     }
 
+    @Test("overlapping metrics calls share one read; the next call reads again; a lone cancelled caller cancels it")
+    func mcpMetricsSingleFlight() async throws {
+        let healthy = try MCPFixtures.healthy()
+        let gate = ReadGate()
+        let reader: ClusterReader = { request in
+            if request.arguments == ReadRequest.metrics.arguments { await gate.enter() }
+            return healthy[request.arguments] ?? .killed
+        }
+        let tools = ClusterTools(read: reader, appVersion: "0.2.0", now: { MCPFixtures.t0 })
+        async let a = tools.call(.metrics, arguments: [:])
+        async let b = tools.call(.metrics, arguments: [:])
+        async let c = tools.call(.metrics, arguments: [:])
+        // Hold the one read open until all three callers are waiting on it.
+        try await Task.sleep(for: .milliseconds(200))
+        await gate.open()
+        let results = await [a, b, c]
+        #expect(await gate.entered == 1, "one CLI run for three overlapping calls")
+        for result in results {
+            #expect(result.outcome == .ok)
+            #expect(result.structured?["metricsAPI"] == "served")
+            #expect(result == results[0])
+        }
+        // Once it finished, the next call makes a read of its own.
+        _ = await tools.call(.metrics, arguments: [:])
+        #expect(await gate.entered == 2)
+
+        // A caller cancelled alone cancels the shared read.
+        let cluster = FakeCluster(healthy, hanging: [ReadRequest.metrics.arguments])
+        let hanging = cluster.tools()
+        let call = Task { await hanging.call(.metrics, arguments: [:]) }
+        try await Task.sleep(for: .milliseconds(100))
+        call.cancel()
+        _ = await call.value
+        #expect(await cluster.cancelledReads() == 1)
+    }
+
+    @Test("a metrics read that failed but printed nodes answers with them, without the APIService read")
+    func mcpMetricsPartial() async throws {
+        let nodesOnly = #"{"kind":"List","items":[{"kind":"NodeMetrics","metadata":{"name":"mac-a"},"usage":{"cpu":"1","memory":"1Gi"}}]}"#
+        let cluster = FakeCluster([ReadRequest.metrics.arguments: .exited(status: 1, stdout: Data(nodesOnly.utf8))])
+        let result = try #require(await cluster.tools().call(.metrics, arguments: [:]).structured)
+        #expect(result["metricsAPI"] == "served")
+        #expect(result["podsRead"] == false)
+        #expect(await cluster.reads().map(\.arguments) == [ReadRequest.metrics.arguments])
+    }
+
     @Test("initialize negotiates the version; before 2025-06-18 results carry text only")
     func mcpVersionNegotiation() async throws {
         let cluster = FakeCluster(try MCPFixtures.healthy())
@@ -527,7 +594,7 @@ struct MCPTests {
             ReadRequest.updateStatus.arguments: MCPFixtures.ok(try fixture("update-status-rolling.json")),
             ReadRequest.nodes.arguments: .exited(status: 1, stdout: Data()),
             ReadRequest.events.arguments: .exited(status: 1, stdout: Data()),
-            ReadRequest.nodeMetrics.arguments: .exited(status: 1, stdout: Data()),
+            ReadRequest.metrics.arguments: .exited(status: 1, stdout: Data()),
             ReadRequest.metricsAPIService.arguments: .exited(status: 1, stdout: Data("connection refused".utf8)),
         ]
         let tools = FakeCluster(rolling, fallback: .killed).tools()

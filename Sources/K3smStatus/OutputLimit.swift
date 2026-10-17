@@ -25,8 +25,10 @@ public enum OutputLimit {
     public static let status = 1 << 20
     /// The pod and node lists: 16 MiB.
     public static let list = 16 << 20
-    /// One metrics-server list (nodes or pods): 4 MiB.
-    public static let metrics = 4 << 20
+    /// The metrics read, nodes and pods in one list: 16 MiB. Each list once
+    /// had 4 MiB of compact `--raw` JSON; the one read carries both, and
+    /// kubectl prints it indented, about twice the bytes, so 2 x 2 x 4 MiB.
+    public static let metrics = 16 << 20
     /// The inspector's logs, events or manifest: 64 KiB, the most it shows.
     public static let detail = 64 << 10
     /// One log read for the Summarize Logs action: 256 KiB, room for

@@ -23,9 +23,10 @@ import K3smStatus
 /// console is on screen: one loop makes every read and awaits each, so no two
 /// are ever in flight, and `MetricsSchedule.step` decides each move (15 s
 /// between reads, 60 s while the API is absent, nothing while the window is
-/// hidden). The node read comes first; the pod read follows it only when it
-/// exited 0, and the APIService read only when it did not. A stop cancels
-/// the loop and kills the run in flight; the next start waits for it.
+/// hidden), each wait spread by `PollJitter` with one draw per read. One
+/// read brings nodes and pods together; the APIService read follows only
+/// when it did not exit 0. A stop cancels the loop and kills the run in
+/// flight; the next start waits for it.
 @MainActor
 final class MetricsPoller {
     private let environment: [String: String]
@@ -34,6 +35,8 @@ final class MetricsPoller {
     private var stopping: Task<Void, Never>?
     private var lastRead: Date?
     private var absent = false
+    /// The jitter draw for the wait after the last read.
+    private var unit = 0.0
 
     init(environment: [String: String], onReading: @escaping @MainActor (MetricsReading, Date) -> Void) {
         self.environment = environment
@@ -50,12 +53,14 @@ final class MetricsPoller {
             await previous?.value
             while !Task.isCancelled {
                 guard let self else { return }
-                switch MetricsSchedule.step(visible: visible(), lastRead: self.lastRead, now: Date(), absent: self.absent) {
+                switch MetricsSchedule.step(
+                    visible: visible(), lastRead: self.lastRead, now: Date(), absent: self.absent, unit: self.unit) {
                 case .read:
                     let reading = await Self.read(environment: self.environment)
                     guard !Task.isCancelled else { return }
                     let now = Date()
                     self.lastRead = now
+                    self.unit = PollJitter.draw()
                     if case .absent = reading { self.absent = true }
                     if case .sampled = reading { self.absent = false }
                     self.onReading(reading, now)
@@ -73,25 +78,21 @@ final class MetricsPoller {
         loop = nil
     }
 
-    /// One poll: the node read, then the pod read or the APIService read.
+    /// One poll: the metrics read, then the APIService read if it failed and
+    /// printed nothing usable.
     nonisolated static func read(environment: [String: String]) async -> MetricsReading {
-        let nodes = await run(K3smCLI.nodeMetricsArguments, environment: environment, limit: OutputLimit.metrics)
+        let metrics = await run(K3smCLI.metricsArguments, environment: environment, limit: OutputLimit.metrics)
         guard !Task.isCancelled else { return .failed("cancelled") }
-        switch nodes {
+        switch metrics {
         case .missing:
             return .failed(TabLoad.notInstalled)
         case .failedToLaunch, .killed, .refused:
             return .failed("the k3sm CLI did not answer")
         case .truncated:
-            return .failed("the node metrics are larger than \(OutputLimit.metrics >> 20) MiB")
-        case .exited(0, let stdout):
-            var pods: (exit: Int32, stdout: Data)?
-            if case .exited(let status, let out) = await run(
-                K3smCLI.podMetricsArguments, environment: environment, limit: OutputLimit.metrics) {
-                pods = (status, out)
-            }
-            return Metrics.sampled(nodes: stdout, pods: pods)
-        case .exited(let status, _):
+            return .failed("the metrics are larger than \(OutputLimit.metrics >> 20) MiB")
+        case .exited(let status, let stdout):
+            // A failed read may still carry the kind kubectl could read.
+            if let reading = Metrics.sampled(combined: stdout, exit: status) { return reading }
             // Standard error is kept here so a NotFound can be told apart
             // from an apiserver that did not answer; on success kubectl
             // prints only the object.

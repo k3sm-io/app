@@ -49,16 +49,15 @@ public struct ReadRequest: Equatable, Sendable {
     public static let nodes = ReadRequest(K3smCLI.nodesArguments, deadline: PollSchedule.listDeadline, limit: OutputLimit.list)
     /// Every Event in the cluster.
     public static let events = ReadRequest(K3smCLI.eventsArguments, deadline: PollSchedule.listDeadline, limit: OutputLimit.list)
-    /// metrics-server's node and pod samples, and the APIService read that
-    /// says whether the metrics API is served.
-    public static let nodeMetrics = ReadRequest(K3smCLI.nodeMetricsArguments, deadline: PollSchedule.listDeadline, limit: OutputLimit.metrics)
-    public static let podMetrics = ReadRequest(K3smCLI.podMetricsArguments, deadline: PollSchedule.listDeadline, limit: OutputLimit.metrics)
+    /// metrics-server's node and pod samples in one read, and the APIService
+    /// read that says whether the metrics API is served.
+    public static let metrics = ReadRequest(K3smCLI.metricsArguments, deadline: PollSchedule.listDeadline, limit: OutputLimit.metrics)
     public static let metricsAPIService = ReadRequest(
         K3smCLI.metricsAPIServiceArguments, deadline: PollSchedule.listDeadline, limit: OutputLimit.status, keepErrors: true)
 
     /// Every read the server can run.
     public static let all: [ReadRequest] = [
-        report, probe, version, updateStatus, nodes, events, nodeMetrics, podMetrics, metricsAPIService,
+        report, probe, version, updateStatus, nodes, events, metrics, metricsAPIService,
     ]
 }
 

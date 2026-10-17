@@ -16,6 +16,7 @@ limitations under the License.
 
 import Foundation
 import K3smStatus
+import Synchronization
 
 /// CallOutcome is the word the call log records for one `tools/call`.
 public enum CallOutcome: String, Sendable {
@@ -71,6 +72,9 @@ public struct ClusterTools: Sendable {
     let read: ClusterReader
     let appVersion: String?
     let now: @Sendable () -> Date
+    /// The metrics read, shared by metrics calls that overlap: one CLI run
+    /// at a time however many clients ask.
+    let metricsFlight = SingleFlight()
 
     /// `appVersion` is the bundle's own version, nil when unknown.
     public init(read: @escaping ClusterReader, appVersion: String?, now: @escaping @Sendable () -> Date = { Date() }) {
@@ -275,19 +279,19 @@ public struct ClusterTools: Sendable {
 
     func metrics() async -> ToolResult {
         let at = now()
-        let nodes = await read(.nodeMetrics)
+        let metrics = await metricsFlight.run { [read] in await read(.metrics) }
         let reading: MetricsReading
-        switch nodes {
-        case .exited(0, let stdout):
-            var pods: (exit: Int32, stdout: Data)?
-            if case .exited(let status, let out) = await read(.podMetrics) { pods = (status, out) }
-            reading = Metrics.sampled(nodes: stdout, pods: pods)
-        case .exited(let status, _):
+        switch metrics {
+        case .exited(let status, let stdout):
+            if let partial = Metrics.sampled(combined: stdout, exit: status) {
+                reading = partial
+                break
+            }
             var apiService: (exit: Int32, stdout: Data)?
             if case .exited(let code, let out) = await read(.metricsAPIService) { apiService = (code, out) }
             reading = Metrics.unavailable(nodesExit: status, apiService: apiService)
         default:
-            return await unavailable(.outcome(nodes, what: "the node metrics"), at: at, update: true)
+            return await unavailable(.outcome(metrics, what: "the metrics"), at: at, update: true)
         }
         var result = Self.envelope(at: at)
         switch reading {
@@ -304,7 +308,7 @@ public struct ClusterTools: Sendable {
         case .failed:
             // The app shows this line, which may quote kubectl's own error
             // output; a tool result carries only the fixed sentence.
-            return await unavailable(.outcome(nodes, what: "the node metrics"), at: at, update: true)
+            return await unavailable(.outcome(metrics, what: "the metrics"), at: at, update: true)
         }
         return .value(result, outcome: .ok)
     }
@@ -506,5 +510,47 @@ public struct ClusterTools: Sendable {
 
     static func timestamp(_ date: Date) -> String {
         date.formatted(.iso8601)
+    }
+}
+
+/// SingleFlight shares one read among the callers that overlap it: the first
+/// caller starts the read, later callers until it finishes await the same
+/// outcome, and the next caller after it starts a new one. The read is
+/// cancelled only when every caller waiting on it was cancelled.
+final class SingleFlight: Sendable {
+    private struct State {
+        var task: Task<ReadOutcome, Never>?
+        var generation = 0
+        var waiters = 0
+    }
+
+    private let state = Mutex(State())
+
+    func run(_ body: @escaping @Sendable () async -> ReadOutcome) async -> ReadOutcome {
+        let (task, generation) = state.withLock { s -> (Task<ReadOutcome, Never>, Int) in
+            if let task = s.task {
+                s.waiters += 1
+                return (task, s.generation)
+            }
+            let task = Task { await body() }
+            s.task = task
+            s.generation += 1
+            s.waiters = 1
+            return (task, s.generation)
+        }
+        let outcome = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            let last = state.withLock { s -> Bool in
+                guard s.generation == generation else { return false }
+                s.waiters -= 1
+                return s.waiters == 0
+            }
+            if last { task.cancel() }
+        }
+        state.withLock { s in
+            if s.generation == generation { s.task = nil }
+        }
+        return outcome
     }
 }
