@@ -104,8 +104,8 @@ struct PanelLayoutTests {
         #expect(natural == min(PanelLayout.ceiling, max(PanelLayout.minimum, expected)))
         #expect(natural > PanelLayout.minimum)
         #expect(PanelLayout.widthRange(regions: regions) == PanelLayout.minimum...natural)
-        // Nothing compresses at the natural width: every tile is in one row.
-        #expect(PanelLayout.tileRowFits(width: natural, tileWidths: Self.tiles.map(PanelLayout.tileWidth)))
+        // Nothing compresses at the natural width: the 2 by 2 grid fits.
+        #expect(natural - PanelLayout.padding >= PanelLayout.tileGridWidth(Self.tiles.map(PanelLayout.tileWidth)))
         // A memory heading that does not fit beside its label widens the region.
         let wideMemory = PanelContent(pairs: [PanelPair("Unified memory", "1234.5 GB of 2048.0 GB used now")])
         #expect(PanelLayout.naturalWidth(regions: [wideMemory]) > PanelLayout.naturalWidth(regions: [PanelContent()]))
@@ -152,62 +152,64 @@ struct PanelLayoutTests {
         #expect(PanelLayout.naturalWidth(regions: [PanelContent(loads: [load])]) == PanelLayout.loadWidth(load))
     }
 
-    @Test("the tile grid uses every column once the tiles fit in one row")
-    func columnsFollowWidth() {
-        let widths = Self.tiles.map(PanelLayout.tileWidth)
-        #expect(!PanelLayout.tileRowFits(width: PanelLayout.minimum, tileWidths: widths))
-        let row = PanelLayout.widthRange(content: PanelContent(tiles: Self.tiles)).upperBound
-        #expect(PanelLayout.tileRowFits(width: row, tileWidths: widths))
-        #expect(!PanelLayout.tileRowFits(width: PanelLayout.ceiling, tileWidths: Array(widths.prefix(2))))
-    }
+    @Test("the Cluster and This Mac tiles are a 2 by 2 grid at every width, with equal margins")
+    func tilesAreTwoByTwo() {
+        #expect(PanelLayout.tileColumns(count: 4) == 2)
+        #expect(PanelLayout.tileColumns(count: 3) == 2)
+        #expect(PanelLayout.tileColumns(count: 1) == 1)
+        #expect(PanelLayout.tileColumns(count: 0) == 0)
 
-    @Test("at the natural width the tiles keep the same gap to both panel edges")
-    func panelMarginsAreEqual() {
-        // Tile widths as the panel draws them (inner padding included), and
-        // the widest other block, as it measures them.
+        // Tile widths as the panel draws them (inner padding included).
         let clusterTiles: [Double] = [48, 89, 106, 134]
         let macTiles: [Double] = [106, 147, 83, 110.5]
-        let rows = [PanelLayout.tileRowWidth(clusterTiles), PanelLayout.tileRowWidth(macTiles)]
-        #expect(rows[1] == 4 * 147 + 3 * PanelLayout.tileSpacing)
-        for other in [0.0, 420, 700] {
-            let measured = max(rows.max()!, other)
+        for tiles in [clusterTiles, macTiles] {
+            #expect(PanelLayout.tileGridWidth(tiles) == 2 * tiles.max()! + PanelLayout.tileSpacing)
+        }
+        #expect(PanelLayout.tileGridWidth([]) == 0)
+
+        // Region one: the natural width is the grid or the widest other
+        // block, plus both edges; the grid never runs into an edge.
+        let grids = [clusterTiles, macTiles].map(PanelLayout.tileGridWidth)
+        #expect(grids[1] == 2 * 147 + PanelLayout.tileSpacing)
+        for other in [0.0, 260, 420, 700] {
+            let measured = max(grids.max()!, other)
             let natural = PanelLayout.naturalWidth(regions: [PanelContent(tiles: Self.tiles)], measured: measured)
             #expect(natural == min(PanelLayout.ceiling, max(PanelLayout.minimum, measured.rounded(.up) + PanelLayout.padding)))
             for tiles in [clusterTiles, macTiles] {
-                let row = PanelLayout.tileRowWidth(tiles)
-                #expect(PanelLayout.tileRowFits(width: natural, tileWidths: tiles))
-                let margins = PanelLayout.tileMargins(width: natural, rowWidth: row)
+                let grid = PanelLayout.tileGridWidth(tiles)
+                #expect(natural - PanelLayout.padding >= grid)
+                // Stretched across the content, the grid keeps equal margins.
+                let margins = PanelLayout.tileMargins(width: natural, rowWidth: grid)
                 #expect(margins.leading == margins.trailing)
                 #expect(margins.leading >= PanelLayout.edge)
             }
         }
 
-        // The estimate, before the panel has measured, fits its own row too.
+        // The estimate, before the panel has measured anything, is the same
+        // 2 by 2 grid (two tile widths, one spacing, both edges) or a wider block.
         for measured in [nil, 0, -5, Double.nan, Double.infinity] as [Double?] {
             for tiles in [Self.tiles, Array(Self.tiles.prefix(3))] {
-                let natural = PanelLayout.naturalWidth(regions: [PanelContent(tiles: tiles)], measured: measured)
-                #expect(natural == PanelLayout.naturalWidth(regions: [PanelContent(tiles: tiles)]))
-                let widths = tiles.map(PanelLayout.tileWidth)
-                #expect(PanelLayout.tileRowFits(width: natural, tileWidths: widths))
-                let margins = PanelLayout.tileMargins(width: natural, rowWidth: PanelLayout.tileRowWidth(widths))
-                #expect(margins.leading == margins.trailing && margins.leading >= PanelLayout.edge)
+                let content = PanelContent(tiles: tiles)
+                let natural = PanelLayout.naturalWidth(regions: [content], measured: measured)
+                #expect(natural == PanelLayout.naturalWidth(regions: [content]))
+                let widest = tiles.map(PanelLayout.tileWidth).max()!
+                #expect(natural == max(PanelLayout.minimum, 2 * widest + PanelLayout.tileSpacing + PanelLayout.padding))
             }
         }
 
-        // The widest tile text: the panel stops at its ceiling, the row does
-        // not fit, and two columns fill the content between equal edges.
-        let wide = Self.tiles + [PanelTile(label: String(repeating: "x", count: 200), value: "1")]
-        let widths = wide.map(PanelLayout.tileWidth)
-        for measured in [nil, PanelLayout.tileRowWidth(widths)] as [Double?] {
-            let natural = PanelLayout.naturalWidth(regions: [PanelContent(tiles: wide)], measured: measured)
-            #expect(natural == PanelLayout.ceiling)
-            #expect(!PanelLayout.tileRowFits(width: natural, tileWidths: widths))
-            let column = (natural - PanelLayout.padding - PanelLayout.tileSpacing) / 2
-            let margins = PanelLayout.tileMargins(width: natural, rowWidth: 2 * column + PanelLayout.tileSpacing)
-            #expect(margins.leading == margins.trailing && margins.leading == PanelLayout.edge)
-        }
+        // Region two: at a wide width the grid is still two columns, filling
+        // the content between equal edges.
+        let wide = 600.0
+        let column = (wide - PanelLayout.padding - PanelLayout.tileSpacing) / 2
+        let margins = PanelLayout.tileMargins(width: wide, rowWidth: 2 * column + PanelLayout.tileSpacing)
+        #expect(margins.leading == margins.trailing && margins.leading == PanelLayout.edge)
+        #expect(PanelLayout.tileColumns(count: Self.tiles.count) == 2)
 
-        // A row wider than the content would run into the trailing edge.
+        // The widest tile text: the panel stops at its ceiling.
+        let long = Self.tiles + [PanelTile(label: String(repeating: "x", count: 200), value: "1")]
+        #expect(PanelLayout.naturalWidth(regions: [PanelContent(tiles: long)]) == PanelLayout.ceiling)
+
+        // A grid wider than the content would run into the trailing edge.
         let tooWide = PanelLayout.tileMargins(width: 400, rowWidth: 400 - PanelLayout.edge)
         #expect(tooWide.trailing < tooWide.leading)
     }

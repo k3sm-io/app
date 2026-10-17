@@ -94,6 +94,15 @@ struct MacPanel: View {
         }
     }
 
+    /// The figures as the 2 by 2 tile grid.
+    private func tileGrid(_ tiles: [PanelTile]) -> some View {
+        TileGrid {
+            ForEach(Array(tiles.enumerated()), id: \.offset) { _, tile in
+                Tile(tile: tile).help(Help.Panel.tile(tile))
+            }
+        }
+    }
+
     /// The cluster view: the state above the tiles, then one compact row
     /// per node with what its pods request.
     @ViewBuilder private var clusterView: some View {
@@ -102,7 +111,7 @@ struct MacPanel: View {
                 Text(verbatim: cluster.title).font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
             }
             stateRow
-            TileGrid(tiles: ClusterDisplay.tiles(for: cluster))
+            tileGrid(ClusterDisplay.tiles(for: cluster))
             if let note = cluster.note {
                 Footnote(note)
             }
@@ -150,7 +159,7 @@ struct MacPanel: View {
             }
             Text(verbatim: Self.machine.line).font(.system(size: 12)).foregroundStyle(.white.opacity(0.62))
             stateRow
-            TileGrid(tiles: macTiles)
+            tileGrid(macTiles)
         }
         .id(TourTarget.summary)
         .tourTarget(.summary, tour)
@@ -390,72 +399,63 @@ struct PanelBlock<Content: View>: View {
     }
 }
 
-/// TileGrid is the panel's figures: every tile in one row (`TileRow`) when
-/// that row, at the tiles' natural widths, fits the width the panel lays the
-/// grid out in, two columns otherwise. It decides by the width it is given,
-/// so a panel the window squeezes below its natural width takes two columns.
-struct TileGrid: View {
-    let tiles: [PanelTile]
-
-    var body: some View {
-        if tiles.count > 2 {
-            ViewThatFits(in: .horizontal) {
-                TileRow(spacing: PanelLayout.tileSpacing) { tileViews }
-                columns
-            }
-        } else {
-            columns
-        }
-    }
-
-    private var columns: some View {
-        let spacing = CGFloat(PanelLayout.tileSpacing)
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: spacing, alignment: .topLeading), count: 2),
-                         alignment: .leading, spacing: spacing) {
-            tileViews
-        }
-    }
-
-    private var tileViews: some View {
-        ForEach(Array(tiles.enumerated()), id: \.offset) { _, tile in
-            Tile(tile: tile).help(Help.Panel.tile(tile))
-        }
-    }
-}
-
-/// TileRow lays tiles out in one row, each as wide as the widest at its
-/// ideal width, `spacing` apart (`PanelLayout.tileRowWidth`), all as tall as
-/// the tallest. Its ideal width is that row; given more, it widens every
-/// tile alike, so the row meets the panel's padding on both sides.
-struct TileRow: Layout {
+/// TileGrid is the panel's figures: always two columns (a 2 by 2 grid for
+/// four tiles), each as wide as the widest tile at its ideal width, `spacing`
+/// apart (`PanelLayout.tileGridWidth`), a row as tall as its tallest. Its
+/// ideal width is that grid; given a width it fills it, a wider one by
+/// widening every tile alike, so the grid meets the panel's padding on both
+/// sides, a narrower one by narrowing them (each tile shrinks its detail
+/// line), so a tile never overlaps its neighbour or reaches an edge.
+struct TileGrid: Layout {
     let spacing: Double
 
+    init(spacing: Double = PanelLayout.tileSpacing) {
+        self.spacing = spacing
+    }
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = rowWidth(proposal: proposal, subviews: subviews)
-        let tile = tileWidth(width, count: subviews.count)
-        let height = subviews.map { $0.sizeThatFits(ProposedViewSize(width: tile, height: nil)).height }.max() ?? 0
-        return CGSize(width: width, height: height)
+        let columns = PanelLayout.tileColumns(count: subviews.count)
+        guard columns > 0 else { return .zero }
+        let width = gridWidth(proposal: proposal, subviews: subviews)
+        let tile = tileWidth(width, columns: columns)
+        var height: CGFloat = 0
+        for row in rows(subviews.count, columns: columns) {
+            height += row.map { subviews[$0].sizeThatFits(ProposedViewSize(width: tile, height: nil)).height }.max() ?? 0
+        }
+        let rowCount = rows(subviews.count, columns: columns).count
+        return CGSize(width: width, height: height + CGFloat(max(0, rowCount - 1)) * CGFloat(spacing))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let tile = tileWidth(bounds.width, count: subviews.count)
-        for (i, subview) in subviews.enumerated() {
-            let x = bounds.minX + CGFloat(i) * (tile + CGFloat(spacing))
-            subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
-                          proposal: ProposedViewSize(width: tile, height: bounds.height))
+        let columns = PanelLayout.tileColumns(count: subviews.count)
+        guard columns > 0 else { return }
+        let tile = tileWidth(bounds.width, columns: columns)
+        var y = bounds.minY
+        for row in rows(subviews.count, columns: columns) {
+            let height = row.map { subviews[$0].sizeThatFits(ProposedViewSize(width: tile, height: nil)).height }.max() ?? 0
+            for (column, index) in row.enumerated() {
+                let x = bounds.minX + CGFloat(column) * (tile + CGFloat(spacing))
+                subviews[index].place(at: CGPoint(x: x, y: y), anchor: .topLeading,
+                                      proposal: ProposedViewSize(width: tile, height: height))
+            }
+            y += height + CGFloat(spacing)
         }
     }
 
-    /// The row at its tiles' ideal widths, or the proposed width when wider.
-    private func rowWidth(proposal: ProposedViewSize, subviews: Subviews) -> CGFloat {
-        let ideal = CGFloat(PanelLayout.tileRowWidth(subviews.map { Double($0.sizeThatFits(.unspecified).width) }))
-        guard let proposed = proposal.width, proposed.isFinite else { return ideal }
-        return max(ideal, proposed)
+    /// The grid at its tiles' ideal widths, or the proposed width when there is one.
+    private func gridWidth(proposal: ProposedViewSize, subviews: Subviews) -> CGFloat {
+        guard let proposed = proposal.width, proposed.isFinite else {
+            return CGFloat(PanelLayout.tileGridWidth(subviews.map { Double($0.sizeThatFits(.unspecified).width) }))
+        }
+        return max(0, proposed)
     }
 
-    private func tileWidth(_ row: CGFloat, count: Int) -> CGFloat {
-        guard count > 0 else { return 0 }
-        return (row - CGFloat(spacing) * CGFloat(count - 1)) / CGFloat(count)
+    private func tileWidth(_ grid: CGFloat, columns: Int) -> CGFloat {
+        max(0, (grid - CGFloat(spacing) * CGFloat(columns - 1)) / CGFloat(columns))
+    }
+
+    private func rows(_ count: Int, columns: Int) -> [[Int]] {
+        stride(from: 0, to: count, by: columns).map { Array($0..<min(count, $0 + columns)) }
     }
 }
 
@@ -611,7 +611,7 @@ struct PanelMeasure: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(regions.enumerated()), id: \.offset) { _, region in
                 if !region.tiles.isEmpty {
-                    TileRow(spacing: PanelLayout.tileSpacing) {
+                    TileGrid {
                         ForEach(Array(region.tiles.enumerated()), id: \.offset) { _, tile in Tile(tile: tile) }
                     }
                 }

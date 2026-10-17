@@ -54,8 +54,8 @@ public struct PanelPair: Equatable, Sendable {
 /// PanelLayout sizes the console's navy panel, the left pane of a split view
 /// with a draggable divider. Its minimum is the panel's fixed width before
 /// the split; its natural width, which is also its maximum, is the smallest
-/// width at which nothing in either region compresses or clips: every tile
-/// in one row at its natural width, the longest node row with its name,
+/// width at which nothing in either region compresses or clips: the tiles
+/// in two columns at their natural width, the longest node row with its name,
 /// role, pod count and both meters on one line, the nodes block's lines,
 /// the memory block's heading and legend, and the live load rows, whichever
 /// is widest across both regions, never past `ceiling`, with the panel's
@@ -69,8 +69,8 @@ public struct PanelPair: Equatable, Sendable {
 ///
 /// The panel is auto-sized until the user drags its divider: an auto-sized
 /// panel is drawn at the natural width and follows it as the content
-/// changes; a dragged width is kept (narrower than natural, the tiles take
-/// two columns and rows wrap) for the session only: a width narrower than
+/// changes; a dragged width is kept (narrower than natural, the tiles shrink
+/// their detail line and rows wrap) for the session only: a width narrower than
 /// the natural width is never saved, and a saved one that has become narrower
 /// than the content (`replacesWidth`) is cleared, so the panel opens
 /// auto-sized. A drag back to the natural width, or Reset Window Layout,
@@ -206,26 +206,26 @@ public enum PanelLayout {
         (stored as? Bool) ?? false
     }
 
-    /// The width of tiles in one row, each as wide as the widest of
-    /// `tileWidths` (every tile's whole width, its inner padding on both
-    /// sides included), `tileSpacing` apart. The panel's tile row lays its
-    /// tiles out by it, so a measured row and an estimated one agree.
-    public static func tileRowWidth(_ tileWidths: [Double]) -> Double {
-        guard let widest = tileWidths.max() else { return 0 }
-        let count = Double(tileWidths.count)
-        return count * widest + (count - 1) * tileSpacing
+    /// How many columns `count` tiles take: always two (so the Cluster and
+    /// This Mac figures are a 2 by 2 grid), one for a lone tile.
+    public static func tileColumns(count: Int) -> Int {
+        min(2, max(0, count))
     }
 
-    /// Whether tiles `tileWidths` wide fit in one row of a panel `width`
-    /// wide, inside its two edges; when they do not, the tiles take two columns.
-    public static func tileRowFits(width: Double, tileWidths: [Double]) -> Bool {
-        tileWidths.count > 2 && tileRowWidth(tileWidths) <= width - padding
+    /// The width of the tile grid: two columns, each as wide as the widest of
+    /// `tileWidths` (every tile's whole width, its inner padding on both
+    /// sides included), `tileSpacing` apart. The panel's tile grid lays its
+    /// tiles out by it, so a measured grid and an estimated one agree.
+    public static func tileGridWidth(_ tileWidths: [Double]) -> Double {
+        guard let widest = tileWidths.max() else { return 0 }
+        let columns = Double(tileColumns(count: tileWidths.count))
+        return columns * widest + (columns - 1) * tileSpacing
     }
 
     /// The gaps from the panel's two edges to a tile row `rowWidth` wide in a
     /// panel `width` wide: the leading edge always, and on the trailing side
-    /// what the row leaves of the width. A row that fits stretches across the
-    /// content, so both are `edge`; a row wider than the content runs into the
+    /// what the row leaves of the width. A grid that fits stretches across the
+    /// content, so both are `edge`; a grid wider than the content runs into the
     /// trailing edge, which is what the natural width must never allow.
     public static func tileMargins(width: Double, rowWidth: Double) -> (leading: Double, trailing: Double) {
         (edge, width - edge - max(rowWidth, width - padding))
@@ -239,10 +239,10 @@ public enum PanelLayout {
         return 2 * tilePadding + max(figure, text(tile.label, size: 11))
     }
 
-    /// Every tile in one row (`tileRowWidth`), with the panel's padding.
+    /// The tile grid (`tileGridWidth`), with the panel's padding.
     static func gridWidth(_ tiles: [PanelTile]) -> Double {
         guard !tiles.isEmpty else { return 0 }
-        return padding + tileRowWidth(tiles.map(tileWidth))
+        return padding + tileGridWidth(tiles.map(tileWidth))
     }
 
     /// A Cluster view node row on one line: the dot, the name, the "this Mac"
