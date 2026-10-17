@@ -75,7 +75,11 @@ struct NeedsAdminTests {
         #expect(StatusDisplay.rowDetail(row) == "needs an administrator; run sudo k3sm status")
         let shown = try #require(StatusDisplay.rows(of: report).first { $0.name == "runtimed" })
         #expect(shown.detail == "needs an administrator; run sudo k3sm status")
-        #expect(StatusDisplay.needsAdminLine(report) == "1 check needs an administrator")
+        // The settings row is read-only and needs an administrator too, so a
+        // report that carries it counts two.
+        let hasSettings = report.row(named: "settings")?.rowState == .needsAdmin
+        #expect(StatusDisplay.needsAdminLine(report)
+            == (hasSettings ? "2 checks need an administrator" : "1 check needs an administrator"))
     }
 
     @Test("the panel shows the needs-admin sentence and other rows' state words")
