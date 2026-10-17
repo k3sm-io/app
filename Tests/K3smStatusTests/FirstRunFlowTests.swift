@@ -78,12 +78,12 @@ struct FirstRunFlowTests {
         let devJoin = FirstRunFlow.review(path: .join, server: "studio.local:9345", serverArgument: "studio.local",
                                           developerBuild: true, payload: Self.v017)
         #expect(devJoin.installButton == nil)
-        #expect(devJoin.terminalCommand == """
+        #expect(devJoin.terminalCommand == #"""
             curl -fsSL https://k3sm.io/install.sh | K3SM_INSTALL_VERSION=v0.1.7 K3SM_INSTALL_DOWNLOAD_ONLY=1 sh
             tar -xzf k3sm_0.1.7_darwin_arm64.tar.gz
-            sudo sh -c 'umask 077; cat > /var/root/k3sm-join-token'
-            sudo ./k3sm install --agent --server studio.local --token-file /var/root/k3sm-join-token
-            """)
+            printf 'Join token: '; read -rs token; echo
+            printf '%s\n' "$token" | sudo sh -c 'umask 077; trap "rm -f /var/root/k3sm-join-token" EXIT; trap "exit 130" INT TERM HUP; cat > /var/root/k3sm-join-token; "$1" install --agent --server "$2" --token-file /var/root/k3sm-join-token' sh ./k3sm studio.local; unset token
+            """#)
         #expect(FirstRunFlow.terminalCommand(path: .join, serverArgument: nil, payload: nil) == nil)
         #expect(FirstRunFlow.terminalCommand(path: .join, serverArgument: "a.local; rm -rf /", payload: nil) == nil)
         #expect(FirstRunFlow.terminalCommand(path: .join, serverArgument: "fd00::1", payload: nil)?

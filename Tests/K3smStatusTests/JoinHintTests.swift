@@ -52,6 +52,18 @@ struct JoinHintTests {
         }
     }
 
+    /// The agent install a join's token root shell runs (`TerminalScript`),
+    /// as the command line it becomes: `"$1"` is the CLI and `"$2"` the host,
+    /// both passed after `sh`. Any other line is returned as it is.
+    static func rootShellInstall(_ line: String) -> String {
+        guard let start = line.range(of: #""$1" install"#), let tail = line.range(of: "' sh ", range: start.upperBound..<line.endIndex)
+        else { return line }
+        let args = line[tail.upperBound...].split(separator: ";").first.map { $0.split(separator: " ").map(String.init) } ?? []
+        guard args.count == 2 else { return line }
+        return String(line[start.lowerBound..<tail.lowerBound])
+            .replacingOccurrences(of: #""$1""#, with: args[0]).replacingOccurrences(of: #""$2""#, with: args[1])
+    }
+
     /// Backquoted spans in `text`.
     static func spans(_ text: String) -> [String] {
         text.split(separator: "`", omittingEmptySubsequences: false).enumerated()
@@ -69,7 +81,7 @@ struct JoinHintTests {
         texts.append(JoinHints.prompt)
         texts.append(FirstRunFlow.finish(path: .join, outcome: .failed("x"), log: "").lines.joined(separator: "\n"))
         if let command = FirstRunFlow.terminalCommand(path: .join, serverArgument: "studio.local", payload: nil) {
-            texts += command.split(separator: "\n").map { "`\($0)`" }
+            texts += command.split(separator: "\n").map { "`\(Self.rootShellInstall(String($0)))`" }
         }
         for text in texts {
             for span in Self.spans(text) where span.contains("k3sm install") || span.contains("--token") {

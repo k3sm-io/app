@@ -165,10 +165,10 @@ public enum GuidedSteps {
             return update(state: state, banner: banner, rootStep: rootStep, role: role, payload: payloadVersion, installed: installed,
                           payloadCLI: payloadCLI)
         case .cliMissing:
-            return repair(state: state, banner: banner, rootStep: rootStep, payload: payload, payloadCLI: payloadCLI,
+            return repair(state: state, banner: banner, rootStep: rootStep, role: role, payload: payload, payloadCLI: payloadCLI,
                           why: "/Library/k3sm is here, but the k3sm command in it is missing.")
         case .cliUntrusted(let why):
-            return repair(state: state, banner: banner, rootStep: rootStep, payload: payload, payloadCLI: payloadCLI,
+            return repair(state: state, banner: banner, rootStep: rootStep, role: role, payload: payload, payloadCLI: payloadCLI,
                           why: "The installed k3sm failed the app's check: \(StatusDisplay.clip(why)). The app runs nothing until it passes.")
         case .statusUnreadable:
             return GuidedPlan(
@@ -195,6 +195,15 @@ public enum GuidedSteps {
             "This build of k3sm is not Developer ID signed, so it cannot run the administrator step. Run the command below in Terminal.",
             "When it ends, click Refresh.",
         ]
+    }
+
+    /// Whether the panel offers Run in Terminal for its install command:
+    /// only in a build that cannot run the root step, and only on a known
+    /// server. The install is a plain `k3sm install`, a server's install; on
+    /// a worker, or a Mac whose role is unknown, it could start a second
+    /// cluster, so those keep the command to read and the rejoin line.
+    public static func runsInTerminal(rootStep: Bool, role: NodeRole?) -> Bool {
+        !rootStep && role == .server
     }
 
     /// The line a partly running Mac's panel adds when it offers Repair.
@@ -229,7 +238,8 @@ public enum GuidedSteps {
             command = managedUpdateCommand
         } else {
             command = TerminalScript.installCommand(version: payload, payload: payloadCLI)
-            script = rootStep ? nil : TerminalScript.install(version: payload, payload: payloadCLI)
+            script = runsInTerminal(rootStep: rootStep, role: role)
+                ? TerminalScript.install(version: payload, payload: payloadCLI) : nil
         }
         if rootStep {
             steps += rootSteps(.update, rootStep: true)
@@ -252,7 +262,7 @@ public enum GuidedSteps {
     /// again from the app's verified payload, when this build can run the
     /// root step and knows the release it carries; else the install script
     /// in Terminal, then Refresh.
-    private static func repair(state: HealthState, banner: String, rootStep: Bool, payload: SemanticVersion?,
+    private static func repair(state: HealthState, banner: String, rootStep: Bool, role: NodeRole?, payload: SemanticVersion?,
                                payloadCLI: TerminalScript.Payload?, why: String) -> GuidedPlan {
         if rootStep, payload != nil {
             return GuidedPlan(
@@ -276,7 +286,8 @@ public enum GuidedSteps {
             ],
             primary: nil, secondary: nil,
             terminalCommand: TerminalScript.installCommand(version: payload, payload: payloadCLI),
-            terminalScript: rootStep ? nil : TerminalScript.install(version: payload, payload: payloadCLI),
+            terminalScript: runsInTerminal(rootStep: rootStep, role: role)
+                ? TerminalScript.install(version: payload, payload: payloadCLI) : nil,
             opensLogs: false, offersRefresh: true)
     }
 }

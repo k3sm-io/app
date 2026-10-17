@@ -28,43 +28,83 @@ struct TerminalInstallTests {
     /// A token-shaped fixture, built at run time so no file holds one whole.
     static let token = "K10" + String(repeating: "ab12", count: 16) + "::fixture:" + String(repeating: "f", count: 32)
 
-    static func installGolden(_ command: String) -> String {
-        """
-        #!/bin/sh
+    static let prologue = #"""
         set -e
-        echo 'Running: \(command.replacingOccurrences(of: "'", with: #"'\''"#))'
-        \(command)
-        echo 'k3sm is installed; you can close this window and return to k3sm.app.'
-
-        """
+        dir=$(cd "$(dirname "$0")" && pwd)
+        trap 'case "$dir" in */k3sm-app.*) rm -rf "$dir" ;; esac' EXIT
+        cd "$dir"
+        """#
+    static let joinPrologue = #"""
+        set -e
+        dir=$(cd "$(dirname "$0")" && pwd)
+        trap 'stty echo 2>/dev/null || true; case "$dir" in */k3sm-app.*) rm -rf "$dir" ;; esac' EXIT
+        cd "$dir"
+        """#
+    static let done = #"printf '%s\n' 'k3sm is installed; you can close this window and return to k3sm.app.'"#
+    /// The root shell the token is piped to: it stores, installs, removes.
+    static let rootShell = #"umask 077; trap "rm -f /var/root/k3sm-join-token" EXIT; trap "exit 130" INT TERM HUP; cat > /var/root/k3sm-join-token; "$1" install --agent --server "$2" --token-file /var/root/k3sm-join-token"#
+    static func joinLine(cli: String) -> String {
+        #"printf '%s\n' "$token" | sudo sh -c '"# + rootShell + #"' sh "# + cli + " studio.local"
+    }
+    /// `TerminalScript.echo`, for the golden.
+    static func echoed(_ text: String) -> String {
+        #"printf '%s\n' '"# + text.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 
     @Test("an unsigned build installs in Terminal from a fixed script, and a join's token never enters it")
     func developerBuildInstallsInTerminal() {
-        // The script runs one install command and nothing else: the install
-        // script (plain, pinned to a release, plain for a development 0.0.0),
-        // or the payload's own install when the app carries one.
-        let plain = "curl -fsSL https://k3sm.io/install.sh | sh"
-        let pinned = "curl -fsSL https://k3sm.io/install.sh | K3SM_INSTALL_VERSION=v0.1.7 sh"
-        let local = "sudo '/Applications/k3sm.app/Contents/Resources/payload/k3sm' install"
-        let cases: [(SemanticVersion?, TerminalScript.Payload?, String)] = [
-            (nil, nil, plain), (Self.dev, nil, plain), (Self.v017, nil, pinned),
-            (Self.v017, Self.payload, local), (Self.dev, Self.payload, local), (nil, Self.payload, local),
-        ]
-        for (version, payload, command) in cases {
-            let script = TerminalScript.install(version: version, payload: payload)
-            #expect(script == Self.installGolden(command), "\(String(describing: version)) \(payload != nil)")
-            let commands = script.split(separator: "\n").filter { !$0.hasPrefix("#!") && !$0.hasPrefix("echo ") }
-            #expect(commands == ["set -e", Substring(command)], "only the install command runs")
-        }
-        #expect(TerminalScript.install(version: nil, payload: nil) == """
+        // With no payload: the install script downloaded beside the script, its
+        // download checked (set -e, no pipe), then run; pinned only to a real release.
+        func download(_ pin: String) -> String {
+            """
             #!/bin/sh
-            set -e
-            echo 'Running: curl -fsSL https://k3sm.io/install.sh | sh'
-            curl -fsSL https://k3sm.io/install.sh | sh
-            echo 'k3sm is installed; you can close this window and return to k3sm.app.'
+            \(Self.prologue)
+            printf '%s\\n' 'Running: curl -fsSL https://k3sm.io/install.sh -o install.sh'
+            curl -fsSL https://k3sm.io/install.sh -o install.sh
+            printf '%s\\n' 'Running: \(pin)sh install.sh'
+            \(pin)sh install.sh
+            \(Self.done)
 
-            """)
+            """
+        }
+        #expect(TerminalScript.install(version: nil, payload: nil) == download(""))
+        #expect(TerminalScript.install(version: Self.dev, payload: nil) == download(""))
+        #expect(TerminalScript.install(version: Self.v017, payload: nil) == download("K3SM_INSTALL_VERSION=v0.1.7 "))
+        // With a payload: that k3sm's own install, the only command.
+        let local = "sudo '/Applications/k3sm.app/Contents/Resources/payload/k3sm' install"
+        let payloadScript = """
+            #!/bin/sh
+            \(Self.prologue)
+            printf '%s\\n' 'Running: sudo '\\''/Applications/k3sm.app/Contents/Resources/payload/k3sm'\\'' install'
+            \(local)
+            \(Self.done)
+
+            """
+        for version in [nil, Self.dev, Self.v017] {
+            #expect(TerminalScript.install(version: version, payload: Self.payload) == payloadScript)
+        }
+        // Nothing but the prologue, the install and echoes runs; the done line is last.
+        for version in [nil, Self.v017] {
+            for payload in [nil, Self.payload] {
+                let script = TerminalScript.install(version: version, payload: payload)
+                let commands = script.split(separator: "\n").map(String.init)
+                    .filter { !$0.hasPrefix("#!") && !$0.hasPrefix("printf '%s\\n' '") }
+                let body = Array(commands.dropFirst(4))
+                if payload != nil {
+                    #expect(body == [local])
+                } else {
+                    #expect(body.count == 2 && body[0].hasPrefix("curl -fsSL https://k3sm.io/install.sh -o install.sh")
+                            && body[1].hasSuffix("sh install.sh"))
+                }
+                #expect(script.hasSuffix(Self.done + "\n"))
+                #expect(!script.contains("| sh"), "no pipe hides a failed download")
+            }
+        }
+        // What the review shows for a start is the documented one-line form.
+        let plain = "curl -fsSL https://k3sm.io/install.sh | sh"
+        #expect(TerminalScript.installCommand(version: Self.dev, payload: nil) == plain)
+        #expect(TerminalScript.installCommand(version: Self.v017, payload: nil) == "curl -fsSL https://k3sm.io/install.sh | K3SM_INSTALL_VERSION=v0.1.7 sh")
+        #expect(TerminalScript.installCommand(version: Self.v017, payload: Self.payload) == local)
         #expect(TerminalScript.fileName.hasSuffix(".command") && !TerminalScript.fileName.contains("/"))
 
         // The payload path counts only inside the running bundle, on a regular k3sm file.
@@ -105,44 +145,35 @@ struct TerminalInstallTests {
             #expect(signed.terminalCommand == nil)
         }
 
-        // A join installs as an agent only: the token is read in Terminal with echo
-        // off and piped to sudo into a root-only file, removed on exit; the script never holds one.
-        let tokenSteps = """
-            trap 'stty echo 2>/dev/null; sudo -n rm -f /var/root/k3sm-join-token 2>/dev/null' EXIT
-            echo 'Paste the join token, then press Return. It is not shown.'
+        // A join installs as an agent only. The token is read with echo off and piped
+        // to ONE root shell that writes it root-only, runs the agent install from it
+        // and removes it on any exit; it is never an argument and never in the script.
+        let payloadCLI = "'/Applications/k3sm.app/Contents/Resources/payload/k3sm'"
+        func tokenSteps(_ cli: String) -> String {
+            """
+            printf '%s\\n' 'Paste the join token, then press Return. It is not shown.'
             stty -echo
             IFS= read -r token
             stty echo
             echo
-            echo 'Running: sudo sh -c '\\''umask 077; cat > /var/root/k3sm-join-token'\\'''
-            printf '%s\\n' "$token" | sudo sh -c 'umask 077; cat > /var/root/k3sm-join-token'
+            \(Self.echoed("Running: " + Self.joinLine(cli: cli)))
+            \(Self.joinLine(cli: cli))
             token=
-            """
-        let joinLocal = TerminalScript.join(serverArgument: "studio.local", payload: Self.payload, version: Self.v017)
-        #expect(joinLocal == """
-            #!/bin/sh
-            set -e
-            \(tokenSteps)
-            echo 'Running: sudo '\\''/Applications/k3sm.app/Contents/Resources/payload/k3sm'\\'' install --agent --server studio.local --token-file /var/root/k3sm-join-token'
-            sudo '/Applications/k3sm.app/Contents/Resources/payload/k3sm' install --agent --server studio.local --token-file /var/root/k3sm-join-token
-            echo 'This Mac joined the cluster; you can close this window and return to k3sm.app.'
+            printf '%s\\n' 'This Mac joined the cluster; you can close this window and return to k3sm.app.'
 
-            """)
+            """
+        }
+        let joinLocal = TerminalScript.join(serverArgument: "studio.local", payload: Self.payload, version: Self.v017)
+        #expect(joinLocal == "#!/bin/sh\n" + Self.joinPrologue + "\n" + tokenSteps(payloadCLI))
         let joinDownload = TerminalScript.join(serverArgument: "studio.local", payload: nil, version: Self.v017)
         #expect(joinDownload == """
             #!/bin/sh
-            set -e
-            cd "$(dirname "$0")"
-            echo 'Running: curl -fsSL https://k3sm.io/install.sh | K3SM_INSTALL_VERSION=v0.1.7 K3SM_INSTALL_DOWNLOAD_ONLY=1 sh'
+            \(Self.joinPrologue)
+            printf '%s\\n' 'Running: curl -fsSL https://k3sm.io/install.sh | K3SM_INSTALL_VERSION=v0.1.7 K3SM_INSTALL_DOWNLOAD_ONLY=1 sh'
             curl -fsSL https://k3sm.io/install.sh | K3SM_INSTALL_VERSION=v0.1.7 K3SM_INSTALL_DOWNLOAD_ONLY=1 sh
-            echo 'Running: tar -xzf k3sm_0.1.7_darwin_arm64.tar.gz'
+            printf '%s\\n' 'Running: tar -xzf k3sm_0.1.7_darwin_arm64.tar.gz'
             tar -xzf k3sm_0.1.7_darwin_arm64.tar.gz
-            \(tokenSteps)
-            echo 'Running: sudo ./k3sm install --agent --server studio.local --token-file /var/root/k3sm-join-token'
-            sudo ./k3sm install --agent --server studio.local --token-file /var/root/k3sm-join-token
-            echo 'This Mac joined the cluster; you can close this window and return to k3sm.app.'
-
-            """)
+            """ + "\n" + tokenSteps("./k3sm"))
         let joinDev = TerminalScript.join(serverArgument: "studio.local", payload: nil, version: Self.dev)
         #expect(joinDev?.contains("K3SM_INSTALL_VERSION") == false)
         #expect(joinDev?.contains("tar -xzf k3sm_*_darwin_arm64.tar.gz") == true)
@@ -150,9 +181,20 @@ struct TerminalInstallTests {
             #expect(script?.contains("K10") == false)
             #expect(script?.contains(Self.token) == false)
             #expect(script?.contains("--token ") == false)
+            // One sudo stores, installs and removes the token; no other sudo touches it.
+            let run = (script ?? "").split(separator: "\n").filter { !$0.hasPrefix("printf '%s\\n' '") }.joined(separator: "\n")
+            #expect(run.components(separatedBy: "sudo ").count == 2)
+            #expect(script?.contains("sudo -n") == false)
             // Never a plain server install on the join path.
-            #expect(script?.contains("| sh\n") == false && script?.contains("k3sm' install\n") == false)
+            #expect(script?.contains("install\n") == false && script?.contains("k3sm' install\n") == false)
         }
+        // The paste-into-Terminal form has the same one-shot shape, the token read with read -rs.
+        #expect(TerminalScript.joinCommands(serverArgument: "studio.local", payload: Self.payload, version: Self.v017) == [
+            "printf 'Join token: '; read -rs token; echo",
+            Self.joinLine(cli: payloadCLI) + "; unset token",
+        ])
+        #expect(FirstRunFlow.review(path: .join, server: "studio.local:9345", serverArgument: "studio.local",
+                                    developerBuild: true, payload: Self.v017).terminalCommand?.contains("read -rs token") == true)
         // A host outside the address grammar builds no script at all.
         #expect(TerminalScript.join(serverArgument: "a.local; rm -rf /", payload: nil, version: nil) == nil)
         #expect(TerminalScript.join(serverArgument: "-x", payload: nil, version: nil) == nil)
@@ -161,7 +203,7 @@ struct TerminalInstallTests {
         // While Terminal runs it, the screen says so.
         #expect(FirstRunFlow.terminalInstallingLine == "Installing in Terminal: enter your password there when asked")
 
-        // The guided panel runs its install command the same way, and only that command.
+        // The guided panel runs its install command the same way, only on a known server.
         let missing = GuidedSteps.plan(for: .cliMissing, rootStep: false, role: .server, payload: Self.v017)
         #expect(missing?.terminalScript == TerminalScript.install(version: Self.v017, payload: nil))
         let missingLocal = GuidedSteps.plan(for: .cliMissing, rootStep: false, role: .server, payload: Self.v017, payloadCLI: Self.payload)
@@ -169,14 +211,26 @@ struct TerminalInstallTests {
         #expect(missingLocal?.terminalScript == TerminalScript.install(version: Self.v017, payload: Self.payload))
         let missingDev = GuidedSteps.plan(for: .cliMissing, rootStep: false, role: .server, payload: Self.dev)
         #expect(missingDev?.terminalCommand == plain)
+        // A worker, or a Mac whose role is unknown, keeps the command to read and the rejoin line: a
+        // plain install there could start a second cluster.
+        for state in [HealthState.cliMissing, .cliUntrusted("x")] {
+            for role in [NodeRole.agent, nil] {
+                let plan = GuidedSteps.plan(for: state, rootStep: false, role: role, payload: Self.v017, payloadCLI: Self.payload)
+                #expect(plan?.terminalScript == nil, "\(state) \(String(describing: role))")
+                #expect(plan?.terminalCommand != nil)
+                #expect(plan?.steps.contains { $0.contains("On a worker, rejoin instead") } == true)
+            }
+        }
         let behind = GuidedSteps.plan(for: .versionMismatch(payload: Self.v017, installed: SemanticVersion("0.1.6")!, relation: .newer),
                                       rootStep: false, role: .server, payload: Self.v017)
         #expect(behind?.terminalScript == TerminalScript.install(version: Self.v017, payload: nil))
         let stopped = GuidedSteps.plan(for: .installedStopped(nil), rootStep: false, role: .server, payload: Self.v017)
         #expect(stopped?.terminalCommand == GuidedSteps.startCommand && stopped?.terminalScript == nil)
-        let worker = GuidedSteps.plan(for: .versionMismatch(payload: Self.v017, installed: SemanticVersion("0.1.6")!, relation: .newer),
-                                      rootStep: false, role: .agent, payload: Self.v017)
-        #expect(worker?.terminalScript == nil, "a worker's update runs on the control plane, not here")
+        for role in [NodeRole.agent, nil] {
+            let plan = GuidedSteps.plan(for: .versionMismatch(payload: Self.v017, installed: SemanticVersion("0.1.6")!, relation: .newer),
+                                        rootStep: false, role: role, payload: Self.v017)
+            #expect(plan?.terminalScript == nil, "only a known server installs in Terminal")
+        }
         for state in [HealthState.cliMissing, .cliUntrusted("x")] {
             #expect(GuidedSteps.plan(for: state, rootStep: true, role: .server, payload: nil)?.terminalScript == nil)
             #expect(GuidedSteps.plan(for: state, rootStep: true, role: .server, payload: Self.v017)?.terminalScript == nil)

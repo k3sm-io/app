@@ -76,9 +76,11 @@ Developer ID signed cannot run the administrator step, so its panel shows the
 exact Terminal command instead (`sudo k3sm start`, `sudo k3sm restart`, or the
 install for an update or a repair: the k3sm the app carries when it has one,
 else the install script pinned to the app's release), with Copy Command and
-Open Terminal, and no Repair button. For an install, **Run in Terminal**
-replaces Open Terminal and runs that install in a new Terminal window, where
-`sudo` asks for your password.
+Open Terminal, and no Repair button. For an install on a Mac known to run the
+control plane, **Run in Terminal** replaces Open Terminal and runs that
+install in a new Terminal window, where `sudo` asks for your password. A
+worker, or a Mac whose role the app cannot read, keeps the command to read,
+since a plain install there could start a second cluster.
 
 With nothing installed on the Mac, the window walks through a short guided
 first run, one step at a time, with the steps listed across its top:
@@ -114,12 +116,14 @@ path with Copy Command and **Install in Terminal**. Install in Terminal writes
 those commands to a script in a private folder and opens it in a new Terminal
 window, where `sudo` asks for your password; the app itself runs nothing as
 root. When the app carries a k3sm, that k3sm is installed (`sudo <app>/Contents/Resources/payload/k3sm install`);
-otherwise the install script is (`curl -fsSL https://k3sm.io/install.sh | sh`,
-pinned to the app's release, unpinned for a development build). For a join,
-Terminal asks for the join token with echo off and writes it to a root-only
-file for `k3sm install --agent --server <address> --token-file <path>`; the
-token is never in the script or a command line, and the file is removed when
-the script ends. While the window waits, a small butterfly flies a dotted
+otherwise the install script is downloaded and run (`curl -fsSL https://k3sm.io/install.sh | sh`,
+pinned to the app's release, unpinned for a development build), and a failed
+download stops the script. For a join, Terminal asks for the join token with
+echo off and pipes it to a single `sudo` step that writes it to a root-only
+file, runs `k3sm install --agent --server <address> --token-file <path>` and
+removes the file however that step ends; the token is never in the script or
+a command line. The script's private folder, with anything it downloaded, is
+removed when it ends. While the window waits, a small butterfly flies a dotted
 path under the buttons and checks for k3sm each time it reaches the right end,
 every 5 seconds (Check Again checks at once; with Reduce Motion it stands
 still at the end). Once k3sm is up, the console opens.

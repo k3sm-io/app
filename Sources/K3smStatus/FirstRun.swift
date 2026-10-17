@@ -252,7 +252,7 @@ public enum FirstRunFlow {
         }
         lines.append("This build of k3sm is not Developer ID signed, so it cannot run the administrator step. Install in Terminal runs the commands below in a new Terminal window instead.")
         if path == .join {
-            lines.append("When Terminal asks for the join token, paste it and press Return. The token is not shown or saved in a file.")
+            lines.append("When Terminal asks for the join token, paste it and press Return. It is not shown, and the root-only file it goes to is removed when the install ends.")
         }
         lines.append("Enter your password in Terminal when it asks. This window moves on once k3sm is installed.")
         let script: String?

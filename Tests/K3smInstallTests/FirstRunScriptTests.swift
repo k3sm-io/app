@@ -57,7 +57,10 @@ struct FirstRunScriptTests {
         }
         #expect(flags == ["--agent", "--server", "--token-file"])
         let command = try #require(FirstRunFlow.terminalCommand(path: .join, serverArgument: address.argument, payload: Self.version))
-        #expect(command.contains("install --agent --server \(address.argument) --token-file "))
+        // The token's root shell runs `"$1" install --agent --server "$2" --token-file <file>`
+        // with the CLI and this host passed after `sh`.
+        #expect(command.contains(#""$1" install --agent --server "$2" --token-file "#))
+        #expect(command.contains("' sh ./k3sm \(address.argument);"))
         // A pasted command's address is the one ServerAddress takes.
         let token = "K10" + String(repeating: "0a", count: 32) + "::fixture:" + String(repeating: "e", count: 32)
         let paste = try JoinCommandParser.parse("sudo k3sm install --agent --server https://studio.local:9345/ --token \(token)").get()
