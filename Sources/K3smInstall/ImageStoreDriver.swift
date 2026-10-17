@@ -19,7 +19,8 @@ import K3smStatus
 /// ImageStoreDriver runs the Images tab's writes, Untag, Prune and Pull,
 /// through the checked root step (`LifecycleScriptBuilder.renderImage`), on
 /// this Mac's node only (`ImageStoreScope`). Untag asks first, naming the
-/// image and the node; Pull takes its reference only as an `ImageRef`; Prune
+/// image and the node; Pull takes its reference only as an `ImageRef` and
+/// asks first, naming the registry the root step contacts; Prune
 /// is two steps, its dry run (`previewPrune`), whose output is parsed and
 /// shown, then, when the user confirms that list, `prune` with `--force`.
 public struct ImageStoreDriver: Sendable {
@@ -37,10 +38,18 @@ public struct ImageStoreDriver: Sendable {
 
     let teamID: TeamID
     let runner: any PrivilegedRunner
-    let confirm: @MainActor @Sendable (_ title: String, _ message: String) async -> Bool
+    let confirm: @MainActor @Sendable (_ question: Question) async -> Bool
+
+    /// Question is what is asked before a write: its title, message and the
+    /// button that runs it.
+    public struct Question: Equatable, Sendable {
+        public let title: String
+        public let message: String
+        public let verbTitle: String
+    }
 
     public init(teamID: TeamID, runner: any PrivilegedRunner,
-                confirm: @escaping @MainActor @Sendable (_ title: String, _ message: String) async -> Bool) {
+                confirm: @escaping @MainActor @Sendable (_ question: Question) async -> Bool) {
         self.teamID = teamID
         self.runner = runner
         self.confirm = confirm
@@ -69,17 +78,19 @@ public struct ImageStoreDriver: Sendable {
             return .refused(Self.notOnThisMac(node: node))
         }
         let question = ImageStoreText.untagQuestion(reference, node: node)
-        guard await confirm(question.title, question.message) else { return .declined }
+        guard await confirm(Question(title: question.title, message: question.message, verbTitle: "Untag")) else { return .declined }
         return await run(.untag(reference), node: node)
     }
 
     /// Pulls the reference typed in the Pull field, trimmed, only once it
-    /// passes `ImageRef`.
+    /// passes `ImageRef`, after asking (naming the node and the registry).
     public func pull(_ text: String, scope: ImageStoreScope) async -> Result {
         guard let node = scope.node else { return .refused(ImageStoreScope.unknownNodeText) }
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         if let problem = ImageRef.problem(trimmed) { return .refused(ImageStoreText.pullRefused(problem)) }
         guard let reference = ImageRef(trimmed) else { return .refused(ImageStoreText.pullRefused(.invalidCharacter)) }
+        let question = ImageStoreText.pullQuestion(reference, node: node)
+        guard await confirm(Question(title: question.title, message: question.message, verbTitle: "Pull")) else { return .declined }
         return await run(.pull(reference), node: node)
     }
 
@@ -89,6 +100,7 @@ public struct ImageStoreDriver: Sendable {
         guard let node = scope.node else { return .refused(ImageStoreScope.unknownNodeText) }
         let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.renderImage(.pruneDryRun, teamID: teamID), input: nil)
         guard run.outcome == .succeeded else { return Self.classify(run, verb: .pruneDryRun, node: node) }
+        if run.outputTruncated { return .refused(ImageStoreText.previewTruncated) }
         switch ImagePrune.parse(run.output ?? "") {
         case .read(let preview): return .preview(preview)
         case let unreadable: return .refused(ImageStoreText.previewUnreadable(unreadable))
@@ -115,6 +127,7 @@ public struct ImageStoreDriver: Sendable {
             switch verb {
             case .untag(let reference): return .ran(run.outcome, ImageStoreText.untagged(reference, node: node))
             case .pull(let reference): return .ran(run.outcome, ImageStoreText.pulled(reference, node: node, output: run.output))
+            case .prune where run.outputTruncated: return .ran(run.outcome, ImageStoreText.prunedTruncated(node: node))
             case .prune: return .ran(run.outcome, ImageStoreText.pruned(output: run.output, node: node))
             case .pruneDryRun: return .ran(run.outcome, "")
             }

@@ -54,7 +54,7 @@ final class ImageStoreModel: ObservableObject {
     }
 
     private func driver() -> ImageStoreDriver? {
-        teamID.map { ImageStoreDriver(teamID: $0, runner: runner, confirm: { Self.confirm(title: $0, message: $1) }) }
+        teamID.map { ImageStoreDriver(teamID: $0, runner: runner, confirm: { Self.confirm($0) }) }
     }
 
     func openPull() {
@@ -129,14 +129,14 @@ final class ImageStoreModel: ObservableObject {
         }
     }
 
-    /// Asks Untag's question; Cancel is the default answer.
-    private static func confirm(title: String, message: String) -> Bool {
+    /// Asks Untag's or Pull's question; Cancel is the default answer.
+    private static func confirm(_ question: ImageStoreDriver.Question) -> Bool {
         NSApp.activate()
         let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
+        alert.messageText = question.title
+        alert.informativeText = question.message
         alert.alertStyle = .warning
-        let proceed = alert.addButton(withTitle: "Untag")
+        let proceed = alert.addButton(withTitle: question.verbTitle)
         let cancel = alert.addButton(withTitle: "Cancel")
         proceed.keyEquivalent = ""
         cancel.keyEquivalent = "\r"

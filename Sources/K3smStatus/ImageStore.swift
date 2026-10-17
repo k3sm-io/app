@@ -233,11 +233,46 @@ public enum ImagePrune {
 /// questions, the preview sheet's lines and their outcomes. A reference in
 /// them is an `ImageRef` (ASCII, bounded); a node name a `ResourceName`.
 public enum ImageStoreText {
-    /// The Untag question: the image and the node, and what is kept.
+    /// The Untag question: the image and the node, what is kept, and the
+    /// race an unpinned untag leaves (the node list's digest is an index's
+    /// when the image came through one, which the CLI's `--digest` pin does
+    /// not compare against, so the app cannot pin it).
     public static func untagQuestion(_ reference: ImageRef, node: String) -> (title: String, message: String) {
         (StatusDisplay.clip("Untag \(reference.value) on this Mac?"),
          "k3sm removes the name \(reference.value) from the image store of node \(node), this Mac. "
-            + "The content stays on disk until a prune, pods using it keep running, and other nodes keep their copies.")
+            + "The content stays on disk until a prune, pods using it keep running, and other nodes keep their copies. "
+            + "If a pull moves the name to other content before the administrator step runs, that content loses the name instead.")
+    }
+
+    /// The Pull question: the reference and the node, then, in its own
+    /// sentence, the registry the root step contacts (`ImageRef.registryHost`).
+    public static func pullQuestion(_ reference: ImageRef, node: String) -> (title: String, message: String) {
+        (StatusDisplay.clip("Pull \(reference.value) to this Mac?"),
+         "k3sm pulls \(reference.value) into the image store of node \(node), this Mac. " + registrySentence(reference))
+    }
+
+    /// The registry sentence: which host the image daemon, running as root,
+    /// contacts. It fetches with no credential: the CLI's pull passes none
+    /// (runtimed `PullImage` calls `Pull` with a nil credential, anonymous).
+    public static func registrySentence(_ reference: ImageRef) -> String {
+        guard let host = reference.registryHost else {
+            return "The image daemon, running as root, contacts this node's own registry if it has one, "
+                + "then Docker Hub (index.docker.io), with no credential."
+        }
+        if reference.registryIsLoopback {
+            return "The image daemon, running as root, contacts \(host), this node's own registry, "
+                + "then the other nodes' registries if it is not there, with no credential."
+        }
+        return "The image daemon, running as root, contacts \(host), with no credential."
+    }
+
+    /// The refusal when a dry run printed more than the app holds.
+    public static let previewTruncated =
+        "The prune's dry run printed more than k3sm reads, so its list cannot be shown whole and nothing was deleted."
+
+    /// A finished prune's line when its output was cut at the cap.
+    public static func prunedTruncated(node: String) -> String {
+        StatusDisplay.clip("The prune ran on node \(node). Its output was longer than k3sm reads, so the count is not shown.")
     }
 
     /// The Pull sheet's title and its line under a valid reference.

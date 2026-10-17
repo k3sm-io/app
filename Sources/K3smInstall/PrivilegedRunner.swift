@@ -42,17 +42,33 @@ public protocol PrivilegedRunner: Sendable {
 
 /// PrivilegedRun is a finished root step and, when it failed, its raw error
 /// output (nil when there was none or the runner cannot read it); when it
-/// succeeded, its raw standard output, which a read verb (a prune's dry run)
-/// parses and every caller shows only through its parser or `StatusDisplay`.
+/// succeeded and its script asked for it (`RootScript.capturesOutput`, the
+/// image verbs alone), its raw standard output, cut at `maxOutputBytes`,
+/// which a caller reads only through its parser or `StatusDisplay`.
 public struct PrivilegedRun: Equatable, Sendable {
     public let outcome: PrivilegedOutcome
     public let errorOutput: String?
     public let output: String?
+    /// Whether `output` was cut at `maxOutputBytes`.
+    public let outputTruncated: Bool
 
-    public init(outcome: PrivilegedOutcome, errorOutput: String? = nil, output: String? = nil) {
+    /// The most standard output a runner holds for a step.
+    public static let maxOutputBytes = 256 * 1024
+
+    public init(outcome: PrivilegedOutcome, errorOutput: String? = nil, output: String? = nil, outputTruncated: Bool = false) {
         self.outcome = outcome
         self.errorOutput = errorOutput
         self.output = output
+        self.outputTruncated = outputTruncated
+    }
+
+    /// `text` cut to its first `maxOutputBytes` bytes of UTF-8, and whether
+    /// it was cut. A scalar split by the cut decodes as a replacement character.
+    public static func capped(_ text: String?) -> (text: String?, truncated: Bool) {
+        guard let text else { return (nil, false) }
+        let bytes = text.utf8
+        guard bytes.count > maxOutputBytes else { return (text, false) }
+        return (String(decoding: bytes.prefix(maxOutputBytes), as: UTF8.self), true)
     }
 }
 

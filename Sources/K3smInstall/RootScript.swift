@@ -47,12 +47,18 @@ public struct RootScript: Hashable, Sendable {
     /// lifecycle verb (`LifecycleScriptBuilder`) stages nothing and takes no
     /// lock.
     public let usesStagingLock: Bool
+    /// Whether the runner hands back the script's standard output, at most
+    /// `PrivilegedRun.maxOutputBytes`. Only the image verbs ask for it
+    /// (`LifecycleScriptBuilder.renderImage`); the copy-out and every
+    /// lifecycle verb return none.
+    public let capturesOutput: Bool
 
-    public init(text: String, prompt: String, readsInput: Bool, usesStagingLock: Bool = true) {
+    public init(text: String, prompt: String, readsInput: Bool, usesStagingLock: Bool = true, capturesOutput: Bool = false) {
         self.text = text
         self.prompt = prompt
         self.readsInput = readsInput
         self.usesStagingLock = usesStagingLock
+        self.capturesOutput = capturesOutput
     }
 
     /// The one command line the privileged runner executes: a scrubbed

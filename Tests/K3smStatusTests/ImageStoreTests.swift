@@ -355,12 +355,36 @@ struct ImageStoreTests {
         #expect(pair.0 == pair.1)
     }
 
+    @Test("the registry the daemon contacts, by go-containerregistry's rule", arguments: [
+        ("nginx:1.27", nil), ("library/nginx", nil), ("localhost/app:dev", nil), ("a__b/c", nil),
+        ("docker.io/library/nginx:1.27", "docker.io"), ("ghcr.io/k3sm-io/app", "ghcr.io"),
+        ("localhost:5000/app", "localhost:5000"), ("127.0.0.1:5000/a/b", "127.0.0.1:5000"), ("registry.example.com:443/a", "registry.example.com:443"),
+    ] as [(String, String?)])
+    func registryHost(_ pair: (String, String?)) {
+        #expect(ImageRef(pair.0)?.registryHost == pair.1)
+    }
+
+    @Test("Pull's question names the registry in its own sentence")
+    func pullQuestion() {
+        let hub = ImageStoreText.pullQuestion(ImageRef("nginx:1.27")!, node: "studio")
+        #expect(hub.title == "Pull nginx:1.27 to this Mac?")
+        #expect(hub.message == "k3sm pulls nginx:1.27 into the image store of node studio, this Mac. "
+                + "The image daemon, running as root, contacts this node's own registry if it has one, "
+                + "then Docker Hub (index.docker.io), with no credential.")
+        let local = ImageStoreText.registrySentence(ImageRef("localhost:5000/app:1")!)
+        #expect(local.contains("contacts localhost:5000, this node's own registry, then the other nodes' registries"))
+        #expect(ImageRef("127.0.0.1:5000/a")!.registryIsLoopback)
+        #expect(!ImageRef("ghcr.io/a")!.registryIsLoopback)
+        #expect(ImageStoreText.registrySentence(ImageRef("ghcr.io/a/b:1")!) == "The image daemon, running as root, contacts ghcr.io, with no credential.")
+    }
+
     @Test("Untag asks naming the image and the node, and the prompts name this Mac")
     func questions() {
         let ref = ImageRef("nginx:1.27")!
         let q = ImageStoreText.untagQuestion(ref, node: "studio")
         #expect(q.title == "Untag nginx:1.27 on this Mac?")
         #expect(q.message.contains("nginx:1.27") && q.message.contains("node studio, this Mac"))
+        #expect(q.message.hasSuffix("If a pull moves the name to other content before the administrator step runs, that content loses the name instead."))
         #expect(ImageStoreText.prompt(untag: ref).contains("this Mac's image store"))
         #expect(ImageStoreText.prompt(pull: ref) == "k3sm wants to pull nginx:1.27 into this Mac's image store.")
         #expect(ImageStoreText.promptPruneDryRun.contains("this Mac"))

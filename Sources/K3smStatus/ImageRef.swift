@@ -104,6 +104,29 @@ public struct ImageRef: Hashable, Sendable {
         return nil
     }
 
+    /// The registry the image daemon contacts for the reference, by the rule
+    /// it resolves names with (go-containerregistry's, `authorityOf` in
+    /// runtimed's `pkg/image/mirror.go`): the part before the first "/" when
+    /// it holds a "." or a ":"; nil for a name with no registry of its own
+    /// ("nginx", "library/nginx", and "localhost/app" too, which that rule
+    /// reads as a Docker Hub path), which the daemon asks this node's own
+    /// registry for first, when it has one, then Docker Hub.
+    public var registryHost: String? {
+        guard let slash = value.firstIndex(of: "/") else { return nil }
+        let first = value[..<slash]
+        guard first.contains(".") || first.contains(":") else { return nil }
+        return String(first)
+    }
+
+    /// Whether `registryHost` names this Mac's loopback interface, the
+    /// node's own registry, whose misses the daemon asks the other nodes'
+    /// registries for.
+    public var registryIsLoopback: Bool {
+        guard let host = registryHost else { return false }
+        let name = host.split(separator: ":", maxSplits: 1).first.map(String.init) ?? host
+        return name == "localhost" || name.hasPrefix("127.")
+    }
+
     /// Whether the reference carries a digest ("…@sha256:…").
     public var hasDigest: Bool { value.contains("@") }
 

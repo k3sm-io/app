@@ -559,7 +559,10 @@ login** in the app's Settings turns it off or on again (see
     tag the image has on this Mac's node. It asks first, naming the image and
     the node, then runs `k3sm image untag <reference>`. It removes the name,
     not the content: pods using it keep running, other nodes keep their
-    copies, and a prune reclaims the bytes later. An image held only by
+    copies, and a prune reclaims the bytes later. The name is not pinned to
+    the content you saw: if a pull moves it to other content before the
+    administrator step runs, that content loses the name instead, and the
+    question says so. An image held only by
     another Mac's node offers nothing and says that images are managed on
     that Mac.
   - **Pull…** opens a field for an image reference and pulls it with
@@ -567,15 +570,18 @@ login** in the app's Settings turns it off or on again (see
     checks every blob's digest. The field accepts only a reference in the
     registry grammar (an optional registry host and port, lowercase path
     parts, then a tag, a `sha256:` digest or both, at most 456 characters),
-    so nothing else can reach the command. A pulled image stays until you
-    untag it.
+    so nothing else can reach the command. It asks first, naming the node
+    and, in its own sentence, the registry the image daemon contacts as root
+    (the reference's registry host; for a name with none, this node's own
+    registry if it has one, then Docker Hub), with no credential. A pulled
+    image stays until you untag it.
   - **Prune…** first runs `k3sm image prune`, whose default is a dry run,
     and shows what it would delete: the blobs, their size and what it kept
     and why. Only if you confirm that list does it run
     `k3sm image prune --force`. The prune works out again what nothing
     references when it runs, so content a pull or a new pod picks up in
-    between is kept. A dry run whose output k3sm cannot read is refused, and
-    nothing is deleted. Each step asks for the administrator password.
+    between is kept. A dry run whose output k3sm cannot read, or that prints
+    more than the 256 KiB k3sm holds, is refused, and nothing is deleted. Each step asks for the administrator password.
 - The **details** on the right follow the tab. Click a row on any tab (on
   Builds, the engine card or a build) and its details show there: a pod's facts
   and its logs, events or manifest; a node's role, readiness, whether it

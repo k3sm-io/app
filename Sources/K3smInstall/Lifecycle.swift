@@ -262,20 +262,22 @@ public enum LifecycleScriptBuilder {
     }
 
     /// Renders an image verb's script for the CLI at `K3smCLI.path`: the
-    /// same checks as every lifecycle verb, then the one CLI line.
+    /// same checks as every lifecycle verb, then the one CLI line. It is the
+    /// only script that asks for its standard output back (`capturesOutput`).
     public static func renderImage(_ verb: ImageVerb, teamID: TeamID) -> RootScript {
         renderImage(verb, teamID: teamID, cliPath: K3smCLI.path)
     }
 
     static func renderImage(_ verb: ImageVerb, teamID: TeamID, cliPath: String) -> RootScript {
-        render(prompt: verb.prompt, argv: imageArguments(verb), teamID: teamID, cliPath: cliPath)
+        render(prompt: verb.prompt, argv: imageArguments(verb), teamID: teamID, cliPath: cliPath, capturesOutput: true)
     }
 
     private static func render(_ verb: LifecycleVerb, argv words: [String], teamID: TeamID, cliPath: String) -> RootScript {
         render(prompt: verb.prompt, argv: words, teamID: teamID, cliPath: cliPath)
     }
 
-    private static func render(prompt: String, argv words: [String], teamID: TeamID, cliPath: String) -> RootScript {
+    private static func render(prompt: String, argv words: [String], teamID: TeamID, cliPath: String,
+                               capturesOutput: Bool = false) -> RootScript {
         let q = ShellQuote.quote
         let paths = checkedPaths(cliPath: cliPath).map(q).joined(separator: " ")
         let requirement = "-R=" + DesignatedRequirement.developerID(teamID: teamID)
@@ -310,7 +312,7 @@ public enum LifecycleScriptBuilder {
             fi
             exec "$k3sm" \#(argv)
             """#
-        return RootScript(text: text + "\n", prompt: prompt, readsInput: false, usesStagingLock: false)
+        return RootScript(text: text + "\n", prompt: prompt, readsInput: false, usesStagingLock: false, capturesOutput: capturesOutput)
     }
 }
 
