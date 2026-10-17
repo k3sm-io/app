@@ -86,11 +86,10 @@ public enum K3smCLI {
     public static let modelsDiscoveryArguments = ["kubectl", "api-resources", "--api-group=mlx.k3sm.io", "-o", "name"]
     /// The Events view: every Event, across namespaces.
     public static let eventsArguments = ["kubectl", "get", "events", "-A", "-o", "json"]
-    /// The live load: metrics-server's node and pod samples, read raw from
-    /// the metrics API through the same bundled kubectl.
-    public static let nodeMetricsArguments = ["kubectl", "get", "--raw", "/apis/metrics.k8s.io/v1beta1/nodes"]
-    public static let podMetricsArguments = ["kubectl", "get", "--raw", "/apis/metrics.k8s.io/v1beta1/pods"]
-    /// Whether the metrics API is served, read only after the node read failed.
+    /// The live load: metrics-server's node and pod samples in one read
+    /// through the same bundled kubectl, a `List` of both kinds.
+    public static let metricsArguments = ["kubectl", "get", "nodes.metrics.k8s.io,pods.metrics.k8s.io", "-A", "-o", "json"]
+    /// Whether the metrics API is served, read only after the metrics read failed.
     public static let metricsAPIServiceArguments = ["kubectl", "get", "apiservice", "v1beta1.metrics.k8s.io", "-o", "json"]
     /// The most log lines a detail call asks for.
     public static let logTail = 200

@@ -19,7 +19,7 @@ import Foundation
 /// TabReader is a console tab's read loop, independent of how a read is
 /// made: the app hands it a read (a fixed CLI argument list and a decoder)
 /// and observes it through `willChange`. It reads once at `start()`, then at
-/// its `interval` until `stop()`. Every read, the loop's and each
+/// its `interval`, spread by `PollJitter`, until `stop()`. Every read, the loop's and each
 /// `refresh()`, runs in a task the reader owns, so `stop()` cancels all of
 /// them; a cancelled read's result is discarded, and a CLI read kills its
 /// child on cancellation. `PollGate` keeps the reads serial: a refresh
@@ -68,7 +68,7 @@ public final class TabReader<Value: Sendable> {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.poll()
-                let wait = self.interval(self.value)
+                let wait = PollJitter.spread(self.interval(self.value), unit: PollJitter.draw())
                 try? await Task.sleep(for: wait)
             }
         }

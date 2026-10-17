@@ -20,7 +20,8 @@ import K3smStatus
 
 /// StatusPoller runs the visibility probe strictly serially: the next run
 /// starts only after the previous one exits (or is killed at the deadline),
-/// then waits 5 s while the item is visible or 15 s while hidden.
+/// then waits 5 s while the item is visible or 15 s while hidden, each wait
+/// spread by `PollJitter`.
 @MainActor
 final class StatusPoller {
     private let environment: [String: String]
@@ -42,7 +43,8 @@ final class StatusPoller {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.pollOnce()
-                try? await Task.sleep(for: PollSchedule.interval(visible: self.itemVisible))
+                let wait = PollSchedule.interval(visible: self.itemVisible)
+                try? await Task.sleep(for: PollJitter.spread(wait, unit: PollJitter.draw()))
             }
         }
     }

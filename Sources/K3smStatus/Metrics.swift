@@ -69,8 +69,9 @@ public enum MetricsReading: Equatable, Sendable {
     case failed(String)
 }
 
-/// Metrics decodes the two metrics-server reads (`kubectl get --raw` of the
-/// `metrics.k8s.io/v1beta1` node and pod lists) and, when the node read
+/// Metrics decodes metrics-server's node and pod samples, read in one
+/// `kubectl get nodes.metrics.k8s.io,pods.metrics.k8s.io` (a `List` of both
+/// kinds) or as the two `metrics.k8s.io/v1beta1` lists, and, when the read
 /// fails, reads the `v1beta1.metrics.k8s.io` APIService's conditions to say
 /// whether the API is absent or only this read failed. Names are kept only
 /// when `ResourceName` accepts them; every cluster string is cleaned.
@@ -87,6 +88,57 @@ public enum Metrics {
         case .failure(.notAList(let kind)): return .failed("kubectl returned a \(kind), not node metrics")
         case .failure(.malformed): return .failed("the node metrics could not be read")
         }
+        var podItems: [[String: Any]]?
+        if let pods, pods.exit == 0, case .success(let objects) = items(pods.stdout, kind: "PodMetricsList") {
+            podItems = objects
+        }
+        return .sampled(sample(nodeItems: nodeItems, podItems: podItems))
+    }
+
+    /// One poll of the single read (`K3smCLI.metricsArguments`) that exited
+    /// 0: a `List` whose items are `NodeMetrics` and `PodMetrics` in any
+    /// order. An item of another kind is skipped; a top level of another
+    /// kind, or bytes that are not a list, fail the poll.
+    public static func sampled(combined: Data) -> MetricsReading {
+        switch kinds(combined) {
+        case .success(let split): return .sampled(sample(nodeItems: split.nodes, podItems: split.pods))
+        case .failure(.notAList(let kind)): return .failed("kubectl returned a \(kind), not a metrics list")
+        case .failure(.malformed): return .failed("the metrics could not be read")
+        }
+    }
+
+    /// One poll of the single read that exited `exit`. At 0 it is
+    /// `sampled(combined:)`. Otherwise kubectl may still have printed the
+    /// kind it could read: a `List` with node items is a sample whose pods
+    /// are unknown, one with only pod items a sample with no nodes. Nil when
+    /// nothing parsed, which is when the APIService read decides.
+    public static func sampled(combined: Data, exit: Int32) -> MetricsReading? {
+        guard exit != 0 else { return sampled(combined: combined) }
+        guard case .success(let split) = kinds(combined), !split.nodes.isEmpty || !split.pods.isEmpty else { return nil }
+        return .sampled(sample(nodeItems: split.nodes, podItems: split.pods.isEmpty ? nil : split.pods))
+    }
+
+    /// The one read's items, split by kind; an item of another kind dropped.
+    static func kinds(_ data: Data) -> Result<(nodes: [[String: Any]], pods: [[String: Any]]), ListError> {
+        switch items(data, kind: "List") {
+        case .failure(let why): return .failure(why)
+        case .success(let objects):
+            var nodes: [[String: Any]] = []
+            var pods: [[String: Any]] = []
+            for item in objects {
+                switch item["kind"] as? String {
+                case "NodeMetrics": nodes.append(item)
+                case "PodMetrics": pods.append(item)
+                default: continue
+                }
+            }
+            return .success((nodes, pods))
+        }
+    }
+
+    /// The sample from the node items and, when the pods were read, the pod
+    /// items: names `ResourceName` refuses are left out.
+    static func sample(nodeItems: [[String: Any]], podItems: [[String: Any]]?) -> MetricsSample {
         var byName: [String: NodeUsage] = [:]
         for item in nodeItems {
             guard let name = name(of: item) else { continue }
@@ -96,7 +148,7 @@ public enum Metrics {
                 memoryBytes: (usage["memory"] as? String).flatMap(Quantity.bytes))
         }
         var podUsage: [String: PodUsage]?
-        if let pods, pods.exit == 0, case .success(let podItems) = items(pods.stdout, kind: "PodMetricsList") {
+        if let podItems {
             var byKey: [String: PodUsage] = [:]
             for item in podItems {
                 guard let name = name(of: item) else { continue }
@@ -106,7 +158,7 @@ public enum Metrics {
             }
             podUsage = byKey
         }
-        return .sampled(MetricsSample(nodes: byName, pods: podUsage))
+        return MetricsSample(nodes: byName, pods: podUsage)
     }
 
     /// One poll whose node read exited `nodesExit` (not 0), with the
@@ -242,12 +294,15 @@ public enum MetricsSchedule {
     /// The next move: wait while the window is hidden; read when nothing has
     /// been read or the interval has passed since the last read; otherwise
     /// wait out the rest of it. A last read in the future (the clock moved
-    /// back) waits one whole interval.
-    public static func step(visible: Bool, lastRead: Date?, now: Date, absent: Bool) -> MetricsStep {
+    /// back) waits one whole interval. `unit` is the caller's jitter draw for
+    /// this wait (`PollJitter`), drawn once after each read and passed in
+    /// unchanged until the next, so the interval is `PollJitter.spread` of
+    /// the profile's; at 0 it is exact. The hidden recheck is not spread.
+    public static func step(visible: Bool, lastRead: Date?, now: Date, absent: Bool, unit: Double = 0) -> MetricsStep {
         guard visible else { return .wait(hiddenRecheck) }
         guard let lastRead else { return .read }
-        let due = absent ? absentInterval : interval
-        let dueSeconds = Double(due.components.seconds)
+        let due = PollJitter.spread(absent ? absentInterval : interval, unit: unit)
+        let dueSeconds = Double(due.components.seconds) + Double(due.components.attoseconds) / 1e18
         let elapsed = now.timeIntervalSince(lastRead)
         guard elapsed >= 0 else { return .wait(due) }
         if elapsed >= dueSeconds { return .read }

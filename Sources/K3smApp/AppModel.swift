@@ -1371,14 +1371,14 @@ final class AppModel: ObservableObject {
     }
 
     /// Starts re-reading the full report while the console is on screen, every
-    /// `PollSchedule.consoleReportInterval`, one read at a time; a tick that
+    /// `PollSchedule.consoleReportInterval` spread by `PollJitter`, one read at a time; a tick that
     /// finds a read in flight skips it. The first read waits one interval,
     /// since showing the window already refreshes. A second start is a no-op.
     func startReportPolling() {
         guard reportTask == nil else { return }
         reportTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: PollSchedule.consoleReportInterval)
+                try? await Task.sleep(for: PollJitter.spread(PollSchedule.consoleReportInterval, unit: PollJitter.draw()))
                 guard !Task.isCancelled, let self else { return }
                 if self.refreshesInFlight == 0 {
                     await self.refresh()
@@ -1390,7 +1390,7 @@ final class AppModel: ObservableObject {
     /// Starts the background update check: while `wanted` says so (the
     /// update notification is on) and the console is not on screen, which
     /// has its own report loop, the full report and the installed version
-    /// are read every `PollSchedule.updateCheckInterval`, the first read
+    /// are read every `PollSchedule.updateCheckInterval` spread by `PollJitter`, the first read
     /// at once. A second start is a no-op.
     func startUpdateCheck(wanted: @escaping @MainActor () -> Bool) {
         guard updateCheckTask == nil else { return }
@@ -1400,7 +1400,7 @@ final class AppModel: ObservableObject {
                 if wanted(), !self.consoleShown, !self.running, self.refreshesInFlight == 0 {
                     await self.refresh()
                 }
-                try? await Task.sleep(for: PollSchedule.updateCheckInterval)
+                try? await Task.sleep(for: PollJitter.spread(PollSchedule.updateCheckInterval, unit: PollJitter.draw()))
             }
         }
     }

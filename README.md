@@ -182,8 +182,8 @@ login** in the app's Settings turns it off or on again (see
   how many pods hold an interconnect address, the nodes past its address
   range, and that pod traffic on the cable is not encrypted.
 - **Live load** comes from metrics-server when the cluster runs it. While
-  the window is on screen the app reads `k3sm kubectl get --raw` of the
-  `metrics.k8s.io` node and pod lists at most every 15 seconds, one read at
+  the window is on screen the app reads the `metrics.k8s.io` node and pod
+  samples in one `k3sm kubectl get` at most every 15 seconds, one read at
   a time, and keeps the last sample. Each node in the Cluster view, and this
   Mac's node in the This Mac view, gets one CPU and one memory bar: what its
   pods request as a light band, what it uses now drawn solid over it, the
