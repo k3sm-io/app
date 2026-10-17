@@ -56,8 +56,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                               openSettings: { [weak settings] in settings?.show() })
         let notifier = StoppedNotifier(
             onStart: { [weak model] in model?.perform(.start, expected: .stopped) },
-            onOpen: { [weak windowController] in windowController?.show() })
+            onOpen: { [weak windowController] in windowController?.show() },
+            onUpdate: { [weak settings] in settings?.show(pane: .updates) })
         notifier.install()
+        // A demo tour is a recording: it posts no update notice.
+        if demoTour == nil {
+            model.onUpdateRead = { [weak model, weak notifier] in
+                guard let model, let notifier else { return }
+                Self.noteUpdate(model.updatePlan, preferences: preferences.preferences, notifier: notifier)
+            }
+        }
         noticePending = preferences.preferences.checksStoppedNotice(loginLaunch: loginLaunch)
         let poller = StatusPoller(environment: environment) { [weak statusItem, weak self] reading, report in
             statusItem?.observe(reading, report: report)
@@ -82,6 +90,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         observeSession()
         poller.start()
+        if demoTour == nil {
+            model.startUpdateCheck(wanted: { preferences.notifyUpdate })
+        }
         log.notice("k3sm app started")
         // A login-item launch shows only the status item, unless Settings asks
         // for the window at login too; any launch the user made (Finder,
@@ -121,6 +132,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard noticePending else { return }
         noticePending = false
         notifier?.postIfDue(loginLaunch: true, report: report)
+    }
+
+    /// Posts the update notice when `UpdateNotice` says one is due, after
+    /// recording its release, so each release is announced once.
+    private static func noteUpdate(_ plan: UpdatePlan, preferences: AppPreferences, notifier: StoppedNotifier) {
+        guard let notice = UpdateNotice.decide(plan: plan, enabled: preferences.notifyUpdate,
+                                               notified: preferences.updateNotifiedRelease) else { return }
+        preferences.updateNotifiedRelease = notice.release
+        notifier.postUpdate(notice)
     }
 
     /// Pauses polling while this user's session is not the active console

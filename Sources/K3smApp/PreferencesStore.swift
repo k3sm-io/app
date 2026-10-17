@@ -48,6 +48,18 @@ final class PreferencesStore: ObservableObject {
     @Published var updateSignature: UpdateSignaturePolicy {
         didSet { if !reloading { preferences.updateSignature = updateSignature } }
     }
+    /// Post a notification when an update becomes available (`UpdateNotice`).
+    @Published var notifyUpdate: Bool {
+        didSet { if !reloading { preferences.notifyUpdate = notifyUpdate } }
+    }
+    /// How often the app reads k3sm; every poll reads it through
+    /// `PollSchedule.profile`, from its next wait.
+    @Published var pollProfile: PollProfile {
+        didSet {
+            PollSchedule.profile = pollProfile
+            if !reloading { preferences.pollProfile = pollProfile }
+        }
+    }
 
     /// Set while `resetToDefaults` reads the defaults back, so nothing is
     /// written over the removed keys.
@@ -61,6 +73,9 @@ final class PreferencesStore: ObservableObject {
         allChecksOpen = preferences.allChecksOpen
         updateDrain = preferences.updateDrain
         updateSignature = preferences.updateSignature
+        notifyUpdate = preferences.notifyUpdate
+        pollProfile = preferences.pollProfile
+        PollSchedule.profile = pollProfile
     }
 
     /// Puts every preference back (`AppPreferences.reset`) and shows the
@@ -75,5 +90,7 @@ final class PreferencesStore: ObservableObject {
         allChecksOpen = preferences.allChecksOpen
         updateDrain = preferences.updateDrain
         updateSignature = preferences.updateSignature
+        notifyUpdate = preferences.notifyUpdate
+        pollProfile = preferences.pollProfile
     }
 }

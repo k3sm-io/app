@@ -20,8 +20,8 @@ import SwiftUI
 /// GeneralPane is the Settings window's General pane: Open at login (the
 /// real login item, with the system's reason when it needs approval or
 /// refused), the stopped notice at login, the window at login, the Dock
-/// animation (off and disabled under Reduce Motion), the tour and Reset
-/// Window Layout, and the app's own version (`AppVersion.title`). Its state
+/// animation (off and disabled under Reduce Motion), the poll profile
+/// (`PollProfile`), the tour and Reset Window Layout, and the app's own version (`AppVersion.title`). Its state
 /// is on `SettingsModel` and `PreferencesStore`.
 struct GeneralPane: View {
     @ObservedObject var settings: SettingsModel
@@ -51,6 +51,16 @@ struct GeneralPane: View {
                     .disabled(!dock.isEnabled)
                     .help(Help.General.dockAnimation)
                 if let text = dock.note { note(text) }
+            }
+            group("Status") {
+                Picker("Status refresh", selection: $preferences.pollProfile) {
+                    ForEach(PollProfile.allCases, id: \.self) { profile in
+                        Text(profile.title).tag(profile)
+                    }
+                }
+                .fixedSize()
+                .help(Help.General.pollProfile)
+                note(PollProfile.paneNote)
             }
             group("Window") {
                 HStack(spacing: 12) {

@@ -225,14 +225,17 @@ public enum MetricsStep: Equatable, Sendable {
     case wait(Duration)
 }
 
-/// MetricsSchedule is the metrics poll's cadence: a read at most every 15 s
-/// (the slowest list cadence, so a poll never costs more than the tabs'
-/// own), every 60 s while the API is absent, and only while the console
+/// MetricsSchedule is the metrics poll's cadence: under the Normal profile a
+/// read at most every 15 s (the slowest list cadence, so a poll never costs
+/// more than the tabs' own), every 60 s while the API is absent (Low power
+/// doubles both), and only while the console
 /// window is visible. One loop makes every read and awaits each, so no two
 /// are ever in flight.
 public enum MetricsSchedule {
-    public static let interval: Duration = .seconds(15)
-    public static let absentInterval: Duration = .seconds(60)
+    /// The current `PollProfile`'s metrics cadence, and its retry while
+    /// metrics-server is absent.
+    public static var interval: Duration { PollSchedule.intervals.metrics }
+    public static var absentInterval: Duration { PollSchedule.intervals.metricsAbsent }
     /// How soon a hidden window is looked at again.
     public static let hiddenRecheck: Duration = .seconds(5)
 

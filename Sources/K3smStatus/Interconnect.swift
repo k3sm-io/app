@@ -102,3 +102,45 @@ public struct InterconnectCard: Equatable, Sendable {
             outOfRange: names.isEmpty ? nil : StatusDisplay.clip("Out of range: " + names.joined(separator: ", ")))
     }
 }
+
+/// InterconnectSetting is the Network pane's interconnect checkbox, from the
+/// full report's `interconnect` block: on while it is armed, off while it is
+/// not, unknown when the report has no block (the cluster has none, or the
+/// read could not see it). The app has no privileged step for it, so the
+/// checkbox only shows the state and the note says how to change it; every
+/// string is clipped.
+public struct InterconnectSetting: Equatable, Sendable {
+    public enum State: Equatable, Sendable {
+        case on
+        case off
+        case unknown
+    }
+
+    public let state: State
+    /// The lines under the checkbox: the state, then the armed block's facts.
+    public let lines: [String]
+    /// How to change it.
+    public let note: String
+    /// Whether a click changes it. Always false: there is no app path.
+    public let changeable: Bool
+
+    public static let title = "Use the Thunderbolt interconnect"
+    public static let absentLine = "Now: unknown. This read found no interconnect: the cluster has none, or it could not read it."
+    public static let readOnlyNote = "The app shows this setting only. Turn it on or off with k3sm interconnect enable or disable in Terminal."
+
+    /// The checkbox for the report; nil before a report is read or on a Mac
+    /// with no k3sm node.
+    public static func decide(_ report: StatusReport?) -> InterconnectSetting? {
+        guard let report, report.hasLANSwitch else { return nil }
+        guard let ic = report.interconnect else {
+            return InterconnectSetting(state: .unknown, lines: [absentLine], note: readOnlyNote, changeable: false)
+        }
+        guard ic.armed, let card = InterconnectCard.card(for: report) else {
+            return InterconnectSetting(state: .off, lines: ["Now: off"], note: readOnlyNote, changeable: false)
+        }
+        var lines = [StatusDisplay.clip("Now: on, \(card.medium), \(card.nodes), \(card.segments), \(card.pods)")]
+        if let warning = card.warning { lines.append(warning) }
+        if let out = card.outOfRange { lines.append(out) }
+        return InterconnectSetting(state: .on, lines: lines, note: readOnlyNote, changeable: false)
+    }
+}

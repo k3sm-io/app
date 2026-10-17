@@ -161,6 +161,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSToolbarDeleg
         NSApp.activate()
     }
 
+    /// Shows the window at `pane` (the update notification's click opens Updates).
+    func show(pane: SettingsPane) {
+        show()
+        guard let window, pane != self.pane, SettingsPane.shown.contains(pane) else { return }
+        show(pane, in: window, keepTop: true)
+    }
+
     func windowWillClose(_ notification: Notification) {
         saveFrame()
         model.confirmingReset = false

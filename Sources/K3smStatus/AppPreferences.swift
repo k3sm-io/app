@@ -38,6 +38,8 @@ public struct AppPreferences: @unchecked Sendable {
         case allChecksOpen = "pref.allChecksOpen"
         /// Pass `--drain` to `k3sm update apply` (`UpdateOptions.drain`).
         case updateDrain = "pref.updateDrain"
+        /// Post a notification when an update becomes available (`UpdateNotice`).
+        case notifyUpdate = "pref.notifyUpdate"
 
         /// The value when nothing usable is stored.
         public var defaultValue: Bool {
@@ -47,12 +49,19 @@ public struct AppPreferences: @unchecked Sendable {
             case .dockAnimation: true
             case .allChecksOpen: false
             case .updateDrain: false
+            case .notifyUpdate: true
             }
         }
     }
 
     /// The update's signature policy, an `UpdateSignaturePolicy` word.
     public static let updateSignatureKey = "pref.updateSignature"
+    /// How often the app reads k3sm, a `PollProfile` word.
+    public static let pollProfileKey = "pref.pollProfile"
+    /// The release the update notification last named (`UpdateNotice.release`).
+    /// It is a record, not a preference: Reset to Defaults keeps it, so the
+    /// same release is never announced twice.
+    public static let updateNotifiedKey = "updateNotifiedRelease"
     /// The Settings window's last pane.
     public static let settingsPaneKey = "settingsPane"
     /// The Settings window's frame and screen, a `WindowFrame.Saved` value.
@@ -117,6 +126,23 @@ public struct AppPreferences: @unchecked Sendable {
         nonmutating set { set(newValue, for: .updateDrain) }
     }
 
+    public var notifyUpdate: Bool {
+        get { bool(.notifyUpdate) }
+        nonmutating set { set(newValue, for: .notifyUpdate) }
+    }
+
+    /// The stored poll profile, through `PollProfile.restore`.
+    public var pollProfile: PollProfile {
+        get { PollProfile.restore(from: defaults.object(forKey: Self.pollProfileKey)) }
+        nonmutating set { defaults.set(newValue.rawValue, forKey: Self.pollProfileKey) }
+    }
+
+    /// The release the update notification last named; nil before the first.
+    public var updateNotifiedRelease: String? {
+        get { defaults.object(forKey: Self.updateNotifiedKey) as? String }
+        nonmutating set { defaults.set(newValue, forKey: Self.updateNotifiedKey) }
+    }
+
     /// The stored signature policy; a missing value, another type or a word
     /// this build does not know reads as `ifSigned`, the CLI's default.
     public var updateSignature: UpdateSignaturePolicy {
@@ -142,6 +168,7 @@ public struct AppPreferences: @unchecked Sendable {
     public func reset() {
         for key in Key.allCases { defaults.removeObject(forKey: key.rawValue) }
         defaults.removeObject(forKey: Self.updateSignatureKey)
+        defaults.removeObject(forKey: Self.pollProfileKey)
         defaults.removeObject(forKey: Self.settingsPaneKey)
     }
 

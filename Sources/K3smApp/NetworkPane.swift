@@ -21,7 +21,8 @@ import SwiftUI
 /// NetworkPane is the Settings window's Network pane: the "Allow
 /// connections from other devices" switch (`LANSection`, moved here from
 /// the info popover), then the current state, the listeners it controls,
-/// those it never closes and this node's address (`NetworkPaneFacts`). The
+/// those it never closes and this node's address (`NetworkPaneFacts`), then
+/// the Thunderbolt interconnect's state (`InterconnectSetting`). The
 /// report is the last full status read; opening the pane reads it again, so
 /// the switch is never judged on a stale read.
 struct NetworkPane: View {
@@ -38,6 +39,9 @@ struct NetworkPane: View {
             }
             if app.lanReport == nil {
                 Text("The status of this Mac has not been read yet.").font(.callout).foregroundStyle(.secondary)
+            }
+            if let interconnect = InterconnectSetting.decide(app.lanReport) {
+                InterconnectSection(setting: interconnect)
             }
         }
         .padding(20)
@@ -89,6 +93,39 @@ struct LANSection: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+        }
+    }
+}
+
+/// InterconnectSection is the Thunderbolt interconnect checkbox. It shows
+/// the state from the last full status read and cannot be clicked: the app
+/// has no privileged step for it, so the note names the Terminal command.
+/// An unknown state draws as a dash, as the LAN switch's does.
+struct InterconnectSection: View {
+    let setting: InterconnectSetting
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Interconnect").font(.headline).padding(.top, 6)
+            if setting.state == .unknown {
+                HStack(spacing: 6) {
+                    Image(systemName: "minus.square")
+                    Text(InterconnectSetting.title)
+                    Text("(unknown)").foregroundStyle(.secondary)
+                }
+                .help(Help.Network.interconnect)
+            } else {
+                Toggle(InterconnectSetting.title, isOn: .constant(setting.state == .on))
+                    .toggleStyle(.checkbox)
+                    .disabled(!setting.changeable)
+                    .help(Help.Network.interconnect)
+            }
+            ForEach(setting.lines, id: \.self) { line in
+                Text(verbatim: line).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(verbatim: setting.note).font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

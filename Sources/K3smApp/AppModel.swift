@@ -266,7 +266,15 @@ final class AppModel: ObservableObject {
     @Published private(set) var report: StatusReport? {
         didSet { workloads.ownNode = WorkloadsDisplay.ownNode(in: report) }
     }
-    @Published private(set) var installedVersion: SemanticVersion?
+    @Published private(set) var installedVersion: SemanticVersion? {
+        didSet { if installedVersion != oldValue { onUpdateRead?() } }
+    }
+    /// Called after a read that can change the update plan (a full report,
+    /// the installed version), so the update notice is decided on fresh
+    /// facts. The app delegate sets it.
+    var onUpdateRead: (@MainActor () -> Void)?
+    /// The background update check's loop (`startUpdateCheck`).
+    private var updateCheckTask: Task<Void, Never>?
     @Published private(set) var availability: PrivilegedAvailability
     @Published var loginItemNeedsApproval = false
     @Published private(set) var running = false
@@ -322,6 +330,7 @@ final class AppModel: ObservableObject {
             syncUpdateReader()
             // The Stats tab's update chart follows the row in each report.
             if let lanReport { workloads.noteUpdate(lanReport, at: Date()) }
+            onUpdateRead?()
         }
     }
     @Published private(set) var lanReadAt: Date?
@@ -1311,6 +1320,24 @@ final class AppModel: ObservableObject {
                 if self.refreshesInFlight == 0 {
                     await self.refresh()
                 }
+            }
+        }
+    }
+
+    /// Starts the background update check: while `wanted` says so (the
+    /// update notification is on) and the console is not on screen, which
+    /// has its own report loop, the full report and the installed version
+    /// are read every `PollSchedule.updateCheckInterval`, the first read
+    /// at once. A second start is a no-op.
+    func startUpdateCheck(wanted: @escaping @MainActor () -> Bool) {
+        guard updateCheckTask == nil else { return }
+        updateCheckTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if wanted(), !self.consoleShown, !self.running, self.refreshesInFlight == 0 {
+                    await self.refresh()
+                }
+                try? await Task.sleep(for: PollSchedule.updateCheckInterval)
             }
         }
     }

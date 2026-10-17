@@ -814,11 +814,15 @@ public enum Help {
         public static let resetLayout = HelpTag("Put the panel, details column and table columns back as first",
                                                 control: "general: Reset Window Layout", label: "Reset Window Layout…")
 
+        /// The status refresh popup.
+        public static let pollProfile = HelpTag("How often the app reads k3sm; the slower choice saves battery",
+                                                control: "general: poll profile popup", label: "Status refresh")
+
         /// Take the Tour's tag.
         public static func tour(available: Bool) -> HelpTag { available ? tour : tourUnavailable }
 
         public static var all: [HelpTag] {
-            [openAtLogin, windowAtLogin, notifyStopped, dockAnimation, tour, tourUnavailable, resetLayout]
+            [openAtLogin, windowAtLogin, notifyStopped, dockAnimation, tour, tourUnavailable, resetLayout, pollProfile]
         }
     }
 
@@ -831,7 +835,12 @@ public enum Help {
                                         control: "network: LAN checkbox",
                                         label: "Allow connections from other devices")
 
-        public static var all: [HelpTag] { [lan] }
+        /// The interconnect checkbox, which shows the state only.
+        public static let interconnect = HelpTag("Whether pods may use the Thunderbolt cable network; change it in Terminal",
+                                                 control: "network: interconnect checkbox",
+                                                 label: InterconnectSetting.title)
+
+        public static var all: [HelpTag] { [lan, interconnect] }
     }
 
     // MARK: Settings: Updates
@@ -867,7 +876,11 @@ public enum Help {
             control.reason ?? Strip.update(plan)
         }
 
-        public static var all: [HelpTag] { [installed, available, state, updateNow, drain, allowDowngrade, signature] }
+        /// Notify me when an update is available.
+        public static let notify = HelpTag("Post a notification once for each new release the app can install",
+                                           control: "updates: notify checkbox", label: "Notify me when an update is available")
+
+        public static var all: [HelpTag] { [installed, available, state, updateNow, drain, allowDowngrade, signature, notify] }
     }
 
     // MARK: Settings: Advanced
@@ -904,7 +917,14 @@ public enum Help {
         public static let restricted = HelpTag("Only an administrator can read this value, with sudo k3sm status",
                                                control: "settings: restricted value lock")
 
-        public static var all: [HelpTag] { [copy, restricted] }
+        /// The kubeconfig's Copy Path button.
+        public static let copyKubeconfig = HelpTag("Put the kubeconfig's path on the clipboard, never its contents",
+                                                   control: "cluster: kubeconfig Copy Path", label: "Copy Path")
+        /// The kubeconfig's Show in Finder button.
+        public static let revealKubeconfig = HelpTag("Open a Finder window with the kubeconfig file selected",
+                                                     control: "cluster: kubeconfig Show in Finder", label: "Show in Finder")
+
+        public static var all: [HelpTag] { [copy, restricted, copyKubeconfig, revealKubeconfig] }
     }
 
     // MARK: Settings window
@@ -985,6 +1005,7 @@ public enum HelpStandard {
     static let properNouns: Set<String> = [
         "Mac", "Mac's", "Macs", "Terminal", "Linux", "Dock", "Settings", "System", "Login", "Items",
         "Ready", "Start", "Load", "Reduce", "Motion", "Kubernetes", "Ingresses", "Services", "YAML", "VM",
+        "Finder", "Thunderbolt",
     ]
 
     /// Lowercase words a tag may start with: product and command names.

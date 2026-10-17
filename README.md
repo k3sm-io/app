@@ -732,6 +732,12 @@ The **General** pane:
 - **Animate the Dock icon while the window is open** beats the wings of the
   mark on the Dock icon. With Reduce Motion on in Accessibility settings the
   icon is always still, and the checkbox says so.
+- **Status refresh** is **Normal** (the cadences this README states) or
+  **Low power**, which waits at least twice as long between every read the
+  app makes: the status item's poll (10 seconds while it is shown, 30 while
+  it is hidden), each console tab, the status report, the update progress,
+  live load and the update check. A change applies from each read's next
+  wait. It is Normal at first.
 - **Take the Tour** brings the window forward and starts the tour, once k3sm
   is installed.
 - **Reset Window Layout…** asks, then puts the console's left panel back to
@@ -756,12 +762,30 @@ each setting as "not reported by this k3sm". Both panes are read-only for
 now: these settings are set by `k3sm install`, and changing them from the app
 comes later. Opening either pane reads the status again.
 
+The Cluster pane ends with **Kubeconfig**: the path of the admin kubeconfig,
+`~/.kube/config` of your account (where `k3sm install` writes it for you),
+or the path install recorded when the report names it. **Copy Path** puts
+the path on the clipboard, never the file's contents, for `KUBECONFIG` or a
+tool's settings; **Show in Finder** opens a Finder window with the file
+selected. The app never opens the file. When your account cannot read it
+(say, after `sudo k3sm kubeconfig --write` left it owned by root) the pane
+says using it needs an administrator; when there is no file at the path,
+both buttons are off and the pane says `sudo k3sm install` writes one.
+
 The **Network** pane holds **Allow connections from other devices** (see
 [Connections from other devices](#connections-from-other-devices)), with
 the setting now, the listeners it controls, those it never closes, and the
 address this node answers on once the console has read the node list.
 Opening the pane reads the status again. A Mac with no k3sm node says it has
 no network settings.
+
+Under it, **Use the Thunderbolt interconnect** shows whether an administrator
+has armed the cluster's interconnect (the cable network between Macs), with
+the cabled nodes up, the segments and the pods attached while it is on, and
+that pod traffic on the cable is not encrypted. It shows the state only: the
+app has no step that changes it, so the pane says to run `k3sm interconnect
+enable` or `disable` in Terminal. When the status names no interconnect (the
+cluster has none, or the read could not see it) the box shows a dash.
 
 The **Updates** pane (see [The managed update](#the-managed-update)):
 
@@ -785,6 +809,14 @@ The **Updates** pane (see [The managed update](#the-managed-update)):
   update then runs with exactly what the question showed, as `k3sm update
   apply` flags, even if you change them here meanwhile. The release's
   checksum is always verified.
+- **Notify me when an update is available** (on at first) posts a
+  notification the first time the update plan offers an update the app can
+  start, once for each release, never again for the same one, across
+  launches too. macOS asks once whether k3sm may post notifications; if you
+  say no, nothing is posted. A click on the notification opens this pane.
+  While the console is closed and this is on, the app reads the status every
+  30 minutes (an hour under Low power) to find a new release; the server
+  itself checks hourly.
 
 The release source the server checks is set when k3sm is installed and is
 not shown here: `k3sm status` does not report it.
@@ -796,7 +828,9 @@ The **Advanced** pane:
 - **Uninstall k3sm…**, with **Also delete k3sm's data** (see
   [Uninstalling](#uninstalling)).
 - **Reset to Defaults…** asks, then puts every preference above back to its
-  first value, and closes the status popover's All checks. Open at login,
+  first value, and closes the status popover's All checks. The record of
+  which release was last announced stays, so a reset does not announce it
+  again. Open at login,
   the window layout and k3sm itself stay as they are.
 
 ## The managed update

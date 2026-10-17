@@ -315,12 +315,15 @@ public enum K3smCLI {
     }
 }
 
-/// PollSchedule is the visibility poll's cadence: 5 s while the status item is
-/// shown, 15 s while it is hidden, and a 4 s deadline after which a run is
+/// PollSchedule is the visibility poll's cadence: under the Normal profile
+/// 5 s while the status item is shown, 15 s while it is hidden (Low power
+/// doubles both, `PollProfile`), and a 4 s deadline after which a run is
 /// killed. The poller starts the next run only after the previous one exits.
 public enum PollSchedule {
-    public static let visibleInterval: Duration = .seconds(5)
-    public static let hiddenInterval: Duration = .seconds(15)
+    /// The cadences below read the current `PollProfile` (`intervals`);
+    /// the deadlines are fixed.
+    public static var visibleInterval: Duration { intervals.visible }
+    public static var hiddenInterval: Duration { intervals.hidden }
     public static let killDeadline: Duration = .seconds(4)
     /// The deadline for the console's pod and node list reads. It is longer
     /// than `killDeadline` because those reads go through kubectl to the API
@@ -332,24 +335,24 @@ public enum PollSchedule {
     /// without stacking runs.
     public static let listDeadline: Duration = .seconds(10)
     /// The wait between full status reads while the console window is open.
-    public static let consoleReportInterval: Duration = .seconds(30)
+    public static var consoleReportInterval: Duration { intervals.consoleReport }
 
     /// The wait before the next poll, chosen by whether the item is shown.
-    public static func interval(visible: Bool) -> Duration {
-        visible ? visibleInterval : hiddenInterval
+    public static func interval(visible: Bool, in intervals: PollIntervals = PollSchedule.intervals) -> Duration {
+        visible ? intervals.visible : intervals.hidden
     }
 
     /// The Images tab's cadence: images change only when one is pulled,
     /// loaded or removed.
-    public static let imagesInterval: Duration = .seconds(15)
+    public static var imagesInterval: Duration { intervals.images }
     /// The cadence of the Services, Storage and Models tabs: objects that
     /// change when someone applies a manifest.
-    public static let objectsInterval: Duration = .seconds(15)
+    public static var objectsInterval: Duration { intervals.objects }
     /// The Events view's cadence, the pod list's own.
-    public static let eventsInterval: Duration = .seconds(5)
+    public static var eventsInterval: Duration { intervals.events }
     /// The Builds tab's cadence once the engine is ready; until then it is
     /// read at `visibleInterval`, so a starting engine is seen when it serves.
-    public static let buildsReadyInterval: Duration = .seconds(15)
+    public static var buildsReadyInterval: Duration { intervals.buildsReady }
 
     /// How long a console action's run may take before it is killed: a
     /// kubectl write, well under a minute.
@@ -373,17 +376,21 @@ public enum PollSchedule {
     public static let logFollowDeadline: Duration = .seconds(30 * 60)
 
     /// The managed update's progress cadence while it is read.
-    public static let updateStatusInterval: Duration = .seconds(5)
+    public static var updateStatusInterval: Duration { intervals.updateStatus }
+
+    /// The background full read that looks for a new release while the
+    /// console is closed (the update notification's).
+    public static var updateCheckInterval: Duration { intervals.updateCheck }
 
     /// The pod list's cadence while the console is open but another tab is
     /// selected: the navy panel's pod counts and meters come from it, so it
     /// keeps reading, slowly, rather than freezing.
-    public static let backgroundInterval: Duration = .seconds(30)
+    public static var backgroundInterval: Duration { intervals.background }
 
     /// The pod list's cadence: the Workloads tab's when it is selected,
     /// `backgroundInterval` otherwise.
-    public static func podsInterval(selected: Bool) -> Duration {
-        selected ? interval(for: .workloads, engineReady: false) : backgroundInterval
+    public static func podsInterval(selected: Bool, in intervals: PollIntervals = PollSchedule.intervals) -> Duration {
+        selected ? interval(for: .workloads, engineReady: false, in: intervals) : intervals.background
     }
 
     /// The age the panel shows beside its state line: the pod list's read
@@ -403,12 +410,13 @@ public enum PollSchedule {
     /// `objectsInterval`; Stats, which only renders what the other reads
     /// fetched, at `objectsInterval`. The shared node list follows the
     /// selected tab's cadence too.
-    public static func interval(for section: ConsoleSection, engineReady: Bool) -> Duration {
+    public static func interval(for section: ConsoleSection, engineReady: Bool,
+                                in intervals: PollIntervals = PollSchedule.intervals) -> Duration {
         switch section {
-        case .workloads, .nodes: return visibleInterval
-        case .images: return imagesInterval
-        case .builds: return engineReady ? buildsReadyInterval : visibleInterval
-        case .services, .storage, .models, .stats: return objectsInterval
+        case .workloads, .nodes: return intervals.visible
+        case .images: return intervals.images
+        case .builds: return engineReady ? intervals.buildsReady : intervals.visible
+        case .services, .storage, .models, .stats: return intervals.objects
         }
     }
 }

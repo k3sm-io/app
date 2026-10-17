@@ -25,7 +25,8 @@ import SwiftUI
 /// panel (`UpdateProgressPanel`, with its Cancel), and the two stored
 /// options passed to `k3sm update apply` (drain and the signature policy,
 /// `UpdateOptions`, in `PreferencesStore`); allowing a downgrade is asked in
-/// the confirmation, for one apply only.
+/// the confirmation, for one apply only. The notification preference
+/// (`UpdateNotice`) sits under the releases.
 /// Opening the pane reads the status again, so the offer is never judged on
 /// a stale read.
 struct UpdatesPane: View {
@@ -55,6 +56,11 @@ struct UpdatesPane: View {
                     .disabled(!control.enabled)
                     .help(Help.Updates.updateNow(control, plan: plan))
                 if let line = plan.line ?? control.reason { note(line) }
+            }
+            group("Notifications") {
+                Toggle("Notify me when an update is available", isOn: $preferences.notifyUpdate)
+                    .help(Help.Updates.notify)
+                note(UpdateNotice.paneNote)
             }
             if let panel = app.updateProgress.panel {
                 UpdateProgressPanel(app: app, panel: panel)

@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 import AppKit
+import K3smHost
 import K3smStatus
 import SwiftUI
 
@@ -24,7 +25,9 @@ import SwiftUI
 /// worth pasting has a Copy button; a value only root can read shows the
 /// lock and the needs-administrator sentence. Read-only: there are no edit
 /// controls, and the foot says the settings change with `k3sm install`.
-/// Opening the pane reads the full report again, as the Network pane does.
+/// The Cluster pane ends with the admin kubeconfig's path, Copy Path and
+/// Show in Finder (`KubeconfigFile`). Opening the pane reads the full
+/// report again, as the Network pane does.
 struct NodeSettingsPaneView: View {
     let pane: SettingsPane
     @ObservedObject var app: AppModel
@@ -59,6 +62,9 @@ struct NodeSettingsPaneView: View {
                 Text(verbatim: NodeSettingsPanes.editingNote).font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if pane == .cluster {
+                kubeconfig(Self.kubeconfigFile(report: app.lanReport))
+            }
         }
         .padding(20)
         .frame(width: SettingsWindowController.paneWidth, alignment: .leading)
@@ -67,6 +73,49 @@ struct NodeSettingsPaneView: View {
             guard app.screen == .status else { return }
             Task { _ = await app.readFullReport() }
         }
+    }
+
+    /// The admin kubeconfig's path (`KubeconfigFile`): Copy Path puts the
+    /// path on the clipboard, never the file's contents, and Show in Finder
+    /// selects the file. The app only asks whether the file exists and is
+    /// readable; it never opens it.
+    private func kubeconfig(_ file: KubeconfigFile) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Kubeconfig").font(.headline).padding(.top, 6)
+            Text(verbatim: file.value)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+                .lineLimit(2).truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                Button("Copy Path") {
+                    guard let text = file.copyText else { return }
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                }
+                .disabled(file.copyText == nil)
+                .help(Help.InstallSettings.copyKubeconfig)
+                Button("Show in Finder") {
+                    guard let path = file.revealPath else { return }
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                }
+                .disabled(file.revealPath == nil)
+                .help(Help.InstallSettings.revealKubeconfig)
+            }
+            if let note = file.note {
+                Text(verbatim: note).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// The kubeconfig line for this account: the path, and whether the file
+    /// exists and this account may read it (`access`, no open).
+    static func kubeconfigFile(report: StatusReport?) -> KubeconfigFile {
+        let path = KubeconfigFile.path(home: InstalledCLI.home(), report: report)
+        let exists = path.map { FileManager.default.fileExists(atPath: $0) } ?? false
+        let readable = path.map { access($0, R_OK) == 0 } ?? false
+        return KubeconfigFile.decide(path: path, exists: exists, readable: readable)
     }
 
     /// One value: the lock for a restricted one, the text (selectable), and
