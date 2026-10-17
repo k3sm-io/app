@@ -66,6 +66,7 @@ public enum InspectorDetails {
         case .storage: return "claim"
         case .models: return "model"
         case .stats: return "chart"
+        case .cluster: return "issue"
         }
     }
 
@@ -73,6 +74,7 @@ public enum InspectorDetails {
     /// or, on Stats, whose charts have no rows, what the charts cover.
     public static func emptyText(_ section: ConsoleSection) -> String {
         if section == .stats { return StatsDisplay.inspectorText }
+        if section == .cluster { return ClusterIssues.inspectorText }
         let kind = kind(of: section)
         let article = "aeiou".contains(kind.first ?? "x") ? "an" : "a"
         return "Select \(article) \(kind)."

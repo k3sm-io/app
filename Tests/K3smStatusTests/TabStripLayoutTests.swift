@@ -36,9 +36,9 @@ struct TabStripLayoutTests {
         #expect(TabStripLayout.controlsWidth == 4 * TabStripLayout.iconButtonWidth + 3 * TabStripLayout.itemSpacing)
     }
 
-    @Test("the eight tabs fit whole at the minimum width; a longer ninth raises it; the window follows")
+    @Test("the nine tabs fit whole at the minimum width; a longer tenth raises it; the window follows")
     func tabStripFitsAtMinimumWidth() {
-        #expect(Self.titles.count == 8)
+        #expect(Self.titles.count == 9)
         let button = TabStripLayout.buttonWidth(title: "Updating…")
         let minimum = TabStripLayout.minimumWidth(labels: Self.titles, buttonWidth: button)
         #expect(minimum > 0)
@@ -52,7 +52,7 @@ struct TabStripLayoutTests {
         #expect(tabs > 0)
         #expect(minimum - Self.fixedParts(button: button) >= tabs)
 
-        // A ninth long title raises the minimum by at least its own width and a gap.
+        // A tenth long title raises the minimum by at least its own width and a gap.
         let eighth = "Interconnects and links"
         let raised = TabStripLayout.minimumWidth(labels: Self.titles + [eighth], buttonWidth: button)
         #expect(raised >= minimum + TabStripLayout.labelWidth(eighth) + TabStripLayout.tabSpacing)
@@ -65,30 +65,31 @@ struct TabStripLayoutTests {
         #expect(wider > window)
     }
 
-    @Test("with the Nodes tab the window's minimum still fits a 1440 pt wide display, whatever the strip holds")
+    @Test("with the Nodes tab the window's minimum still fits a 1440 pt wide display, Update being the Cluster tab's card")
     func nodesTabFitsTheNarrowestLaptop() {
         #expect(Self.titles.contains("Nodes"))
         let without = Self.titles.filter { $0 != "Nodes" }
-        for title in [nil, "Update", "Updating…"] as [String?] {
-            let button = title.map(TabStripLayout.buttonWidth(title:))
+        do {
+            let button: Double? = nil
             let strip = TabStripLayout.minimumWidth(labels: Self.titles, buttonWidth: button)
             let window = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: true, panelCollapsed: false)
-            #expect(window <= 1440, "\(title ?? "no update"): \(window)")
+            #expect(window <= 1440, "\(window)")
             // The tab costs its label and one gap, nothing more.
             let before = TabStripLayout.minimumWidth(labels: without, buttonWidth: button)
             #expect(abs(strip - before - TabStripLayout.labelWidth("Nodes") - TabStripLayout.tabSpacing) < 1e-9)
         }
     }
 
-    @Test("with the Stats tab the window's minimum still fits a 1440 pt wide display, whatever the strip holds")
+    @Test("with the Stats and Cluster tabs the window's minimum still fits a 1440 pt wide display")
     func statsTabFitsTheNarrowestLaptop() {
         #expect(Self.titles.last == "Stats")
+        #expect(Self.titles.first == "Cluster")
         let without = Self.titles.filter { $0 != "Stats" }
-        for title in [nil, "Update", "Updating…"] as [String?] {
-            let button = title.map(TabStripLayout.buttonWidth(title:))
+        do {
+            let button: Double? = nil
             let strip = TabStripLayout.minimumWidth(labels: Self.titles, buttonWidth: button)
             let window = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: true, panelCollapsed: false)
-            #expect(window <= 1440, "\(title ?? "no update"): \(window)")
+            #expect(window <= 1440, "\(window)")
             let before = TabStripLayout.minimumWidth(labels: without, buttonWidth: button)
             #expect(abs(strip - before - TabStripLayout.labelWidth("Stats") - TabStripLayout.tabSpacing) < 1e-9)
         }

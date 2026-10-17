@@ -242,11 +242,19 @@ public struct StatusReport: Decodable, Equatable, Sendable {
     /// with `version.dirty`): on a server, the release the server runs. Nil
     /// when the field is absent or not an object with a string version.
     public let release: StatusRelease?
+    /// The report's `next` commands, in the CLI's order: what to run next.
+    /// Each is untrusted text, shown only clipped. A missing or mistyped list
+    /// reads as empty, and an entry that is not a string is dropped.
+    public let next: [String]
+    /// When the report was made, the CLI's RFC 3339 `timestamp` text as
+    /// printed; "" when the field is missing or not a string.
+    public let timestamp: String
 
     public init(
         schemaVersion: Int, verdict: Verdict, role: String, summary: String, rows: [StatusRow],
         stoppedBy: StoppedBy? = nil, workers: [StatusWorker]? = nil, joinTarget: String? = nil,
-        network: LANAccess = .absentField, interconnect: StatusInterconnect? = nil, release: StatusRelease? = nil
+        network: LANAccess = .absentField, interconnect: StatusInterconnect? = nil, release: StatusRelease? = nil,
+        next: [String] = [], timestamp: String = ""
     ) {
         self.schemaVersion = schemaVersion
         self.verdict = verdict
@@ -259,10 +267,13 @@ public struct StatusReport: Decodable, Equatable, Sendable {
         self.network = network
         self.interconnect = interconnect
         self.release = release
+        self.next = next
+        self.timestamp = timestamp
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, verdict, role, summary, rows, daemons, stoppedBy, workers, joinTarget, network, interconnect
+        case next, timestamp
         case release = "version"
     }
 
@@ -306,6 +317,17 @@ public struct StatusReport: Decodable, Equatable, Sendable {
         }
         interconnect = (try? c.decodeIfPresent(StatusInterconnect.self, forKey: .interconnect)) ?? nil
         release = (try? c.decodeIfPresent(StatusRelease.self, forKey: .release)) ?? nil
+        next = ((try? c.decodeIfPresent([LenientString].self, forKey: .next)) ?? nil)?.compactMap(\.value) ?? []
+        timestamp = ((try? c.decodeIfPresent(String.self, forKey: .timestamp)) ?? nil) ?? ""
+    }
+
+    /// One list entry read as a string, or nil when it is not one, so a
+    /// single mistyped entry drops only itself.
+    private struct LenientString: Decodable {
+        let value: String?
+        init(from decoder: Decoder) throws {
+            value = try? decoder.singleValueContainer().decode(String.self)
+        }
     }
 
     /// Returns the row with the given name, if the report carries one.

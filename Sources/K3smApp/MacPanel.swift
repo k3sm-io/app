@@ -224,6 +224,7 @@ struct MacPanel: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(verbatim: headline.accessibilityLabel))
+            .opensClusterTab(app)
             // The pod figures' age, once their read is late or failing.
             TimelineView(.periodic(from: .now, by: 5)) { context in
                 if let age = PollSchedule.panelAge(podsReadAt: workloads.readAt, now: context.date) {

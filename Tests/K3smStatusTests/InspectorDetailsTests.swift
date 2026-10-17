@@ -166,6 +166,7 @@ struct InspectorDetailsTests {
             .workloads: "Select a pod.", .nodes: "Select a node.", .images: "Select an image.", .builds: "Select a build.",
             .services: "Select a service.", .storage: "Select a claim.", .models: "Select a model.",
             .stats: "The charts cover this session's reads, the last hour at most.",
+            .cluster: "Each card names a check, what it found and how to fix it.",
         ]
         for section in ConsoleSection.allCases {
             #expect(InspectorDetails.emptyText(section) == want[section])

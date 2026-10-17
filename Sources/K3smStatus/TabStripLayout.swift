@@ -15,8 +15,8 @@ limitations under the License.
 */
 
 /// TabStripLayout sizes the console's strip, the row above the tab: the tab
-/// labels, the managed update's button while one is offered, the search
-/// field at its minimum, and the four icon buttons, with the strip's gaps
+/// labels, the search field at its minimum (Update is the Cluster tab's
+/// card, so the console's strip passes no `buttonWidth`), and the four icon buttons, with the strip's gaps
 /// and padding. Widths are estimated the way `PanelLayout` estimates them,
 /// from character counts at the same conservative per-point advance, so the
 /// estimate errs wide and a label never has to wrap or shorten at the

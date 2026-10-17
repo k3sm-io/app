@@ -19,6 +19,7 @@ limitations under the License.
 /// its cadence in `PollSchedule.interval(for:engineReady:)` and a view in
 /// the console.
 public enum ConsoleSection: String, CaseIterable, Identifiable, Sendable {
+    case cluster
     case workloads
     case nodes
     case images
@@ -33,6 +34,7 @@ public enum ConsoleSection: String, CaseIterable, Identifiable, Sendable {
     /// The tab's label in the strip.
     public var title: String {
         switch self {
+        case .cluster: return "Cluster"
         case .workloads: return "Workloads"
         case .nodes: return "Nodes"
         case .images: return "Images"

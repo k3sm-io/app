@@ -43,39 +43,36 @@ struct ConsoleView: View {
     static let inspectorWidth = CGFloat(TabStripLayout.inspectorWidth)
 
     /// The strip's minimum width (`TabStripLayout.minimumWidth`): every tab
-    /// label whole, the update button while one is offered, the search field
-    /// at its minimum.
-    static func stripMinWidth(updateTitle: String?) -> Double {
-        TabStripLayout.minimumWidth(labels: ConsoleSection.allCases.map(\.title),
-                                    buttonWidth: updateTitle.map(TabStripLayout.buttonWidth(title:)))
+    /// label whole and the search field at its minimum. Update is on the
+    /// Cluster tab's card, not in the strip, so it costs the strip nothing.
+    static func stripMinWidth() -> Double {
+        TabStripLayout.minimumWidth(labels: ConsoleSection.allCases.map(\.title), buttonWidth: nil)
     }
 
     /// The content pane's minimum width (the tabs, and the inspector when
     /// shown): the larger of what the window floor leaves and what the strip needs.
-    static func contentMinWidth(inspectorShown: Bool, updateTitle: String?) -> CGFloat {
-        CGFloat(TabStripLayout.contentMinimumWidth(strip: stripMinWidth(updateTitle: updateTitle), inspectorShown: inspectorShown))
+    static func contentMinWidth(inspectorShown: Bool) -> CGFloat {
+        CGFloat(TabStripLayout.contentMinimumWidth(strip: stripMinWidth(), inspectorShown: inspectorShown))
     }
 
     /// The window's minimum size: the panel's minimum, or nothing while it
     /// is collapsed, plus the content pane's minimum.
-    static func minSize(inspectorShown: Bool, panelCollapsed: Bool, updateTitle: String?) -> CGSize {
-        let width = TabStripLayout.windowMinimumWidth(strip: stripMinWidth(updateTitle: updateTitle),
+    static func minSize(inspectorShown: Bool, panelCollapsed: Bool) -> CGSize {
+        let width = TabStripLayout.windowMinimumWidth(strip: stripMinWidth(),
                                                       inspectorShown: inspectorShown, panelCollapsed: panelCollapsed)
         return CGSize(width: CGFloat(width), height: minHeight)
     }
 
     var body: some View {
         let panel = MacPanel(app: app, workloads: workloads)
-        let updateTitle = app.updatePlan.buttonTitle
-        let size = Self.minSize(inspectorShown: app.inspectorShown, panelCollapsed: app.consolePanelCollapsed,
-                                updateTitle: updateTitle)
+        let size = Self.minSize(inspectorShown: app.inspectorShown, panelCollapsed: app.consolePanelCollapsed)
         ConsoleSplit(
             app: app,
             range: PanelLayout.widthRange(regions: panel.layoutRegions, measured: app.consolePanelMeasured),
             width: PanelLayout.shownWidth(stored: app.consolePanelWidth, regions: panel.layoutRegions,
                                           measured: app.consolePanelMeasured),
             collapsed: app.consolePanelCollapsed,
-            contentMinimum: Double(Self.contentMinWidth(inspectorShown: app.inspectorShown, updateTitle: updateTitle)),
+            contentMinimum: Double(Self.contentMinWidth(inspectorShown: app.inspectorShown)),
             // Each pane is hosted on its own; both run under the transparent
             // title bar, as the whole console did before the split.
             panel: panel.ignoresSafeArea(),
@@ -158,6 +155,7 @@ struct ConsoleContent: View {
     @ViewBuilder
     private var section: some View {
         switch app.section {
+        case .cluster: ClusterSection(app: app)
         case .workloads: WorkloadsTab(app: app).tourTarget(.pods, app.tour)
         case .nodes: NodesSection(app: app, workloads: app.workloads, columns: app.columns)
         case .images: ImagesSection(app: app, workloads: app.workloads, columns: app.columns, store: app.imageStore)
@@ -190,8 +188,7 @@ struct ConsoleContent: View {
     }
 }
 
-/// ConsoleStrip is the row above the tab: the tab strip, the managed update's
-/// button while the update plan (`UpdatePlan`) shows one, the tab's search
+/// ConsoleStrip is the row above the tab: the tab strip, the tab's search
 /// field (on a tab with rows to search), the details button that shows or
 /// collapses the inspector, the tour button, the info button that opens the
 /// status panel, and the gear that opens Settings. A tab's bulk actions are
@@ -210,15 +207,6 @@ struct ConsoleStrip: View {
             TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
                 .tourTarget(.tabs, app.tour)
             Spacer()
-            if let title = app.updatePlan.buttonTitle {
-                let plan = app.updatePlan
-                Button(title) { app.performUpdate() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .tint(Palette.blue)
-                    .disabled(!plan.isEnabled)
-                    .help(Help.Strip.update(plan))
-            }
             switch app.section {
             case .workloads:
                 if app.workloadsView == .pods {
@@ -229,7 +217,7 @@ struct ConsoleStrip: View {
             case .services: search($app.servicesQuery)
             case .storage: search($app.storageQuery)
             case .models: search($app.modelsQuery)
-            case .builds, .stats:
+            case .cluster, .builds, .stats:
                 EmptyView()
             }
             Button { app.inspectorShown.toggle() } label: {

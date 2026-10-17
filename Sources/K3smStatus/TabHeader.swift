@@ -45,7 +45,7 @@ public enum TabHeader {
         switch section {
         case .workloads: return .switchRow
         case .storage, .builds, .images: return .ownRow
-        case .nodes, .services, .models, .stats: return .none
+        case .cluster, .nodes, .services, .models, .stats: return .none
         }
     }
 
