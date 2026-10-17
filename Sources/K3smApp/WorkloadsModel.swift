@@ -119,9 +119,9 @@ final class WorkloadsModel: ObservableObject {
     /// Creates the pod list's loader, once.
     func podsLoader() -> TabLoader<Workloads> {
         if let pods { return pods }
-        let loader = TabLoader(
-            arguments: K3smCLI.workloadsArguments, what: "pod list", environment: environment,
-            decode: Workloads.tabResult(exitCode:stdout:),
+        let environment = environment
+        let loader = TabLoader<Workloads>(
+            read: { await WorkloadsRead.read(environment: environment) },
             interval: { _ in PollSchedule.interval(for: .workloads, engineReady: false) })
         loader.onRead = { [weak self] in
             guard let self else { return }
@@ -161,6 +161,9 @@ final class WorkloadsModel: ObservableObject {
         return nil
     }
 
+    /// The controllers read with the last pod list, for Pause and Resume.
+    var controllers: WorkloadControllers? { workloads?.controllers }
+
     var selectedPod: Pod? {
         guard let selected, let w = workloads else { return nil }
         return w.pods.first { $0.key == selected }
@@ -184,7 +187,7 @@ final class WorkloadsModel: ObservableObject {
     /// The selected pod's actions, by `PodActions.menu`: the list the
     /// inspector, the row's context menu and the Delete key share.
     var selectedMenu: ActionMenu {
-        selectedPod.map(PodActions.menu(for:)) ?? .empty
+        selectedPod.map { PodActions.menu(for: $0, controllers: controllers) } ?? .empty
     }
 
     private func forward(_ loader: some ObservableObject) {
@@ -237,5 +240,26 @@ final class WorkloadsModel: ObservableObject {
                 self.detailText = "the k3sm CLI did not answer"
             }
         }
+    }
+}
+
+/// WorkloadsRead is the Workloads tab's read: the pod list, then, only when
+/// that list succeeded, the Deployments, StatefulSets and ReplicaSets, each
+/// through `TabLoader.run`. The pods decide the tab's result; the
+/// controllers only add Pause and Resume
+/// (`Workloads.tabResult(podsExit:podsStdout:controllers:)`), so a
+/// controller read that fails leaves them off.
+enum WorkloadsRead {
+    nonisolated static func read(environment: [String: String]) async -> TabResult<Workloads> {
+        let list = await TabLoader<Workloads>.run(arguments: K3smCLI.workloadsArguments, environment: environment)
+        guard case .exited(let status, let stdout) = list, status == 0, !Task.isCancelled else {
+            return TabLoader<Workloads>.result(of: list, what: "pod list", decode: Workloads.tabResult(exitCode:stdout:))
+        }
+        var controllers: (exit: Int32, stdout: Data)?
+        if case .exited(let code, let out) = await TabLoader<Workloads>.run(
+            arguments: K3smCLI.controllersArguments, environment: environment) {
+            controllers = (code, out)
+        }
+        return Workloads.tabResult(podsExit: status, podsStdout: stdout, controllers: controllers)
     }
 }

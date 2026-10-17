@@ -179,6 +179,35 @@ public enum K3smCLI {
         ["kubectl", "delete", "pod"] + pods.map(\.value) + ["-n", namespace.value, "--wait=false"]
     }
 
+    /// The Deployments, StatefulSets and ReplicaSets of every namespace, read
+    /// after the pod list so Pause can follow a pod to its controller.
+    public static let controllersArguments = ["kubectl", "get", "deployments,statefulsets,replicasets", "-A", "-o", "json"]
+
+    /// One controller's UID and asked-for replicas, "<uid> <replicas>", read
+    /// just before each Pause or Resume step so it runs only on the
+    /// controller the user confirmed, at the count confirmed.
+    public static func controllerStateArguments(kind: ControllerKind, namespace: ResourceName, name: ResourceName) -> [String] {
+        ["kubectl", "get", "\(kind.resource)/\(name.value)", "-n", namespace.value, "-o", "jsonpath={.metadata.uid} {.spec.replicas}"]
+    }
+
+    /// Records a controller's replica count in `WorkloadPause.annotation`,
+    /// Pause's first write, before it scales to zero.
+    public static func recordPausedReplicasArguments(kind: ControllerKind, namespace: ResourceName, name: ResourceName, count: Int) -> [String] {
+        ["kubectl", "annotate", "\(kind.resource)/\(name.value)", "-n", namespace.value,
+         "\(WorkloadPause.annotation)=\(count)", "--overwrite"]
+    }
+
+    /// Removes the recorded count, Resume's second write, after it scaled back.
+    public static func clearPausedReplicasArguments(kind: ControllerKind, namespace: ResourceName, name: ResourceName) -> [String] {
+        ["kubectl", "annotate", "\(kind.resource)/\(name.value)", "-n", namespace.value, "\(WorkloadPause.annotation)-"]
+    }
+
+    /// Scales a Deployment or StatefulSet to `replicas`: Pause's 0, Resume's
+    /// recorded count. Only `ResourceName` values reach it.
+    public static func scaleArguments(kind: ControllerKind, namespace: ResourceName, name: ResourceName, replicas: Int) -> [String] {
+        ["kubectl", "scale", "\(kind.resource)/\(name.value)", "-n", namespace.value, "--replicas=\(replicas)"]
+    }
+
     /// Every pod's "namespace/name uid", one per line, read just before the
     /// cleanup so it deletes only the pods the user confirmed.
     public static let podUIDsArguments = [

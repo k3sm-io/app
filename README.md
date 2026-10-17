@@ -268,7 +268,7 @@ login** in the app's Settings turns it off or on again (see
     unavailable" with the reason) rather than drawing zero.
 
   The tabs only read. The changes the console makes are a pod's
-  **Restart** and **Delete**, a node's **Cordon**, **Uncordon** and
+  **Restart** and **Delete**, a workload's **Pause** and **Resume**, a node's **Cordon**, **Uncordon** and
   **Drain**, this Mac's own **Update**, **Restart** and **Stop** in its node
   details, a
   service's **Delete**, the Workloads cleanup,
@@ -301,6 +301,39 @@ login** in the app's Settings turns it off or on again (see
   new name and run on another node. One line under the buttons says whether the delete was
   accepted or why it failed, quoting kubectl's own message, and the pod list is read again;
   the line goes at the list's next good read after that one.
+- **Pause…** in the pod details (and on the pod's Control-click menu)
+  stops a workload without deleting it, by scaling its controller to zero;
+  **Resume…** scales it back. Kubernetes has no stop for a pod, since its
+  owner recreates a deleted one. Beside the pod list the app reads `k3sm
+  kubectl get deployments,statefulsets,replicasets -A -o json` and follows
+  the pod's controller (the owner reference marked as the controller): a
+  ReplicaSet is followed one step to the Deployment that controls it,
+  since scaling the ReplicaSet would be undone by the Deployment, and a
+  StatefulSet is used as it is. A DaemonSet's pod shows "cannot pause a
+  DaemonSet", and a pod with no such controller (a bare pod, a Job, a
+  ReplicaSet no Deployment controls) offers no Pause. The question names
+  the namespace and the controller and says what happens: its pods stop,
+  the Deployment or StatefulSet stays, and Resume restores the replicas it
+  has now. After you confirm, the app reads the controller's UID and
+  replicas (`k3sm kubectl get <kind>/<name> -n <namespace> -o
+  jsonpath={.metadata.uid} {.spec.replicas}`) and changes nothing when it
+  is gone, was recreated or now asks for another count; then it records the
+  count on the controller with `k3sm kubectl annotate <kind>/<name> -n
+  <namespace> k3sm.io/paused-replicas=<count> --overwrite` and, only once
+  that succeeded, runs `k3sm kubectl scale <kind>/<name> -n <namespace>
+  --replicas=0`. The count lives on the controller, so Resume works after a
+  relaunch or from another Mac. A paused controller's pods carry a
+  **paused** badge, its pods' details name it as "paused; Resume restores
+  N replicas", and once its pods are gone it keeps a row of its own in its
+  namespace, with the badge and **Resume…**. Resume asks first, then runs
+  `k3sm kubectl scale <kind>/<name> -n <namespace> --replicas=<count>` and,
+  once that succeeded, removes the record with `k3sm kubectl annotate
+  <kind>/<name> -n <namespace> k3sm.io/paused-replicas-`. A record that is
+  not a whole number from 1 up restores 1 replica. Every step reads the UID
+  first, with the same trust check and account as Restart; the line under
+  the buttons and on the paused row says the result, including a pause
+  that recorded the count but did not scale (Resume clears it). Neither
+  is on the Delete key.
 - A **service**'s details and its Control-click menu offer **Copy Cluster
   IP** (not for a headless service) and **Copy DNS Name**
   (`<name>.<namespace>.svc.cluster.local`), which put the text on the

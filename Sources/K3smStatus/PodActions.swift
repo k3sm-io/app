@@ -137,8 +137,14 @@ public enum PodActions {
 
     /// The pod's actions as its context menu, the inspector and the Delete
     /// key show them: one list, built here once, with its local actions.
-    public static func menu(for pod: Pod) -> ActionMenu {
-        ActionMenu(available(for: pod).compactMap { request($0, for: pod) }, local: localActions(for: pod))
+    /// With the controller read, Pause or Resume of the pod's resolved
+    /// controller (`WorkloadPause.requests`) follows Restart.
+    public static func menu(for pod: Pod, controllers: WorkloadControllers? = nil) -> ActionMenu {
+        var requests: [any ConsoleActionRequest] = []
+        if let restart = request(.restart, for: pod) { requests.append(restart) }
+        requests += WorkloadPause.requests(for: pod, in: controllers) as [any ConsoleActionRequest]
+        if let delete = request(.delete, for: pod) { requests.append(delete) }
+        return ActionMenu(requests, local: localActions(for: pod))
     }
 
     /// The local actions a pod offers: Copy Name and Copy Namespace/Name for

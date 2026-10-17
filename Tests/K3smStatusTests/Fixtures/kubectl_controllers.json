@@ -1,0 +1,104 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {
+                "name": "web",
+                "namespace": "default",
+                "uid": "d-web"
+            },
+            "spec": {
+                "replicas": 3
+            }
+        },
+        {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {
+                "annotations": {
+                    "k3sm.io/paused-replicas": "2"
+                },
+                "name": "api",
+                "namespace": "default",
+                "uid": "d-api"
+            },
+            "spec": {
+                "replicas": 0
+            }
+        },
+        {
+            "apiVersion": "apps/v1",
+            "kind": "StatefulSet",
+            "metadata": {
+                "name": "db",
+                "namespace": "default",
+                "uid": "s-db"
+            },
+            "spec": {
+                "replicas": 1
+            }
+        },
+        {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "metadata": {
+                "name": "web-6bcddf6f77",
+                "namespace": "default",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "apps/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Deployment",
+                        "name": "web",
+                        "uid": "d-web"
+                    }
+                ],
+                "uid": "rs-web"
+            },
+            "spec": {
+                "replicas": 3
+            }
+        },
+        {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "metadata": {
+                "name": "api-7f9c4d",
+                "namespace": "default",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "apps/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Deployment",
+                        "name": "api",
+                        "uid": "d-api"
+                    }
+                ],
+                "uid": "rs-api"
+            },
+            "spec": {
+                "replicas": 0
+            }
+        },
+        {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "metadata": {
+                "name": "bare-5d8c",
+                "namespace": "default",
+                "uid": "rs-bare"
+            },
+            "spec": {
+                "replicas": 1
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

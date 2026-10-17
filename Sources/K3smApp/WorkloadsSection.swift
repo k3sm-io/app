@@ -34,11 +34,13 @@ struct WorkloadsSection: View {
                     case nil: note("Reading the pod list…")
                     case .binaryMissing: note("k3sm is not installed on this Mac.")
                     case .cliError(let message): note(StatusDisplay.errorText(message))
-                    case .listed(let w) where w.pods.isEmpty: note("No pods on this Mac. Apply a manifest with kubectl and it appears here.")
+                    case .listed(let w) where w.pods.isEmpty && WorkloadPause.namespaces(in: w).isEmpty:
+                        note("No pods on this Mac. Apply a manifest with kubectl and it appears here.")
                     case .listed(let w):
-                        ForEach(w.namespaces, id: \.self) { ns in
-                            NamespaceGroup(namespace: ns, pods: model.visible(w.pods(in: ns)), model: model, runner: runner,
-                                           widths: columns.widths(.pods))
+                        ForEach(WorkloadPause.namespaces(in: w), id: \.self) { ns in
+                            NamespaceGroup(namespace: ns, pods: model.visible(w.pods(in: ns)),
+                                           paused: WorkloadPause.pausedControllers(in: w, namespace: ns, query: model.query),
+                                           model: model, runner: runner, widths: columns.widths(.pods))
                         }
                     }
                 }
@@ -57,18 +59,20 @@ struct WorkloadsSection: View {
     }
 }
 
-/// NamespaceGroup is one namespace's heading and its pods; a namespace the
-/// search empties is left out. A row's context menu is `PodActions.menu`,
-/// the list the inspector shows.
+/// NamespaceGroup is one namespace's heading, its pods, then its paused
+/// controllers (`PausedRow`, which hold Resume once their pods are gone);
+/// a namespace the search empties is left out. A pod row's context menu is
+/// `PodActions.menu`, the list the inspector shows.
 struct NamespaceGroup: View {
     let namespace: String
     let pods: [Pod]
+    let paused: [WorkloadController]
     @ObservedObject var model: WorkloadsModel
     let runner: ActionRunner
     let widths: ColumnWidths
 
     var body: some View {
-        if !pods.isEmpty {
+        if !pods.isEmpty || !paused.isEmpty {
             HStack(spacing: 7) {
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Palette.dimText)
                 Text(verbatim: StatusDisplay.clip(namespace)).font(.system(size: 13, weight: .semibold))
@@ -76,12 +80,68 @@ struct NamespaceGroup: View {
             }
             .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 6)
             ForEach(pods, id: \.uid) { pod in
-                PodRow(pod: pod, node: model.nodeLabel(pod), selected: model.selected == pod.key, widths: widths)
+                PodRow(pod: pod, node: model.nodeLabel(pod), selected: model.selected == pod.key,
+                       paused: WorkloadPause.paused(pod, in: model.controllers), widths: widths)
                     .contentShape(Rectangle())
                     .onTapGesture { model.select(pod) }
-                    .modifier(RowActionsMenu(menu: PodActions.menu(for: pod), runner: runner) { model.select(pod) })
+                    .modifier(RowActionsMenu(menu: PodActions.menu(for: pod, controllers: model.controllers), runner: runner) {
+                        model.select(pod)
+                    })
+            }
+            ForEach(paused, id: \.key) { controller in
+                PausedRow(controller: controller, runner: runner)
+                    .modifier(RowActionsMenu(menu: WorkloadPause.menu(for: controller), runner: runner) {})
             }
         }
+    }
+}
+
+/// PausedRow is one paused Deployment or StatefulSet: the paused badge, its
+/// kind and name over the count Resume restores, its Resume button, and the
+/// last Pause or Resume line on it.
+struct PausedRow: View {
+    let controller: WorkloadController
+    @ObservedObject var runner: ActionRunner
+
+    var body: some View {
+        let menu = WorkloadPause.menu(for: controller)
+        let report = runner.report(section: .workloads, rowKey: controller.key)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: PodColumns.spacing) {
+                PausedBadge().frame(width: 52, alignment: .leading)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: controller.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                    Text(verbatim: "scaled to zero; Resume restores "
+                        + "\(WorkloadPause.restoreCount(controller.pausedReplicas))")
+                        .font(.system(size: 11)).foregroundStyle(Palette.dimText).lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(menu.items) { item in
+                    Button(item.title) { runner.ask(item.request) }
+                        .controlSize(.small)
+                        .disabled(runner.busy || runner.pending != nil)
+                        .help(Help.Actions.tag(for: item))
+                }
+            }
+            if let report {
+                Text(verbatim: report.text).font(.system(size: 11.5))
+                    .foregroundStyle(report.failed ? Palette.bad : Palette.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6).frame(minHeight: 44)
+    }
+}
+
+/// PausedBadge is the small "paused" capsule a paused controller's row and
+/// its pods' rows carry.
+struct PausedBadge: View {
+    var body: some View {
+        Text(verbatim: "paused").font(.system(size: 10, weight: .semibold)).foregroundStyle(Palette.vm)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .overlay(Capsule().strokeBorder(Palette.vm.opacity(0.5), lineWidth: 1))
+            .fixedSize()
+            .help(Help.Workloads.paused)
     }
 }
 
@@ -103,6 +163,8 @@ struct PodRow: View {
     let pod: Pod
     let node: PodNodeLabel
     let selected: Bool
+    /// Whether the pod's controller is paused (`WorkloadPause.paused`).
+    var paused = false
     let widths: ColumnWidths
 
     var body: some View {
@@ -110,7 +172,10 @@ struct PodRow: View {
             Circle().fill(Palette.health(pod.health.severity)).frame(width: 9, height: 9).frame(width: PodColumns.dot)
                 .help(Help.Inspector.healthDot)
             VStack(alignment: .leading, spacing: 1) {
-                Text(verbatim: StatusDisplay.clip(pod.name)).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(verbatim: StatusDisplay.clip(pod.name)).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                    if paused { PausedBadge() }
+                }
                 Text(verbatim: StatusDisplay.clip(pod.image)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.dimText).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)

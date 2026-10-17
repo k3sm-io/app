@@ -160,7 +160,11 @@ public enum Help {
         public static let eventAge = HelpTag("Time since the event last happened",
                                              control: "workloads: events Age column", label: "Age")
 
-        public static var all: [HelpTag] { [view, namespace, cores, memory, runsAs, eventAge] }
+        /// The paused badge on a paused controller's row and on its pods' rows.
+        public static let paused = HelpTag("Its controller is scaled to zero until you resume it",
+                                           control: "workloads: paused badge", label: "paused")
+
+        public static var all: [HelpTag] { [view, namespace, cores, memory, runsAs, eventAge, paused] }
     }
 
     // MARK: Nodes tab
@@ -399,6 +403,11 @@ public enum Help {
         static let byVerb: [String: HelpTag] = [
             "restart": tag("Delete the pod so its owner recreates it", "pod Restart", "Restart"),
             "delete": tag("Delete the pod; its containers stop now", "pod Delete", "Delete"),
+            "workload-pause": tag("Scale the controller to zero, recording its replica count", "pod Pause", "Pause"),
+            "workload-pause-scale": tag("Scale the controller to zero once its count is recorded", "pod Pause", "Pause"),
+            "workload-resume": tag("Scale the controller back to its recorded replicas", "controller Resume", "Resume"),
+            "workload-resume-clear": tag("Remove the recorded count once the controller is back", "controller Resume",
+                                         "Resume"),
             "service-delete": tag("Delete the service and its cluster address", "service Delete", "Delete"),
             "model-unload": tag("Scale the model to zero; Load brings it back", "model Unload", "Unload"),
             "model-load": tag("Scale the model back to its recorded replicas", "model Load", "Load"),

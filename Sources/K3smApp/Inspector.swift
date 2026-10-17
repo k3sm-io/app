@@ -57,7 +57,18 @@ struct Inspector: View {
     /// The selected pod's actions and the last action's line (`RowActions`,
     /// the block every tab's inspector shares).
     private var actions: some View {
-        RowActions(menu: model.selectedMenu, section: .workloads, rowKey: model.selected, runner: runner)
+        VStack(alignment: .leading, spacing: 0) {
+            RowActions(menu: model.selectedMenu, section: .workloads, rowKey: model.selected, runner: runner)
+            // Pause and Resume report on the controller's row key, so their
+            // line stays while the pod is gone; it shows here too.
+            if let pod = model.selectedPod, let key = WorkloadPause.controllerKey(for: pod, in: model.controllers),
+               let report = runner.report(section: .workloads, rowKey: key) {
+                Text(verbatim: report.text).font(.system(size: 11.5))
+                    .foregroundStyle(report.failed ? Palette.bad : Palette.ink2)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    .padding(.horizontal, 18).padding(.vertical, 8)
+            }
+        }
     }
 
     private func heading(_ pod: Pod) -> some View {
@@ -83,6 +94,8 @@ struct Inspector: View {
             fact("Namespace", pod.namespace)
             fact("Restarts", String(pod.restarts))
             if let owner = pod.owner { fact("Owned by", owner) }
+            if let controller = WorkloadPause.controllerFact(for: pod, in: model.controllers) { fact("Controller", controller) }
+            if let note = WorkloadPause.note(for: pod, in: model.controllers) { fact("Pause", note) }
             ForEach(model.loadFacts(pod), id: \.label) { fact($0.label, $0.value) }
         }
         .padding(.horizontal, 18).padding(.vertical, 12)

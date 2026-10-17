@@ -180,6 +180,10 @@ public struct Pod: Equatable, Sendable {
     /// Each container's restart count, by container name, from the
     /// container statuses; a container without a status is absent.
     public var containerRestarts: [String: Int] = [:]
+    /// The pod's managing controller: the owner reference marked
+    /// `controller: true`, as apimachinery's `GetControllerOf` reads it; nil
+    /// when no reference is marked. Pause follows it (`WorkloadPause.resolve`).
+    public var controllerRef: OwnerRef?
 
     /// The name the kubectl detail calls take, or nil when the API served a name
     /// the app refuses to put on a command line.
@@ -192,9 +196,14 @@ public struct Pod: Equatable, Sendable {
 /// namespace and its own `List` of `Pod` items across all of them; both decode.
 public struct Workloads: Equatable, Sendable {
     public let pods: [Pod]
+    /// The Deployments, StatefulSets and ReplicaSets read beside the pods,
+    /// which Pause resolves a pod's controller in; nil when that read failed
+    /// or was not made, so no Pause or Resume is offered.
+    public var controllers: WorkloadControllers?
 
-    public init(pods: [Pod]) {
+    public init(pods: [Pod], controllers: WorkloadControllers? = nil) {
         self.pods = pods.sorted { ($0.namespace, $0.name) < ($1.namespace, $1.name) }
+        self.controllers = controllers
     }
 
     /// The namespaces present, in the order the list shows them.
@@ -261,7 +270,13 @@ struct PodListWire: Decodable {
 struct PodWire: Decodable {
     let kind: String?
     struct Metadata: Decodable {
-        struct Owner: Decodable { let kind: String; let name: String }
+        struct Owner: Decodable {
+            let apiVersion: String?
+            let kind: String
+            let name: String
+            let uid: String?
+            let controller: Bool?
+        }
         let name: String
         let namespace: String?
         let uid: String?
@@ -322,6 +337,9 @@ extension Pod {
         phase = wire.status?.phase ?? ""
         ports = wire.spec.containers.flatMap { ($0.ports ?? []).map(\.containerPort) }
         if let o = wire.metadata.ownerReferences?.first { owner = "\(o.kind) \(o.name)" } else { owner = nil }
+        controllerRef = wire.metadata.ownerReferences?.first { $0.controller == true }.map {
+            OwnerRef(apiVersion: $0.apiVersion ?? "", kind: $0.kind, name: $0.name, uid: $0.uid ?? "")
+        }
         created = wire.metadata.creationTimestamp
         let cpu = wire.spec.containers.compactMap { $0.resources?.requests?["cpu"] }.compactMap(Quantity.cores)
         cpuRequest = cpu.isEmpty ? nil : cpu.reduce(0, +)

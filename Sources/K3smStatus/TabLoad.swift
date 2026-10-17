@@ -104,6 +104,17 @@ extension Workloads {
         case .binaryMissing: return .unavailable(TabLoad.notInstalled)
         }
     }
+
+    /// The pod-list run and, when it was made, the controller read after it
+    /// (`K3smCLI.controllersArguments`) as one tab result: the pods decide
+    /// it, and the controllers only add what Pause needs, so a controller
+    /// read that failed or did not decode leaves `controllers` nil.
+    public static func tabResult(podsExit: Int32, podsStdout: Data, controllers: (exit: Int32, stdout: Data)?) -> TabResult<Workloads> {
+        let result = tabResult(exitCode: podsExit, stdout: podsStdout)
+        guard case .value(var workloads) = result, let controllers, controllers.exit == 0 else { return result }
+        workloads.controllers = try? WorkloadControllers.decode(controllers.stdout)
+        return .value(workloads)
+    }
 }
 
 extension TabLoad {

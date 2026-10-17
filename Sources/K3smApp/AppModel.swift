@@ -967,7 +967,8 @@ final class AppModel: ObservableObject {
     func rowMenu(_ row: ConsoleRow) -> ActionMenu {
         switch row {
         case .pod(let key):
-            return workloads.workloads?.pods.first { $0.key == key }.map(PodActions.menu(for:)) ?? .empty
+            let controllers = workloads.controllers
+            return workloads.workloads?.pods.first { $0.key == key }.map { PodActions.menu(for: $0, controllers: controllers) } ?? .empty
         case .node(let key):
             return workloads.nodes?.first { $0.name == key }.map(NodeActions.menu(for:)) ?? .empty
         case .service(let key):
