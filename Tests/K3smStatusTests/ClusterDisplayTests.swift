@@ -340,20 +340,20 @@ struct ClusterDisplayTests {
     @Test("tiles: this Mac")
     func macTiles() {
         let got = ClusterDisplay.macTiles(
-            requests: PodRequests(cores: 1.75, memoryBytes: 3 << 30), cores: 10, memoryBytes: 16 << 30,
-            dataRootUsed: 120 << 30, dataRootSize: 500 << 30, pods: 4)
+            cores: 10, memoryBytes: 16 << 30, dataRootUsed: 120 << 30, dataRootSize: 500 << 30, pods: 4,
+            coresUsed: 3.25, memoryUsed: 5 << 30)
         #expect(got == [
-            PanelTile(label: "cores requested", value: "1.8", detail: "of 10"),
-            PanelTile(label: "memory requested", value: "3.0 GB", detail: "of 16 GB"),
+            PanelTile(label: "cores used", value: "3.25", detail: "of 10 cores"),
+            PanelTile(label: "pod memory used", value: "5.0 GB", detail: "of 16 GB"),
             PanelTile(label: "data root", value: "120 GB", detail: "of 500 GB"),
             PanelTile(label: "pods on this Mac", value: "4"),
         ])
         let idle = ClusterDisplay.macTiles(
-            requests: PodRequests(cores: WorkloadsDisplay.maxCores, memoryBytes: 0), cores: 0, memoryBytes: 0,
-            dataRootUsed: 0, dataRootSize: 0, pods: 1)
+            cores: 0, memoryBytes: 0, dataRootUsed: 0, dataRootSize: 0, pods: 1,
+            coresUsed: WorkloadsDisplay.maxCores, memoryUsed: 0)
         #expect(idle == [
-            PanelTile(label: "cores requested", value: "1000000+"),
-            PanelTile(label: "memory requested", value: "0 GB"),
+            PanelTile(label: "cores used", value: "1000000+", detail: "cores"),
+            PanelTile(label: "pod memory used", value: "0 MB"),
             PanelTile(label: "data root", value: "0 GB"),
             PanelTile(label: "pod on this Mac", value: "1"),
         ])

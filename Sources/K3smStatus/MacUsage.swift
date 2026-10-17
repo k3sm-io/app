@@ -16,14 +16,12 @@ limitations under the License.
 
 import Foundation
 
-/// UsageSwatch is how a chart part is drawn: a fill for what is used, an
-/// outline for what pods request, a dim fill for what macOS and other apps
-/// use, and an empty stretch under a request outline whose use is unknown.
+/// UsageSwatch is how a chart part is drawn: a fill for what is used and a
+/// dim fill for what macOS and other apps use (or, without a pods sample,
+/// everything in use).
 public enum UsageSwatch: String, Equatable, Sendable {
     case used
-    case requested
     case system
-    case unknown
 }
 
 /// UsageLegendRow is one row under a This Mac chart: its words, its value
@@ -40,18 +38,16 @@ public struct UsageLegendRow: Equatable, Sendable {
     }
 }
 
-/// CoreCell is one cell of the core grid: whether it is a performance core,
-/// how much of it the node's measured use fills (0 to 1, nil without a
-/// sample) and how much of it the pods' requests outline (0 to 1).
+/// CoreCell is one cell of the core grid: whether it is a performance core
+/// and how much of it the node's measured use fills (0 to 1, nil without a
+/// sample).
 public struct CoreCell: Equatable, Sendable {
     public let performance: Bool
     public let used: Double?
-    public let requested: Double
 
-    public init(performance: Bool, used: Double?, requested: Double) {
+    public init(performance: Bool, used: Double?) {
         self.performance = performance
         self.used = used
-        self.requested = requested
     }
 }
 
@@ -82,32 +78,28 @@ public struct ChartSegment: Equatable, Sendable {
 }
 
 /// MemoryChart is the This Mac unified memory meter: the filled segments
-/// left to right, the share the pods' request outline covers from the left
-/// edge, the legend, and whether a usage sample stands behind it.
+/// left to right, the legend, and whether a usage sample stands behind it.
 public struct MemoryChart: Equatable, Sendable {
     public let segments: [ChartSegment]
-    public let requestShare: Double
     public let legend: [UsageLegendRow]
     public let sampled: Bool
 
-    public init(segments: [ChartSegment], requestShare: Double, legend: [UsageLegendRow], sampled: Bool) {
+    public init(segments: [ChartSegment], legend: [UsageLegendRow], sampled: Bool) {
         self.segments = segments
-        self.requestShare = requestShare
         self.legend = legend
         self.sampled = sampled
     }
 }
 
 /// MacUsage lays out the This Mac view's core grid and memory meter from
-/// what the pods request and what metrics-server measured. Use is a fill and
-/// a request is an outline, so either one stays legible when it passes the
-/// other. CPU use is the node's own sample; memory use is the sum of the
-/// working sets of this Mac's pods. Without a sample (metrics absent, none
-/// read yet, this node not sampled, or the pod read failed) the charts show
-/// the requests alone and `noSample` says so; use is never drawn as zero.
+/// what metrics-server measured and what the Mac has in use. CPU use is the
+/// node's own sample; memory use is the sum of the working sets of this
+/// Mac's pods. Without a sample (metrics absent, none read yet, this node
+/// not sampled, or the pod read failed) the chart draws no use and
+/// `noSample` says so; use is never drawn as zero.
 public enum MacUsage {
     /// The line under the charts when no usage sample stands behind them.
-    public static let noSample = "No usage sample: requests only."
+    public static let noSample = "No usage sample yet."
 
     /// The cores this Mac's node used in the last sample, or nil without one.
     public static func cpuUsed(node: String?, state: MetricsState) -> Double? {
@@ -127,59 +119,47 @@ public enum MacUsage {
     }
 
     /// The core grid: `count` cells, the first `performance` of them
-    /// performance cores, the used and the requested cores filling and
-    /// outlining them in order from the first. A figure past the grid fills
-    /// it; the legend keeps the real figure.
-    public static func cores(count: Int, performance: Int, requested: Double, used: Double?) -> CoreChart {
-        let request = requested.isFinite ? max(0, requested) : 0
+    /// performance cores, the used cores filling them in order from the
+    /// first. A figure past the grid fills it; the legend keeps the real
+    /// figure. Without a sample the cells are empty and the legend has no row.
+    public static func cores(count: Int, performance: Int, used: Double?) -> CoreChart {
         let cells = (0..<max(0, count)).map { i in
-            CoreCell(performance: i < performance,
-                     used: used.map { share($0 - Double(i)) },
-                     requested: share(request - Double(i)))
+            CoreCell(performance: i < performance, used: used.map { share($0 - Double(i)) })
         }
-        var legend: [UsageLegendRow] = []
-        if let used { legend.append(UsageLegendRow("Used", coresText(MetricsDisplay.cores(used)), .used)) }
-        legend.append(UsageLegendRow("Requested", coresText(WorkloadsDisplay.cores(request)), .requested))
+        let legend = used.map { [UsageLegendRow("Used", coresText(MetricsDisplay.cores($0)), .used)] } ?? []
         return CoreChart(cells: cells, legend: legend, sampled: used != nil)
     }
 
     /// The memory meter over `total` bytes. With a sample: the pods' use,
-    /// then the rest of what the Mac has in use (`inUse`) as macOS and apps,
-    /// with the request outlined from the left. Without one: an empty
-    /// stretch under the request outline, then what is in use beyond the
-    /// request as macOS and apps. Shares never sum past the whole bar.
-    public static func memory(total: Int64, inUse: Int64, requested: Int64, podsUsed: Int64?) -> MemoryChart {
-        let request = max(0, requested)
+    /// then the rest of what the Mac has in use (`inUse`) as macOS and apps.
+    /// Without one: everything in use as one stretch. Shares never sum past
+    /// the whole bar.
+    public static func memory(total: Int64, inUse: Int64, podsUsed: Int64?) -> MemoryChart {
         let busy = max(0, inUse)
         func part(_ bytes: Int64) -> Double { total > 0 ? share(Double(bytes) / Double(total)) : 0 }
-        let first: ChartSegment
-        let rest: Int64
-        var legend: [UsageLegendRow] = []
-        if let podsUsed {
-            let pods = max(0, podsUsed)
-            first = ChartSegment(share: part(pods), swatch: .used)
-            rest = busy > pods ? busy - pods : 0
-            legend.append(UsageLegendRow("Used by pods", MetricsDisplay.bytes(pods), .used))
-        } else {
-            first = ChartSegment(share: part(request), swatch: .unknown)
-            rest = busy > request ? busy - request : 0
+        guard let podsUsed else {
+            let all = ChartSegment(share: part(busy), swatch: .system)
+            return MemoryChart(segments: [all].filter { $0.share > 0 },
+                               legend: [UsageLegendRow("In use", ClusterDisplay.bytes(busy), .system)], sampled: false)
         }
-        legend.append(UsageLegendRow("Requested by pods", ClusterDisplay.bytes(request), .requested))
-        legend.append(UsageLegendRow("macOS and apps", ClusterDisplay.bytes(rest), .system))
+        let pods = max(0, podsUsed)
+        let first = ChartSegment(share: part(pods), swatch: .used)
+        let rest = busy > pods ? busy - pods : 0
         let second = ChartSegment(share: min(1 - first.share, part(rest)), swatch: .system)
-        return MemoryChart(segments: [first, second].filter { $0.share > 0 }, requestShare: part(request),
-                           legend: legend, sampled: podsUsed != nil)
+        let legend = [UsageLegendRow("Used by pods", MetricsDisplay.bytes(pods), .used),
+                      UsageLegendRow("macOS and apps", ClusterDisplay.bytes(rest), .system)]
+        return MemoryChart(segments: [first, second].filter { $0.share > 0 }, legend: legend, sampled: true)
     }
 
     /// The line under the charts about their sample: nil when both stand on
     /// one (the sample's age line says how old), `noSample` when neither
-    /// does, and which one shows requests only otherwise.
+    /// does, and which one has none otherwise.
     public static func note(cores: CoreChart, memory: MemoryChart) -> String? {
         switch (cores.sampled, memory.sampled) {
         case (true, true): return nil
         case (false, false): return noSample
-        case (true, false): return "No memory usage sample: memory shows requests only."
-        case (false, true): return "No CPU usage sample: cores show requests only."
+        case (true, false): return "No pod memory sample yet."
+        case (false, true): return "No CPU usage sample yet."
         }
     }
 

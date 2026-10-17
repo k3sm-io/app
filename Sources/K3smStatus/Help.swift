@@ -602,14 +602,11 @@ public enum Help {
         /// A live memory bar.
         public static let liveMemory = HelpTag("Memory used now, from metrics-server, against allocatable",
                                                control: "panel: live Memory bar")
-        /// The CPU sparkline beside the live bars.
-        public static let sparkline = HelpTag("CPU used over the last samples, oldest on the left",
-                                              control: "panel: CPU sparkline")
         /// The This Mac view's core grid.
-        public static let coreGrid = HelpTag("Fill is CPU used, from metrics-server; outline is what pods request",
+        public static let coreGrid = HelpTag("Fill is CPU used, from metrics-server, one cell per core",
                                              control: "panel: core grid")
         /// The This Mac view's unified memory meter.
-        public static let memoryMeter = HelpTag("Fill is memory used, from metrics-server; outline is what pods request",
+        public static let memoryMeter = HelpTag("Fill is memory used: the pods', from metrics-server, then macOS and apps",
                                                 control: "panel: Unified memory meter")
 
         /// The panel's view switch segment.
@@ -617,20 +614,9 @@ public enum Help {
             mode == .cluster ? cluster : thisMac
         }
 
-        /// One tile, by its label; a request tile showing what is used has its own.
+        /// One tile, by its label.
         public static func tile(_ tile: PanelTile) -> HelpTag {
-            tile.used == nil ? tileTag(label: tile.label) : usedTileTag(label: tile.label)
-        }
-
-        /// A This Mac request tile with what is used beside it.
-        static func usedTileTag(label: String) -> HelpTag {
-            let text: String
-            switch label {
-            case "cores requested": text = "Cores the pods request of the total, then used, from metrics-server"
-            case "memory requested": text = "Memory the pods request of the total, then used, from metrics-server"
-            default: return tileTag(label: label)
-            }
-            return HelpTag(text, control: "panel: tile with use", label: label)
+            tileTag(label: tile.label)
         }
 
         static func tileTag(label: String) -> HelpTag {
@@ -641,6 +627,8 @@ public enum Help {
             case "pods running": text = "Pods running on every node of the cluster"
             case "cores requested": text = "CPU the pods request, in cores, of the total"
             case "memory requested": text = "Memory the pods request, of the total"
+            case "cores used": text = "CPU this Mac's node used, from metrics-server, of its cores"
+            case "pod memory used": text = "Memory this Mac's pods use, from metrics-server, of its unified memory"
             case "data root": text = "Space used on the volume that holds k3sm's data"
             case "pod on this Mac", "pods on this Mac": text = "Pods bound to this Mac's node that have not finished"
             default: text = "A figure from the last status read"
@@ -650,12 +638,11 @@ public enum Help {
 
         /// Every tile label the panel draws.
         static let tileLabels = ["Macs", "nodes ready", "pods running", "cores requested", "memory requested",
-                                 "data root", "pod on this Mac", "pods on this Mac", ""]
+                                 "cores used", "pod memory used", "data root", "pod on this Mac", "pods on this Mac", ""]
 
         public static var all: [HelpTag] {
-            [cluster, thisMac, nodeDot, nodeCores, nodeMemory, liveCPU, liveMemory, sparkline,
+            [cluster, thisMac, nodeDot, nodeCores, nodeMemory, liveCPU, liveMemory,
              coreGrid, memoryMeter] + tileLabels.map { tileTag(label: $0) }
-                + ["cores requested", "memory requested"].map { usedTileTag(label: $0) }
         }
     }
 

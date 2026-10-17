@@ -19,11 +19,10 @@ import K3smStatus
 import SwiftUI
 
 /// LiveLoadRow is one node's live load on the navy panel: its CPU and memory
-/// bars with their numbers side by side, and a small CPU sparkline from the
-/// last few samples; "no metrics yet" when the sample does not carry it.
+/// bars with their numbers side by side; "no metrics yet" when the sample
+/// does not carry it.
 struct LiveLoadRow: View {
     let load: NodeLoad
-    let sparkline: [Double]
 
     var body: some View {
         switch load {
@@ -33,11 +32,6 @@ struct LiveLoadRow: View {
             HStack(alignment: .bottom, spacing: 10) {
                 bar("CPU", cpu).help(Help.Panel.liveCPU)
                 bar("Memory", memory).help(Help.Panel.liveMemory)
-                if sparkline.count > 1 {
-                    Sparkline(points: sparkline).frame(width: 40, height: 16)
-                        .accessibilityLabel(Text(verbatim: "CPU over the last samples"))
-                        .help(Help.Panel.sparkline)
-                }
             }
         }
     }
@@ -98,8 +92,8 @@ struct LiveLoadBlock: View {
         let load = node.flatMap { MetricsDisplay.nodeLoad(named: $0, nodes: nodes, state: state) }
         if load != nil || MetricsDisplay.note(state) != nil {
             PanelBlock("Load now", value: "") {
-                if let node, let load {
-                    LiveLoadRow(load: load, sparkline: MetricsDisplay.sparkline(named: node, nodes: nodes, state: state))
+                if let load {
+                    LiveLoadRow(load: load)
                 }
                 MetricsNote(state: state)
             }

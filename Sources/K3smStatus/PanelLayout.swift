@@ -105,8 +105,6 @@ public enum PanelLayout {
     public static let swatchWidth: Double = 16
     /// The least gap a label keeps from its value on the right.
     public static let pairGap: Double = 8
-    /// The live load row's sparkline width, and the gap before it.
-    public static let sparklineWidth: Double = 40
 
     /// The width `regions` need with nothing compressed or clipped, at
     /// least `minimum`, never past `ceiling`: the widest block the panel
@@ -232,10 +230,9 @@ public enum PanelLayout {
     }
 
     /// One tile's estimated natural width: its inner padding on both sides
-    /// and the wider of the value with its "of" (and what is used) beside
-    /// it, and the label.
+    /// and the wider of the value with its "of" beside it, and the label.
     static func tileWidth(_ tile: PanelTile) -> Double {
-        let figure = text(tile.value, size: 20) + (tile.detailLine.map { 4 + text($0, size: 11) } ?? 0)
+        let figure = text(tile.value, size: 20) + (tile.detail.map { 4 + text($0, size: 11) } ?? 0)
         return 2 * tilePadding + max(figure, text(tile.label, size: 11))
     }
 
@@ -269,11 +266,11 @@ public enum PanelLayout {
     }
 
     /// A live load row: the CPU and memory bars, each as wide as the wider
-    /// figure under it, then the sparkline.
+    /// figure under it, `tileSpacing` apart.
     static func loadWidth(_ load: NodeLoad) -> Double {
         guard case .sampled(let cpu, let memory) = load else { return 0 }
         let bar = max(text("CPU " + cpu.text, size: 10), text("Memory " + memory.text, size: 10))
-        return padding + 2 * bar + tileSpacing + tileSpacing + sparklineWidth
+        return padding + 2 * bar + tileSpacing
     }
 
     private static func text(_ s: String, size: Double) -> Double {

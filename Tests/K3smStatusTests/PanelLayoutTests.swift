@@ -143,13 +143,16 @@ struct PanelLayoutTests {
         #expect(PanelLayout.shownWidth(stored: nil, regions: huge) == PanelLayout.ceiling)
     }
 
-    @Test("a live load row needs room for both figures and the sparkline")
+    @Test("a live load row needs room for both figures, and no more")
     func loadRowWidens() {
         let load = NodeLoad.sampled(cpu: LoadBar(fraction: 0.1, percent: 10, text: "1.43 of 19 cores · 8%"),
                                     memory: LoadBar(fraction: 0.4, percent: 40, text: "24.1 GB of 64 GB · 38%"))
         #expect(PanelLayout.loadWidth(load) > PanelLayout.minimum)
         #expect(PanelLayout.loadWidth(.noSample) == 0)
         #expect(PanelLayout.naturalWidth(regions: [PanelContent(loads: [load])]) == PanelLayout.loadWidth(load))
+        // The two bars and the gap between them; no sparkline beside them.
+        let bar = Double("Memory 24.1 GB of 64 GB · 38%".count) * 10 * PanelLayout.advance
+        #expect(PanelLayout.loadWidth(load) == PanelLayout.padding + 2 * bar + PanelLayout.tileSpacing)
     }
 
     @Test("the Cluster and This Mac tiles are a 2 by 2 grid at every width, with equal margins")
