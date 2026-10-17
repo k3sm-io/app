@@ -241,6 +241,21 @@ struct DemoTourTests {
         #expect(!DemoTour.permits(URL(fileURLWithPath: "/Applications/k3sm.app/Contents/Resources/payload.json"), in: bundled))
     }
 
+    @Test("a bare tour name resolves inside the bundle; separators, .. and missing names are refused")
+    func demoTourFromBundle() throws {
+        let res = URL(fileURLWithPath: "/Applications/k3sm.app/Contents/Resources")
+        let got = try DemoTour.bundledTour(named: "release-tour", resources: res) { _ in true }
+        #expect(got.path == "/Applications/k3sm.app/Contents/Resources/demo/release-tour.json")
+        #expect(DemoTour.isBareName("release-tour") && DemoTour.isBareName(".."))
+        #expect(!DemoTour.isBareName("a/b") && !DemoTour.isBareName("a.json"))
+        for bad in ["../release-tour", "a/b", "..", "", ".hidden", "x\\y"] {
+            #expect(throws: DemoTour.LaunchError.badName(bad)) { try DemoTour.bundledTour(named: bad, resources: res) { _ in true } }
+        }
+        #expect(throws: DemoTour.LaunchError.unknownTour("nope")) { try DemoTour.bundledTour(named: "nope", resources: res) { _ in false } }
+        #expect(throws: DemoTour.LaunchError.unknownTour("release-tour")) { try DemoTour.bundledTour(named: "release-tour", resources: nil) { _ in true } }
+        #expect(DemoTour.LaunchError.unknownTour("nope").message.contains("no tour named nope"))
+    }
+
     @Test("rows, frames and motion: the pod by prefix, the server by role, the frame from the top left")
     func demoTourStepsRunning() {
         func pod(_ name: String, _ ns: String = "default") -> Pod {

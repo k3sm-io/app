@@ -445,11 +445,17 @@ public enum DemoTour {
         case missingPath
         case repeated
         case outside(String)
+        case badName(String)
+        case unknownTour(String)
 
         public var message: String {
             switch self {
             case .missingPath: return "\(DemoTour.argument) needs a tour file"
             case .repeated: return "\(DemoTour.argument) is given more than once"
+            case .badName(let name):
+                return "\(StatusDisplay.clip(name)) is not a tour name (letters, digits, - and _ only)"
+            case .unknownTour(let name):
+                return "the app carries no tour named \(StatusDisplay.clip(name)) in Resources/\(DemoTour.resourcesDirectory)"
             case .outside(let path):
                 return "\(StatusDisplay.clip(path)) is not in the checkout's \(DemoTour.checkoutDirectory) or the app's Resources/\(DemoTour.resourcesDirectory)"
             }
@@ -463,6 +469,27 @@ public enum DemoTour {
         guard at.count == 1 else { throw LaunchError.repeated }
         guard i + 1 < arguments.count, !arguments[i + 1].isEmpty, !arguments[i + 1].hasPrefix("-") else { throw LaunchError.missingPath }
         return arguments[i + 1]
+    }
+
+    /// Whether the argument is a bare tour name (`release-tour`) rather than
+    /// a path: it has no path separator and does not end in `.json`.
+    public static func isBareName(_ argument: String) -> Bool {
+        !argument.contains("/") && !argument.hasSuffix(".json")
+    }
+
+    /// The bundled tour a bare name selects: `<resources>/demo/<name>.json`.
+    /// A name is letters, digits, `-` and `_`, so a separator or `..` is
+    /// refused, and a name no tour file answers to is refused with the reason.
+    public static func bundledTour(named name: String, resources: URL?, exists: (URL) -> Bool) throws -> URL {
+        let ok = !name.isEmpty && name.utf8.allSatisfy { c in
+            (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A) || c == 0x2D || c == 0x5F
+        }
+        guard ok else { throw LaunchError.badName(name) }
+        guard let resources else { throw LaunchError.unknownTour(name) }
+        let file = resources.appendingPathComponent(resourcesDirectory, isDirectory: true)
+            .appendingPathComponent(name + ".json", isDirectory: false)
+        guard exists(file) else { throw LaunchError.unknownTour(name) }
+        return file
     }
 
     /// The directories a tour may be read from: the bundle's Resources/demo,

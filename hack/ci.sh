@@ -76,6 +76,8 @@ trap 'rm -rf "$tmp"' EXIT
 bash hack/build-app.sh "$tmp/out"
 [ -d "$tmp/out/k3sm.app" ] || { echo "FAIL: bundle not produced"; exit 1; }
 [ ! -e "$tmp/out/k3sm.app/Contents/Resources/payload" ] || { echo "FAIL: a payload appeared without --payload"; exit 1; }
+cmp -s hack/demo/release-tour.json "$tmp/out/k3sm.app/Contents/Resources/demo/release-tour.json" \
+	|| { echo "FAIL: the bundle's Resources/demo/release-tour.json is missing or differs from hack/demo"; exit 1; }
 # The icon is in the bundle, named by Info.plist, and readable back into an
 # iconset whose largest member is the 1024-pixel render.
 icns="$tmp/out/k3sm.app/Contents/Resources/AppIcon.icns"

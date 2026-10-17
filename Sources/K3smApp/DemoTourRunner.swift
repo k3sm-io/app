@@ -49,8 +49,16 @@ final class DemoTourRunner {
     static func load(arguments: [String] = CommandLine.arguments) -> [DemoTour.Entry]? {
         do {
             guard let path = try DemoTour.path(in: arguments) else { return nil }
-            let file = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
-            guard DemoTour.permits(file, in: allowedDirectories()) else { throw DemoTour.LaunchError.outside(path) }
+            let file: URL
+            if DemoTour.isBareName(path) {
+                let resources = Bundle.main.bundleURL.pathExtension == "app" ? Bundle.main.resourceURL?.resolvingSymlinksInPath() : nil
+                file = try DemoTour.bundledTour(named: path, resources: resources) { FileManager.default.fileExists(atPath: $0.path) }
+                    .resolvingSymlinksInPath()
+                guard DemoTour.permits(file, in: allowedDirectories()) else { throw DemoTour.LaunchError.outside(path) }
+            } else {
+                file = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
+                guard DemoTour.permits(file, in: allowedDirectories()) else { throw DemoTour.LaunchError.outside(path) }
+            }
             let size = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? nil
             guard let size else { refuse("cannot read \(StatusDisplay.clip(path))") }
             guard size <= DemoTour.maxBytes else { throw DemoTour.TourError.tooLarge }

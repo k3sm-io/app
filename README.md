@@ -1100,6 +1100,7 @@ pointer:
 ```sh
 .build/debug/K3smApp --demo-tour hack/demo/release-tour.json
 out/k3sm.app/Contents/MacOS/k3sm-app --demo-tour hack/demo/release-tour.json
+/Applications/k3sm.app/Contents/MacOS/k3sm-app --demo-tour release-tour
 ```
 
 A tour is a JSON object whose `steps` list holds one step per line:
@@ -1120,7 +1121,9 @@ A tour is a JSON object whose `steps` list holds one step per line:
 | `end` | the last step: the app quits |
 
 A wait gives up after its timeout (120 seconds unless given, 900 at most).
-The app reads a tour only from the checkout's `hack/demo` or the bundle's
+Every build copies `hack/demo/*.json` into the bundle's `Resources/demo`, and
+a bare name (`release-tour`) selects `Resources/demo/<name>.json` there. The
+app reads a tour only from the checkout's `hack/demo` or the bundle's
 `Resources/demo`, and refuses the whole tour before it starts if any step is
 unknown, out of order (a row before its tab is chosen, a pod read with no pod
 selected) or names anything but a read. A tour cannot reach any change to the
