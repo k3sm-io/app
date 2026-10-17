@@ -65,6 +65,11 @@ struct UpdatePolicyTests {
                                 role: role, installed: installed, payload: payload, workers: workers,
                                 developerBuild: developerBuild)
                             let plan = UpdatePlan.decide(facts)
+                            // The guard the policy no longer carries: a server with
+                            // other nodes, or an unknown count, never plans the payload.
+                            if role == .server, workers != 0 {
+                                if case .payload = plan { Issue.record("server with workers \(String(describing: workers)) planned the payload") }
+                            }
                             if case .payload(let version) = plan {
                                 installs += 1
                                 let decision = UpdatePolicy.decide(payload: version, installed: installed, allowDowngrade: false)
