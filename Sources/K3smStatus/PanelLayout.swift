@@ -67,16 +67,13 @@ public struct PanelPair: Equatable, Sendable {
 /// the panel's views draw with (the edge, a tile's inner padding, the gap
 /// between tiles), so the estimate and the drawing cannot drift apart.
 ///
-/// The panel is auto-sized until the user drags its divider: an auto-sized
-/// panel is drawn at the natural width and follows it as the content
-/// changes; a dragged width is kept (narrower than natural, the tiles shrink
-/// their detail line and rows wrap) for the session only: a width narrower than
-/// the natural width is never saved, and a saved one that has become narrower
-/// than the content (`replacesWidth`) is cleared, so the panel opens
-/// auto-sized. A drag back to the natural width, or Reset Window Layout,
-/// returns it to auto. The stored width (none while auto) and
-/// collapsed state are read back through `restoreWidth` and
-/// `restoreCollapsed`, both tolerant of any stored value.
+/// The natural width is fixed when the window lays out (`PanelWidth`), not
+/// followed as the content changes: a live figure, a pod count or the
+/// headline word never moves the divider, and content that would need more
+/// room wraps or shortens inside the panel. The stored width (none while the
+/// panel sits at its natural width) and collapsed state are read back
+/// through `restoreWidth` and `restoreCollapsed`, both tolerant of any
+/// stored value.
 public enum PanelLayout {
     /// The panel's minimum width, its width before it could be resized.
     public static let minimum: Double = 250
@@ -129,43 +126,6 @@ public enum PanelLayout {
     /// The panel's width range for one region's `content`.
     public static func widthRange(content: PanelContent) -> ClosedRange<Double> {
         widthRange(regions: [content])
-    }
-
-    /// The width the panel is drawn at: the natural width while auto-sized
-    /// (`stored` is nil), the user's width within the range otherwise.
-    public static func shownWidth(stored: Double?, regions: [PanelContent], measured: Double? = nil) -> Double {
-        let range = widthRange(regions: regions, measured: measured)
-        guard let stored else { return range.upperBound }
-        return clamp(stored, to: range)
-    }
-
-    /// What a drag of the divider to `width` stores: the width, or nil (auto)
-    /// once it reaches the natural width, so the panel follows its content again.
-    /// `natural` is the range's upper bound the split view was given.
-    public static func dragged(_ width: Double, natural: Double) -> Double? {
-        guard width.isFinite else { return nil }
-        return width >= natural - 1 ? nil : width
-    }
-
-    /// Whether a width kept for the panel (`width`) must be thrown away now the
-    /// natural width is `natural`: it is narrower than the content needs.
-    /// A saved width (read from the user defaults, `session` false) is
-    /// replaced whenever it is narrower; a width dragged in this session
-    /// (`session` true) is kept until the natural width grows past it
-    /// (`previousNatural` is the natural width it was last judged against).
-    public static func replacesWidth(_ width: Double, natural: Double, previousNatural: Double? = nil,
-                                     session: Bool = false) -> Bool {
-        guard width.isFinite else { return true }
-        guard width < natural - 1 else { return false }
-        guard session else { return true }
-        return previousNatural.map { natural > $0 + 1 } ?? false
-    }
-
-    /// What to save of a panel `width`: the width when it is at or above
-    /// `natural`, nil (nothing saved) when it is narrower, which lasts the session only.
-    public static func persisted(_ width: Double?, natural: Double) -> Double? {
-        guard let width, width.isFinite, width >= natural - 1 else { return nil }
-        return width
     }
 
     /// One region's widest part.
@@ -275,5 +235,88 @@ public enum PanelLayout {
 
     private static func text(_ s: String, size: Double) -> Double {
         Double(s.count) * size * advance
+    }
+}
+
+/// PanelWidth is the console panel's width over the window's life. The
+/// natural width is fixed when the window lays out: when it opens (`open`)
+/// and, the first time, when the panel first measures its content
+/// (`measured`); a width the user dragged that is narrower than it is
+/// replaced then, and only then. After that the width moves only on a drag
+/// (`drag`), which is kept and saved, or on Reset Window Layout (`reset`);
+/// content changes leave it where it is.
+public struct PanelWidth: Equatable, Sendable {
+    /// The natural width fixed at the last layout; nil before the first.
+    public private(set) var natural: Double?
+    /// The width the user dragged to, kept and saved; nil while the panel
+    /// sits at its natural width.
+    public private(set) var dragged: Double?
+    /// Whether the layout still waits for the panel's first measurement.
+    private var awaitingMeasure = false
+
+    /// A panel restored with the width saved at the last drag, if any
+    /// (`PanelLayout.restoreWidth`).
+    public init(saved: Double?) {
+        dragged = saved.map { PanelLayout.clamp($0, to: PanelLayout.minimum...PanelLayout.ceiling) }
+    }
+
+    /// The window opened (the first time, or again after it was closed) and
+    /// laid out at `natural`. A `measured` natural width (the panel has
+    /// drawn its content) decides now; an estimate fixes the width until the
+    /// panel's first measurement, which decides once (`measured(_:)`).
+    public mutating func open(natural: Double, measured: Bool) {
+        if measured {
+            awaitingMeasure = false
+            layOut(natural)
+        } else {
+            awaitingMeasure = true
+            self.natural = natural
+        }
+    }
+
+    /// The panel measured its content at `natural`: it lays the panel out
+    /// only while the window's layout waits for that first measurement.
+    public mutating func measured(_ natural: Double) {
+        guard awaitingMeasure else { return }
+        awaitingMeasure = false
+        layOut(natural)
+    }
+
+    /// A drag of the divider to `width`: kept, within `minimum...ceiling`,
+    /// or the natural width again (nil) when it reaches it.
+    public mutating func drag(to width: Double) {
+        guard width.isFinite else { return }
+        if let natural, width >= natural - 1 {
+            dragged = nil
+        } else {
+            dragged = PanelLayout.clamp(width, to: PanelLayout.minimum...PanelLayout.ceiling)
+        }
+    }
+
+    /// Reset Window Layout: back to the natural width.
+    public mutating func reset() {
+        dragged = nil
+    }
+
+    /// The width to draw: the dragged width, else the fixed natural width,
+    /// else (before any layout) `estimate`.
+    public func shown(estimate: Double) -> Double {
+        PanelLayout.clamp(dragged ?? natural ?? estimate, to: range(estimate: estimate))
+    }
+
+    /// The divider's range: the minimum to the fixed natural width (or a
+    /// wider dragged width), `estimate` before any layout.
+    public func range(estimate: Double) -> ClosedRange<Double> {
+        let upper = max(natural ?? estimate, dragged ?? 0)
+        return PanelLayout.minimum...min(PanelLayout.ceiling, max(PanelLayout.minimum, upper))
+    }
+
+    /// What to save: the dragged width, or nothing while at the natural width.
+    public var saved: Double? { dragged }
+
+    private mutating func layOut(_ natural: Double) {
+        let fixed = min(PanelLayout.ceiling, max(PanelLayout.minimum, natural.isFinite ? natural : PanelLayout.minimum))
+        self.natural = fixed
+        if let width = dragged, width < fixed - 1 { dragged = nil }
     }
 }

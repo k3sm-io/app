@@ -115,32 +115,38 @@ struct PanelLayoutTests {
         #expect(natural >= PanelLayout.naturalWidth(regions: [cluster]))
 
         // No width saved (or the earlier releases' default): open at natural.
-        let fresh = PanelLayout.restoreWidth(from: nil)
-        #expect(PanelLayout.shownWidth(stored: fresh, regions: regions) == natural)
-        let legacy = PanelLayout.restoreWidth(from: PanelLayout.minimum)
-        #expect(PanelLayout.shownWidth(stored: legacy, regions: regions) == natural)
+        for saved in [PanelLayout.restoreWidth(from: nil), PanelLayout.restoreWidth(from: PanelLayout.minimum)] {
+            var width = PanelWidth(saved: saved)
+            width.open(natural: natural, measured: true)
+            #expect(width.shown(estimate: 0) == natural)
+            #expect(width.range(estimate: 0) == PanelLayout.minimum...natural)
+        }
 
-        // A width the user dragged smaller is kept for the session.
+        // A width the user dragged smaller is kept, and does not follow wider content.
+        var width = PanelWidth(saved: nil)
+        width.open(natural: natural, measured: true)
         let smaller = natural - 60
-        let stored = PanelLayout.dragged(smaller, natural: natural)
-        #expect(stored == smaller)
-        #expect(PanelLayout.shownWidth(stored: stored, regions: regions) == smaller)
-        // A user-sized panel does not follow wider content.
+        width.drag(to: smaller)
+        #expect(width.saved == smaller)
         let wider = [PanelContent(nodes: [Self.node("a-much-longer-build-mac-name-in-the-rack-room")]), mac]
         #expect(PanelLayout.naturalWidth(regions: wider) > natural)
-        #expect(PanelLayout.shownWidth(stored: stored, regions: wider) == smaller)
+        width.measured(PanelLayout.naturalWidth(regions: wider))
+        #expect(width.shown(estimate: PanelLayout.naturalWidth(regions: wider)) == smaller)
 
-        // A drag back to the natural width, and Reset (nil), return to auto.
-        #expect(PanelLayout.dragged(natural, natural: natural) == nil)
-        #expect(PanelLayout.dragged(.nan, natural: natural) == nil)
-        #expect(PanelLayout.shownWidth(stored: nil, regions: regions) == natural)
+        // A drag back to the natural width, and Reset, return to it; a NaN drag is ignored.
+        width.drag(to: natural)
+        #expect(width.saved == nil && width.shown(estimate: 0) == natural)
+        width.drag(to: smaller)
+        width.drag(to: .nan)
+        #expect(width.saved == smaller)
+        width.reset()
+        #expect(width.saved == nil && width.shown(estimate: 0) == natural)
 
-        // An auto-sized panel follows its content, both wider and narrower.
-        #expect(PanelLayout.shownWidth(stored: nil, regions: wider) == PanelLayout.naturalWidth(regions: wider))
-        #expect(PanelLayout.shownWidth(stored: nil, regions: [mac]) == PanelLayout.naturalWidth(regions: [mac]))
         // The ceiling still holds.
         let huge = [PanelContent(pairs: [PanelPair(String(repeating: "x", count: 160), "1 GB")])]
-        #expect(PanelLayout.shownWidth(stored: nil, regions: huge) == PanelLayout.ceiling)
+        var capped = PanelWidth(saved: nil)
+        capped.open(natural: PanelLayout.naturalWidth(regions: huge), measured: true)
+        #expect(capped.shown(estimate: 0) == PanelLayout.ceiling)
     }
 
     @Test("a live load row needs room for both figures, and no more")
@@ -217,25 +223,68 @@ struct PanelLayoutTests {
         #expect(tooWide.trailing < tooWide.leading)
     }
 
-    @Test("a saved width narrower than the content is replaced, a session drag is not saved")
+    @Test("a saved width narrower than the content is replaced at the window's layout only")
     func tooNarrowSavedWidthIsOverwritten() {
         let natural = 400.0
-        // A saved width below natural is discarded: the panel opens at natural.
-        #expect(PanelLayout.replacesWidth(300, natural: natural))
-        #expect(PanelLayout.replacesWidth(.nan, natural: natural))
-        // At or above natural it is kept.
-        #expect(!PanelLayout.replacesWidth(400, natural: natural))
-        #expect(!PanelLayout.replacesWidth(450, natural: natural))
-        // A session drag below natural is not persisted; at or above it is.
-        #expect(PanelLayout.persisted(300, natural: natural) == nil)
-        #expect(PanelLayout.persisted(nil, natural: natural) == nil)
-        #expect(PanelLayout.persisted(400, natural: natural) == 400)
-        // A session drag stays while the natural width holds, and goes when it grows past.
-        #expect(!PanelLayout.replacesWidth(300, natural: natural, previousNatural: natural, session: true))
-        #expect(!PanelLayout.replacesWidth(300, natural: natural, previousNatural: nil, session: true))
-        #expect(PanelLayout.replacesWidth(300, natural: 450, previousNatural: natural, session: true))
-        // The natural width growing past a saved width overwrites it.
-        #expect(PanelLayout.replacesWidth(420, natural: 480, previousNatural: natural))
-        #expect(!PanelLayout.replacesWidth(420, natural: 410, previousNatural: natural))
+        for (saved, kept) in [(300.0, false), (Double.nan, false), (400.0, true), (450.0, true)] {
+            var width = PanelWidth(saved: PanelLayout.restoreWidth(from: saved))
+            width.open(natural: natural, measured: true)
+            #expect((width.saved != nil) == kept, "\(saved)")
+            #expect(width.shown(estimate: 0) == (kept ? saved : natural), "\(saved)")
+        }
+    }
+
+    @Test("the width is fixed after the first layout: content changes never move it, a drag is kept, a reopen replaces a too-narrow one once")
+    func widthFixedAfterLayout() {
+        // First launch: an estimate before the panel draws, then its first measurement decides.
+        var width = PanelWidth(saved: nil)
+        width.open(natural: 480, measured: false)
+        #expect(width.shown(estimate: 480) == 480)
+        width.measured(420)
+        let first = width.shown(estimate: 420)
+        #expect(first == 420)
+        #expect(width.range(estimate: 420) == PanelLayout.minimum...420)
+
+        // Live content changes: new figures, pod counts, the headline word.
+        for natural in [430.0, 390, 600, 300, 720, 421] {
+            width.measured(natural)
+            #expect(width.shown(estimate: natural) == first, "\(natural)")
+            #expect(width.range(estimate: natural) == PanelLayout.minimum...420, "\(natural)")
+        }
+
+        // A drag is kept across later content changes, and saved.
+        width.drag(to: 330)
+        for natural in [500.0, 260, 640] {
+            width.measured(natural)
+            #expect(width.shown(estimate: natural) == 330, "\(natural)")
+        }
+        #expect(width.saved == 330)
+
+        // The window reopens: the content now needs 360, wider than the drag,
+        // so the saved width is replaced once, at that layout.
+        var reopened = PanelWidth(saved: width.saved)
+        reopened.open(natural: 360, measured: true)
+        #expect(reopened.shown(estimate: 360) == 360)
+        #expect(reopened.saved == nil)
+        // Then the panel stays put again.
+        for natural in [380.0, 340, 500] {
+            reopened.measured(natural)
+            #expect(reopened.shown(estimate: natural) == 360, "\(natural)")
+        }
+
+        // A reopen whose content fits inside the saved drag keeps it.
+        var roomy = PanelWidth(saved: 330)
+        roomy.open(natural: 300, measured: true)
+        #expect(roomy.shown(estimate: 300) == 330)
+        #expect(roomy.range(estimate: 300) == PanelLayout.minimum...330)
+
+        // An estimate at the open never replaces a saved width; the first measurement does.
+        var estimated = PanelWidth(saved: 300)
+        estimated.open(natural: 400, measured: false)
+        #expect(estimated.saved == 300)
+        estimated.measured(350)
+        #expect(estimated.saved == nil && estimated.shown(estimate: 350) == 350)
+        estimated.measured(500)
+        #expect(estimated.shown(estimate: 500) == 350)
     }
 }

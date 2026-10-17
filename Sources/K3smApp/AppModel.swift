@@ -175,52 +175,48 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(inspectorShown, forKey: Self.inspectorShownKey) }
     }
     static let inspectorShownKey = AppPreferences.inspectorShownKey
-    /// The console panel's width as the user last dragged it, or nil while
-    /// the panel is auto-sized to its natural width (`PanelLayout.shownWidth`).
-    /// Kept in the user defaults across launches (removed while auto) and
-    /// clamped on read (`PanelLayout.restoreWidth`); the split view clamps it
-    /// again to what the panel's content could use (`PanelLayout.widthRange`).
-    @Published var consolePanelWidth: Double? = PanelLayout.restoreWidth(
-        from: UserDefaults.standard.object(forKey: PanelLayout.widthKey)) {
+    /// The console panel's width (`PanelWidth`): fixed when the window lays
+    /// out, moved only by a drag of the divider or Reset Window Layout. The
+    /// dragged width is kept in the user defaults across launches (removed
+    /// while the panel sits at its natural width) and clamped on read
+    /// (`PanelLayout.restoreWidth`).
+    @Published private(set) var consolePanelWidth = PanelWidth(
+        saved: PanelLayout.restoreWidth(from: UserDefaults.standard.object(forKey: PanelLayout.widthKey))) {
         didSet {
-            // A width narrower than the natural width lasts the session only.
-            if let natural = consolePanelNatural,
-               let saved = PanelLayout.persisted(consolePanelWidth, natural: natural) {
+            guard consolePanelWidth.saved != oldValue.saved else { return }
+            if let saved = consolePanelWidth.saved {
                 UserDefaults.standard.set(saved, forKey: PanelLayout.widthKey)
             } else {
                 UserDefaults.standard.removeObject(forKey: PanelLayout.widthKey)
             }
         }
     }
-    /// The natural width the panel's width was last judged against, and
-    /// whether the width is one dragged in this session (kept unsaved).
-    private var consolePanelNatural: Double?
-    private var consolePanelDragged = false
 
-    /// A divider drag: the width stays for the session, saved only if it is
-    /// not narrower than the natural width.
-    func panelDragged(_ width: Double, natural: Double) {
-        consolePanelNatural = natural
-        let stored = PanelLayout.dragged(width, natural: natural)
-        consolePanelDragged = stored != nil
-        consolePanelWidth = stored
+    /// The window opened and laid the panel out at `natural`, measured or
+    /// estimated (`PanelWidth.open`).
+    func panelOpened(natural: Double, measured: Bool) {
+        consolePanelWidth.open(natural: natural, measured: measured)
     }
 
-    /// Judges the kept width against the natural width: a saved width
-    /// narrower than it, or a session width it has grown past, is replaced
-    /// by auto-sizing and the saved key cleared. Reset Window Layout sets nil.
-    func reconcilePanelWidth(natural: Double) {
-        let previous = consolePanelNatural
-        consolePanelNatural = natural
-        guard let width = consolePanelWidth else { return }
-        if PanelLayout.replacesWidth(width, natural: natural, previousNatural: previous, session: consolePanelDragged) {
-            consolePanelDragged = false
-            consolePanelWidth = nil
-        }
+    /// The panel's first measurement after the window opened (`PanelWidth.measured`).
+    func panelLaidOut(natural: Double) {
+        consolePanelWidth.measured(natural)
+    }
+
+    /// A divider drag: the width is kept and saved.
+    func panelDragged(_ width: Double) {
+        consolePanelWidth.drag(to: width)
+    }
+
+    /// Reset Window Layout: the panel returns to its natural width.
+    func resetPanelWidth() {
+        consolePanelWidth.reset()
     }
     /// The widest block of the console panel's content as the panel last
     /// measured it (`PanelMeasure`), without its edges; nil before the first
     /// layout, when `PanelLayout.naturalWidth` estimates instead. Not kept.
+    /// It follows the content, but only a window layout reads it into the
+    /// panel's width.
     @Published private(set) var consolePanelMeasured: Double?
 
     /// Records a measured content width, only when it moved by a point or
