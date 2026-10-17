@@ -183,11 +183,12 @@ public enum K3smCLI {
     /// after the pod list so Pause can follow a pod to its controller.
     public static let controllersArguments = ["kubectl", "get", "deployments,statefulsets,replicasets", "-A", "-o", "json"]
 
-    /// One controller's UID and asked-for replicas, "<uid> <replicas>", read
-    /// just before each Pause or Resume step so it runs only on the
-    /// controller the user confirmed, at the count confirmed.
+    /// One controller's UID, asked-for replicas and recorded count,
+    /// "<uid> <replicas> <recorded>" (the last empty when there is none),
+    /// read just before each Pause or Resume step so it runs only on the
+    /// controller the user confirmed, at the count and record confirmed.
     public static func controllerStateArguments(kind: ControllerKind, namespace: ResourceName, name: ResourceName) -> [String] {
-        ["kubectl", "get", "\(kind.resource)/\(name.value)", "-n", namespace.value, "-o", "jsonpath={.metadata.uid} {.spec.replicas}"]
+        ["kubectl", "get", "\(kind.resource)/\(name.value)", "-n", namespace.value, "-o", #"jsonpath={.metadata.uid} {.spec.replicas} {.metadata.annotations.k3sm\.io/paused-replicas}"#]
     }
 
     /// Records a controller's replica count in `WorkloadPause.annotation`,

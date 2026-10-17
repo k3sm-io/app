@@ -315,8 +315,8 @@ login** in the app's Settings turns it off or on again (see
   the namespace and the controller and says what happens: its pods stop,
   the Deployment or StatefulSet stays, and Resume restores the replicas it
   has now. After you confirm, the app reads the controller's UID and
-  replicas (`k3sm kubectl get <kind>/<name> -n <namespace> -o
-  jsonpath={.metadata.uid} {.spec.replicas}`) and changes nothing when it
+  replicas and recorded count (`k3sm kubectl get <kind>/<name> -n <namespace> -o
+  jsonpath={.metadata.uid} {.spec.replicas} {.metadata.annotations.k3sm\.io/paused-replicas}`) and changes nothing when it
   is gone, was recreated or now asks for another count; then it records the
   count on the controller with `k3sm kubectl annotate <kind>/<name> -n
   <namespace> k3sm.io/paused-replicas=<count> --overwrite` and, only once
@@ -328,8 +328,16 @@ login** in the app's Settings turns it off or on again (see
   namespace, with the badge and **Resume…**. Resume asks first, then runs
   `k3sm kubectl scale <kind>/<name> -n <namespace> --replicas=<count>` and,
   once that succeeded, removes the record with `k3sm kubectl annotate
-  <kind>/<name> -n <namespace> k3sm.io/paused-replicas-`. A record that is
-  not a whole number from 1 up restores 1 replica. Every step reads the UID
+  <kind>/<name> -n <namespace> k3sm.io/paused-replicas-`. Resume
+  reads the controller again and runs only when the record is still the one
+  you confirmed and the controller still asks for zero replicas; otherwise it
+  says the workload changed since you clicked and changes nothing. A record
+  that is not a whole number from 1 up restores 1 replica, and the question
+  says the record was unreadable. A controller that carries a record but
+  still asks for replicas (a Pause that recorded the count and failed to
+  scale) shows a **stale** badge and offers **Pause…** again, which only
+  scales it to zero and keeps the record. Only `apps/v1` controllers with a
+  UID are followed. Every step reads the UID
   first, with the same trust check and account as Restart; the line under
   the buttons and on the paused row says the result, including a pause
   that recorded the count but did not scale (Resume clears it). Neither

@@ -77,7 +77,8 @@ struct WorkloadPauseTests {
         #expect(pause.action == .pause && pause.controller == .deployment && pause.count == 3 && pause.uid == "d-web")
         #expect(pause.kind == .change && pause.asksFirst)
         #expect(pause.precheckArguments
-            == ["kubectl", "get", "deployment/web", "-n", "default", "-o", "jsonpath={.metadata.uid} {.spec.replicas}"])
+            == ["kubectl", "get", "deployment/web", "-n", "default", "-o",
+                    #"jsonpath={.metadata.uid} {.spec.replicas} {.metadata.annotations.k3sm\.io/paused-replicas}"#])
         #expect(pause.arguments
             == ["kubectl", "annotate", "deployment/web", "-n", "default", "k3sm.io/paused-replicas=3", "--overwrite"])
         let pauseScale = try #require(pause.next(after: .exited(status: 0, output: Data())) as? WorkloadActionRequest)
@@ -162,6 +163,55 @@ struct WorkloadPauseTests {
         #expect(scale.precheck(.exited(status: 0, output: Data("d-web 3".utf8))) == nil)
     }
 
+    @Test("the gate: Resume re-reads the record, a half-done Pause is retryable, the decode fails closed")
+    func resumeRefusesAChangedWorkload() throws {
+        let api = WorkloadController(kind: .deployment, name: "api", namespace: "default", uid: "d-api", replicas: 0, pausedReplicas: "2")
+        let resume = try #require(WorkloadPause.request(.resume, for: api))
+        // (1) the live record and replicas must be the ones confirmed.
+        #expect(resume.precheck(.exited(status: 0, output: Data("d-api 0 2".utf8))) == nil)
+        for live in ["d-api 0 5", "d-api 0 ", "d-api 3 2", "d-api  2", "d-new 0 2", "d-api 0 2 x"] {
+            let outcome = resume.precheck(.exited(status: 0, output: Data(live.utf8)))
+            #expect(outcome?.failed == true && outcome?.text.contains("changed since you clicked") == true, "\(live)")
+        }
+        let clear = try #require(resume.next(after: .exited(status: 0, output: Data())))
+        #expect(clear.precheck(.exited(status: 0, output: Data("d-api 2 2".utf8))) == nil)
+
+        // (2) a record on a controller still asking for replicas offers Pause again, the scale step only.
+        let stale = WorkloadController(kind: .deployment, name: "web", namespace: "default", uid: "d-web", replicas: 3, pausedReplicas: "3")
+        #expect(stale.stale && WorkloadPause.available(for: stale) == [.pause])
+        let retry = try #require(WorkloadPause.request(.pause, for: stale))
+        #expect(retry.asksFirst && retry.count == 3 && retry.verb == "workload-pause-retry")
+        #expect(retry.arguments == ["kubectl", "scale", "deployment/web", "-n", "default", "--replicas=0"])
+        #expect(retry.next(after: .exited(status: 0, output: Data())) == nil)
+        #expect(retry.precheck(.exited(status: 0, output: Data("d-web 3 3".utf8))) == nil)
+        #expect(retry.precheck(.exited(status: 0, output: Data("d-web 3 4".utf8)))?.failed == true)
+        #expect(retry.precheck(.exited(status: 0, output: Data("d-web 0 3".utf8)))?.failed == true)
+        #expect(retry.confirmation.message.contains("stale"))
+        #expect(Help.Actions.byVerb["workload-pause-retry"] != nil)
+        let sts = WorkloadController(kind: .statefulSet, name: "db", namespace: "default", uid: "s-db", replicas: 1, pausedReplicas: "1")
+        let fact = WorkloadPause.controllerFact(for: podOf(sts), in: WorkloadControllers([sts]))
+        #expect(fact?.contains("stale") == true && fact?.contains("paused") == false)
+
+        // (3) the decode accepts only apps/v1, and find refuses an empty UID.
+        let list = #"""
+        {"kind":"List","items":[
+          {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"name":"a","namespace":"n","uid":"u1"},"spec":{"replicas":1}},
+          {"kind":"Deployment","metadata":{"name":"b","namespace":"n","uid":"u2"},"spec":{"replicas":1}},
+          {"apiVersion":"extensions/v1beta1","kind":"Deployment","metadata":{"name":"c","namespace":"n","uid":"u3"},"spec":{"replicas":1}}]}
+        """#
+        let decoded = try WorkloadControllers.decode(Data(list.utf8))
+        #expect(decoded.items.map(\.name) == ["a"])
+        #expect(decoded.find(.deployment, OwnerRef(apiVersion: "apps/v1", kind: "Deployment", name: "a", uid: ""), in: "n") == nil)
+        #expect(decoded.find(.deployment, OwnerRef(apiVersion: "apps/v1", kind: "Deployment", name: "a", uid: "u1"), in: "n") != nil)
+
+        // (4) an unreadable record qualifies the Resume question.
+        let junk = WorkloadController(kind: .deployment, name: "api", namespace: "default", uid: "d-api", replicas: 0, pausedReplicas: "lots")
+        let junkResume = try #require(WorkloadPause.request(.resume, for: junk))
+        #expect(junkResume.count == 1 && junkResume.confirmation.message.contains("unreadable"))
+        #expect(junkResume.precheck(.exited(status: 0, output: Data("d-api 0 lots".utf8))) == nil)
+        #expect(!resume.confirmation.message.contains("unreadable"))
+    }
+
     @Test("the confirmations say what happens, and the reports say the result")
     func confirmationAndReportWording() throws {
         let web = WorkloadController(kind: .deployment, name: "web", namespace: "default", uid: "d-web", replicas: 3, pausedReplicas: nil)
@@ -220,4 +270,10 @@ struct WorkloadPauseTests {
 
 private func apps(_ kind: String, _ name: String, _ uid: String) -> OwnerRef {
     OwnerRef(apiVersion: "apps/v1", kind: kind, name: name, uid: uid)
+}
+
+private func podOf(_ c: WorkloadController) -> Pod {
+    var pod = testPod("p-1")
+    pod.controllerRef = OwnerRef(apiVersion: "apps/v1", kind: "StatefulSet", name: c.name, uid: c.uid)
+    return pod
 }

@@ -133,9 +133,16 @@ public enum ModelActions {
     /// number from 1 to the CRD's int32 ceiling, written in plain digits;
     /// 1 when it is absent or anything else.
     public static func restoreCount(_ recorded: String?) -> Int {
+        readableCount(recorded) ?? 1
+    }
+
+    /// The recorded count when it is readable (plain digits from 1 to the
+    /// int32 ceiling), nil when it is absent or anything else: the case
+    /// where `restoreCount` falls back to 1.
+    public static func readableCount(_ recorded: String?) -> Int? {
         guard let recorded, !recorded.isEmpty, recorded.count <= 10,
               recorded.unicodeScalars.allSatisfy({ $0 >= "0" && $0 <= "9" }),
-              let count = Int(recorded), count >= 1, count <= Int(Int32.max) else { return 1 }
+              let count = Int(recorded), count >= 1, count <= Int(Int32.max) else { return nil }
         return count
     }
 

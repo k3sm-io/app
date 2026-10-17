@@ -90,13 +90,17 @@ public struct WorkloadController: Equatable, Sendable {
     /// Whether Pause recorded a count on it: the annotation is present.
     public var paused: Bool { pausedReplicas != nil }
 
+    /// Whether the record is stale: the annotation is present but the
+    /// controller asks for replicas, as after a Pause whose scale step failed.
+    public var stale: Bool { paused && (replicas ?? 0) > 0 }
+
     /// "Deployment web", clipped.
     public var title: String { StatusDisplay.clip("\(kind.rawValue) \(name)") }
 }
 
 /// WorkloadControllers is the decoded output of
 /// `K3smCLI.controllersArguments`: the `apps/v1` Deployments, StatefulSets
-/// and ReplicaSets, items of any other API version left out.
+/// and ReplicaSets, items of any other or no API version left out.
 public struct WorkloadControllers: Equatable, Sendable {
     public let items: [WorkloadController]
 
@@ -108,7 +112,7 @@ public struct WorkloadControllers: Equatable, Sendable {
     public static func decode(_ data: Data) throws -> WorkloadControllers {
         let objects = try KubeList.objects(data, kinds: Set(ControllerKind.allCases.map(\.rawValue)))
         let items: [WorkloadController] = objects.compactMap { object in
-            if let version = object["apiVersion"] as? String, version != "apps/v1" { return nil }
+            guard object["apiVersion"] as? String == "apps/v1" else { return nil }
             guard let kind = (object["kind"] as? String).flatMap(ControllerKind.init(rawValue:)) else { return nil }
             let metadata = KubeList.dict(object, "metadata")
             let annotations = metadata["annotations"] as? [String: Any] ?? [:]
@@ -125,10 +129,10 @@ public struct WorkloadControllers: Equatable, Sendable {
     }
 
     /// The controller of `kind` named by `ref` in `namespace`, its UID
-    /// matching when the reference carries one.
+    /// matching; a reference with no UID names nothing.
     func find(_ kind: ControllerKind, _ ref: OwnerRef, in namespace: String) -> WorkloadController? {
         items.first { c in
-            c.kind == kind && c.namespace == namespace && c.name == ref.name && (ref.uid.isEmpty || c.uid == ref.uid)
+            c.kind == kind && c.namespace == namespace && c.name == ref.name && !ref.uid.isEmpty && c.uid == ref.uid
         }
     }
 }
@@ -183,6 +187,12 @@ public struct WorkloadActionRequest: Equatable, ConsoleActionRequest {
     /// Pause: the replicas it records (and the pre-check expects). Resume:
     /// the count it restores.
     public let count: Int
+    /// Resume and a stale Pause's retry: the annotation as read when it was
+    /// offered, which the pre-check requires to be unchanged. Nil for a Pause.
+    public var recorded: String?
+    /// A Pause whose count is already recorded on a controller still asking
+    /// for replicas: it only scales to zero again, and asks first.
+    public var retry = false
 
     public var id: String { "workload-\(action.rawValue)-\(step.rawValue):\(rowKey)" }
     public var section: ConsoleSection { .workloads }
@@ -190,7 +200,7 @@ public struct WorkloadActionRequest: Equatable, ConsoleActionRequest {
     public var verb: String {
         switch (action, step) {
         case (.pause, .first): return "workload-pause"
-        case (.pause, .second): return "workload-pause-scale"
+        case (.pause, .second): return retry ? "workload-pause-retry" : "workload-pause-scale"
         case (.resume, .first): return "workload-resume"
         case (.resume, .second): return "workload-resume-clear"
         }
@@ -217,13 +227,19 @@ public struct WorkloadActionRequest: Equatable, ConsoleActionRequest {
     }
 
     /// The first step asks; the second runs on the first's success.
-    public var asksFirst: Bool { step == .first }
+    public var asksFirst: Bool { step == .first || retry }
     public var titleEllipsis: Bool { asksFirst }
 
     public var confirmation: ActionConfirmation {
         let target = StatusDisplay.clip("\(controller.rawValue) \(name.value)")
         let title = "\(action.title) \(StatusDisplay.clip(namespace.value + "/" + name.value))?"
         switch action {
+        case .pause where retry:
+            return ActionConfirmation(
+                title: title,
+                message: "\(target) still runs, and the count recorded on it is stale: an earlier Pause recorded it but did not scale. "
+                    + "k3sm scales it to zero, keeping the record, and Resume restores \(WorkloadPause.replicas(count)).",
+                verbTitle: action.title, cancelTitle: "Cancel", destructive: true)
         case .pause:
             return ActionConfirmation(
                 title: title,
@@ -234,6 +250,8 @@ public struct WorkloadActionRequest: Equatable, ConsoleActionRequest {
             return ActionConfirmation(
                 title: title,
                 message: "k3sm scales \(target) back to \(WorkloadPause.replicas(count)) and removes the recorded count. "
+                    + (ModelActions.readableCount(recorded) == nil
+                        ? "The recorded count was unreadable, so it restores 1 replica. " : "")
                     + "Its pods start again, maybe on other nodes.",
                 verbTitle: action.title, cancelTitle: "Cancel", destructive: false)
         }
@@ -251,7 +269,7 @@ public struct WorkloadActionRequest: Equatable, ConsoleActionRequest {
     public func next(after run: ActionRun) -> (any ConsoleActionRequest)? {
         guard step == .first, case .exited(status: 0, _) = run else { return nil }
         return WorkloadActionRequest(action: action, step: .second, controller: controller, namespace: namespace,
-                                     name: name, uid: uid, count: count)
+                                     name: name, uid: uid, count: count, recorded: recorded)
     }
 }
 
@@ -304,14 +322,21 @@ public enum WorkloadPause {
         let count: Int
         switch action {
         case .pause:
-            guard !controller.paused, let replicas = controller.replicas, replicas > 0 else { return nil }
+            guard let replicas = controller.replicas, replicas > 0 else { return nil }
+            if controller.paused {
+                // A stale record: only the scale step again, keeping the count.
+                return WorkloadActionRequest(action: .pause, step: .second, controller: controller.kind, namespace: namespace,
+                                             name: name, uid: controller.uid, count: restoreCount(controller.pausedReplicas),
+                                             recorded: controller.pausedReplicas, retry: true)
+            }
             count = replicas
         case .resume:
-            guard controller.paused else { return nil }
+            guard controller.paused, controller.replicas == 0 else { return nil }
             count = restoreCount(controller.pausedReplicas)
         }
         return WorkloadActionRequest(action: action, step: .first, controller: controller.kind, namespace: namespace,
-                                     name: name, uid: controller.uid, count: count)
+                                     name: name, uid: controller.uid, count: count,
+                                     recorded: action == .resume ? controller.pausedReplicas : nil)
     }
 
     /// The actions a controller offers: Pause or Resume, never both.
@@ -341,6 +366,7 @@ public enum WorkloadPause {
     /// nil when the pod resolves to none.
     public static func controllerFact(for pod: Pod, in controllers: WorkloadControllers?) -> String? {
         guard case .controller(let c) = resolve(pod, in: controllers) else { return nil }
+        if c.stale { return "\(c.title), record stale: \(replicas(c.replicas ?? 0)) running, \(replicas(restoreCount(c.pausedReplicas))) recorded; Pause again to finish" }
         if c.paused { return "\(c.title), paused; Resume restores \(replicas(restoreCount(c.pausedReplicas)))" }
         return c.replicas.map { "\(c.title), \(replicas($0))" } ?? c.title
     }
@@ -349,6 +375,13 @@ public enum WorkloadPause {
     /// the recorded count.
     public static func paused(_ pod: Pod, in controllers: WorkloadControllers?) -> Bool {
         if case .controller(let c) = resolve(pod, in: controllers) { return c.paused }
+        return false
+    }
+
+    /// Whether the pod's controller carries a stale record: shown as "stale"
+    /// in place of the paused badge.
+    public static func stale(_ pod: Pod, in controllers: WorkloadControllers?) -> Bool {
+        if case .controller(let c) = resolve(pod, in: controllers) { return c.stale }
         return false
     }
 
@@ -387,9 +420,21 @@ public enum WorkloadPause {
         let changed = ActionOutcome.refused("\(verb) refused: \(target(request)) changed since you clicked; \(nothing).")
         switch run {
         case .exited(status: 0, let output):
-            let words = String(decoding: output, as: UTF8.self).split(whereSeparator: \.isWhitespace).map(String.init)
-            guard words.first == request.uid else { return changed }
-            if request.action == .pause, request.step == .first, words.dropFirst().first != String(request.count) { return changed }
+            // "<uid> <replicas> <recorded>": the record is the rest of the line.
+            let fields = String(decoding: output, as: UTF8.self)
+                .split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+            let live = (replicas: fields.count > 1 ? fields[1] : "", recorded: fields.count > 2 ? fields[2] : "")
+            guard fields.first == request.uid else { return changed }
+            switch (request.action, request.step) {
+            case (.pause, .first):
+                if live.replicas != String(request.count) { return changed }
+            case (.pause, .second) where request.retry:
+                if live.recorded != (request.recorded ?? "") || (Int(live.replicas) ?? 0) <= 0 { return changed }
+            case (.resume, .first):
+                if live.recorded != (request.recorded ?? "") || live.replicas != "0" { return changed }
+            default:
+                break
+            }
             return nil
         case .exited(let status, let output):
             let raw = String(decoding: output, as: UTF8.self)

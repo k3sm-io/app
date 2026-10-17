@@ -164,7 +164,11 @@ public enum Help {
         public static let paused = HelpTag("Its controller is scaled to zero until you resume it",
                                            control: "workloads: paused badge", label: "paused")
 
-        public static var all: [HelpTag] { [view, namespace, cores, memory, runsAs, eventAge, paused] }
+        /// The stale badge on a controller whose record is left from a Pause that did not scale.
+        public static let stale = HelpTag("An earlier pause recorded the count but never scaled it to zero",
+                                          control: "workloads: stale badge", label: "stale")
+
+        public static var all: [HelpTag] { [view, namespace, cores, memory, runsAs, eventAge, paused, stale] }
     }
 
     // MARK: Nodes tab
@@ -404,6 +408,7 @@ public enum Help {
             "restart": tag("Delete the pod so its owner recreates it", "pod Restart", "Restart"),
             "delete": tag("Delete the pod; its containers stop now", "pod Delete", "Delete"),
             "workload-pause": tag("Scale the controller to zero, recording its replica count", "pod Pause", "Pause"),
+            "workload-pause-retry": tag("Scale the controller to zero again; its recorded count stays", "pod Pause", "Pause"),
             "workload-pause-scale": tag("Scale the controller to zero once its count is recorded", "pod Pause", "Pause"),
             "workload-resume": tag("Scale the controller back to its recorded replicas", "controller Resume", "Resume"),
             "workload-resume-clear": tag("Remove the recorded count once the controller is back", "controller Resume",

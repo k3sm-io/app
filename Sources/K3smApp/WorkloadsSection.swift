@@ -81,7 +81,8 @@ struct NamespaceGroup: View {
             .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 6)
             ForEach(pods, id: \.uid) { pod in
                 PodRow(pod: pod, node: model.nodeLabel(pod), selected: model.selected == pod.key,
-                       paused: WorkloadPause.paused(pod, in: model.controllers), widths: widths)
+                       paused: WorkloadPause.paused(pod, in: model.controllers),
+                       stale: WorkloadPause.stale(pod, in: model.controllers), widths: widths)
                     .contentShape(Rectangle())
                     .onTapGesture { model.select(pod) }
                     .modifier(RowActionsMenu(menu: PodActions.menu(for: pod, controllers: model.controllers), runner: runner) {
@@ -108,11 +109,12 @@ struct PausedRow: View {
         let report = runner.report(section: .workloads, rowKey: controller.key)
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: PodColumns.spacing) {
-                PausedBadge().frame(width: 52, alignment: .leading)
+                PausedBadge(stale: controller.stale).frame(width: 52, alignment: .leading)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(verbatim: controller.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                    Text(verbatim: "scaled to zero; Resume restores "
-                        + "\(WorkloadPause.restoreCount(controller.pausedReplicas))")
+                    Text(verbatim: controller.stale
+                        ? "record stale, still running; Pause finishes it"
+                        : "scaled to zero; Resume restores \(WorkloadPause.restoreCount(controller.pausedReplicas))")
                         .font(.system(size: 11)).foregroundStyle(Palette.dimText).lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -136,12 +138,15 @@ struct PausedRow: View {
 /// PausedBadge is the small "paused" capsule a paused controller's row and
 /// its pods' rows carry.
 struct PausedBadge: View {
+    /// A record left from a Pause that did not scale: "stale" instead.
+    var stale = false
+
     var body: some View {
-        Text(verbatim: "paused").font(.system(size: 10, weight: .semibold)).foregroundStyle(Palette.vm)
+        Text(verbatim: stale ? "stale" : "paused").font(.system(size: 10, weight: .semibold)).foregroundStyle(Palette.vm)
             .padding(.horizontal, 6).padding(.vertical, 1)
             .overlay(Capsule().strokeBorder(Palette.vm.opacity(0.5), lineWidth: 1))
             .fixedSize()
-            .help(Help.Workloads.paused)
+            .help(stale ? Help.Workloads.stale : Help.Workloads.paused)
     }
 }
 
@@ -165,6 +170,8 @@ struct PodRow: View {
     let selected: Bool
     /// Whether the pod's controller is paused (`WorkloadPause.paused`).
     var paused = false
+    /// Whether that record is stale (`WorkloadPause.stale`).
+    var stale = false
     let widths: ColumnWidths
 
     var body: some View {
@@ -174,7 +181,7 @@ struct PodRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     Text(verbatim: StatusDisplay.clip(pod.name)).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                    if paused { PausedBadge() }
+                    if paused { PausedBadge(stale: stale) }
                 }
                 Text(verbatim: StatusDisplay.clip(pod.image)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.dimText).lineLimit(1)
             }

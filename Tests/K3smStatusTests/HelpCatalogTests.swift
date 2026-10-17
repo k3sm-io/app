@@ -70,7 +70,7 @@ struct HelpCatalogTests {
                      "build-cancel", "build-delete", "builder-start", "builder-reset-start", "builder-stop",
                      "builder-reset", "builder-prune-plan", "builder-prune", "cleanup", "delete-claim",
                      "delete-volumes", "node-cordon", "node-uncordon", "node-drain", "workload-pause",
-                     "workload-pause-scale", "workload-resume", "workload-resume-clear"]
+                     "workload-pause-scale", "workload-pause-retry", "workload-resume", "workload-resume-clear"]
         #expect(Set(Help.Actions.byVerb.keys) == Set(verbs))
         let locals = ["copy-name", "copy-namespace-name", "open-shell", "summarize-logs", "copy-endpoint",
                       "copy-curl", "copy-ip", "copy-dns", "open", "copy-url", "show-log"]
