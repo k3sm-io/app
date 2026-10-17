@@ -21,7 +21,8 @@ import SwiftUI
 /// UpdateProgressPanel is the managed update's progress in the console, under
 /// the strip: the title, a detail and remedy, one row per node, and Cancel
 /// while the roll runs, Abort while it runs and after it failed, or Dismiss
-/// once it is over. It renders `UpdatePanel`,
+/// once it is over, and the credential notice while the shown Update says a
+/// node re-minted the admin credential. It renders `UpdatePanel`,
 /// whose strings are already clipped; the read behind it is `AppModel`'s.
 struct UpdateProgressPanel: View {
     @ObservedObject var app: AppModel
@@ -57,6 +58,10 @@ struct UpdateProgressPanel: View {
             }
             if let remedy = panel.remedy {
                 Text(remedy).font(.system(size: 12, weight: .medium))
+            }
+            if let notice = panel.credentialNotice {
+                Text(notice).font(.system(size: 12, weight: .medium))
+                    .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(Array(panel.nodes.enumerated()), id: \.offset) { _, node in
                 HStack(spacing: 12) {

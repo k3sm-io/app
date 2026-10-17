@@ -63,6 +63,10 @@ public enum UpdatePhase: Equatable, Sendable {
 
 /// UpdateNode is one node of a managed update, from the `nodes` list. Every
 /// field is untrusted data, "" when missing or not a string.
+/// `adminTokenRotated` (false when absent or not a bool) says the node's
+/// in-place install could not keep the admin token and minted a new one, so
+/// every admin kubeconfig copied from it before the update is refused; only
+/// a control-plane node carries it.
 public struct UpdateNode: Decodable, Equatable, Sendable {
     public let name: String
     public let from: String
@@ -70,17 +74,20 @@ public struct UpdateNode: Decodable, Equatable, Sendable {
     public let phase: String
     public let message: String
     public let lastProgress: String
+    public let adminTokenRotated: Bool
 
-    public init(name: String, from: String = "", to: String = "", phase: String = "", message: String = "", lastProgress: String = "") {
+    public init(name: String, from: String = "", to: String = "", phase: String = "", message: String = "", lastProgress: String = "",
+                adminTokenRotated: Bool = false) {
         self.name = name
         self.from = from
         self.to = to
         self.phase = phase
         self.message = message
         self.lastProgress = lastProgress
+        self.adminTokenRotated = adminTokenRotated
     }
 
-    private enum CodingKeys: String, CodingKey { case name, from, to, phase, message, lastProgress }
+    private enum CodingKeys: String, CodingKey { case name, from, to, phase, message, lastProgress, adminTokenRotated }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -91,6 +98,7 @@ public struct UpdateNode: Decodable, Equatable, Sendable {
         phase = text(.phase)
         message = text(.message)
         lastProgress = text(.lastProgress)
+        adminTokenRotated = (try? c.decodeIfPresent(Bool.self, forKey: .adminTokenRotated)) ?? false
     }
 }
 
@@ -193,6 +201,12 @@ public struct UpdateStatus: Decodable, Equatable, Sendable {
         let reason = conditions.first { $0.type == "Progressing" }.map { UpdatePhase(word: $0.reason) }
         if let reason, reason.isFinished { return reason }
         return .failed
+    }
+
+    /// The names of the nodes whose update re-minted the admin credential, in
+    /// list order; untrusted, as printed.
+    public var adminTokenRotatedNodes: [String] {
+        nodes.filter(\.adminTokenRotated).map(\.name)
     }
 
     /// The release the roll goes to: the resolved version, else the one asked for.
@@ -377,25 +391,29 @@ public struct UpdateProgress: Equatable, Sendable {
             } ?? "Updating k3sm"
             return UpdatePanel(title: title, detail: status == nil ? "Waiting for the first progress report." : nil,
                                remedy: nil, nodes: UpdatePanel.lines(status), showsCancel: canCancel, showsAbort: canAbort,
-                               showsDismiss: false)
+                               showsDismiss: false, credentialNotice: UpdatePanel.credentialNotice(status))
         case .succeeded(let s):
             return UpdatePanel(title: UpdatePanel.versioned("Updated to", s, else: "The update finished"),
                                detail: "Every node runs the new release.", remedy: nil,
-                               nodes: UpdatePanel.lines(s), showsCancel: false, showsDismiss: true)
+                               nodes: UpdatePanel.lines(s), showsCancel: false, showsDismiss: true,
+                               credentialNotice: UpdatePanel.credentialNotice(s))
         case .failed(let s):
             return UpdatePanel(title: UpdatePanel.versioned("The update to", s, suffix: " failed", else: "The update failed"),
                                detail: UpdatePanel.failureMessage(s), remedy: Self.failedRemedy,
-                               nodes: UpdatePanel.lines(s), showsCancel: false, showsAbort: true, showsDismiss: true)
+                               nodes: UpdatePanel.lines(s), showsCancel: false, showsAbort: true, showsDismiss: true,
+                               credentialNotice: UpdatePanel.credentialNotice(s))
         case .cancelled(let s):
             return UpdatePanel(title: UpdatePanel.versioned("The update to", s, suffix: " was cancelled", else: "The update was cancelled"),
-                               detail: nil, remedy: nil, nodes: UpdatePanel.lines(s), showsCancel: false, showsDismiss: true)
+                               detail: nil, remedy: nil, nodes: UpdatePanel.lines(s), showsCancel: false, showsDismiss: true,
+                               credentialNotice: UpdatePanel.credentialNotice(s))
         }
     }
 }
 
 /// UpdatePanel is the window's update progress panel as text: a title, an
 /// optional detail and remedy, one line per node, and which buttons it
-/// offers. Every string from the CLI is clipped.
+/// offers, and the credential notice while the shown Update says a node
+/// re-minted the admin credential. Every string from the CLI is clipped.
 public struct UpdatePanel: Equatable, Sendable {
     public let title: String
     public let detail: String?
@@ -405,9 +423,12 @@ public struct UpdatePanel: Equatable, Sendable {
     /// Abort, while the roll runs and after it failed.
     public let showsAbort: Bool
     public let showsDismiss: Bool
+    /// "The admin credential was re-minted on <nodes>. ...", nil when no
+    /// node of the shown Update carries `adminTokenRotated`.
+    public let credentialNotice: String?
 
     public init(title: String, detail: String?, remedy: String?, nodes: [UpdateNodeLine],
-                showsCancel: Bool, showsAbort: Bool = false, showsDismiss: Bool) {
+                showsCancel: Bool, showsAbort: Bool = false, showsDismiss: Bool, credentialNotice: String? = nil) {
         self.title = title
         self.detail = detail
         self.remedy = remedy
@@ -415,6 +436,24 @@ public struct UpdatePanel: Equatable, Sendable {
         self.showsCancel = showsCancel
         self.showsAbort = showsAbort
         self.showsDismiss = showsDismiss
+        self.credentialNotice = credentialNotice
+    }
+
+    /// The longest the notice's node names run, so the instruction after
+    /// them is never cut.
+    static let maxNoticeNames = 48
+
+    /// The credential notice for `status`: the clipped names of the nodes
+    /// that re-minted the admin credential, joined with ", " and capped at
+    /// `maxNoticeNames` ("a control-plane node" when none has a name), in a
+    /// fixed sentence; nil when no node carries the flag.
+    static func credentialNotice(_ status: UpdateStatus?) -> String? {
+        let rotated = status?.adminTokenRotatedNodes ?? []
+        guard !rotated.isEmpty else { return nil }
+        let names = rotated.map(StatusDisplay.clip).filter { !$0.isEmpty }
+        var joined = names.isEmpty ? "a control-plane node" : StatusDisplay.clip(names.joined(separator: ", "))
+        if joined.count > maxNoticeNames { joined = String(joined.prefix(maxNoticeNames - 1)) + "…" }
+        return "The admin credential was re-minted on \(joined). Copy the admin kubeconfig again to every other Mac or tool that uses it."
     }
 
     static func lines(_ status: UpdateStatus?) -> [UpdateNodeLine] {

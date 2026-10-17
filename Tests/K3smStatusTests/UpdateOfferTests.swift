@@ -258,6 +258,60 @@ struct UpdateOfferTests {
         #expect(unknown.ended == .failed)
     }
 
+    static let rotatedJSON = #"""
+    {"phase":"Succeeded","version":"v0.1.8","resolved":{"version":"v0.1.8","digest":"sha256:11"},
+     "nodes":[
+      {"name":"mac-2","from":"v0.1.7","to":"v0.1.8","phase":"Succeeded","message":"updated"},
+      {"name":"mac-1","from":"v0.1.7","to":"v0.1.8","phase":"Succeeded","message":"updated; the admin credential was re-minted: copy the admin kubeconfig again","adminTokenRotated":true},
+      {"name":"mac-3","phase":"Succeeded","adminTokenRotated":"yes"}],
+     "conditions":[{"type":"Succeeded","status":"True","reason":"Succeeded","message":"admin credential re-minted on mac-1"}],
+     "name":"current","finished":true}
+    """#
+
+    @Test("adminTokenRotated decodes true when set, false when absent or mistyped, and names its nodes")
+    func adminTokenRotatedDecode() throws {
+        let status = try UpdateStatus.decode(Data(Self.rotatedJSON.utf8))
+        #expect(status.nodes.map(\.adminTokenRotated) == [false, true, false])
+        #expect(status.adminTokenRotatedNodes == ["mac-1"])
+        let plain = try UpdateStatus.decode(try fixture("update-status-succeeded.json"))
+        #expect(plain.nodes.allSatisfy { !$0.adminTokenRotated })
+        #expect(plain.adminTokenRotatedNodes.isEmpty)
+        #expect(UpdateNode(name: "a").adminTokenRotated == false)
+    }
+
+    @Test("the panel shows the credential notice while the Update that carries it is shown, done included")
+    func credentialNotice() throws {
+        let status = try UpdateStatus.decode(Data(Self.rotatedJSON.utf8))
+        let text = "The admin credential was re-minted on mac-1. Copy the admin kubeconfig again to every other Mac or tool that uses it."
+        let rolling = UpdateStatus(phase: .rolling, version: "v0.1.8", nodes: status.nodes)
+        var p = UpdateProgress(stage: .rolling(nil))
+        #expect(p.panel?.credentialNotice == nil)
+        p.read(rolling)
+        #expect(p.panel?.credentialNotice == text)
+        p.read(status)
+        #expect(p.stage == .succeeded(status))
+        #expect(p.panel?.credentialNotice == text)
+        p.dismiss()
+        #expect(p.panel == nil)
+
+        // No flagged node, no notice.
+        var q = UpdateProgress(stage: .rolling(nil))
+        q.read(try UpdateStatus.decode(try fixture("update-status-succeeded.json")))
+        #expect(q.panel != nil && q.panel?.credentialNotice == nil)
+
+        // Several nodes join with ", "; names are clipped and capped so the instruction survives.
+        let two = UpdateStatus(phase: .failed, version: "v0.1.8",
+                               nodes: [UpdateNode(name: "a\nb", adminTokenRotated: true), UpdateNode(name: "c", adminTokenRotated: true)],
+                               finished: true)
+        #expect(UpdatePanel.credentialNotice(two)?.hasPrefix("The admin credential was re-minted on a b, c. Copy") == true)
+        let long = UpdateStatus(phase: .rolling, version: "v1", nodes: [UpdateNode(name: String(repeating: "n", count: 300), adminTokenRotated: true)])
+        let notice = try #require(UpdatePanel.credentialNotice(long))
+        #expect(notice.hasSuffix("Copy the admin kubeconfig again to every other Mac or tool that uses it."))
+        #expect(!notice.contains(String(repeating: "n", count: UpdatePanel.maxNoticeNames)))
+        let nameless = UpdateStatus(phase: .rolling, version: "v1", nodes: [UpdateNode(name: "", adminTokenRotated: true)])
+        #expect(UpdatePanel.credentialNotice(nameless)?.contains("re-minted on a control-plane node.") == true)
+    }
+
     @Test("the panel's cluster strings are clipped to one line")
     func clipped() {
         let s = UpdateStatus(phase: .failed, version: "v0.1.8\n\u{202E}x",
