@@ -85,6 +85,7 @@ struct ConsoleView: View {
         .overlay { TourOverlay(tour: app.tour) }
         .ignoresSafeArea()
         .onAppear {
+            reconcilePanelWidth(panel)
             app.startTabs()
             app.startReportPolling()
             app.flap.start()
@@ -94,6 +95,13 @@ struct ConsoleView: View {
             app.flap.stop()
             app.stopReportPolling()
         }
+        .onChange(of: app.consolePanelMeasured) { reconcilePanelWidth(panel) }
+    }
+
+    /// Replaces a kept panel width that is narrower than the content now needs.
+    private func reconcilePanelWidth(_ panel: MacPanel) {
+        app.reconcilePanelWidth(
+            natural: PanelLayout.naturalWidth(regions: panel.layoutRegions, measured: app.consolePanelMeasured))
     }
 }
 

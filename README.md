@@ -505,8 +505,10 @@ login** in the app's Settings turns it off or on again (see
   divider, or choose View > Hide Panel (Command-Option-L), to collapse the
   panel; do it again, or View > Show Panel, to bring it back. The window's
   minimum width follows: the panel's minimum plus the list's, or the list's
-  alone while the panel is hidden. The app remembers a width you dragged and
-  whether the panel is hidden.
+  alone while the panel is hidden. A width you drag narrower than the content
+  lasts the session only; a saved width that is narrower than the content is
+  replaced, and the panel opens fitted. The app remembers whether the panel
+  is hidden.
 - Every tab's **table columns** are resizable: drag the faint line between
   two column titles. The line on a column's far side from the name column
   moves with the pointer, so a column after the name widens as you drag

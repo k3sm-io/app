@@ -46,7 +46,7 @@ struct ConsoleSplit<Panel: View, Content: View>: NSViewControllerRepresentable {
         contentHost.sizingOptions = []
         let controller = ConsoleSplitController(panel: panelHost, content: contentHost)
         controller.onDrag = { [weak app] width, natural in
-            app?.consolePanelWidth = PanelLayout.dragged(width, natural: natural)
+            app?.panelDragged(width, natural: natural)
         }
         controller.onCollapse = { [weak app] collapsed in
             if app?.consolePanelCollapsed != collapsed { app?.consolePanelCollapsed = collapsed }

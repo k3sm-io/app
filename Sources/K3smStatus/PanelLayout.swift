@@ -70,8 +70,11 @@ public struct PanelPair: Equatable, Sendable {
 /// The panel is auto-sized until the user drags its divider: an auto-sized
 /// panel is drawn at the natural width and follows it as the content
 /// changes; a dragged width is kept (narrower than natural, the tiles take
-/// two columns and rows wrap). A drag back to the natural width, or Reset
-/// Window Layout, returns it to auto. The stored width (none while auto) and
+/// two columns and rows wrap) for the session only: a width narrower than
+/// the natural width is never saved, and a saved one that has become narrower
+/// than the content (`replacesWidth`) is cleared, so the panel opens
+/// auto-sized. A drag back to the natural width, or Reset Window Layout,
+/// returns it to auto. The stored width (none while auto) and
 /// collapsed state are read back through `restoreWidth` and
 /// `restoreCollapsed`, both tolerant of any stored value.
 public enum PanelLayout {
@@ -144,6 +147,27 @@ public enum PanelLayout {
     public static func dragged(_ width: Double, natural: Double) -> Double? {
         guard width.isFinite else { return nil }
         return width >= natural - 1 ? nil : width
+    }
+
+    /// Whether a width kept for the panel (`width`) must be thrown away now the
+    /// natural width is `natural`: it is narrower than the content needs.
+    /// A saved width (read from the user defaults, `session` false) is
+    /// replaced whenever it is narrower; a width dragged in this session
+    /// (`session` true) is kept until the natural width grows past it
+    /// (`previousNatural` is the natural width it was last judged against).
+    public static func replacesWidth(_ width: Double, natural: Double, previousNatural: Double? = nil,
+                                     session: Bool = false) -> Bool {
+        guard width.isFinite else { return true }
+        guard width < natural - 1 else { return false }
+        guard session else { return true }
+        return previousNatural.map { natural > $0 + 1 } ?? false
+    }
+
+    /// What to save of a panel `width`: the width when it is at or above
+    /// `natural`, nil (nothing saved) when it is narrower, which lasts the session only.
+    public static func persisted(_ width: Double?, natural: Double) -> Double? {
+        guard let width, width.isFinite, width >= natural - 1 else { return nil }
+        return width
     }
 
     /// One region's widest part.

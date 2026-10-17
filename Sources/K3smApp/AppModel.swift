@@ -183,11 +183,39 @@ final class AppModel: ObservableObject {
     @Published var consolePanelWidth: Double? = PanelLayout.restoreWidth(
         from: UserDefaults.standard.object(forKey: PanelLayout.widthKey)) {
         didSet {
-            if let consolePanelWidth {
-                UserDefaults.standard.set(consolePanelWidth, forKey: PanelLayout.widthKey)
+            // A width narrower than the natural width lasts the session only.
+            if let natural = consolePanelNatural,
+               let saved = PanelLayout.persisted(consolePanelWidth, natural: natural) {
+                UserDefaults.standard.set(saved, forKey: PanelLayout.widthKey)
             } else {
                 UserDefaults.standard.removeObject(forKey: PanelLayout.widthKey)
             }
+        }
+    }
+    /// The natural width the panel's width was last judged against, and
+    /// whether the width is one dragged in this session (kept unsaved).
+    private var consolePanelNatural: Double?
+    private var consolePanelDragged = false
+
+    /// A divider drag: the width stays for the session, saved only if it is
+    /// not narrower than the natural width.
+    func panelDragged(_ width: Double, natural: Double) {
+        consolePanelNatural = natural
+        let stored = PanelLayout.dragged(width, natural: natural)
+        consolePanelDragged = stored != nil
+        consolePanelWidth = stored
+    }
+
+    /// Judges the kept width against the natural width: a saved width
+    /// narrower than it, or a session width it has grown past, is replaced
+    /// by auto-sizing and the saved key cleared. Reset Window Layout sets nil.
+    func reconcilePanelWidth(natural: Double) {
+        let previous = consolePanelNatural
+        consolePanelNatural = natural
+        guard let width = consolePanelWidth else { return }
+        if PanelLayout.replacesWidth(width, natural: natural, previousNatural: previous, session: consolePanelDragged) {
+            consolePanelDragged = false
+            consolePanelWidth = nil
         }
     }
     /// The widest block of the console panel's content as the panel last

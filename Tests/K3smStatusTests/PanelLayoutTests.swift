@@ -120,11 +120,11 @@ struct PanelLayoutTests {
         let legacy = PanelLayout.restoreWidth(from: PanelLayout.minimum)
         #expect(PanelLayout.shownWidth(stored: legacy, regions: regions) == natural)
 
-        // A width the user dragged smaller is kept, across a relaunch too.
+        // A width the user dragged smaller is kept for the session.
         let smaller = natural - 60
         let stored = PanelLayout.dragged(smaller, natural: natural)
         #expect(stored == smaller)
-        #expect(PanelLayout.shownWidth(stored: PanelLayout.restoreWidth(from: stored), regions: regions) == smaller)
+        #expect(PanelLayout.shownWidth(stored: stored, regions: regions) == smaller)
         // A user-sized panel does not follow wider content.
         let wider = [PanelContent(nodes: [Self.node("a-much-longer-build-mac-name-in-the-rack-room")]), mac]
         #expect(PanelLayout.naturalWidth(regions: wider) > natural)
@@ -210,5 +210,27 @@ struct PanelLayoutTests {
         // A row wider than the content would run into the trailing edge.
         let tooWide = PanelLayout.tileMargins(width: 400, rowWidth: 400 - PanelLayout.edge)
         #expect(tooWide.trailing < tooWide.leading)
+    }
+
+    @Test("a saved width narrower than the content is replaced, a session drag is not saved")
+    func tooNarrowSavedWidthIsOverwritten() {
+        let natural = 400.0
+        // A saved width below natural is discarded: the panel opens at natural.
+        #expect(PanelLayout.replacesWidth(300, natural: natural))
+        #expect(PanelLayout.replacesWidth(.nan, natural: natural))
+        // At or above natural it is kept.
+        #expect(!PanelLayout.replacesWidth(400, natural: natural))
+        #expect(!PanelLayout.replacesWidth(450, natural: natural))
+        // A session drag below natural is not persisted; at or above it is.
+        #expect(PanelLayout.persisted(300, natural: natural) == nil)
+        #expect(PanelLayout.persisted(nil, natural: natural) == nil)
+        #expect(PanelLayout.persisted(400, natural: natural) == 400)
+        // A session drag stays while the natural width holds, and goes when it grows past.
+        #expect(!PanelLayout.replacesWidth(300, natural: natural, previousNatural: natural, session: true))
+        #expect(!PanelLayout.replacesWidth(300, natural: natural, previousNatural: nil, session: true))
+        #expect(PanelLayout.replacesWidth(300, natural: 450, previousNatural: natural, session: true))
+        // The natural width growing past a saved width overwrites it.
+        #expect(PanelLayout.replacesWidth(420, natural: 480, previousNatural: natural))
+        #expect(!PanelLayout.replacesWidth(420, natural: 410, previousNatural: natural))
     }
 }
