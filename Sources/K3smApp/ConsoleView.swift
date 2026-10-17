@@ -19,8 +19,10 @@ import SwiftUI
 
 /// ConsoleView is the window once k3sm is installed: this Mac on the left,
 /// the chosen tab (`ConsoleSection`) in the middle, the inspector on the right unless the
-/// details button has collapsed it. The left panel is the first pane of a
-/// split view (`ConsoleSplit`): it opens at its natural width, the widest
+/// details button has collapsed it. The three are the panes of a split view
+/// (`ConsoleSplit`); the inspector opens at its default width and keeps the
+/// width the user drags its divider to (`InspectorWidth`). The left panel
+/// opens at its natural width, the widest
 /// either region needs with nothing compressed (`PanelLayout.naturalWidth`),
 /// fixed when the window lays out (`PanelWidth`), so live content never
 /// moves the divider; the user drags it between the panel's minimum and that
@@ -40,9 +42,6 @@ struct ConsoleView: View {
 
     /// The window's minimum height.
     static let minHeight: CGFloat = 700
-    /// The inspector's fixed width; collapsing it lowers the minimum width by this much.
-    static let inspectorWidth = CGFloat(TabStripLayout.inspectorWidth)
-
     /// The strip's minimum width (`TabStripLayout.minimumWidth`): every tab
     /// label whole and the search field at its minimum. Update is on the
     /// Alerts tab's card, not in the strip, so it costs the strip nothing.
@@ -50,14 +49,15 @@ struct ConsoleView: View {
         TabStripLayout.minimumWidth(labels: ConsoleSection.allCases.map(\.title), buttonWidth: nil)
     }
 
-    /// The content pane's minimum width (the tabs, and the inspector when
-    /// shown): the larger of what the window floor leaves and what the strip needs.
-    static func contentMinWidth(inspectorShown: Bool) -> CGFloat {
-        CGFloat(TabStripLayout.contentMinimumWidth(strip: stripMinWidth(), inspectorShown: inspectorShown))
+    /// The tab column's minimum width: the larger of what the window floor
+    /// leaves and what the strip needs.
+    static func contentMinWidth() -> CGFloat {
+        CGFloat(TabStripLayout.columnMinimumWidth(strip: stripMinWidth()))
     }
 
     /// The window's minimum size: the panel's minimum, or nothing while it
-    /// is collapsed, plus the content pane's minimum.
+    /// is collapsed, the tab column's minimum, and the inspector's minimum
+    /// while it is shown.
     static func minSize(inspectorShown: Bool, panelCollapsed: Bool) -> CGSize {
         let width = TabStripLayout.windowMinimumWidth(strip: stripMinWidth(),
                                                       inspectorShown: inspectorShown, panelCollapsed: panelCollapsed)
@@ -74,11 +74,18 @@ struct ConsoleView: View {
             range: app.consolePanelWidth.range(estimate: estimate),
             width: app.consolePanelWidth.shown(estimate: estimate),
             collapsed: app.consolePanelCollapsed,
-            contentMinimum: Double(Self.contentMinWidth(inspectorShown: app.inspectorShown)),
-            // Each pane is hosted on its own; both run under the transparent
+            contentMinimum: Double(Self.contentMinWidth()),
+            inspectorWidth: app.inspectorWidth,
+            inspectorShown: app.inspectorShown,
+            // Each pane is hosted on its own; all run under the transparent
             // title bar, as the whole console did before the split.
             panel: panel.ignoresSafeArea(),
-            content: ConsoleContent(app: app).ignoresSafeArea())
+            content: ConsoleContent(app: app).ignoresSafeArea(),
+            inspector: ConsoleInspector(app: app)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Palette.surface)
+                .tourTarget(.inspector, app.tour)
+                .ignoresSafeArea())
         .frame(minWidth: size.width, minHeight: size.height)
         .background(Palette.surface)
         .overlay { TourOverlay(tour: app.tour) }
@@ -105,33 +112,24 @@ struct ConsoleView: View {
     }
 }
 
-/// ConsoleContent is the split view's second pane: the strip, the health
+/// ConsoleContent is the split view's middle pane: the strip, the health
 /// banner while the health check finds a problem (`HealthBanner`, which opens
-/// the guided panel), and the chosen tab, then the inspector (`ConsoleInspector`, following the tab) unless it
-/// is collapsed.
+/// the guided panel), and the chosen tab. The inspector (`ConsoleInspector`,
+/// following the tab) is the split's third pane.
 struct ConsoleContent: View {
     @ObservedObject var app: AppModel
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                ConsoleStrip(app: app)
-                if let plan = app.guidedPlan {
-                    HealthBanner(app: app, plan: plan)
-                }
-                if let panel = app.updateProgress.panel {
-                    UpdateProgressPanel(app: app, panel: panel)
-                }
-                section
-                    .overlay { TabWaitingMark(waiting: app.waiting, section: app.section, placement: .content) }
+        VStack(spacing: 0) {
+            ConsoleStrip(app: app)
+            if let plan = app.guidedPlan {
+                HealthBanner(app: app, plan: plan)
             }
-            .frame(maxWidth: .infinity)
-            if app.inspectorShown {
-                Divider()
-                ConsoleInspector(app: app)
-                    .frame(width: ConsoleView.inspectorWidth)
-                    .tourTarget(.inspector, app.tour)
+            if let panel = app.updateProgress.panel {
+                UpdateProgressPanel(app: app, panel: panel)
             }
+            section
+                .overlay { TabWaitingMark(waiting: app.waiting, section: app.section, placement: .content) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Palette.surface)
@@ -224,8 +222,9 @@ struct ConsoleStrip: View {
                 EmptyView()
             }
             Button { app.inspectorShown.toggle() } label: {
-                Image(systemName: "sidebar.trailing").font(.system(size: 16)).foregroundStyle(Palette.navy)
-                    .opacity(app.inspectorShown ? 1 : 0.5)
+                // One colour in both states: the symbol carries the state.
+                Image(systemName: TabStripLayout.detailsSymbol(shown: app.inspectorShown))
+                    .font(.system(size: 16)).foregroundStyle(Palette.navy)
             }
             .buttonStyle(.plain)
             .keyboardShortcut("i", modifiers: [.command, .option])

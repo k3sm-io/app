@@ -620,6 +620,10 @@ login** in the app's Settings turns it off or on again (see
   appears and goes without flying.
 - The **details button**, beside the info button above the list, collapses
   the details on the right and shows them again; Command-Option-I does the same, and the app remembers the choice.
+  The button keeps one colour either way; its symbol shows whether the details are open.
+- The **details column** opens 320 pt wide. Drag the divider between it and the list to
+  resize it, from 240 pt up to the width that leaves the list its minimum. The app keeps
+  the width you drag to; resizing the window does not change it.
 - The **left panel** opens at its natural width: the narrowest at which
   nothing in the Cluster or This Mac view is squeezed (every tile in one
   row, the longest node row with its meters beside it, the memory block's
@@ -779,7 +783,7 @@ The **General** pane:
 - **Take the Tour** brings the window forward and starts the tour, once k3sm
   is installed.
 - **Reset Window Layout…** asks, then puts the console's left panel back to
-  its natural width (fitting itself again) and first view, shown, shows the details column, and puts every
+  its natural width (fitting itself again) and first view, shown, shows the details column at its first width, and puts every
   table's columns back to their first widths. Tabs, searches and selections
   stay as they are.
 - **Version** names the app and its own version, `k3sm.app v0.2.0` for a

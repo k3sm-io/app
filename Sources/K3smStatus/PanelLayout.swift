@@ -320,3 +320,93 @@ public struct PanelWidth: Equatable, Sendable {
         if let width = dragged, width < fixed - 1 { dragged = nil }
     }
 }
+
+/// InspectorWidth sizes the console's inspector, the right-hand pane of the
+/// split view with a draggable divider. It opens at `defaultWidth` until the
+/// user drags its divider; a dragged width is kept in the user defaults
+/// under `key` and read back through `restore`, tolerant of any stored
+/// value. The width runs from `minimum` to the widest that keeps the tab
+/// column at its own minimum (`range`), never past `ceiling`. After the
+/// window opens only a drag (or Reset Window Layout) moves it: a window
+/// resize leaves it alone, and the split places it once per change of the
+/// stored value (`PaneKeeper`).
+public enum InspectorWidth {
+    /// The narrowest the inspector goes.
+    public static let minimum: Double = 240
+    /// The inspector's width until the user drags its divider.
+    public static let defaultWidth: Double = 320
+    /// The widest the inspector goes, whatever room the window has.
+    public static let ceiling: Double = 720
+    /// The user-defaults key of the dragged width.
+    public static let key = "consoleInspectorWidth"
+
+    /// The inspector's width range when the tab column and the inspector
+    /// share `shared` points (the split's width less the panel and its
+    /// divider; nil before the first layout) and the column needs
+    /// `columnMinimum`: from `minimum` to what the column and the divider
+    /// between them leave, never past `ceiling`, and never below `minimum`.
+    public static func range(shared: Double?, columnMinimum: Double) -> ClosedRange<Double> {
+        guard let shared, shared.isFinite, columnMinimum.isFinite else { return minimum...ceiling }
+        let room = shared - columnMinimum - TabStripLayout.dividerWidth
+        return minimum...min(ceiling, max(minimum, room))
+    }
+
+    /// `width` within `range`; a width that is not finite is the default,
+    /// clamped.
+    public static func clamp(_ width: Double, to range: ClosedRange<Double> = minimum...ceiling) -> Double {
+        guard width.isFinite else { return PanelLayout.clamp(defaultWidth, to: range) }
+        return PanelLayout.clamp(width, to: range)
+    }
+
+    /// What a drag of the divider to `width` stores: the width within
+    /// `minimum...ceiling`.
+    public static func dragged(_ width: Double) -> Double {
+        clamp(width)
+    }
+
+    /// A stored width, clamped to `minimum...ceiling`; the default when
+    /// none is stored or the value is not a finite number.
+    public static func restore(from stored: Any?) -> Double {
+        let value: Double
+        if let d = stored as? Double {
+            value = d
+        } else if let i = stored as? Int {
+            value = Double(i)
+        } else {
+            return defaultWidth
+        }
+        return clamp(value)
+    }
+}
+
+/// PaneKeeper is the discipline a resizable pane's size follows once the
+/// window is open: the split places the stored size at the first layout,
+/// and after that only when the stored size changes (a drag elsewhere, a
+/// layout reset). A drag records the size it left, so the model storing
+/// that same size does not move the divider again, and a window resize,
+/// which changes no stored size, never moves it.
+public struct PaneKeeper: Equatable, Sendable {
+    /// The size last placed or recorded from a drag.
+    public private(set) var placed: Double?
+
+    public init() {}
+
+    /// The size to place now that the model stores `stored`, or nil when
+    /// the divider is already there.
+    public mutating func place(_ stored: Double) -> Double? {
+        guard stored.isFinite, stored != placed else { return nil }
+        placed = stored
+        return stored
+    }
+
+    /// Records a user's drag to `size`.
+    public mutating func dragged(to size: Double) {
+        placed = size
+    }
+
+    /// Forgets the placed size, so the next `place` places again (the pane
+    /// was collapsed and shown again).
+    public mutating func reset() {
+        placed = nil
+    }
+}

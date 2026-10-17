@@ -73,11 +73,12 @@ public struct AppPreferences: @unchecked Sendable {
     /// Whether the console shows its details column.
     public static let inspectorShownKey = "consoleInspectorShown"
     /// The console's layout as the user left it: the panel's view, width
-    /// and collapsed state, the details column, and every table's column
+    /// and collapsed state, the details column and its width, and every table's column
     /// widths. Reset Window Layout
     /// clears these and nothing else (not the tab, the searches or the
     /// selections, which are what the user was looking at, not a layout).
-    public static let layoutKeys = [panelModeKey, inspectorShownKey, PanelLayout.widthKey, PanelLayout.collapsedKey]
+    public static let layoutKeys = [panelModeKey, inspectorShownKey, PanelLayout.widthKey, PanelLayout.collapsedKey,
+                                    InspectorWidth.key]
         + columnKeys
     /// Each table's column widths, one key per `ConsoleTable`.
     public static let columnKeys = ConsoleTable.allCases.map(columnWidthsKey)

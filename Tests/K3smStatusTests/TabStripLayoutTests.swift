@@ -58,10 +58,12 @@ struct TabStripLayoutTests {
         #expect(raised >= minimum + TabStripLayout.labelWidth(eighth) + TabStripLayout.tabSpacing)
 
         // The window's minimum follows the strip, never below the floor.
-        let window = TabStripLayout.windowMinimumWidth(strip: minimum, inspectorShown: true, panelCollapsed: false)
+        let window = TabStripLayout.windowMinimumWidth(strip: minimum, inspectorShown: true, panelCollapsed: false,
+                                                       inspector: InspectorWidth.defaultWidth)
         #expect(window >= TabStripLayout.windowFloor)
         #expect(window >= PanelLayout.minimum + TabStripLayout.dividerWidth + minimum + TabStripLayout.inspectorWidth)
-        let wider = TabStripLayout.windowMinimumWidth(strip: raised, inspectorShown: true, panelCollapsed: false)
+        let wider = TabStripLayout.windowMinimumWidth(strip: raised, inspectorShown: true, panelCollapsed: false,
+                                                      inspector: InspectorWidth.defaultWidth)
         #expect(wider > window)
     }
 
@@ -72,7 +74,9 @@ struct TabStripLayoutTests {
         do {
             let button: Double? = nil
             let strip = TabStripLayout.minimumWidth(labels: Self.titles, buttonWidth: button)
-            let window = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: true, panelCollapsed: false)
+            // At the inspector's default width, not only at its minimum.
+            let window = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: true, panelCollapsed: false,
+                                                           inspector: InspectorWidth.defaultWidth)
             #expect(window <= 1440, "\(window)")
             // The tab costs its label and one gap, nothing more.
             let before = TabStripLayout.minimumWidth(labels: without, buttonWidth: button)
@@ -88,7 +92,9 @@ struct TabStripLayoutTests {
         do {
             let button: Double? = nil
             let strip = TabStripLayout.minimumWidth(labels: Self.titles, buttonWidth: button)
-            let window = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: true, panelCollapsed: false)
+            // At the inspector's default width, not only at its minimum.
+            let window = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: true, panelCollapsed: false,
+                                                           inspector: InspectorWidth.defaultWidth)
             #expect(window <= 1440, "\(window)")
             let before = TabStripLayout.minimumWidth(labels: without, buttonWidth: button)
             #expect(abs(strip - before - TabStripLayout.labelWidth("Stats") - TabStripLayout.tabSpacing) < 1e-9)
@@ -117,15 +123,19 @@ struct TabStripLayoutTests {
 
     @Test("a narrow strip leaves the floor; collapsing the panel or the inspector lowers the window")
     func windowMinimumKeepsFloor() {
+        #expect(TabStripLayout.windowMinimumWidth(strip: 0, inspectorShown: true, panelCollapsed: false,
+                                                  inspector: InspectorWidth.defaultWidth) == TabStripLayout.windowFloor)
+        // The window's own minimum lets the inspector narrow to its minimum.
         #expect(TabStripLayout.windowMinimumWidth(strip: 0, inspectorShown: true, panelCollapsed: false)
-            == TabStripLayout.windowFloor)
+            == TabStripLayout.windowFloor - (InspectorWidth.defaultWidth - InspectorWidth.minimum))
         let shown = TabStripLayout.windowMinimumWidth(strip: 900, inspectorShown: true, panelCollapsed: false)
         let collapsed = TabStripLayout.windowMinimumWidth(strip: 900, inspectorShown: true, panelCollapsed: true)
         let noInspector = TabStripLayout.windowMinimumWidth(strip: 900, inspectorShown: false, panelCollapsed: false)
         #expect(abs(collapsed - (shown - PanelLayout.minimum - TabStripLayout.dividerWidth)) < 1e-9)
-        #expect(abs(noInspector - (shown - TabStripLayout.inspectorWidth - TabStripLayout.dividerWidth)) < 1e-9)
-        #expect(TabStripLayout.contentMinimumWidth(strip: 0, inspectorShown: false)
-            == TabStripLayout.windowFloor - PanelLayout.minimum - TabStripLayout.dividerWidth - TabStripLayout.inspectorWidth)
+        #expect(abs(noInspector - (shown - InspectorWidth.minimum - TabStripLayout.dividerWidth)) < 1e-9)
+        #expect(TabStripLayout.columnMinimumWidth(strip: 0)
+            == TabStripLayout.windowFloor - PanelLayout.minimum - TabStripLayout.inspectorWidth - 2 * TabStripLayout.dividerWidth)
+        #expect(TabStripLayout.columnMinimumWidth(strip: 900) == 900)
     }
 
     @Test("a tab's waiting butterfly stands on its label's first capital, at the word's leading edge, inside the strip")

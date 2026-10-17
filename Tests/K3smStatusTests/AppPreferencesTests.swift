@@ -79,6 +79,7 @@ struct AppPreferencesTests {
         let prefs = AppPreferences(defaults: defaults)
         #expect(Set(AppPreferences.layoutKeys) == [
             "consolePanelMode", "consoleInspectorShown", "consolePanelWidth", "consolePanelCollapsed",
+            "consoleInspectorWidth",
             "columnWidths.pods", "columnWidths.events", "columnWidths.nodes", "columnWidths.images",
             "columnWidths.builds", "columnWidths.services", "columnWidths.storage", "columnWidths.models",
         ])

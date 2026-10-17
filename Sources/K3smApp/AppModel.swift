@@ -175,6 +175,20 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(inspectorShown, forKey: Self.inspectorShownKey) }
     }
     static let inspectorShownKey = AppPreferences.inspectorShownKey
+    /// The inspector's width: the default until the user drags its divider,
+    /// then the dragged width, kept in the user defaults across launches and
+    /// clamped on read (`InspectorWidth.restore`). Only a drag or Reset
+    /// Window Layout changes it; the split places it (`PaneKeeper`).
+    @Published var inspectorWidth: Double = InspectorWidth.restore(
+        from: UserDefaults.standard.object(forKey: InspectorWidth.key)) {
+        didSet { UserDefaults.standard.set(inspectorWidth, forKey: InspectorWidth.key) }
+    }
+
+    /// A drag of the inspector's divider to `width`.
+    func inspectorDragged(_ width: Double) {
+        let stored = InspectorWidth.dragged(width)
+        if stored != inspectorWidth { inspectorWidth = stored }
+    }
     /// The console panel's width (`PanelWidth`): fixed when the window lays
     /// out, moved only by a drag of the divider or Reset Window Layout. The
     /// dragged width is kept in the user defaults across launches (removed

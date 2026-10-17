@@ -64,12 +64,21 @@ public enum TabStripLayout {
     public static let markFoot: Double = 0.9267
 
     /// The window's minimum width before the strip decided it, with the
-    /// panel and the inspector shown.
+    /// panel shown and the inspector at its default width.
     public static let windowFloor: Double = 1180
-    /// The inspector's fixed width.
-    public static let inspectorWidth: Double = 320
+    /// The inspector's default width (`InspectorWidth.defaultWidth`); the
+    /// user's drag of its divider moves it from there.
+    public static let inspectorWidth: Double = InspectorWidth.defaultWidth
     /// The divider beside the panel, and the one beside the inspector.
     public static let dividerWidth: Double = 1
+
+    /// The details button's symbol: the column it toggles, drawn while the
+    /// inspector is shown, a plain window while it is hidden. The button
+    /// keeps one colour in both states, so the symbol carries the state and
+    /// the help tag (`Help.Strip.details`) says which way a click goes.
+    public static func detailsSymbol(shown: Bool) -> String {
+        shown ? "sidebar.trailing" : "rectangle"
+    }
 
     /// waitingMarkFrame is where a tab's waiting butterfly is drawn, in the
     /// tab's own box: `stripHeight` tall, its one-line label centred
@@ -125,20 +134,23 @@ public enum TabStripLayout {
         return width + controlsWidth + padding
     }
 
-    /// The content pane's minimum width (the strip's column, and the
-    /// inspector with its divider when shown): the larger of what the floor
-    /// leaves after the panel and the width a `strip` that wide needs.
-    public static func contentMinimumWidth(strip: Double, inspectorShown: Bool) -> Double {
-        let inspector = inspectorShown ? inspectorWidth + dividerWidth : 0
-        let floor = windowFloor - PanelLayout.minimum - dividerWidth - (inspectorShown ? 0 : inspectorWidth)
-        return max(floor, strip + inspector)
+    /// The tab column's minimum width (the strip and the tab under it): the
+    /// larger of what the floor leaves after the panel, the inspector at its
+    /// default width and both dividers, and the width a `strip` that wide needs.
+    public static func columnMinimumWidth(strip: Double) -> Double {
+        let floor = windowFloor - PanelLayout.minimum - dividerWidth - inspectorWidth - dividerWidth
+        return max(floor, strip)
     }
 
     /// The window's minimum width: the panel's minimum and its divider,
-    /// nothing while the panel is collapsed, plus the content's minimum.
-    public static func windowMinimumWidth(strip: Double, inspectorShown: Bool, panelCollapsed: Bool) -> Double {
+    /// nothing while the panel is collapsed, the tab column's minimum, and
+    /// the inspector at `inspector` (its minimum unless named) with its
+    /// divider while it is shown.
+    public static func windowMinimumWidth(strip: Double, inspectorShown: Bool, panelCollapsed: Bool,
+                                          inspector: Double = InspectorWidth.minimum) -> Double {
         let panel = panelCollapsed ? 0 : PanelLayout.minimum + dividerWidth
-        return panel + contentMinimumWidth(strip: strip, inspectorShown: inspectorShown)
+        let details = inspectorShown ? inspector + dividerWidth : 0
+        return panel + columnMinimumWidth(strip: strip) + details
     }
 }
 
