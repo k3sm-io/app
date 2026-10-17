@@ -17,12 +17,17 @@ limitations under the License.
 import Foundation
 
 /// IssueLevel is how bad one listed status row is, from its `severity`
-/// word, worst first: the order the Alerts tab groups its issues in. A
-/// severity word this build does not know is `reported`, drawn for attention
-/// after the warnings, so a newer k3sm's rows still show. Only a fault is
-/// listed: an `ok` row, a row the check could not tell (`unknown`) or did not
-/// run (`skip`, a check that needs an administrator included), and a row with
-/// no severity, are not.
+/// word and state, worst first: the order the Alerts tab groups its issues
+/// in. A severity word this build does not know is `reported`, drawn for
+/// attention after the warnings, so a newer k3sm's rows still show. The rows
+/// k3sm attaches an alert to are listed: the faults (`fail`, `warn`, an
+/// unknown word), then a check that could not tell (`unknown`), then a check
+/// only an administrator can read (state `needs-admin` with severity `skip`,
+/// `unknown` or none; a `fail` or `warn` row stays a fault whatever its
+/// state). The
+/// last two are not faults: they never count in the headline and never stop
+/// the tab resting. An `ok` row, any other `skip` row (nothing to check) and
+/// a row with no severity are not listed.
 public enum IssueLevel: Int, CaseIterable, Comparable, Sendable {
     /// `fail`: the subsystem is not working.
     case failing
@@ -30,15 +35,33 @@ public enum IssueLevel: Int, CaseIterable, Comparable, Sendable {
     case warning
     /// A severity word this build does not know, kept as printed.
     case reported
+    /// `unknown`: the check could not tell.
+    case unknown
+    /// State `needs-admin`: only an administrator can read the check.
+    case needsAdmin
 
-    /// The level of a row, nil for a row the tab does not list: `ok`,
-    /// `unknown`, `skip` and an empty severity.
+    /// The level of a row, nil for a row the tab does not list: `ok`, a
+    /// `skip` row that is not `needs-admin`, and an empty severity.
     public init?(row: StatusRow) {
+        if row.state == RowState.needsAdminWord, ["skip", "unknown", ""].contains(row.severity) {
+            self = .needsAdmin
+            return
+        }
         switch row.severity {
-        case "ok", "unknown", "skip", "": return nil
+        case "ok", "skip", "": return nil
         case "fail": self = .failing
         case "warn": self = .warning
+        case "unknown": self = .unknown
         default: self = .reported
+        }
+    }
+
+    /// Whether the level is a fault: counted in the headline, and the tab
+    /// does not rest while one is listed.
+    public var isFault: Bool {
+        switch self {
+        case .failing, .warning, .reported: return true
+        case .unknown, .needsAdmin: return false
         }
     }
 
@@ -48,6 +71,8 @@ public enum IssueLevel: Int, CaseIterable, Comparable, Sendable {
         case .failing: return "Failing"
         case .warning: return "Needs attention"
         case .reported: return "Reported"
+        case .unknown: return "Could not check"
+        case .needsAdmin: return "Only an administrator can check"
         }
     }
 
@@ -57,9 +82,10 @@ public enum IssueLevel: Int, CaseIterable, Comparable, Sendable {
 /// RemedyStep is one line of a remedy or of the report's `next` list: the
 /// text shown, clipped, and the command a Copy button puts on the pasteboard
 /// when the line is one. A line is a command when it starts with `k3sm`,
-/// `sudo` or `kubectl` and clipping left it whole; a clipped or cleaned line
-/// is shown but never copied, so the pasteboard never holds a command that
-/// differs from the one the CLI printed.
+/// `sudo` or `kubectl`, clipping left it whole, and `AlertCommand.copyable`
+/// passes, the one rule for every pasteboard write; a clipped or cleaned
+/// line is shown but never copied, so the pasteboard never holds a command
+/// that differs from the one the CLI printed.
 public struct RemedyStep: Equatable, Sendable {
     public let text: String
     public let command: String?
@@ -78,7 +104,7 @@ public struct RemedyStep: Equatable, Sendable {
         guard !trimmed.isEmpty else { return nil }
         let text = StatusDisplay.clip(trimmed)
         let first = text.split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
-        let command = commandWords.contains(first) && text == trimmed ? text : nil
+        let command = commandWords.contains(first) && text == trimmed && AlertCommand.copyable(trimmed) ? text : nil
         return RemedyStep(text: text, command: command)
     }
 
@@ -90,9 +116,11 @@ public struct RemedyStep: Equatable, Sendable {
     }
 }
 
-/// ClusterIssue is one status row that is not ok, as the Alerts tab's card
-/// shows it: the row's name, its state word, its detail and its remedy, each
-/// clipped.
+/// ClusterIssue is one listed status row, as the Alerts tab's card shows it:
+/// the row's name, its state word, its detail and its remedy, each clipped,
+/// and its alert when the row carries one. A card with an alert shows the
+/// alert in place of the detail and remedy; one without (an older k3sm)
+/// shows them as before.
 public struct ClusterIssue: Equatable, Sendable {
     public let name: String
     public let state: String
@@ -100,6 +128,140 @@ public struct ClusterIssue: Equatable, Sendable {
     public let level: IssueLevel
     /// The remedy's steps, empty when the row names none.
     public let remedy: [RemedyStep]
+    /// The row's alert as shown, nil when the row carries none.
+    public let alert: IssueAlert?
+
+    /// The remedy lines the card shows: all of them without an alert, and
+    /// with an alert only when it carries no fix step, under its cause.
+    public var remedyLines: [RemedyStep] {
+        guard let alert else { return remedy }
+        return alert.steps.isEmpty ? remedy : []
+    }
+
+    public init(name: String, state: String, detail: String, level: IssueLevel, remedy: [RemedyStep], alert: IssueAlert? = nil) {
+        self.name = name
+        self.state = state
+        self.detail = detail
+        self.level = level
+        self.remedy = remedy
+        self.alert = alert
+    }
+}
+
+/// IssueAlert is a row's `StatusAlert` as the card shows it: the cause as the
+/// lead line, the evidence (each entry clipped, at most `maxEvidence`, then
+/// "and N more"), the numbered fix steps, when it began, and the docs link.
+/// The app shows and copies; it never runs a step.
+public struct IssueAlert: Equatable, Sendable {
+    /// The most evidence entries shown.
+    public static let maxEvidence = 6
+    /// The mark on a step that needs an administrator.
+    public static let adminMark = "needs an administrator"
+    /// The mark on a step that destroys state or relaxes trust.
+    public static let confirmMark = "Check before running"
+    /// The docs link's title.
+    public static let docsTitle = "Read the guide"
+
+    public let cause: String
+    /// The evidence entries shown, clipped.
+    public let evidence: [String]
+    /// "and N more" when evidence was left out; nil otherwise.
+    public let moreEvidence: String?
+    /// How many evidence entries the alert carries, shown or not.
+    public let evidenceTotal: Int
+    public let steps: [IssueStep]
+    /// "and N more" when steps were left out; nil otherwise.
+    public let moreSteps: String?
+    /// "Since 2026-09-05 09:28 UTC", nil when the alert says no time that parses.
+    public let since: String?
+    /// The site page for the alert, nil unless `AlertDocs.url` accepts it.
+    public let docs: URL?
+
+    public init(cause: String, evidence: [String], moreEvidence: String? = nil, evidenceTotal: Int? = nil,
+                steps: [IssueStep], moreSteps: String? = nil, since: String? = nil, docs: URL? = nil) {
+        self.cause = cause
+        self.evidence = evidence
+        self.moreEvidence = moreEvidence
+        self.evidenceTotal = evidenceTotal ?? evidence.count
+        self.steps = steps
+        self.moreSteps = moreSteps
+        self.since = since
+        self.docs = docs
+    }
+
+    /// The evidence disclosure's title, "Evidence (7)".
+    public var evidenceTitle: String { "Evidence (\(evidenceTotal))" }
+
+    /// The card's alert for `alert`.
+    public static func of(_ alert: StatusAlert) -> IssueAlert {
+        let evidence = alert.evidence.prefix(maxEvidence).map(StatusDisplay.clip)
+        let hidden = max(0, alert.evidence.count - maxEvidence)
+        let steps = alert.fix.prefix(ClusterIssues.maxSteps).enumerated().map { IssueStep.of($1, number: $0 + 1) }
+        let hiddenSteps = max(0, alert.fix.count - ClusterIssues.maxSteps)
+        return IssueAlert(
+            cause: StatusDisplay.clip(alert.cause), evidence: evidence, moreEvidence: more(hidden),
+            evidenceTotal: alert.evidence.count, steps: steps, moreSteps: more(hiddenSteps),
+            since: alert.since.flatMap(sinceLine), docs: AlertDocs.url(alert.docs))
+    }
+
+    /// "and 3 more", nil for none.
+    static func more(_ count: Int) -> String? { count > 0 ? "and \(count) more" : nil }
+
+    /// The line for an RFC 3339 `since`, in UTC to the minute; nil when it
+    /// does not parse.
+    static func sinceLine(_ text: String) -> String? {
+        guard let date = ClusterIssues.parse(text) else { return nil }
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.timeZone = TimeZone(identifier: "UTC")
+        format.dateFormat = "yyyy-MM-dd HH:mm"
+        return "Since " + format.string(from: date) + " UTC"
+    }
+}
+
+/// IssueStep is one numbered fix step as the card shows it: its text,
+/// clipped; its command as shown; the command a Copy button puts on the
+/// pasteboard, which is exactly the producer's command and present only when
+/// `AlertCommand.copyable` passes (the shown command is then the same text,
+/// unclipped); and its administrator and confirm marks.
+public struct IssueStep: Equatable, Sendable {
+    public let number: Int
+    public let text: String
+    /// The command as shown, nil for a step done by hand.
+    public let command: String?
+    /// The text Copy puts on the pasteboard, nil when it may not be copied.
+    public let copy: String?
+    public let needsAdmin: Bool
+    public let confirm: Bool
+
+    public init(number: Int, text: String, command: String?, copy: String?, needsAdmin: Bool, confirm: Bool) {
+        self.number = number
+        self.text = text
+        self.command = command
+        self.copy = copy
+        self.needsAdmin = needsAdmin
+        self.confirm = confirm
+    }
+
+    /// The step's number as shown, "1.".
+    public var numberText: String { "\(number)." }
+
+    /// The shown step for `step`, numbered `number`.
+    public static func of(_ step: StatusFixStep, number: Int) -> IssueStep {
+        var shown: String?
+        var copy: String?
+        if let command = step.command {
+            if AlertCommand.copyable(command) {
+                shown = command
+                copy = command
+            } else {
+                let clipped = StatusDisplay.clip(command)
+                shown = clipped.trimmingCharacters(in: .whitespaces).isEmpty ? nil : clipped
+            }
+        }
+        return IssueStep(number: number, text: StatusDisplay.clip(step.step), command: shown, copy: copy,
+                         needsAdmin: step.needsAdmin, confirm: step.confirm)
+    }
 }
 
 /// ClusterIssueGroup is the issues at one level, in the report's order.
@@ -113,22 +275,22 @@ public struct ClusterIssueGroup: Equatable, Sendable {
 
 /// ClusterIssues is the Alerts tab: the issues behind the status headline,
 /// read only from the full status report the app already polls. Every row
-/// that is failing, needs attention or carries a severity this build does
-/// not know is an issue, grouped by `IssueLevel` worst first, each with its
-/// detail and remedy; under them the report's `next` commands. The
+/// `IssueLevel` lists is an issue, grouped worst first, each with its alert
+/// (or, from an older k3sm, its detail and remedy); under them the report's
+/// `next` commands. The
 /// `workloads` row is never listed, whatever its state: the Workloads,
 /// Nodes and Images tabs are that check. The report carries no rows for its workers (each is a name, a
 /// role and a version), so every issue is this Mac's report; a worker's own
 /// checks are read on that Mac. Every string is clipped, the report's text
 /// being node-reported.
 public struct ClusterIssues: Equatable, Sendable {
-    /// The most steps one remedy shows, and the most `next` commands.
+    /// The most steps one remedy or alert shows, and the most `next` commands.
     public static let maxSteps = 8
 
     public let groups: [ClusterIssueGroup]
     public let next: [RemedyStep]
-    /// Whether nothing is wrong: the verdict is running and no row is
-    /// listed.
+    /// Whether nothing is wrong: the verdict is running and no fault is
+    /// listed (`IssueLevel.isFault`).
     public let isClean: Bool
     /// The tab's first line.
     public let headline: String
@@ -163,12 +325,13 @@ public struct ClusterIssues: Equatable, Sendable {
             guard row.name != workloadsRow, let level = IssueLevel(row: row) else { continue }
             byLevel[level, default: []].append(ClusterIssue(
                 name: StatusDisplay.clip(row.name), state: StatusDisplay.clip(row.state),
-                detail: StatusDisplay.clip(row.detail), level: level, remedy: RemedyStep.steps(row.remedy)))
+                detail: StatusDisplay.clip(row.detail), level: level, remedy: RemedyStep.steps(row.remedy),
+                alert: row.alert.map(IssueAlert.of)))
         }
         let groups = IssueLevel.allCases.compactMap { level in
             byLevel[level].map { ClusterIssueGroup(level: level, issues: $0) }
         }
-        let problems = groups.reduce(0) { $0 + $1.issues.count }
+        let problems = groups.filter(\.level.isFault).reduce(0) { $0 + $1.issues.count }
         let clean = problems == 0 && report.verdict == .running
         let summary = StatusDisplay.clip(report.summary)
         return ClusterIssues(
@@ -213,9 +376,10 @@ public struct ClusterIssues: Equatable, Sendable {
         return Self.healthyText + ", " + line.prefix(1).lowercased() + line.dropFirst() + "."
     }
 
-    /// Whether the tab rests in its field: the report is clean and no update
-    /// card is shown.
-    public func rests(withCard card: Bool) -> Bool { isClean && groups.isEmpty && !card }
+    /// Whether the tab rests in its field: the report is clean (no fault is
+    /// listed) and no update card is shown. The checks that could not tell
+    /// or need an administrator are listed under the field.
+    public func rests(withCard card: Bool) -> Bool { isClean && !groups.contains { $0.level.isFault } && !card }
 
     /// The report's RFC 3339 timestamp, with or without fractional seconds.
     static func parse(_ text: String) -> Date? {
