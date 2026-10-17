@@ -646,16 +646,12 @@ final class AppModel: ObservableObject {
 
     /// The app-carried update's copy-out for the plan's payload path, or nil
     /// when the plan is not that path. `UpdatePolicy`, the root step's own
-    /// rollout rule, must agree (a worker any time, a server only with no
-    /// other node), and a worker needs the address it joins, read now when
-    /// the window has not read it.
+    /// check, must agree, and a worker needs the address it joins, read now
+    /// when the window has not read it.
     private var payloadUpdateAction: CopyOutAction? {
         let facts = updatePlanFacts
         guard case .payload(let payload) = UpdatePlan.decide(facts), let role = facts.role else { return nil }
-        let decision = UpdatePolicy.decide(
-            role: role, payload: payload, installed: facts.installed,
-            workers: (lanReport ?? report)?.workers?.map { NodeVersion(name: $0.name, version: $0.k3smRelease) },
-            allowDowngrade: false)
+        let decision = UpdatePolicy.decide(payload: payload, installed: facts.installed, allowDowngrade: false)
         guard decision.verdict == .offer else { return nil }
         switch role {
         case .server: return .update(.server)

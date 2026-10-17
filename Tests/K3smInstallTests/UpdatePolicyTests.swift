@@ -23,70 +23,81 @@ import K3smStatus
 struct UpdatePolicyTests {
     struct Case: Sendable, CustomTestStringConvertible {
         let name: String
-        let role: NodeRole
         let payload: String
         let installed: String?
-        let workers: [(String, String?)]?
         var allowDowngrade = false
-        var confirmed = false
         let want: UpdateVerdict
-        var wantBehind: [String] = []
-        var wantUnverified: [String] = []
         var testDescription: String { name }
     }
 
     static let cases: [Case] = [
-        Case(name: "worker, newer payload", role: .agent, payload: "0.2.0", installed: "0.1.7", workers: [], want: .offer),
-        Case(name: "worker ignores other workers", role: .agent, payload: "0.2.0", installed: "0.1.7",
-             workers: [("w2", "0.1.0")], want: .offer),
-        Case(name: "same version", role: .server, payload: "0.2.0", installed: "v0.2.0", workers: [], want: .upToDate),
-        Case(name: "older payload needs consent", role: .agent, payload: "0.1.6", installed: "0.1.7", workers: [], want: .needsDowngradeConsent),
-        Case(name: "older payload with consent", role: .agent, payload: "0.1.6", installed: "0.1.7", workers: [],
-             allowDowngrade: true, want: .offer),
-        Case(name: "unknown installed needs consent", role: .server, payload: "0.2.0", installed: nil, workers: [], want: .needsDowngradeConsent),
-        Case(name: "unknown installed with consent", role: .server, payload: "0.2.0", installed: nil, workers: [],
-             allowDowngrade: true, want: .offer),
-        Case(name: "server alone", role: .server, payload: "0.2.0", installed: "0.1.7", workers: [], want: .offer),
-        Case(name: "server, workers already updated", role: .server, payload: "0.2.0", installed: "0.1.7",
-             workers: [("w1", "0.2.0"), ("w2", "0.2.1")], want: .offer),
-        Case(name: "server, workers behind", role: .server, payload: "0.2.0", installed: "0.1.7",
-             workers: [("w2", "0.1.7"), ("w1", "0.2.0"), ("a3", "0.2.0-rc.1")], want: .waitForWorkers, wantBehind: ["a3", "w2"]),
-        Case(name: "server, a worker without a version keeps the confirmation", role: .server, payload: "0.2.0", installed: "0.1.7",
-             workers: [("w1", nil), ("w2", "0.2.0")], want: .confirmWorkersUpdated, wantUnverified: ["w1"]),
-        Case(name: "server, a worker without a version, confirmed", role: .server, payload: "0.2.0", installed: "0.1.7",
-             workers: [("w1", nil), ("w2", "0.2.0")], confirmed: true, want: .offer, wantUnverified: ["w1"]),
-        Case(name: "server, behind beats unknown", role: .server, payload: "0.2.0", installed: "0.1.7",
-             workers: [("w1", nil), ("w2", "0.1.7")], confirmed: true, want: .waitForWorkers, wantBehind: ["w2"]),
-        Case(name: "server downgrade with consent still checks workers", role: .server, payload: "0.1.6", installed: "0.1.7",
-             workers: [("w1", "0.1.5")], allowDowngrade: true, want: .waitForWorkers, wantBehind: ["w1"]),
-        // An absent worker list (nil) is unknown, never "no workers": a server
-        // waits for the user's confirmation, a worker does not.
-        Case(name: "server, worker versions unknown", role: .server, payload: "0.2.0", installed: "0.1.7",
-             workers: nil, want: .confirmWorkersUpdated),
-        Case(name: "server, worker versions unknown, confirmed", role: .server, payload: "0.2.0", installed: "0.1.7",
-             workers: nil, confirmed: true, want: .offer),
-        Case(name: "worker, versions unknown", role: .agent, payload: "0.2.0", installed: "0.1.7", workers: nil, want: .offer),
-        Case(name: "confirmation does not override a known lagging worker", role: .server, payload: "0.2.0", installed: "0.1.7",
-             workers: [("w1", "0.1.7")], confirmed: true, want: .waitForWorkers, wantBehind: ["w1"]),
-        Case(name: "confirmation does not override up to date", role: .server, payload: "0.2.0", installed: "0.2.0",
-             workers: nil, confirmed: true, want: .upToDate),
-        Case(name: "confirmation does not license a downgrade", role: .server, payload: "0.1.6", installed: "0.1.7",
-             workers: nil, confirmed: true, want: .needsDowngradeConsent),
+        Case(name: "newer payload", payload: "0.2.0", installed: "0.1.7", want: .offer),
+        Case(name: "same version", payload: "0.2.0", installed: "v0.2.0", want: .upToDate),
+        Case(name: "older payload needs consent", payload: "0.1.6", installed: "0.1.7", want: .needsDowngradeConsent),
+        Case(name: "older payload with consent", payload: "0.1.6", installed: "0.1.7", allowDowngrade: true, want: .offer),
+        Case(name: "unknown installed needs consent", payload: "0.2.0", installed: nil, want: .needsDowngradeConsent),
+        Case(name: "unknown installed with consent", payload: "0.2.0", installed: nil, allowDowngrade: true, want: .offer),
     ]
 
     @Test("decide", arguments: cases)
     func decide(_ c: Case) throws {
         let decision = UpdatePolicy.decide(
-            role: c.role,
             payload: try #require(SemanticVersion(c.payload)),
             installed: c.installed.flatMap(SemanticVersion.init),
-            workers: c.workers.map { $0.map { NodeVersion(name: $0.0, version: $0.1.flatMap(SemanticVersion.init)) } },
-            allowDowngrade: c.allowDowngrade,
-            workersConfirmed: c.confirmed
+            allowDowngrade: c.allowDowngrade
         )
         #expect(decision.verdict == c.want)
-        #expect(decision.workersToUpdate == c.wantBehind)
-        #expect(decision.workersUnverified == c.wantUnverified)
+    }
+
+    /// The policy admits every payload install the plan can choose, and
+    /// every verdict it can give is one the plan produces too.
+    @Test("updatePolicyMatchesPlan")
+    func updatePolicyMatchesPlan() throws {
+        let versions = ["0.1.5", "0.1.7", "0.2.0", "0.2.1-rc.1"].compactMap(SemanticVersion.init)
+        var installs = 0
+        var seen: Set<String> = []
+        for role in [NodeRole.server, .agent] {
+            for installed in [nil] + versions.map(Optional.some) {
+                for payload in [nil] + versions.map(Optional.some) {
+                    for workers in [nil, 0, 2] as [Int?] {
+                        for developerBuild in [false, true] {
+                            let facts = UpdatePlanFacts(
+                                role: role, installed: installed, payload: payload, workers: workers,
+                                developerBuild: developerBuild)
+                            let plan = UpdatePlan.decide(facts)
+                            if case .payload(let version) = plan {
+                                installs += 1
+                                let decision = UpdatePolicy.decide(payload: version, installed: installed, allowDowngrade: false)
+                                #expect(decision.verdict == .offer)
+                            }
+                            guard let payload else { continue }
+                            // Every verdict the policy gives has a plan that produces it.
+                            let verdict = UpdatePolicy.decide(payload: payload, installed: installed, allowDowngrade: false).verdict
+                            switch verdict {
+                            case .offer:
+                                seen.insert("offer")
+                            case .upToDate:
+                                seen.insert("upToDate")
+                                if developerBuild == false, workers == 0, let installed, role == .server {
+                                    #expect(plan == .none, "\(payload) \(installed)")
+                                }
+                            case .needsDowngradeConsent:
+                                seen.insert("needsDowngradeConsent")
+                                if developerBuild == false, workers == 0, role == .server {
+                                    if let installed {
+                                        #expect(plan == .blocked(.downgrade(installed: installed, payload: payload)))
+                                    } else {
+                                        #expect(plan == .blocked(.installedUnknown))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #expect(installs > 0)
+        #expect(seen == ["offer", "upToDate", "needsDowngradeConsent"])
     }
 
     @Test("the server checks name the snapshot, the free space and the one-way engine change")
