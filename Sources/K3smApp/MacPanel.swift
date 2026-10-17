@@ -131,34 +131,43 @@ struct MacPanel: View {
         if cluster.nodes.isEmpty {
             nodesBlock
         } else {
+            let bars = clusterBars
             PanelBlock("Nodes", value: cluster.versions ?? "") {
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(cluster.nodes.enumerated()), id: \.offset) { _, node in
-                        clusterNodeRow(node)
-                        if let load = MetricsDisplay.nodeLoad(named: node.name, nodes: workloads.nodes, state: workloads.metrics) {
-                            LiveLoadRow(load: load)
+                    ForEach(Array(cluster.nodes.enumerated()), id: \.offset) { i, node in
+                        clusterNodeRow(node, bars: bars[i])
+                        if let note = bars[i].note {
+                            Text(verbatim: note).font(.system(size: 10)).foregroundStyle(.white.opacity(0.55))
                         }
                     }
                 }
-                Footnote("Requested by pods, not used.")
+                LoadKey(parts: LoadStack.key(bars.flatMap(\.stacks)))
                 MetricsNote(state: workloads.metrics)
             }
         }
     }
 
     /// One node: the readiness dot, the name with a tag on this Mac's, the
-    /// role and its running pods, then its cores and memory meters side by
-    /// side, on the same line when the panel is wide enough, under it otherwise.
-    private func clusterNodeRow(_ node: ClusterNodeRow) -> some View {
+    /// role and its running pods, then its CPU and memory bars side by side
+    /// (requested and used in one bar each), on the same line when the panel
+    /// is wide enough, under it otherwise.
+    private func clusterNodeRow(_ node: ClusterNodeRow, bars: NodeBars) -> some View {
         ViewThatFits(in: .horizontal) {
-            NodeRowLine(node: node)
+            NodeRowLine(node: node, bars: bars)
             VStack(alignment: .leading, spacing: 6) {
                 NodeHeading(node: node)
-                HStack(spacing: PanelLayout.tileSpacing) {
-                    SlimMeter(title: "Cores", usage: node.cores, help: Help.Panel.nodeCores)
-                    SlimMeter(title: "Memory", usage: node.memory, help: Help.Panel.nodeMemory)
+                HStack(alignment: .top, spacing: PanelLayout.tileSpacing) {
+                    SlimMeter(title: "CPU", stack: bars.cpu, help: Help.Panel.nodeCores)
+                    SlimMeter(title: "Memory", stack: bars.memory, help: Help.Panel.nodeMemory)
                 }
             }
+        }
+    }
+
+    /// Each Cluster view node row's bars: its pods' requests and its live load.
+    private var clusterBars: [NodeBars] {
+        cluster.nodes.map { node in
+            NodeBars.of(row: node, load: MetricsDisplay.nodeLoad(named: node.name, nodes: workloads.nodes, state: workloads.metrics))
         }
     }
 
@@ -185,7 +194,7 @@ struct MacPanel: View {
         .id(TourTarget.summary)
         .tourTarget(.summary, tour)
         nodesBlock
-        LiveLoadBlock(node: macNode, nodes: workloads.nodes, state: workloads.metrics)
+        LiveLoadBlock(node: macNode, row: macRow, nodes: workloads.nodes, state: workloads.metrics)
         let cores = coreChart
         let memory = memoryChart
         VStack(alignment: .leading, spacing: 10) {
@@ -298,12 +307,11 @@ struct MacPanel: View {
         PanelMode.showsSwitch(nodeCount: cluster.nodeCount) ? [clusterRegion, macRegion] : [macRegion]
     }
 
-    /// The Cluster view's tiles, node rows, their live load, and the nodes block.
+    /// The Cluster view's tiles, node rows with their bars, and the nodes block.
     private var clusterRegion: PanelContent {
-        let loads = cluster.nodes.compactMap { MetricsDisplay.nodeLoad(named: $0.name, nodes: workloads.nodes, state: workloads.metrics) }
-        return PanelContent(tiles: ClusterDisplay.tiles(for: cluster), nodes: cluster.nodes,
-                            lines: cluster.nodes.isEmpty ? nodes?.lines ?? [] : [],
-                            pairs: [PanelPair("Nodes", cluster.versions ?? "")], loads: loads)
+        PanelContent(tiles: ClusterDisplay.tiles(for: cluster), nodes: cluster.nodes, nodeBars: clusterBars,
+                     lines: cluster.nodes.isEmpty ? nodes?.lines ?? [] : [],
+                     pairs: [PanelPair("Nodes", cluster.versions ?? "")])
     }
 
     /// The This Mac view's tiles, the machine line, the nodes block, the live
@@ -311,10 +319,11 @@ struct MacPanel: View {
     private var macRegion: PanelContent {
         let legend = (coreChart.legend + memoryChart.legend).map { PanelPair($0.label, $0.value, swatch: true) }
         let load = macNode.flatMap { MetricsDisplay.nodeLoad(named: $0, nodes: workloads.nodes, state: workloads.metrics) }
+        let bars = NodeBars.of(row: macRow, load: load)
         return PanelContent(tiles: macTiles, lines: nodes?.lines ?? [],
                             pairs: [PanelPair(Self.machine.line, ""), PanelPair("Nodes", nodes?.heading ?? ""),
                                     PanelPair("Unified memory", memoryHeading)] + legend,
-                            loads: load.map { [$0] } ?? [])
+                            loads: bars.hasFigures ? [bars] : [])
     }
 
     /// The memory block's value: what is in use of this Mac's memory.
@@ -335,6 +344,8 @@ struct MacPanel: View {
     private var macPods: [Pod] { ClusterDisplay.thisMacPods(pods, report: report, nodeCount: cluster.nodeCount) }
     /// This Mac's node, for its usage sample.
     private var macNode: String? { MetricsDisplay.thisMacNode(report: report, nodes: workloads.nodes) }
+    /// This Mac's Cluster view row, for what its pods request; nil before the lists are read.
+    private var macRow: ClusterNodeRow? { cluster.nodes.first { $0.thisMac } }
     /// The cores the node used and its pods' working sets, nil without a sample.
     private var coresUsed: Double? { MacUsage.cpuUsed(node: macNode, state: workloads.metrics) }
     private var memoryUsed: Int64? { MacUsage.podsMemoryUsed(macPods, node: macNode, state: workloads.metrics) }
@@ -521,15 +532,18 @@ struct Tile: View {
 }
 
 /// NodeRowLine is a Cluster view node row on one line: the heading, then
-/// both meters at `PanelLayout.meterWidth`.
+/// both bars, each `PanelLayout.stackMeterWidth` wide.
 struct NodeRowLine: View {
     let node: ClusterNodeRow
+    let bars: NodeBars
 
     var body: some View {
         HStack(alignment: .center, spacing: PanelLayout.tileSpacing) {
             NodeHeading(node: node)
-            SlimMeter(title: "Cores", usage: node.cores, help: Help.Panel.nodeCores).frame(width: PanelLayout.meterWidth)
-            SlimMeter(title: "Memory", usage: node.memory, help: Help.Panel.nodeMemory).frame(width: PanelLayout.meterWidth)
+            SlimMeter(title: "CPU", stack: bars.cpu, help: Help.Panel.nodeCores)
+                .frame(width: PanelLayout.stackMeterWidth(bars.cpu))
+            SlimMeter(title: "Memory", stack: bars.memory, help: Help.Panel.nodeMemory)
+                .frame(width: PanelLayout.stackMeterWidth(bars.memory))
         }
     }
 }
@@ -562,22 +576,30 @@ struct NodeHeading: View {
     }
 }
 
-/// SlimMeter is a 5 pt meter with its value under it, dim and monospaced;
-/// an empty track when the node's allocatable is unknown.
+/// SlimMeter is one resource's 5 pt `StackedBar`, requested as the light
+/// band and used solid, with its figure lines under it, dim and monospaced,
+/// the first led by the title when `titled`; an empty track when neither
+/// share is known.
 struct SlimMeter: View {
     let title: String
-    let usage: ClusterUsage?
+    let stack: LoadStack
     let help: HelpTag
+    var titled = false
 
     var body: some View {
+        let lines = titled ? stack.lines(titled: title) : stack.lines
         VStack(alignment: .leading, spacing: 3) {
-            Meter(parts: [(usage?.requested ?? 0, Palette.fill)], total: usage?.allocatable ?? 0)
-            Text(verbatim: usage?.text ?? " ").font(.system(size: 10)).monospacedDigit()
-                .foregroundStyle(.white.opacity(0.62)).lineLimit(1).minimumScaleFactor(0.8)
+            StackedBar(stack: stack)
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(Array((lines.isEmpty ? [" "] : lines).enumerated()), id: \.offset) { _, line in
+                    Text(verbatim: line).font(.system(size: 10)).monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.62)).lineLimit(1).minimumScaleFactor(0.8)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(verbatim: "\(title) \(usage?.text ?? "unknown")"))
+        .accessibilityLabel(Text(verbatim: "\(title) \(lines.isEmpty ? "unknown" : lines.joined(separator: ", "))"))
         .help(help)
     }
 }
@@ -635,7 +657,9 @@ struct PanelMeasure: View {
                         ForEach(Array(region.tiles.enumerated()), id: \.offset) { _, tile in Tile(tile: tile) }
                     }
                 }
-                ForEach(Array(region.nodes.enumerated()), id: \.offset) { _, node in NodeRowLine(node: node) }
+                ForEach(Array(region.nodes.enumerated()), id: \.offset) { i, node in
+                    NodeRowLine(node: node, bars: region.bars(at: i))
+                }
                 ForEach(Array(region.lines.enumerated()), id: \.offset) { _, line in NodeLineRow(line: line) }
                 ForEach(Array(region.pairs.enumerated()), id: \.offset) { _, pair in
                     if pair.value.isEmpty, !pair.swatch {
@@ -647,8 +671,8 @@ struct PanelMeasure: View {
                         }
                     }
                 }
-                ForEach(Array(region.loads.enumerated()), id: \.offset) { _, load in
-                    LiveLoadRow(load: load)
+                ForEach(Array(region.loads.enumerated()), id: \.offset) { _, bars in
+                    LiveLoadRow(bars: bars)
                 }
             }
         }

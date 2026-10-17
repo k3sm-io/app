@@ -151,14 +151,34 @@ struct PanelLayoutTests {
 
     @Test("a live load row needs room for both figures, and no more")
     func loadRowWidens() {
-        let load = NodeLoad.sampled(cpu: LoadBar(fraction: 0.1, percent: 10, text: "1.43 of 19 cores · 8%"),
-                                    memory: LoadBar(fraction: 0.4, percent: 40, text: "24.1 GB of 64 GB · 38%"))
-        #expect(PanelLayout.loadWidth(load) > PanelLayout.minimum)
-        #expect(PanelLayout.loadWidth(.noSample) == 0)
-        #expect(PanelLayout.naturalWidth(regions: [PanelContent(loads: [load])]) == PanelLayout.loadWidth(load))
+        let load = NodeLoad.sampled(cpu: .cores(used: 1.43, allocatable: 19), memory: .memory(used: 24_100_000_000, allocatable: 64_000_000_000))
+        let bars = NodeBars.of(row: Self.node("studio", thisMac: true), load: load)
+        #expect(PanelLayout.loadWidth(bars) > PanelLayout.minimum)
+        #expect(PanelLayout.loadWidth(NodeBars.of(row: nil, load: .noSample)) == 0)
+        #expect(PanelLayout.naturalWidth(regions: [PanelContent(loads: [bars])]) == PanelLayout.loadWidth(bars))
         // The two bars and the gap between them; no sparkline beside them.
-        let bar = Double("Memory 24.1 GB of 64 GB · 38%".count) * 10 * PanelLayout.advance
-        #expect(PanelLayout.loadWidth(load) == PanelLayout.padding + 2 * bar + PanelLayout.tileSpacing)
+        let widest = (bars.cpu.lines(titled: "CPU") + bars.memory.lines(titled: "Memory")).map(\.count).max()!
+        let bar = Double(widest) * 10 * PanelLayout.advance
+        #expect(PanelLayout.loadWidth(bars) == PanelLayout.padding + 2 * bar + PanelLayout.tileSpacing)
+    }
+
+    @Test("a node row on one line makes room for its bars' figures")
+    func nodeRowFitsItsFigures() {
+        let node = Self.node("studio", thisMac: true)
+        let load = NodeLoad.sampled(cpu: .cores(used: 1.43, allocatable: 19), memory: .memory(used: 24_100_000_000, allocatable: 64_000_000_000))
+        let bars = NodeBars.of(row: node, load: load)
+        let heading = PanelLayout.nodeRowWidth(node, bars: NodeBars(cpu: LoadStack(requested: nil, used: nil, lines: []),
+                                                                    memory: LoadStack(requested: nil, used: nil, lines: [])))
+        #expect(PanelLayout.nodeRowWidth(node, bars: bars)
+            == heading - 2 * PanelLayout.meterWidth + bars.stacks.map(PanelLayout.stackMeterWidth).reduce(0, +))
+        for stack in bars.stacks {
+            let widest = stack.lines.map { Double($0.count) * 10 * PanelLayout.advance }.max()!
+            #expect(PanelLayout.stackMeterWidth(stack) == max(PanelLayout.meterWidth, widest))
+        }
+        #expect(PanelLayout.stackMeterWidth(LoadStack(requested: nil, used: nil, lines: [])) == PanelLayout.meterWidth)
+        // A row past the end of `nodeBars` is measured by its requests alone.
+        let content = PanelContent(nodes: [node])
+        #expect(content.bars(at: 0) == NodeBars.of(row: node, load: nil))
     }
 
     @Test("the Cluster and This Mac tiles are a 2 by 2 grid at every width, with equal margins")

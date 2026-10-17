@@ -199,3 +199,29 @@ struct MacUsageTests {
         #expect(unsampled[1] == PanelTile(label: "pod memory used", value: ClusterDisplay.noFigure, detail: "of 16 GB"))
     }
 }
+
+@Suite("This Mac load row: one bar per resource")
+struct MacLoadRowTests {
+    @Test("this Mac's row joins its pods' requests and its sample, and keeps the key truthful")
+    func macLoadRow() {
+        let row = ClusterNodeRow(
+            name: "mac-a", role: "server", ready: "Ready", isReady: true, version: nil, thisMac: true,
+            cores: ClusterUsage(requested: 2, allocatable: 8, text: "2 of 8"),
+            memory: ClusterUsage(requested: 4e9, allocatable: 16e9, text: "4.0 GB of 16 GB"), running: 2)
+        let load = NodeLoad.sampled(cpu: .cores(used: 3.2, allocatable: 8), memory: .memory(used: 2_000_000_000, allocatable: 16_000_000_000))
+        let both = NodeBars.of(row: row, load: load)
+        #expect(both.cpu.requested == 0.25)
+        #expect(both.cpu.used.map { abs($0 - 0.4) < 1e-9 } == true)
+        #expect(both.cpu.lines(titled: "CPU") == ["CPU 3.20 used of 8 cores", "2 requested"])
+        #expect(LoadStack.key(both.stacks) == [.requested, .used])
+
+        // Metrics absent: the rows are hidden, so only the requests are drawn and keyed.
+        let requestsOnly = NodeBars.of(row: row, load: nil)
+        #expect(requestsOnly.cpu.used == nil)
+        #expect(LoadStack.key(requestsOnly.stacks) == [.requested])
+        // Lists not read yet: only the sample is drawn and keyed.
+        let useOnly = NodeBars.of(row: nil, load: load)
+        #expect(useOnly.memory.requested == nil)
+        #expect(LoadStack.key(useOnly.stacks) == [.used])
+    }
+}

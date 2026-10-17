@@ -133,7 +133,7 @@ struct MetricsTests {
         #expect(sample.pods == nil)
     }
 
-    @Test("an absent API hides the rows and says why, from the APIService or the read's error")
+    @Test("an absent API hides the rows and keeps why, from the APIService or the read's error")
     func absentAPI() throws {
         let unavailable = Metrics.unavailable(nodesExit: 1, apiService: (0, try fixture("kubectl_apiservice_metrics_unavailable.json")))
         #expect(unavailable == .absent(
@@ -157,7 +157,8 @@ struct MetricsTests {
         #expect(MetricsDisplay.nodeLoad(named: "mac-a", nodes: nodes, state: state) == nil)
         guard case .absent(let why) = unavailable else { return }
         #expect(state.absent == why)
-        #expect(MetricsDisplay.note(state, now: Self.t0.addingTimeInterval(20)) == why)
+        // The panel draws the requests alone then, and no footnote says why.
+        #expect(MetricsDisplay.note(state, now: Self.t0.addingTimeInterval(20)) == nil)
         // A later sample brings the rows back.
         state.apply(Metrics.sampled(nodes: try fixture("kubectl_metrics_nodes.json"), pods: nil), at: Self.t0.addingTimeInterval(30))
         #expect(state.absent == nil)

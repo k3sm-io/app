@@ -18,33 +18,71 @@ limitations under the License.
 import K3smStatus
 import SwiftUI
 
-/// LiveLoadRow is one node's live load on the navy panel: its CPU and memory
-/// bars with their numbers side by side; "no metrics yet" when the sample
-/// does not carry it.
+/// LiveLoadRow is the This Mac view's load: its CPU and memory bars side
+/// by side, each with its figures under it led by its title, and "no
+/// metrics yet" under them when the sample does not carry the node.
 struct LiveLoadRow: View {
-    let load: NodeLoad
+    let bars: NodeBars
 
     var body: some View {
-        switch load {
-        case .noSample:
-            Text(verbatim: load.text).font(.system(size: 10)).foregroundStyle(.white.opacity(0.55))
-        case .sampled(let cpu, let memory):
-            HStack(alignment: .bottom, spacing: 10) {
-                bar("CPU", cpu).help(Help.Panel.liveCPU)
-                bar("Memory", memory).help(Help.Panel.liveMemory)
+        VStack(alignment: .leading, spacing: 6) {
+            if bars.hasFigures {
+                HStack(alignment: .top, spacing: CGFloat(PanelLayout.tileSpacing)) {
+                    SlimMeter(title: "CPU", stack: bars.cpu, help: Help.Panel.liveCPU, titled: true)
+                    SlimMeter(title: "Memory", stack: bars.memory, help: Help.Panel.liveMemory, titled: true)
+                }
+            }
+            if let note = bars.note {
+                Text(verbatim: note).font(.system(size: 10)).foregroundStyle(.white.opacity(0.55))
             }
         }
     }
+}
 
-    /// A 5 pt bar of the share used, with "CPU 1.43 of 19 cores · 8%" under it.
-    private func bar(_ title: String, _ bar: LoadBar) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Meter(parts: [(bar.fraction ?? 0, Palette.fill)], total: 1)
-            Text(verbatim: "\(title) \(bar.text)").font(.system(size: 10)).monospacedDigit()
-                .foregroundStyle(.white.opacity(0.62)).lineLimit(1).minimumScaleFactor(0.8)
+/// StackedBar is a `LoadStack` drawn: the requested share as a light band
+/// on the panel's track, the used share solid over it from the same start.
+struct StackedBar: View {
+    let stack: LoadStack
+    var height: CGFloat = 5
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                if let requested = stack.requested {
+                    Rectangle().fill(Palette.loadPart(.requested)).frame(width: geo.size.width * requested)
+                }
+                if let used = stack.used {
+                    Rectangle().fill(Palette.loadPart(.used)).frame(width: geo.size.width * used)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .frame(height: height)
+        .background(Palette.deep2)
+        .clipShape(RoundedRectangle(cornerRadius: height / 2))
+    }
+}
+
+/// LoadKey is the one key under a block of load bars: a swatch and the
+/// word for each part the bars draw (`LoadStack.key`); nothing when none.
+struct LoadKey: View {
+    let parts: [LoadPart]
+
+    var body: some View {
+        if !parts.isEmpty {
+            HStack(spacing: 12) {
+                ForEach(parts, id: \.self) { part in
+                    HStack(spacing: 5) {
+                        RoundedRectangle(cornerRadius: 2).fill(Palette.loadPart(part))
+                            .background(RoundedRectangle(cornerRadius: 2).fill(Palette.deep2))
+                            .frame(width: 8, height: 8)
+                        Text(verbatim: part.label)
+                    }
+                }
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.white.opacity(0.62))
+        }
     }
 }
 
@@ -81,20 +119,21 @@ struct MetricsNote: View {
     }
 }
 
-/// LiveLoadBlock is the This Mac view's live load: its node's row and the
-/// note, or only the note while the rows are hidden.
+/// LiveLoadBlock is the This Mac view's load: its node's bars, joined
+/// from its pods' requests (`row`) and the live sample, the key and the
+/// note; only the note while neither figure is known.
 struct LiveLoadBlock: View {
     let node: String?
+    let row: ClusterNodeRow?
     let nodes: [ClusterNode]?
     let state: MetricsState
 
     var body: some View {
-        let load = node.flatMap { MetricsDisplay.nodeLoad(named: $0, nodes: nodes, state: state) }
-        if load != nil || MetricsDisplay.note(state) != nil {
+        let bars = NodeBars.of(row: row, load: node.flatMap { MetricsDisplay.nodeLoad(named: $0, nodes: nodes, state: state) })
+        if bars.hasFigures || bars.note != nil || MetricsDisplay.note(state) != nil {
             PanelBlock("Load now", value: "") {
-                if let load {
-                    LiveLoadRow(load: load)
-                }
+                LiveLoadRow(bars: bars)
+                LoadKey(parts: LoadStack.key(bars.stacks))
                 MetricsNote(state: state)
             }
         }

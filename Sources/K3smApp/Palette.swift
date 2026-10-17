@@ -55,6 +55,11 @@ enum Palette {
     static let night = Color(red: 0.024, green: 0.039, blue: 0.18)      // #060a2e, the tour's dimming and card
     static let glow = Color(red: 0.49, green: 0.576, blue: 1.0)         // #7d93ff, the tour's light
     static let glowSoft = Color(red: 0.624, green: 0.69, blue: 1.0)     // #9fb0ff, the tour's eyebrow
+    /// What pods request, as the light band behind a load bar's solid use:
+    /// the tour's lighter shade, thinned so the meters' fill reads over it.
+    /// The navy panel keeps its colours in both appearances, so one value
+    /// serves light and dark.
+    static let requestedBand = glowSoft.opacity(0.35)
 
     /// The Stats tab's series on its navy tiles, one per node or state in
     /// turn: the meters' fill, then the panel's other marks.
@@ -106,6 +111,14 @@ enum Palette {
         switch kind {
         case .used: return fill
         case .system: return fillDim
+        }
+    }
+
+    /// A load bar part's fill: the light band for a request, solid for use.
+    static func loadPart(_ part: LoadPart) -> Color {
+        switch part {
+        case .requested: return requestedBand
+        case .used: return fill
         }
     }
 

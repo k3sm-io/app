@@ -185,15 +185,15 @@ login** in the app's Settings turns it off or on again (see
   the window is on screen the app reads `k3sm kubectl get --raw` of the
   `metrics.k8s.io` node and pod lists at most every 15 seconds, one read at
   a time, and keeps the last sample. Each node in the Cluster view, and this
-  Mac's node in the This Mac view, gets CPU and memory bars with the amount
-  used of what the node offers and the percentage, beside a small line of the
-  last few CPU samples; the pod details add the pod's CPU used (and its share
+  Mac's node in the This Mac view, gets one CPU and one memory bar: what its
+  pods request as a light band, what it uses now drawn solid over it, the
+  figures under the bar ("1.43 used of 19 cores", "3.5 requested"), and one
+  key for the block that names only the parts drawn; the pod details add the pod's CPU used (and its share
   of the request), memory used and the sample's age. A line under the bars
   says how old the sample is ("12 s ago"). A node or pod metrics-server has
   no sample for reads "no metrics yet", never zero. When the cluster serves
-  no metrics API, or its APIService is not available, the bars are hidden
-  and the line says why (from the APIService's condition, or the read's
-  error); the app then looks again every minute. Nothing is written to
+  no metrics API, or its APIService is not available, the bars show the
+  requests alone; the app then looks again every minute. Nothing is written to
   disk; the Stats tab keeps the last hour of samples in memory.
 - The **Update** button is on the Alerts tab's first card ("2 nodes behind
   v0.1.9", or "Updating…" while a roll runs), when the update plan has an update for this Mac: the

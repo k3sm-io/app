@@ -532,3 +532,117 @@ struct HostRequestsTests {
         #expect(WorkloadsDisplay.cores(9_223_372_036_854_775_807) == "1000000+")
     }
 }
+
+@Suite("the panel's stacked load bars: requested behind used")
+struct LoadStackTests {
+    static let cores = ClusterUsage(requested: 3.5, allocatable: 19, text: "3.5 of 19")
+    static let memory = ClusterUsage(requested: 3.2e9, allocatable: 60e9, text: "3.2 GB of 60 GB")
+
+    static func row(cores: ClusterUsage? = cores, memory: ClusterUsage? = memory) -> ClusterNodeRow {
+        ClusterNodeRow(name: "mac-a", role: "server", ready: "Ready", isReady: true, version: nil, thisMac: true,
+                       cores: cores, memory: memory, running: 3)
+    }
+
+    static func close(_ a: Double?, _ b: Double) -> Bool { a.map { abs($0 - b) < 1e-9 } ?? false }
+
+    @Test("both known: the request as the band, the use over it, used first in the figures")
+    func bothKnown() {
+        let used = LoadBar.cores(used: 1.43, allocatable: 19)
+        let stack = LoadStack.cores(requested: Self.cores, used: used)
+        #expect(Self.close(stack.requested, 3.5 / 19))
+        #expect(Self.close(stack.used, 1.43 / 19))
+        #expect(stack.parts == [.requested, .used])
+        #expect(stack.lines == ["1.43 used of 19 cores", "3.5 requested"])
+        #expect(stack.lines(titled: "CPU") == ["CPU 1.43 used of 19 cores", "3.5 requested"])
+
+        let bytes = LoadStack.memory(requested: Self.memory, used: .memory(used: 12_000_000_000, allocatable: 60_000_000_000))
+        #expect(bytes.lines == ["\(MetricsDisplay.bytes(12_000_000_000)) used of \(MetricsDisplay.bytes(60_000_000_000))", "3.2 GB requested"])
+    }
+
+    @Test("the shares are clamped: never below 0, use never past the whole bar")
+    func sharesClamped() {
+        let over = LoadStack.cores(requested: ClusterUsage(requested: 40, allocatable: 19, text: "40 of 19"),
+                                   used: .cores(used: 38, allocatable: 19))
+        #expect(over.requested == 1)
+        #expect(over.used == 1)
+        #expect(over.lines.first == "38 used of 19 cores")
+
+        let built = LoadStack(requested: -0.5, used: 1.7, lines: [])
+        #expect(built.requested == 0)
+        #expect(built.used == 1)
+        let nan = LoadStack(requested: .nan, used: .infinity, lines: [])
+        #expect(nan.requested == 0)
+        #expect(nan.used == 0)
+
+        let hostile = LoadStack.cores(requested: ClusterUsage(requested: .nan, allocatable: 19, text: "? of 19"), used: nil)
+        #expect(hostile.requested == nil)
+        let noTotal = LoadStack.cores(requested: ClusterUsage(requested: 2, allocatable: 0, text: "2 of 0"), used: nil)
+        #expect(noTotal.requested == nil)
+        #expect(noTotal.parts.isEmpty)
+    }
+
+    @Test("only the request known: the band alone, the key names only Requested")
+    func onlyRequested() {
+        let bars = NodeBars.of(row: Self.row(), load: nil)
+        #expect(bars.cpu.parts == [.requested])
+        #expect(bars.cpu.used == nil)
+        #expect(bars.cpu.lines == ["3.5 requested of 19 cores"])
+        #expect(bars.memory.lines == ["3.2 GB requested of 60 GB"])
+        #expect(bars.note == nil)
+        #expect(LoadStack.key(bars.stacks) == [.requested])
+    }
+
+    @Test("only the use known: the solid part alone, the key names only Used")
+    func onlyUsed() {
+        let load = NodeLoad.sampled(cpu: .cores(used: 1.43, allocatable: 19), memory: .memory(used: 12_000_000_000, allocatable: 60_000_000_000))
+        let bars = NodeBars.of(row: nil, load: load)
+        #expect(bars.cpu.parts == [.used])
+        #expect(bars.cpu.requested == nil)
+        #expect(bars.cpu.lines == ["1.43 used of 19 cores"])
+        #expect(LoadStack.key(bars.stacks) == [.used])
+
+        // A use without an allocatable has a figure but no share: nothing drawn, no key.
+        let unbounded = LoadStack.cores(requested: nil, used: .cores(used: 1.43, allocatable: nil))
+        #expect(unbounded.parts.isEmpty)
+        #expect(unbounded.lines == ["1.43 used"])
+        #expect(LoadStack.key([unbounded]).isEmpty)
+    }
+
+    @Test("a node the sample lacks keeps its request and says no metrics yet")
+    func noSample() {
+        let bars = NodeBars.of(row: Self.row(), load: .noSample)
+        #expect(bars.note == MetricsDisplay.noMetricsYet)
+        #expect(bars.cpu.parts == [.requested])
+        #expect(bars.hasFigures)
+        let unknown = NodeBars.of(row: Self.row(cores: nil, memory: nil), load: nil)
+        #expect(!unknown.hasFigures)
+        #expect(unknown.note == nil)
+        #expect(LoadStack.key(unknown.stacks).isEmpty)
+    }
+
+    @Test("the key covers the block: each part any bar draws, Requested first")
+    func keyCoversBlock() {
+        let requestedOnly = LoadStack(requested: 0.2, used: nil, lines: ["x"])
+        let usedOnly = LoadStack(requested: nil, used: 0.1, lines: ["y"])
+        #expect(LoadStack.key([usedOnly, requestedOnly]) == [.requested, .used])
+        #expect(LoadStack.key([requestedOnly, requestedOnly]) == [.requested])
+        #expect(LoadStack.key([]) == [])
+        #expect(LoadPart.allCases.map(\.label) == ["Requested", "Used"])
+    }
+
+    @Test("the footnotes the bars and key now say are gone from the panel")
+    func footnotesRemoved() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        for file in ["Sources/K3smApp/MacPanel.swift", "Sources/K3smApp/LoadViews.swift"] {
+            let source = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
+            #expect(!source.contains("Requested by pods, not used."), "\(file)")
+            #expect(source.contains("LoadKey("), "\(file) draws the key")
+        }
+        // The absent API's reason (the metrics-server hint) is not a panel note.
+        var state = MetricsState()
+        state.apply(.absent(Metrics.notInstalled), at: Date(timeIntervalSince1970: 0))
+        #expect(MetricsDisplay.note(state) == nil)
+        #expect(state.absent == Metrics.notInstalled)
+    }
+}

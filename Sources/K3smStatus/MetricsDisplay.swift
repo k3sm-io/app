@@ -21,35 +21,47 @@ import Foundation
 /// (0 to 1; nil when the allocatable is unknown), the whole percentage, and
 /// the text beside it ("1.43 of 19 cores · 8%", "12 GB of 60 GB · 20%").
 /// Usage past allocatable fills the bar and shows its real percentage.
+/// `amount` and `total` are the two figures alone ("1.43" and "19"), for
+/// the panel's stacked bars (`LoadStack`).
 public struct LoadBar: Equatable, Sendable {
     public let fraction: Double?
     public let percent: Int?
     public let text: String
+    public let amount: String
+    public let total: String?
 
-    public init(fraction: Double?, percent: Int?, text: String) {
+    public init(fraction: Double?, percent: Int?, text: String, amount: String? = nil, total: String? = nil) {
         self.fraction = fraction
         self.percent = percent
         self.text = text
+        self.amount = amount ?? text
+        self.total = total
     }
 
     /// Cores used of the node's allocatable cores.
     public static func cores(used: Double, allocatable: Double?) -> LoadBar {
         let amount = MetricsDisplay.cores(used)
-        guard let allocatable, allocatable > 0 else { return LoadBar(fraction: nil, percent: nil, text: "\(amount) cores") }
-        return bar(used / allocatable, text: "\(amount) of \(MetricsDisplay.cores(allocatable)) cores")
+        guard let allocatable, allocatable > 0 else {
+            return LoadBar(fraction: nil, percent: nil, text: "\(amount) cores", amount: amount)
+        }
+        let total = MetricsDisplay.cores(allocatable)
+        return bar(used / allocatable, text: "\(amount) of \(total) cores", amount: amount, total: total)
     }
 
     /// Bytes used of the node's allocatable memory.
     public static func memory(used: Int64, allocatable: Int64?) -> LoadBar {
         let amount = MetricsDisplay.bytes(used)
-        guard let allocatable, allocatable > 0 else { return LoadBar(fraction: nil, percent: nil, text: amount) }
-        return bar(Double(used) / Double(allocatable), text: "\(amount) of \(MetricsDisplay.bytes(allocatable))")
+        guard let allocatable, allocatable > 0 else { return LoadBar(fraction: nil, percent: nil, text: amount, amount: amount) }
+        let total = MetricsDisplay.bytes(allocatable)
+        return bar(Double(used) / Double(allocatable), text: "\(amount) of \(total)", amount: amount, total: total)
     }
 
-    private static func bar(_ share: Double, text: String) -> LoadBar {
-        guard share.isFinite, share >= 0 else { return LoadBar(fraction: nil, percent: nil, text: text) }
+    private static func bar(_ share: Double, text: String, amount: String, total: String) -> LoadBar {
+        guard share.isFinite, share >= 0 else {
+            return LoadBar(fraction: nil, percent: nil, text: text, amount: amount, total: total)
+        }
         let percent = Int(min(share * 100, 1_000_000).rounded())
-        return LoadBar(fraction: min(1, share), percent: percent, text: "\(text) · \(percent)%")
+        return LoadBar(fraction: min(1, share), percent: percent, text: "\(text) · \(percent)%", amount: amount, total: total)
     }
 }
 
@@ -122,9 +134,10 @@ public enum MetricsDisplay {
     }
 
     /// The line under the live rows: the sample's age and the last read's
-    /// failure, or, while the API is absent, why. Nil before any read.
+    /// failure. Nil before any read and while the API is absent: the bars
+    /// then draw only what pods request, and their key says so.
     public static func note(_ state: MetricsState, now: Date = Date()) -> String? {
-        if let absent = state.absent { return absent }
+        if state.absent != nil { return nil }
         guard let at = state.sampledAt else {
             return state.lastError.map { "No metrics yet. The read failed: \($0)" }
         }

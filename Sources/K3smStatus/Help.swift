@@ -595,18 +595,18 @@ public enum Help {
         /// The dot before a node's name.
         public static let nodeDot = HelpTag("Green when the node reports Ready, amber otherwise",
                                             control: "panel: node dot")
-        /// A node row's Cores meter.
-        public static let nodeCores = HelpTag("CPU the node's pods request, against its allocatable cores",
-                                              control: "panel: node Cores meter")
-        /// A node row's Memory meter.
-        public static let nodeMemory = HelpTag("Memory the node's pods request, against its allocatable",
-                                               control: "panel: node Memory meter")
-        /// A live CPU bar.
-        public static let liveCPU = HelpTag("CPU used now, from metrics-server, against allocatable",
-                                            control: "panel: live CPU bar")
-        /// A live memory bar.
-        public static let liveMemory = HelpTag("Memory used now, from metrics-server, against allocatable",
-                                               control: "panel: live Memory bar")
+        /// A node row's CPU bar.
+        public static let nodeCores = HelpTag("CPU pods request as the light band, CPU used as solid",
+                                              control: "panel: node CPU bar")
+        /// A node row's Memory bar.
+        public static let nodeMemory = HelpTag("Memory pods request as the light band, memory used as solid",
+                                               control: "panel: node Memory bar")
+        /// This Mac's CPU bar.
+        public static let liveCPU = HelpTag("This Mac's CPU requested as the light band, used now as solid",
+                                            control: "panel: This Mac CPU bar")
+        /// This Mac's memory bar.
+        public static let liveMemory = HelpTag("This Mac's memory requested as the light band, used now as solid",
+                                               control: "panel: This Mac Memory bar")
         /// The This Mac view's core grid.
         public static let coreGrid = HelpTag("Fill is CPU used, from metrics-server, one cell per core",
                                              control: "panel: core grid")

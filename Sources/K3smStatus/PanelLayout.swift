@@ -18,21 +18,30 @@ limitations under the License.
 /// view or the This Mac view) shows that decides how wide it could use: its
 /// tiles, the Cluster view's node rows, the nodes block's lines, the
 /// labelled lines with a value on the right (the memory block's heading and
-/// its legend), and the live load rows. Every string in it is already clipped.
+/// its legend), and the This Mac view's load row. A node row's bars are
+/// `nodeBars` at its index, or its requests alone past the end. Every
+/// string in it is already clipped.
 public struct PanelContent: Equatable, Sendable {
     public let tiles: [PanelTile]
     public let nodes: [ClusterNodeRow]
+    public let nodeBars: [NodeBars]
     public let lines: [NodeLine]
     public let pairs: [PanelPair]
-    public let loads: [NodeLoad]
+    public let loads: [NodeBars]
 
-    public init(tiles: [PanelTile] = [], nodes: [ClusterNodeRow] = [], lines: [NodeLine] = [],
-                pairs: [PanelPair] = [], loads: [NodeLoad] = []) {
+    public init(tiles: [PanelTile] = [], nodes: [ClusterNodeRow] = [], nodeBars: [NodeBars] = [], lines: [NodeLine] = [],
+                pairs: [PanelPair] = [], loads: [NodeBars] = []) {
         self.tiles = tiles
         self.nodes = nodes
+        self.nodeBars = nodeBars
         self.lines = lines
         self.pairs = pairs
         self.loads = loads
+    }
+
+    /// The bars of the node row at `index`.
+    public func bars(at index: Int) -> NodeBars {
+        index < nodeBars.count ? nodeBars[index] : NodeBars.of(row: nodes[index], load: nil)
     }
 }
 
@@ -130,7 +139,7 @@ public enum PanelLayout {
 
     /// One region's widest part.
     static func wantedWidth(_ content: PanelContent) -> Double {
-        [gridWidth(content.tiles), content.nodes.map(nodeRowWidth).max() ?? 0,
+        [gridWidth(content.tiles), content.nodes.indices.map { nodeRowWidth(content.nodes[$0], bars: content.bars(at: $0)) }.max() ?? 0,
          content.lines.map(lineWidth).max() ?? 0, content.pairs.map(pairWidth).max() ?? 0,
          content.loads.map(loadWidth).max() ?? 0].max() ?? 0
     }
@@ -203,15 +212,20 @@ public enum PanelLayout {
     }
 
     /// A Cluster view node row on one line: the dot, the name, the "this Mac"
-    /// tag, the role, the pod count, then both meters.
-    static func nodeRowWidth(_ node: ClusterNodeRow) -> Double {
+    /// tag, the role, the pod count, then both bars (its requests alone
+    /// without `bars`).
+    static func nodeRowWidth(_ node: ClusterNodeRow, bars: NodeBars? = nil) -> Double {
         var width = 7 + 6 + text(node.name, size: 12) + 6 + text(node.role, size: 11)
         if node.thisMac { width += 6 + text("this Mac", size: 9) + 10 }
         if let running = node.running { width += 4 + text("\(running) pods", size: 11) }
-        let meters = [node.cores, node.memory].map { usage in
-            max(meterWidth, text(usage?.text ?? "", size: 10))
-        }
+        let meters = (bars ?? NodeBars.of(row: node, load: nil)).stacks.map(stackMeterWidth)
         return padding + width + tileSpacing + meters.reduce(0, +) + tileSpacing
+    }
+
+    /// A node row's bar on the row's one line: `meterWidth`, or its widest
+    /// figure line when that is wider, so no figure is cut off.
+    public static func stackMeterWidth(_ stack: LoadStack) -> Double {
+        max(meterWidth, stack.lines.map { text($0, size: 10) }.max() ?? 0)
     }
 
     /// A nodes-block line: the name, the role and the version, untruncated.
@@ -225,11 +239,14 @@ public enum PanelLayout {
         padding + (pair.swatch ? swatchWidth : 0) + text(pair.label, size: 12) + pairGap + text(pair.value, size: 12)
     }
 
-    /// A live load row: the CPU and memory bars, each as wide as the wider
-    /// figure under it, `tileSpacing` apart.
-    static func loadWidth(_ load: NodeLoad) -> Double {
-        guard case .sampled(let cpu, let memory) = load else { return 0 }
-        let bar = max(text("CPU " + cpu.text, size: 10), text("Memory " + memory.text, size: 10))
+    /// The This Mac load row: the CPU and memory bars, each as wide as the
+    /// widest figure line under either, the first led by its title,
+    /// `tileSpacing` apart; nothing when neither bar has a figure.
+    static func loadWidth(_ bars: NodeBars) -> Double {
+        guard bars.hasFigures else { return 0 }
+        let bar = [("CPU", bars.cpu), ("Memory", bars.memory)].flatMap { title, stack in
+            stack.lines(titled: title).map { text($0, size: 10) }
+        }.max() ?? 0
         return padding + 2 * bar + tileSpacing
     }
 

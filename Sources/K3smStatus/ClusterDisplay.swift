@@ -49,6 +49,8 @@ public struct ClusterUsage: Equatable, Sendable {
     public var amount: String { parts.0 }
     /// The text after it, "of 19", or nil when the text has no " of ".
     public var ofTotal: String? { parts.1.map { "of \($0)" } }
+    /// The total alone, "19" or "60 GB", or nil when the text has no " of ".
+    public var total: String? { parts.1 }
 
     private var parts: (String, String?) {
         guard let range = text.range(of: " of ") else { return (text, nil) }
