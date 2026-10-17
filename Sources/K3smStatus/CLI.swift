@@ -204,9 +204,14 @@ public enum K3smCLI {
     }
 
     /// Scales a Deployment or StatefulSet to `replicas`: Pause's 0, Resume's
-    /// recorded count. Only `ResourceName` values reach it.
-    public static func scaleArguments(kind: ControllerKind, namespace: ResourceName, name: ResourceName, replicas: Int) -> [String] {
-        ["kubectl", "scale", "\(kind.resource)/\(name.value)", "-n", namespace.value, "--replicas=\(replicas)"]
+    /// recorded count. With `currentReplicas` (Scale passes its pre-checked
+    /// count) the apiserver refuses the scale if the count moved since.
+    /// Only `ResourceName` values reach it.
+    public static func scaleArguments(kind: ControllerKind, namespace: ResourceName, name: ResourceName, replicas: Int,
+                                      currentReplicas: Int? = nil) -> [String] {
+        var arguments = ["kubectl", "scale", "\(kind.resource)/\(name.value)", "-n", namespace.value]
+        if let currentReplicas { arguments.append("--current-replicas=\(currentReplicas)") }
+        return arguments + ["--replicas=\(replicas)"]
     }
 
     /// Restarts a Deployment, StatefulSet or DaemonSet's pods: kubectl stamps

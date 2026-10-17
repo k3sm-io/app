@@ -162,9 +162,9 @@ private final class OutputBuffer: Sendable {
 /// moment the pid is known.
 ///
 /// The signal reaches the direct child only. The `k3sm kubectl` wrapper
-/// forks `kubectl` and waits for it, so a killed wrapper leaves that
-/// grandchild running until it next writes to the closed pipe or finishes
-/// on its own; closing that gap is the wrapper's to do.
+/// execs `kubectl` in place (`syscall.Exec`), so the wrapper's pid becomes
+/// kubectl's and a SIGKILL to it ends kubectl itself, including a
+/// `logs -f` stream; no grandchild outlives the kill.
 private final class RunControl: Sendable {
     private struct State {
         var pid: pid_t = 0

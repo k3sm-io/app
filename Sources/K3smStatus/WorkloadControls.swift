@@ -84,7 +84,7 @@ public struct WorkloadScaleRequest: Equatable, ConsoleActionRequest {
     public var kind: ActionKind { .change }
 
     public var arguments: [String] {
-        K3smCLI.scaleArguments(kind: controller, namespace: namespace, name: name, replicas: to)
+        K3smCLI.scaleArguments(kind: controller, namespace: namespace, name: name, replicas: to, currentReplicas: from)
     }
 
     /// The controller's UID, replicas and Pause record, read just before.
@@ -222,9 +222,11 @@ public enum WorkloadControls {
 
     /// Scale of `controller` to `replicas`, or nil when it is not offered:
     /// a count outside `scaleRange` or the one it has, a ReplicaSet, a
-    /// paused controller, a name `ResourceName` refuses or no UID.
-    public static func scaleRequest(for controller: WorkloadController, to replicas: Int) -> WorkloadScaleRequest? {
-        guard controller.kind.scalable, !controller.paused, !controller.uid.isEmpty, scaleRange.contains(replicas),
+    /// paused controller, a name `ResourceName` refuses or no UID. Until the
+    /// user has moved the stepper (`moved`) there is none, so a controller
+    /// above `scaleRange` is not one click from a count nobody chose.
+    public static func scaleRequest(for controller: WorkloadController, to replicas: Int, moved: Bool = true) -> WorkloadScaleRequest? {
+        guard moved, controller.kind.scalable, !controller.paused, !controller.uid.isEmpty, scaleRange.contains(replicas),
               let current = controller.replicas, current != replicas,
               let namespace = ResourceName(controller.namespace), let name = ResourceName(controller.name) else { return nil }
         return WorkloadScaleRequest(controller: controller.kind, namespace: namespace, name: name, uid: controller.uid,

@@ -70,14 +70,14 @@ struct WorkloadControlsTests {
     func scaleArgumentsGolden() throws {
         let web = WorkloadController(kind: .deployment, name: "web", namespace: "default", uid: "d-web", replicas: 3, pausedReplicas: nil)
         let up = try #require(WorkloadControls.scaleRequest(for: web, to: 5))
-        #expect(up.arguments == ["kubectl", "scale", "deployment/web", "-n", "default", "--replicas=5"])
+        #expect(up.arguments == ["kubectl", "scale", "deployment/web", "-n", "default", "--current-replicas=3", "--replicas=5"])
         #expect(up.precheckArguments
             == ["kubectl", "get", "deployment/web", "-n", "default", "-o",
                 #"jsonpath={.metadata.uid} {.spec.replicas} {.metadata.annotations.k3sm\.io/paused-replicas}"#])
         #expect(up.kind == .change && up.rowKey == web.key && up.verb == "controller-scale")
         let db = WorkloadController(kind: .statefulSet, name: "db", namespace: "default", uid: "s-db", replicas: 1, pausedReplicas: nil)
         #expect(WorkloadControls.scaleRequest(for: db, to: 50)?.arguments
-            == ["kubectl", "scale", "statefulset/db", "-n", "default", "--replicas=50"])
+            == ["kubectl", "scale", "statefulset/db", "-n", "default", "--current-replicas=1", "--replicas=50"])
 
         // The pre-check: the UID, the count clicked on, and no Pause record since.
         #expect(up.precheck(.exited(status: 0, output: Data("d-web 3 ".utf8))) == nil)
@@ -118,6 +118,19 @@ struct WorkloadControlsTests {
         #expect(!up.confirmation.destructive && up.confirmation.message.hasSuffix("The new pods start, maybe on other nodes."))
         #expect(up.report(.exited(status: 0, output: Data())) == .succeeded("Scale asked: Deployment web goes from 3 replicas to 5 replicas."))
         #expect(up.report(.noAnswer).text.contains("Refresh"))
+    }
+
+    @Test("Scale stays off until the stepper has moved from the controller's count")
+    func scaleButtonWaitsForAMove() throws {
+        let big = WorkloadController(kind: .deployment, name: "big", namespace: "default", uid: "d-big", replicas: 70, pausedReplicas: nil)
+        // A controller above 50 opens the stepper at 50, which is a valid count but not a choice.
+        #expect(WorkloadControls.stepperValue(current: 70) == 50)
+        #expect(WorkloadControls.scaleRequest(for: big, to: 50, moved: false) == nil)
+        let moved = try #require(WorkloadControls.scaleRequest(for: big, to: 50, moved: true))
+        #expect(moved.arguments.contains("--current-replicas=70"))
+        let web = WorkloadController(kind: .deployment, name: "web", namespace: "default", uid: "d-web", replicas: 3, pausedReplicas: nil)
+        #expect(WorkloadControls.scaleRequest(for: web, to: 5, moved: false) == nil)
+        #expect(WorkloadControls.scaleRequest(for: web, to: 5, moved: true) != nil)
     }
 
     @Test("Follow's argument list, its targets, and the line when the limit stops it")

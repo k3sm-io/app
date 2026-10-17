@@ -345,7 +345,9 @@ login** in the app's Settings turns it off or on again (see
 - **Scale…** in the pod details sets the replica count of the pod's
   Deployment or StatefulSet, the controller Pause follows. A stepper from
   1 to 50 starts at the count the controller has now; Scale is enabled
-  once the stepper names another one. The question names the controller
+  once you have moved the stepper to another one (a controller above 50
+  opens at 50 with Scale off), and kubectl gets `--current-replicas` so a
+  count that moved is refused. The question names the controller
   and both counts and, for a scale down, how many pods stop. After you
   confirm, the app reads the controller's UID, replicas and Pause record
   (the same read as Pause) and changes nothing when it is gone, was

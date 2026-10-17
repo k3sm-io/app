@@ -84,7 +84,8 @@ struct Inspector: View {
         switch WorkloadControls.scaleOffer(for: pod, in: model.controllers) {
         case .scalable(let controller, let current)?:
             let count = model.scaleCount(for: controller, current: current)
-            let request = WorkloadControls.scaleRequest(for: controller, to: count)
+            let request = WorkloadControls.scaleRequest(for: controller, to: count,
+                                                        moved: model.scaleMoved(for: controller))
             HStack(spacing: 10) {
                 Stepper(value: Binding(get: { count }, set: { model.setScaleCount($0, for: controller) }),
                         in: WorkloadControls.scaleRange) {

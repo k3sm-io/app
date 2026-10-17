@@ -204,6 +204,9 @@ final class WorkloadsModel: ObservableObject {
         scaleKey == controller.key ? scaleCount : WorkloadControls.stepperValue(current: current)
     }
 
+    /// Whether the user has moved the stepper for `controller`; Scale waits for it.
+    func scaleMoved(for controller: WorkloadController) -> Bool { scaleKey == controller.key }
+
     func setScaleCount(_ count: Int, for controller: WorkloadController) {
         scaleKey = controller.key
         scaleCount = WorkloadControls.stepperValue(current: count)
