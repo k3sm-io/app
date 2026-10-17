@@ -148,4 +148,37 @@ struct ArgvGoldenTests {
             }
         }
     }
+
+    /// The published one-liner (install.sh) and the app install the same product.
+    /// An explicit allowlist, so a new default flag on either side fails here.
+    @Test("the app install keeps the script's argv shape")
+    func installMatchesScriptShape() throws {
+        let serverFlags = ["--from-staging", "--user"]
+        let joinExtra = ["--agent", "--server", "--token-file"]
+        func flags(_ argv: [String]) -> [String] { argv.filter { $0.hasPrefix("--") } }
+        let server = try #require(Self.cases.first { $0.name == "server first run" })
+        #expect(server.argv.first == "install")
+        #expect(flags(server.argv) == serverFlags)
+        #expect(server.argv.count == 1 + 2 * serverFlags.count)
+        let join = try #require(Self.cases.first { $0.name == "join" })
+        #expect(join.argv.first == "install")
+        #expect(flags(join.argv) == serverFlags + joinExtra)
+        #expect(join.argv.count == 1 + 2 * serverFlags.count + 1 + 2 * (joinExtra.count - 1))
+
+        guard let dir = ProcessInfo.processInfo.environment["K3SM_DIR"] else {
+            print("skipped the install.sh half: K3SM_DIR is unset")
+            return
+        }
+        let script = try String(contentsOf: URL(fileURLWithPath: dir).appending(path: "install.sh"), encoding: .utf8)
+        let marker = "\"$STAGE/k3sm\" install"
+        let lines = script.split(separator: "\n").filter { $0.contains(marker) }
+        try #require(!lines.isEmpty, "install.sh has no \(marker) line; the scrape is stale")
+        for line in lines {
+            let rest = line[line.range(of: marker)!.upperBound...]
+            #expect(!rest.contains("--"), "install.sh passes a flag to install: \(line)")
+            let next = rest.trimmingCharacters(in: .whitespaces).first
+            #expect(next == nil || next == ";" || next == ")" || next == "|" || next == "&" || next == "#",
+                    "install.sh passes an argument to install: \(line)")
+        }
+    }
 }
