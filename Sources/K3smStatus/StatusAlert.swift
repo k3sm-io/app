@@ -98,8 +98,8 @@ public struct StatusFixStep: Decodable, Equatable, Sendable {
 
 /// AlertsReport is the decoded output of `k3sm alerts -o json`: the full
 /// report's verdict, role and summary, the node this Mac runs as, and only
-/// the rows that carry an alert, each in the `StatusRow` shape. The app does
-/// not read it yet; it is here so every reader shares one decoding.
+/// the rows that carry an alert, each in the `StatusRow` shape. `k3sm-mcp`'s
+/// `k3sm_alerts` tool reads it; every reader shares this one decoding.
 public struct AlertsReport: Decodable, Equatable, Sendable {
     public let schemaVersion: Int
     public let verdict: Verdict

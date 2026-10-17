@@ -66,6 +66,11 @@ public struct ClusterTools: Sendable {
     /// The events tool's default and largest count.
     public static let defaultEvents = 20
     public static let maxEvents = 50
+    /// The most alerts one result lists, and the most evidence lines and fix
+    /// steps each alert carries.
+    public static let maxAlerts = StatusDisplay.maxRows
+    public static let maxEvidence = 12
+    public static let maxSteps = 8
     /// The wait a result suggests before calling again, when k3sm did not answer.
     public static let retryAfterSeconds = 5
 
@@ -87,7 +92,7 @@ public struct ClusterTools: Sendable {
     /// `tools/call`, empty when absent).
     public func call(_ name: ToolName, arguments: [String: JSONValue]) async -> ToolResult {
         switch name {
-        case .status, .nodes, .updateStatus, .metrics:
+        case .status, .alerts, .nodes, .updateStatus, .metrics:
             guard arguments.isEmpty else {
                 return .invalid("\(name.rawValue) takes no arguments.")
             }
@@ -96,6 +101,7 @@ public struct ClusterTools: Sendable {
         }
         switch name {
         case .status: return await status()
+        case .alerts: return await alerts()
         case .nodes: return await nodes()
         case .updateStatus: return await updateStatus()
         case .metrics: return await metrics()
@@ -182,6 +188,90 @@ public struct ClusterTools: Sendable {
             "latest": .optional(UpdateOffer.latestTag(in: row).map(StatusDisplay.clip)),
             "rolling": .bool(UpdateOffer.rowRolling(in: report)),
         ]
+    }
+
+    // MARK: - alerts
+
+    /// The exit codes `k3sm alerts` answers with a report: the verdict
+    /// (0 running, 3 stopped, 4 degraded, 5 not installed, 6 unknown).
+    static let alertsVerdictCodes: Set<Int32> = [0, 3, 4, 5, 6]
+
+    /// The rows that need attention, each with its cause, evidence and fix
+    /// steps. The report is decoded from any exit: a verdict code with a
+    /// readable report answers, exit 1 or an unreadable report does not,
+    /// and exit 2 with nothing printed is an older CLI with no alerts verb.
+    func alerts() async -> ToolResult {
+        let at = now()
+        let outcome = await read(.alerts)
+        guard case .exited(let status, let stdout) = outcome else {
+            return await unavailable(.outcome(outcome, what: "the alerts report"), at: at, update: true)
+        }
+        if status == 2, String(decoding: stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return await unavailable(.alertsUnsupported, at: at, update: false)
+        }
+        guard Self.alertsVerdictCodes.contains(status) else {
+            return await unavailable(.outcome(outcome, what: "the alerts report"), at: at, update: true)
+        }
+        guard let report = try? AlertsReport.decode(stdout) else {
+            return await unavailable(.unreadable(what: "the alerts report"), at: at, update: true)
+        }
+        var result = Self.envelope(at: at)
+        result["verdict"] = .string(StatusDisplay.clip(report.verdict.word))
+        result["role"] = .string(StatusDisplay.clip(report.role))
+        result["summary"] = .string(StatusDisplay.clip(report.summary))
+        result["node"] = .optional(report.node.map(StatusDisplay.clip))
+        result["alerts"] = .array(report.alerts.prefix(Self.maxAlerts).map(Self.alert))
+        return .value(result, outcome: .ok)
+    }
+
+    /// One alert, from named fields only. A row whose alert this build cannot
+    /// read keeps its detail as evidence and has no steps. A command is kept
+    /// only when `AlertCommand.copyable` passes, clipping leaves it whole and
+    /// it has no shell operator (`shellPlain`), and the docs link only when
+    /// `AlertDocs` builds one, so neither ever reaches a reader altered.
+    static func alert(_ row: StatusRow) -> JSONValue {
+        let evidence = row.alert?.evidence ?? (row.detail.isEmpty ? [] : [row.detail])
+        var entry: [String: JSONValue] = [
+            "name": .string(StatusDisplay.clip(row.name)),
+            "severity": .string(StatusDisplay.clip(row.severity)),
+            "cause": .string(StatusDisplay.clip(row.alert?.cause ?? "")),
+            "clusterEvidence": .array(evidence.prefix(maxEvidence).map { .string(StatusDisplay.clip($0)) }),
+            "fix": .array((row.alert?.fix ?? []).prefix(maxSteps).map(fixStep)),
+            "since": .optional(row.alert?.since.map(StatusDisplay.clip)),
+        ]
+        if let url = row.alert.flatMap({ AlertDocs.url($0.docs) })?.absoluteString, StatusDisplay.clip(url) == url {
+            entry["docsUrl"] = .string(url)
+        }
+        return .object(entry)
+    }
+
+    static func fixStep(_ step: StatusFixStep) -> JSONValue {
+        var entry: [String: JSONValue] = [
+            "step": .string(StatusDisplay.clip(step.step)),
+            "needsAdmin": .bool(step.needsAdmin),
+            "confirm": .bool(step.confirm),
+        ]
+        if let command = step.command, AlertCommand.copyable(command), StatusDisplay.clip(command) == command,
+           shellPlain(command) {
+            entry["command"] = .string(command)
+        }
+        return .object(entry)
+    }
+
+    /// Whether `command` has no shell operator: no `;`, `&`, `|`, backtick,
+    /// `>` or `<`, no `$(`, and no `$` before `{` or a letter. A tool result
+    /// carries a command only as one plain invocation to show a person; the
+    /// app's Copy keeps `AlertCommand.copyable` alone.
+    static func shellPlain(_ command: String) -> Bool {
+        let scalars = Array(command.unicodeScalars)
+        for (i, c) in scalars.enumerated() {
+            if ";&|`><".unicodeScalars.contains(c) { return false }
+            if c == "$", i + 1 < scalars.count {
+                let next = scalars[i + 1]
+                if next == "(" || next == "{" || next.properties.isAlphabetic { return false }
+            }
+        }
+        return true
     }
 
     // MARK: - nodes
@@ -419,6 +509,8 @@ public struct ClusterTools: Sendable {
     enum Failure: Equatable {
         case outcome(ReadOutcome, what: String)
         case unreadable(what: String)
+        /// The installed CLI has no `alerts` verb.
+        case alertsUnsupported
     }
 
     /// The first sentence every transient answer starts with.
@@ -444,6 +536,8 @@ public struct ClusterTools: Sendable {
             return ("updating-or-unreachable", "\(updatingOrUnreachable): \(what) exited \(status); the API server may be restarting.", true)
         case .unreadable(let what):
             return ("updating-or-unreachable", "\(updatingOrUnreachable): \(what) could not be read.", true)
+        case .alertsUnsupported:
+            return ("unsupported", "The installed k3sm does not support alerts; use k3sm_status.", false)
         }
     }
 
@@ -458,7 +552,7 @@ public struct ClusterTools: Sendable {
         var known: [String: JSONValue] = [:]
         let skip: Bool
         switch failure {
-        case .outcome(.missing, _), .outcome(.refused, _): skip = true
+        case .outcome(.missing, _), .outcome(.refused, _), .alertsUnsupported: skip = true
         default: skip = false
         }
         if !skip {

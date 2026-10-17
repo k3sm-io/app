@@ -39,6 +39,8 @@ public struct ReadRequest: Equatable, Sendable {
 
     /// The full status report, as the app reads it on demand.
     public static let report = ReadRequest(K3smCLI.reportArguments, deadline: PollSchedule.killDeadline, limit: OutputLimit.status)
+    /// The rows that need attention, each with its cause, evidence and fix.
+    public static let alerts = ReadRequest(K3smCLI.alertsArguments, deadline: PollSchedule.listDeadline, limit: OutputLimit.status)
     /// The launchd-only probe: it answers while the API server is down.
     public static let probe = ReadRequest(K3smCLI.probeArguments, deadline: PollSchedule.killDeadline, limit: OutputLimit.status)
     /// The installed CLI's version.
@@ -57,7 +59,7 @@ public struct ReadRequest: Equatable, Sendable {
 
     /// Every read the server can run.
     public static let all: [ReadRequest] = [
-        report, probe, version, updateStatus, nodes, events, metrics, metricsAPIService,
+        report, probe, version, updateStatus, nodes, events, metrics, metricsAPIService, alerts,
     ]
 }
 

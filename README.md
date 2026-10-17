@@ -1145,6 +1145,7 @@ it away. Other MCP clients take the same path as a stdio command.
 | tool | what it returns |
 |---|---|
 | `k3sm_status` | the status report: verdict, role, each health row (state, severity, detail, suggested command), who stopped k3sm, and versions (the installed CLI, this app, the latest release, each node) |
+| `k3sm_alerts` | what needs attention on this Mac and how to fix it, from `k3sm alerts -o json`: the verdict, role, summary and node, then each alert's check name, severity, cause, `clusterEvidence`, fix steps (each marked `needsAdmin` and `confirm`, with its command only when it is plain printable text with no shell operators) and the guide page; the tool to call first when something is wrong. Every step is for you to decide on: the agent is told never to run one, and `confirm` and `needsAdmin` mark steps that need extra care, not permission |
 | `k3sm_nodes` | each node: name, role, Ready, cordoned, kubelet version, k3sm release, conditions |
 | `k3sm_update_status` | the `update` row (latest release, behind or not) and the managed update's phase, target, per-node from, to and phase, and conditions |
 | `k3sm_metrics` | CPU (millicores) and memory per node from metrics-server, and the 20 pods using the most CPU; says so when the cluster serves no metrics API |
@@ -1182,7 +1183,8 @@ tool returns a result rather than an error:
 
 `condition` is `updating`, `updating-or-unreachable`, `cli-refused` (the
 installed CLI did not pass the check, as it may not for a moment mid-update),
-`stopped`, `not-installed` or `too-large`; `known` holds what launchd and the
+`stopped`, `not-installed`, `too-large` or, from `k3sm_alerts` on a k3sm too old
+to have `k3sm alerts`, `unsupported` (use `k3sm_status` instead); `known` holds what launchd and the
 update status still report.
 
 Every call is logged to `~/Library/Logs/k3sm-mcp.log`, one line each: the

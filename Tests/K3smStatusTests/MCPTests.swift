@@ -97,6 +97,7 @@ enum MCPFixtures {
             ReadRequest.nodes.arguments: ok(try fixture("kubectl_nodes_two.json")),
             ReadRequest.events.arguments: ok(try fixture("kubectl_events.json")),
             ReadRequest.metrics.arguments: ok(try fixture("kubectl_metrics_combined.json")),
+            ReadRequest.alerts.arguments: .exited(status: 4, stdout: try fixture("alerts_json_degraded.json")),
         ]
     }
 
@@ -189,12 +190,24 @@ enum MCPFixtures {
         for i in metricItems.indices { plant(&metricItems[i]) }
         metrics["items"] = metricItems
         table[ReadRequest.metrics.arguments] = ok(try data(metrics))
+
+        var alerts = try json(try fixture("alerts_json_degraded.json"))
+        plant(&alerts)
+        var alertRows = try #require(alerts["alerts"] as? [[String: Any]])
+        for i in alertRows.indices {
+            plant(&alertRows[i])
+            var alert = alertRows[i]["alert"] as? [String: Any] ?? [:]
+            plant(&alert)
+            alertRows[i]["alert"] = alert
+        }
+        alerts["alerts"] = alertRows
+        table[ReadRequest.alerts.arguments] = .exited(status: 4, stdout: try data(alerts))
         return table
     }
 
     /// The arguments each tool is called with in the sweeps.
     static let calls: [(ToolName, [String: JSONValue])] = [
-        (.status, [:]), (.nodes, [:]), (.updateStatus, [:]), (.metrics, [:]),
+        (.status, [:]), (.alerts, [:]), (.nodes, [:]), (.updateStatus, [:]), (.metrics, [:]),
         (.events, [:]), (.events, ["namespace": "shop", "limit": 5]),
     ]
 }
@@ -224,6 +237,16 @@ enum SecretScan {
         #"(?i)\bbearer\s+[A-Za-z0-9._~+/-]{16,}"#,
     ].map { try! NSRegularExpression(pattern: $0) }
 
+    /// The one key path where a forbidden fragment is allowed: an alert fix
+    /// step's `command`, text shown to a person and kept only when
+    /// `AlertCommand.copyable` passes (pinned by `AlertsToolTests`).
+    static let allowedKeyPaths: Set<String> = ["alerts.fix.command"]
+
+    /// Whether the last key of a dotted path is forbidden there.
+    static func badPath(_ path: String) -> Bool {
+        !allowedKeyPaths.contains(path) && badKey(String(path.split(separator: ".").last ?? ""))
+    }
+
     static func badKey(_ key: String) -> Bool {
         let letters = String(key.lowercased().unicodeScalars.filter { CharacterSet.lowercaseLetters.contains($0) })
         return forbiddenKeys.contains(letters) || forbiddenKeyParts.contains { letters.contains($0) }
@@ -241,6 +264,34 @@ enum SecretScan {
         case .array(let a): return a.flatMap(keys)
         default: return []
         }
+    }
+
+    /// Every key of every object in `value` as a dotted path from the top;
+    /// an array adds no step.
+    static func keyPaths(_ value: JSONValue, _ prefix: String = "") -> [String] {
+        switch value {
+        case .object(let o):
+            return o.flatMap { key, child in
+                let path = prefix.isEmpty ? key : prefix + "." + key
+                return [path] + keyPaths(child, path)
+            }
+        case .array(let a): return a.flatMap { keyPaths($0, prefix) }
+        default: return []
+        }
+    }
+
+    /// The property names a schema declares, as dotted paths from the top.
+    static func schemaPaths(_ schema: JSONValue, _ prefix: String = "") -> [String] {
+        guard case .object(let o) = schema else { return [] }
+        var paths: [String] = []
+        if case .object(let properties)? = o["properties"] {
+            for (name, child) in properties {
+                let path = prefix.isEmpty ? name : prefix + "." + name
+                paths += [path] + schemaPaths(child, path)
+            }
+        }
+        if let items = o["items"] { paths += schemaPaths(items, prefix) }
+        return paths
     }
 
     static func strings(_ value: JSONValue) -> [String] {
@@ -270,7 +321,7 @@ enum SecretScan {
     /// The findings for one result: forbidden keys, forbidden shapes and any
     /// planted string, so a failure names what leaked.
     static func findings(_ value: JSONValue, text: String) -> [String] {
-        var found = keys(value).filter(badKey).map { "key \($0)" }
+        var found = keyPaths(value).filter(badPath).map { "key \($0)" }
         found += strings(value).filter(badString).map { "value \($0.prefix(40))" }
         for planted in MCPFixtures.planted where text.contains(planted) || text.contains(planted.prefix(24)) {
             found.append("planted \(planted.prefix(24))")
@@ -288,10 +339,10 @@ struct MCPTests {
 
     @Test("no tool can return a token, a kubeconfig, a secret or a log, or run a command")
     func mcpToolsReturnNoSecrets() async throws {
-        // The closed tool set: five reads, none named for a write, a shell,
+        // The closed tool set: six reads, none named for a write, a shell,
         // kubectl, logs or a credential.
         #expect(ToolDefinition.all.map(\.name.rawValue) == [
-            "k3sm_status", "k3sm_nodes", "k3sm_update_status", "k3sm_metrics", "k3sm_events",
+            "k3sm_status", "k3sm_alerts", "k3sm_nodes", "k3sm_update_status", "k3sm_metrics", "k3sm_events",
         ])
         let verbs = ["kubectl", "shell", "exec", "run", "log", "secret", "token", "kubeconfig", "apply", "delete",
                      "cordon", "drain", "stop", "start", "restart", "patch", "create", "write", "cancel", "abort"]
@@ -308,10 +359,11 @@ struct MCPTests {
             #expect(inputs.isSubset(of: ["namespace", "limit"]), "\(name) takes \(inputs)")
 
             // Outputs: no declared field names a credential, a log, an
-            // environment or a command.
-            let outputs = SecretScan.schemaProperties(definition.outputSchema)
+            // environment or a command, except an alert step's command, text
+            // for a person (SecretScan.allowedKeyPaths).
+            let outputs = SecretScan.schemaPaths(definition.outputSchema)
             #expect(!outputs.isEmpty)
-            #expect(outputs.filter(SecretScan.badKey).isEmpty, "\(name) declares \(outputs.filter(SecretScan.badKey))")
+            #expect(outputs.filter(SecretScan.badPath).isEmpty, "\(name) declares \(outputs.filter(SecretScan.badPath))")
             for listed in [definition.listing(structured: true), definition.listing(structured: false)] {
                 #expect(listed["annotations"]?["readOnlyHint"] == true)
                 #expect(listed["annotations"]?["destructiveHint"] == false)
@@ -334,7 +386,7 @@ struct MCPTests {
         #expect(ReadRequest.all.map(\.arguments) == [
             K3smCLI.reportArguments, K3smCLI.probeArguments, K3smCLI.versionArguments, K3smCLI.updateStatusArguments,
             K3smCLI.nodesArguments, K3smCLI.eventsArguments, K3smCLI.metricsArguments,
-            K3smCLI.metricsAPIServiceArguments,
+            K3smCLI.metricsAPIServiceArguments, K3smCLI.alertsArguments,
         ])
         let readWords = ["logs", "exec", "secret", "configmap", "yaml", "token", "kubeconfig", "config", "delete",
                          "apply", "patch", "cordon", "edit", "port-forward", "proxy", "cp", "debug", "attach"]

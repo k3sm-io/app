@@ -25,7 +25,7 @@
 #      measure-polls.sh --self-test (the poll-cost summary and its refusals)
 #   7. every .swift file carries the Apache-2.0 header
 #   8. every file under .github/workflows/ is dormant (fully commented out)
-#   9. the vendored status and datavol fixtures match a sibling k3sm
+#   9. the vendored status, alerts and datavol fixtures match a sibling k3sm
 #      checkout, when one exists
 #  10. the dependency supply-chain check: its self-test, then the live tree
 #  11. every control carries a catalog help tag: the check's self-test, then
@@ -109,10 +109,10 @@ printf '%s\n' \
 [ "$(wc -l < "$tmp/mcp.out" | tr -d ' ')" = 2 ] || { echo "FAIL: k3sm-mcp did not write exactly two replies"; cat "$tmp/mcp.out"; exit 1; }
 grep -q '"protocolVersion":"2025-06-18"' "$tmp/mcp.out" || { echo "FAIL: k3sm-mcp did not negotiate 2025-06-18"; cat "$tmp/mcp.out"; exit 1; }
 tools="$(grep -o '"name":"k3sm_[a-z_]*"' "$tmp/mcp.out" | sort -u | tr '\n' ' ')"
-[ "$tools" = '"name":"k3sm_events" "name":"k3sm_metrics" "name":"k3sm_nodes" "name":"k3sm_status" "name":"k3sm_update_status" ' ] \
+[ "$tools" = '"name":"k3sm_alerts" "name":"k3sm_events" "name":"k3sm_metrics" "name":"k3sm_nodes" "name":"k3sm_status" "name":"k3sm_update_status" ' ] \
 	|| { echo "FAIL: k3sm-mcp lists other tools: $tools"; exit 1; }
 ! grep -q '"readOnlyHint":false' "$tmp/mcp.out" || { echo "FAIL: a k3sm-mcp tool is not read-only"; exit 1; }
-echo "    ok (k3sm-mcp: signed, sealed, five read-only tools on stdio)"
+echo "    ok (k3sm-mcp: signed, sealed, six read-only tools on stdio)"
 # A development build: both bundle versions stay 0.0.0 (the app's
 # developer-build rule reads that) and K3smBuildVersion carries the
 # checkout's pseudo-version, which k3sm-mcp reports as its own.
@@ -323,6 +323,13 @@ golden="$k3sm_dir/pkg/status/testdata"
 if [ -d "$golden" ]; then
 	drift=0
 	for f in Tests/K3smStatusTests/Fixtures/status_*.json; do
+		if ! cmp -s "$f" "$golden/$(basename "$f")"; then
+			echo "    DRIFT: $f differs from $golden/$(basename "$f")"; drift=1
+		fi
+	done
+	# The MCP alerts tool's fixtures (k3sm alerts -o json), byte for byte
+	# against k3sm's goldens of the same name.
+	for f in Tests/K3smStatusTests/Fixtures/alerts_json_*.json; do
 		if ! cmp -s "$f" "$golden/$(basename "$f")"; then
 			echo "    DRIFT: $f differs from $golden/$(basename "$f")"; drift=1
 		fi
