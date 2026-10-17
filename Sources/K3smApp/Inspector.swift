@@ -21,12 +21,14 @@ import SwiftUI
 /// offers (its `ActionMenu`, each asked of the shared `ActionRunner`, whose
 /// confirmation the console shows), Scale on its Deployment or StatefulSet,
 /// the last action's line, the Summarize Logs panel when it ran on this
-/// pod, then its logs, events or manifest verbatim; on the Logs tab, Follow
-/// streams the log into the pane until Stop, another pod or tab, or the
-/// inspector closing ends it.
+/// pod, then its events or manifest verbatim (`PodDetail.inspectorTabs`).
+/// The log is not here: Open Log opens it in the log pane along the bottom
+/// of the window (`LogPaneView`), where Follow streams it.
 struct Inspector: View {
     @ObservedObject var model: WorkloadsModel
     @ObservedObject var runner: ActionRunner
+    /// Opens the pod's log in the log pane.
+    let openLog: (Pod) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -38,12 +40,6 @@ struct Inspector: View {
                 LogSummaryPanel(summaries: model.summaries, podKey: pod.key)
                 detailTabs(pod)
                 pane
-                if let follow = model.shownFollow {
-                    Text(verbatim: follow.status).font(.system(size: 11.5))
-                        .foregroundStyle(Palette.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 18).padding(.bottom, 10)
-                }
             } else {
                 Text("Select a pod.").foregroundStyle(Palette.ink2).padding(18)
                 Spacer()
@@ -51,23 +47,16 @@ struct Inspector: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Palette.surface)
-        .onDisappear { model.endFollow(.closed) }
     }
 
-    /// The detail pane: the followed log while one is shown, otherwise the
-    /// selected tab's read; a followed log keeps its end in view.
+    /// The detail pane: the selected tab's read, the events or the manifest.
     private var pane: some View {
-        let follow = model.shownFollow
-        return ScrollViewReader { proxy in
-            ScrollView {
-                Text(verbatim: follow?.text ?? (model.detailLoading ? "loading…" : model.detailText))
-                    .font(.system(size: 11, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding(12)
-                Color.clear.frame(height: 1).id("end")
-            }
-            .onChange(of: follow?.data.count ?? -1) { if follow != nil { proxy.scrollTo("end", anchor: .bottom) } }
+        ScrollView {
+            Text(verbatim: model.detailLoading ? "loading…" : model.detailText)
+                .font(.system(size: 11, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+                .padding(12)
         }
         .background(Palette.wash)
         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -158,7 +147,7 @@ struct Inspector: View {
 
     private func detailTabs(_ pod: Pod) -> some View {
         HStack(spacing: 4) {
-            ForEach(WorkloadsModel.Detail.allCases) { d in
+            ForEach(PodDetail.inspectorTabs) { d in
                 Button(d.rawValue) { model.detail = d; model.loadDetail() }
                     .buttonStyle(.plain).font(.system(size: 12, weight: model.detail == d ? .medium : .regular))
                     .padding(.horizontal, 10).frame(height: 24)
@@ -168,34 +157,11 @@ struct Inspector: View {
                     .help(Help.Inspector.detail(d.rawValue))
             }
             Spacer()
-            if model.detail == .logs { followControl(pod) }
+            Button("Open Log") { openLog(pod) }
+                .controlSize(.small)
+                .help(Help.Inspector.logs)
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
-    }
-
-    /// Stop while the pod's log is followed; otherwise Follow, or a menu of
-    /// its containers for a pod of several (`LogFollow.targets`).
-    @ViewBuilder
-    private func followControl(_ pod: Pod) -> some View {
-        let targets = LogFollow.targets(for: pod)
-        if let follow = model.shownFollow, follow.reading {
-            Button("Stop") { model.stopFollow() }
-                .controlSize(.small)
-                .help(Help.Inspector.followStop)
-        } else if targets.count == 1, let target = targets.first {
-            Button("Follow") { model.startFollow(target) }
-                .controlSize(.small)
-                .help(Help.Inspector.follow)
-        } else if !targets.isEmpty {
-            Menu("Follow") {
-                ForEach(targets) { target in
-                    Button(target.container?.value ?? target.title) { model.startFollow(target) }
-                        .help(Help.Inspector.followContainer)
-                }
-            }
-            .controlSize(.small).fixedSize()
-            .help(Help.Inspector.followMenu)
-        }
     }
 
     private func fact(_ label: String, _ value: String, mono: Bool = false) -> some View {

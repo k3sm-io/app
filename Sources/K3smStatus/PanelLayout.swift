@@ -410,3 +410,67 @@ public struct PaneKeeper: Equatable, Sendable {
         placed = nil
     }
 }
+
+/// LogPaneHeight sizes the log pane along the bottom of the console window,
+/// the lower pane of a split view whose top edge the user drags. It opens at
+/// about a third of the window's height (`defaultFraction`) until the user
+/// drags it; a dragged height is kept in the user defaults under `key` and
+/// read back through `restore`, tolerant of any stored value. It runs from
+/// `minimum` to what leaves the console above it `aboveMinimum` (`range`).
+/// After the pane opens only a drag (or Reset Window Layout) moves it: a
+/// window resize leaves it alone (`PaneKeeper`, keyed by `keeperValue`).
+public enum LogPaneHeight {
+    /// The shortest the pane goes.
+    public static let minimum: Double = 120
+    /// The share of the window's height the pane opens at until dragged.
+    public static let defaultFraction: Double = 1.0 / 3.0
+    /// The least the console above the pane keeps: the strip, a tab's
+    /// header row and a few rows.
+    public static let aboveMinimum: Double = 320
+    /// The user-defaults key of the dragged height.
+    public static let key = "consoleLogPaneHeight"
+
+    /// The pane's height range in a split `total` points tall: from
+    /// `minimum` to what the console above and the divider leave, never
+    /// below `minimum`.
+    public static func range(total: Double) -> ClosedRange<Double> {
+        guard total.isFinite else { return minimum...minimum }
+        return minimum...max(minimum, total - aboveMinimum - TabStripLayout.dividerWidth)
+    }
+
+    /// The height the pane is placed at in a split `total` points tall: the
+    /// stored height, or a third of `total` while none is stored, within `range`.
+    public static func shown(stored: Double?, total: Double) -> Double {
+        let wanted = stored ?? total * defaultFraction
+        return PanelLayout.clamp(wanted.isFinite ? wanted : minimum, to: range(total: total))
+    }
+
+    /// What a drag of the pane's top edge to `height` stores: the height,
+    /// at least `minimum`; nil for a height that is not a finite number.
+    public static func dragged(_ height: Double) -> Double? {
+        guard height.isFinite else { return nil }
+        return max(minimum, height)
+    }
+
+    /// A stored height, at least `minimum`; nil (a third of the window)
+    /// when none is stored or the value is not a finite positive number.
+    public static func restore(from stored: Any?) -> Double? {
+        let value: Double
+        if let d = stored as? Double {
+            value = d
+        } else if let i = stored as? Int {
+            value = Double(i)
+        } else {
+            return nil
+        }
+        guard value.isFinite, value > 0 else { return nil }
+        return max(minimum, value)
+    }
+
+    /// The value a `PaneKeeper` tracks for `stored`: the stored height, or 0
+    /// while none is stored, so the default third is placed once when the
+    /// pane opens and a window resize does not place it again.
+    public static func keeperValue(stored: Double?) -> Double {
+        stored ?? 0
+    }
+}

@@ -144,10 +144,27 @@ final class AppModel: ObservableObject {
     /// each nil until the tab is first selected.
     @Published private(set) var builds: TabLoader<BuildEngine>?
     @Published private(set) var buildHistory: TabLoader<[BuildRecord]>?
-    /// The build log sheet on screen; nil when none is.
+    /// The build log the log pane shows; nil when it shows none.
     @Published private(set) var buildLog: BuildLogModel?
-    /// The one log sheet's read: opening a log or closing the sheet stops the last.
+    /// The one build log's read: opening a log or closing the pane stops the last.
     private let buildLogs = BuildLogSlot()
+    /// The log pane along the bottom of the window: what it shows, nil
+    /// source while closed (`LogPaneState`). Opening a log replaces it.
+    @Published private(set) var logPane = LogPaneState()
+    /// The log pane's height as the user last dragged it, or nil for a third
+    /// of the window (`LogPaneHeight.shown`). Kept in the user defaults
+    /// across launches (removed while nil), clamped on read
+    /// (`LogPaneHeight.restore`). Only a drag or Reset Window Layout changes it.
+    @Published var logPaneHeight: Double? = LogPaneHeight.restore(
+        from: UserDefaults.standard.object(forKey: LogPaneHeight.key)) {
+        didSet {
+            if let logPaneHeight {
+                UserDefaults.standard.set(logPaneHeight, forKey: LogPaneHeight.key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: LogPaneHeight.key)
+            }
+        }
+    }
     /// The Services, Storage (its claim list and the data volume card) and
     /// Models reads, and the Workloads tab's Events read; each nil until
     /// its tab (or sub-tab) is first selected.
@@ -1013,18 +1030,41 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Opens a recorded build's log sheet, replacing any other
-    /// (`LocalAction.showBuildLog`, through `LocalActions`).
+    /// Opens a recorded build's log in the log pane, replacing any other
+    /// log there (`LocalAction.showBuildLog`, through `LocalActions`).
     func showBuildLog(_ target: BuildLogTarget) {
+        stopPaneRead()
         let log = BuildLogModel(read: buildLogs.open(target))
         buildLog = log
+        logPane.open(.build(target))
         log.start(environment: environment, teamID: teamID)
     }
 
-    /// Closes the log sheet and stops its read.
-    func closeBuildLog() {
+    /// Opens `pod`'s log in the log pane, replacing any other log there:
+    /// its last lines of every container, which Follow in the pane streams.
+    func openPodLog(_ pod: Pod) {
+        stopPaneRead()
+        logPane.open(.pod(key: pod.key))
+        workloads.loadLog(pod)
+    }
+
+    /// Closes the log pane and stops its read.
+    func closeLogPane() {
+        stopPaneRead()
+        logPane.close()
+    }
+
+    /// A drag of the log pane's top edge to `height`.
+    func logPaneDragged(_ height: Double) {
+        guard let stored = LogPaneHeight.dragged(height), stored != logPaneHeight else { return }
+        logPaneHeight = stored
+    }
+
+    /// Stops whatever the log pane reads: a build's log, or a pod's read and follow.
+    private func stopPaneRead() {
         buildLogs.close()
         buildLog = nil
+        workloads.closeLog()
     }
 
     /// The selected row's actions on the selected tab (the Workloads tab's

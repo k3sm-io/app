@@ -29,10 +29,9 @@ import K3smStatus
 /// follow both.
 @MainActor
 final class WorkloadsModel: ObservableObject {
-    enum Detail: String, CaseIterable, Identifiable {
-        case logs = "Logs", events = "Events", manifest = "Manifest"
-        var id: Self { self }
-    }
+    /// A pod's reads; the inspector shows `PodDetail.inspectorTabs`, and
+    /// the log opens in the log pane.
+    typealias Detail = PodDetail
 
     /// The pod list; nil until the console first comes on screen.
     private(set) var pods: TabLoader<Workloads>?
@@ -43,8 +42,6 @@ final class WorkloadsModel: ObservableObject {
         from: UserDefaults.standard.object(forKey: ConsoleTabs.selectedKey(.workloads))) {
         didSet {
             UserDefaults.standard.set(selected, forKey: ConsoleTabs.selectedKey(.workloads))
-            // A follow belongs to its pod: another selection, by any path, ends it.
-            if let follow, follow.target.podKey != selected { endFollow(.moved) }
         }
     }
     @Published var query = ConsoleTabs.restoreQuery(
@@ -53,14 +50,17 @@ final class WorkloadsModel: ObservableObject {
     }
     /// This Mac's node name, from the last status report; the rows tag it.
     @Published var ownNode: String?
-    @Published var detail: Detail = .logs {
-        didSet { if detail != .logs { endFollow(.moved) } }
-    }
+    /// The inspector's detail tab: Events or Manifest (the log is the log pane's).
+    @Published var detail: Detail = .events
     @Published private(set) var detailText = ""
     @Published private(set) var detailLoading = false
-    /// The inspector's followed log (`LogFollowRead`); nil when none was
-    /// started for the selected pod. A new pod, another detail tab or the
-    /// inspector closing stops it.
+    /// The log pane's read of a pod's log (`K3smCLI.logsArguments`), the pod
+    /// it is of, and whether it is still reading.
+    @Published private(set) var logText = ""
+    @Published private(set) var logLoading = false
+    @Published private(set) var logPodKey: String?
+    /// The log pane's followed log (`LogFollowRead`); nil when none was
+    /// started. Another log in the pane, or the pane closing, stops it.
     @Published private(set) var follow: LogFollowRead?
     /// The Scale stepper's count and the controller key it was set for: a
     /// stepper on another controller starts at that one's own count.
@@ -87,6 +87,7 @@ final class WorkloadsModel: ObservableObject {
 
     private let environment: [String: String]
     private var detailTask: Task<Void, Never>?
+    private var logTask: Task<Void, Never>?
     private var forwarding: [AnyCancellable] = []
     private var metricsPoller: MetricsPoller?
 
@@ -244,10 +245,46 @@ final class WorkloadsModel: ObservableObject {
         follow = nil
     }
 
-    /// The follow the pane shows: the one on the selected pod, on the Logs tab.
-    var shownFollow: LogFollowRead? {
-        guard detail == .logs, let follow, follow.target.podKey == selected else { return nil }
+    /// The follow the log pane shows for the pod `podKey`.
+    func shownFollow(podKey: String) -> LogFollowRead? {
+        guard let follow, follow.target.podKey == podKey else { return nil }
         return follow
+    }
+
+    /// The listed pod with `key`, if it is still listed.
+    func pod(key: String) -> Pod? {
+        workloads?.pods.first { $0.key == key }
+    }
+
+    /// Reads `pod`'s log for the log pane, through the fixed argument list,
+    /// replacing the pane's last read.
+    func loadLog(_ pod: Pod) {
+        logTask?.cancel()
+        logPodKey = pod.key
+        guard let ns = pod.namespaceName, let name = pod.resourceName else {
+            logText = ""
+            logLoading = false
+            return
+        }
+        logLoading = true
+        let arguments = K3smCLI.logsArguments(namespace: ns, pod: name)
+        logTask = Task { [weak self] in
+            guard let self else { return }
+            let text = await self.read(arguments)
+            guard !Task.isCancelled else { return }
+            self.logLoading = false
+            self.logText = text
+        }
+    }
+
+    /// Ends the log pane's pod log: its read and any follow.
+    func closeLog() {
+        logTask?.cancel()
+        logTask = nil
+        logLoading = false
+        logText = ""
+        logPodKey = nil
+        endFollow(.closed)
     }
 
     /// The selected pod's actions, by `PodActions.menu`: the list the
@@ -284,27 +321,37 @@ final class WorkloadsModel: ObservableObject {
         }
         let arguments: [String]
         switch detail {
-        case .logs: arguments = K3smCLI.logsArguments(namespace: ns, pod: name)
+        case .logs:
+            // The log is the log pane's read (`loadLog`), never the inspector's.
+            detailText = ""
+            return
         case .events: arguments = K3smCLI.eventsArguments(namespace: ns, pod: name)
         case .manifest: arguments = K3smCLI.manifestArguments(namespace: ns, pod: name)
         }
         detailLoading = true
         detailTask = Task { [weak self] in
             guard let self else { return }
-            let outcome = await CLIProcess.run(path: K3smCLI.path, arguments: arguments, environment: self.environment, deadline: .seconds(15), limit: OutputLimit.detail)
+            let text = await self.read(arguments)
             guard !Task.isCancelled else { return }
             self.detailLoading = false
-            switch outcome {
-            case .exited(let status, let stdout):
-                let text = StatusDisplay.body(String(decoding: stdout, as: UTF8.self))
-                self.detailText = status == 0 ? (text.isEmpty ? "Nothing recorded." : text) : "k3sm kubectl exited \(status)"
-            case .truncated(let stdout):
-                // The first OutputLimit.detail bytes, cleaned like a whole
-                // read; the run was stopped there instead of read to the end.
-                self.detailText = StatusDisplay.body(String(decoding: stdout, as: UTF8.self)) + "\n… cut at \(OutputLimit.detail >> 10) KiB"
-            case .missing, .failedToLaunch, .killed, .refused:
-                self.detailText = "the k3sm CLI did not answer"
-            }
+            self.detailText = text
+        }
+    }
+
+    /// One pod read's text: the output cleaned for display, cut at
+    /// `OutputLimit.detail`, or the line saying why there is none.
+    private func read(_ arguments: [String]) async -> String {
+        let outcome = await CLIProcess.run(path: K3smCLI.path, arguments: arguments, environment: environment, deadline: .seconds(15), limit: OutputLimit.detail)
+        switch outcome {
+        case .exited(let status, let stdout):
+            let text = StatusDisplay.body(String(decoding: stdout, as: UTF8.self))
+            return status == 0 ? (text.isEmpty ? "Nothing recorded." : text) : "k3sm kubectl exited \(status)"
+        case .truncated(let stdout):
+            // The first OutputLimit.detail bytes, cleaned like a whole
+            // read; the run was stopped there instead of read to the end.
+            return StatusDisplay.body(String(decoding: stdout, as: UTF8.self)) + "\n… cut at \(OutputLimit.detail >> 10) KiB"
+        case .missing, .failedToLaunch, .killed, .refused:
+            return "the k3sm CLI did not answer"
         }
     }
 }

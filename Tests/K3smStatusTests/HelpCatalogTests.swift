@@ -102,6 +102,7 @@ struct HelpCatalogTests {
         #expect(Help.General.tour(available: false) == Help.General.tourUnavailable)
         #expect(Help.Strip.details(shown: true) == Help.Strip.hideDetails)
         #expect(Help.Inspector.detail("Manifest") == Help.Inspector.manifest)
+        #expect(Help.Inspector.detail("Events") == Help.Inspector.events)
         #expect(Help.Panel.tile(PanelTile(label: "data root", value: "1 GB")).text.contains("k3sm's data"))
         #expect(Set(ConsoleSection.allCases.map { Help.Strip.tab($0).text }).count == ConsoleSection.allCases.count)
     }

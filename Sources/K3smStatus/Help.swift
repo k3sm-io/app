@@ -52,7 +52,7 @@ public enum Help {
     /// Every tag in the catalog, area by area.
     public static var all: [HelpTag] {
         Strip.all + Workloads.all + Nodes.all + Images.all + Builds.all + Services.all + Storage.all + Models.all + Stats.all + Alerts.all
-            + Inspector.all + Actions.all + Status.all + Panel.all + Popover.all + Guided.all + FirstRun.all + Update.all
+            + Inspector.all + LogPane.all + Actions.all + Status.all + Panel.all + Popover.all + Guided.all + FirstRun.all + Update.all
             + Tour.all + General.all + Network.all + InstallSettings.all + Updates.all + Advanced.all + SettingsWindow.all + Menus.all + Columns.all
     }
 
@@ -400,9 +400,9 @@ public enum Help {
     /// The inspector: the pod's detail tabs, the log summary's buttons and
     /// the health dots every list and card shares.
     public enum Inspector {
-        /// The pod's Logs detail tab.
-        public static let logs = HelpTag("Show the last \(K3smCLI.logTail) log lines of every container",
-                                         control: "inspector: Logs tab", label: "Logs")
+        /// The pod's Open Log, which opens its log in the log pane.
+        public static let logs = HelpTag("Show the last \(K3smCLI.logTail) log lines of every container below",
+                                         control: "inspector: Open Log", label: "Open Log")
         /// The pod's Events detail tab.
         public static let events = HelpTag("Show the events about this pod",
                                            control: "inspector: Events tab", label: "Events")
@@ -421,27 +421,12 @@ public enum Help {
         /// A health dot with no word beside it (a pod, a model, an event).
         public static let healthDot = HelpTag("Green is fine, amber needs a look, red has failed",
                                               control: "lists: health dot")
-        /// The build log sheet's Close button (Escape).
-        public static let buildLogClose = HelpTag("Stop reading the log and close it (Escape)",
-                                                  control: "build log sheet: Close", label: "Close")
 
         /// The Scale stepper on the pod's Deployment or StatefulSet.
         public static let scaleStepper = HelpTag("Choose the replica count to scale to, from 1 to 50",
                                                  control: "inspector: Scale stepper")
         /// The Scale button beside it.
         public static let scale = Actions.byVerb["controller-scale"] ?? Actions.other
-        /// Follow, on the Logs tab of a pod of one container.
-        public static let follow = HelpTag("Stream the pod's new log lines into the pane",
-                                           control: "inspector: Follow", label: "Follow")
-        /// Follow, on the Logs tab of a pod of several containers.
-        public static let followMenu = HelpTag("Choose a container and stream its new log lines",
-                                               control: "inspector: Follow menu", label: "Follow")
-        /// One container's item in that menu.
-        public static let followContainer = HelpTag("Stream this container's new log lines into the pane",
-                                                    control: "inspector: Follow menu item")
-        /// Stop, while a log is followed.
-        public static let followStop = HelpTag("End the stream; the lines read so far stay",
-                                               control: "inspector: Follow Stop", label: "Stop")
 
         /// One of the pod's detail tabs, by its label.
         public static func detail(_ label: String) -> HelpTag {
@@ -453,9 +438,29 @@ public enum Help {
         }
 
         public static var all: [HelpTag] {
-            [logs, events, manifest, summaryCancel, summaryCopy, summaryClose, healthDot, buildLogClose,
-             scaleStepper, follow, followMenu, followContainer, followStop]
+            [logs, events, manifest, summaryCancel, summaryCopy, summaryClose, healthDot, scaleStepper]
         }
+    }
+
+    /// The log pane along the bottom of the window: a pod's or a build's log.
+    public enum LogPane {
+        /// Follow, on a pod of one container.
+        public static let follow = HelpTag("Stream the pod's new log lines into the pane",
+                                           control: "log pane: Follow", label: "Follow")
+        /// Follow, on a pod of several containers.
+        public static let followMenu = HelpTag("Choose a container and stream its new log lines",
+                                               control: "log pane: Follow menu", label: "Follow")
+        /// One container's item in that menu.
+        public static let followContainer = HelpTag("Stream this container's new log lines into the pane",
+                                                    control: "log pane: Follow menu item")
+        /// Stop, while a log is followed.
+        public static let followStop = HelpTag("End the stream; the lines read so far stay",
+                                               control: "log pane: Follow Stop", label: "Stop")
+        /// The pane's close button.
+        public static let close = HelpTag("Stop reading the log and close the pane",
+                                          control: "log pane: close")
+
+        public static var all: [HelpTag] { [follow, followMenu, followContainer, followStop, close] }
     }
 
     // MARK: Row actions

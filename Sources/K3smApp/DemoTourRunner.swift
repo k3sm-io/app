@@ -165,10 +165,15 @@ final class DemoTourRunner {
             switch read {
             case .refresh:
                 await model.refreshTabs()
-            case .logs, .events, .manifest:
+            case .logs:
+                // The log opens in the log pane, as Open Log does.
+                guard let pod = model.workloads.selectedPod else { return "no pod is selected" }
+                model.openPodLog(pod)
+                let read = await poll(20) { !self.model.workloads.logLoading }
+                if !read { return "the read did not finish within 20 s" }
+            case .events, .manifest:
                 guard model.workloads.selectedPod != nil else { return "no pod is selected" }
-                let detail: WorkloadsModel.Detail = read == .logs ? .logs : read == .events ? .events : .manifest
-                model.workloads.detail = detail
+                model.workloads.detail = read == .events ? .events : .manifest
                 model.workloads.loadDetail()
                 let read = await poll(20) { !self.model.workloads.detailLoading }
                 if !read { return "the read did not finish within 20 s" }

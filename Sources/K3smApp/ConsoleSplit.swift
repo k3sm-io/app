@@ -28,10 +28,13 @@ import SwiftUI
 /// drives the same item. The inspector opens at `inspectorWidth` and moves
 /// only when the user drags its divider (`InspectorWidth`, `PaneKeeper`),
 /// between its minimum and the widest that leaves the tab column at
-/// `contentMinimum`; the details button collapses and shows it. Built on
-/// `NSSplitViewController`, since `HSplitView` offers no collapse and no way
-/// to restore a width.
-struct ConsoleSplit<Panel: View, Content: View, Details: View>: NSViewControllerRepresentable {
+/// `contentMinimum`; the details button collapses and shows it. Under all
+/// three, the log pane (`logPane`) runs the window's full width while a log
+/// is open, its top edge dragged between `LogPaneHeight.minimum` and what
+/// leaves the console above it room (`LogPaneHeight`, `PaneKeeper`). Built
+/// on `NSSplitViewController`, since `HSplitView` offers no collapse and no
+/// way to restore a width.
+struct ConsoleSplit<Panel: View, Content: View, Details: View, Logs: View>: NSViewControllerRepresentable {
     let app: AppModel
     let range: ClosedRange<Double>
     let width: Double
@@ -42,8 +45,11 @@ struct ConsoleSplit<Panel: View, Content: View, Details: View>: NSViewController
     let panel: Panel
     let content: Content
     let inspector: Details
+    let logHeight: Double?
+    let logOpen: Bool
+    let logPane: Logs
 
-    func makeNSViewController(context: Context) -> ConsoleSplitController {
+    func makeNSViewController(context: Context) -> ConsoleLogSplitController {
         // The split items carry the sizes, so the hosted views add no
         // constraints of their own.
         let panelHost = NSHostingController(rootView: panel)
@@ -65,17 +71,118 @@ struct ConsoleSplit<Panel: View, Content: View, Details: View>: NSViewController
         controller.onInspectorCollapse = { [weak app] collapsed in
             if app?.inspectorShown == collapsed { app?.inspectorShown = !collapsed }
         }
-        apply(controller)
-        return controller
+        let logHost = NSHostingController(rootView: logPane)
+        logHost.sizingOptions = []
+        let outer = ConsoleLogSplitController(console: controller, logs: logHost)
+        outer.onDrag = { [weak app] height in app?.logPaneDragged(height) }
+        outer.onCollapse = { [weak app] in
+            if app?.logPane.isOpen == true { app?.closeLogPane() }
+        }
+        apply(outer)
+        return outer
     }
 
-    func updateNSViewController(_ controller: ConsoleSplitController, context: Context) {
+    func updateNSViewController(_ controller: ConsoleLogSplitController, context: Context) {
         apply(controller)
     }
 
-    private func apply(_ controller: ConsoleSplitController) {
+    private func apply(_ outer: ConsoleLogSplitController) {
+        let controller = outer.console
         controller.apply(range: range, width: width, collapsed: collapsed, contentMinimum: contentMinimum)
         controller.applyInspector(width: inspectorWidth, shown: inspectorShown)
+        outer.apply(height: logHeight, open: logOpen)
+    }
+}
+
+/// ConsoleLogSplitController stacks the console's three panes over the log
+/// pane. The log pane keeps its height while the window resizes (a higher
+/// holding priority), so the console above takes the change; it is
+/// collapsed while no log is open.
+@MainActor
+final class ConsoleLogSplitController: NSSplitViewController {
+    let console: ConsoleSplitController
+    private let consoleItem: NSSplitViewItem
+    private let logItem: NSSplitViewItem
+    /// A user's drag of the pane's top edge, as the pane's new height.
+    var onDrag: (Double) -> Void = { _ in }
+    /// The pane collapsed by the split itself (a drag past its minimum).
+    var onCollapse: () -> Void = {}
+    private var keeper = PaneKeeper()
+    /// The stored height waiting for a layout (nil for none waiting; the
+    /// inner nil, a third of the window).
+    private var pending: Double??
+    private var moving = false
+
+    init(console: ConsoleSplitController, logs: NSViewController) {
+        self.console = console
+        consoleItem = NSSplitViewItem(viewController: console)
+        consoleItem.minimumThickness = LogPaneHeight.aboveMinimum
+        consoleItem.holdingPriority = .defaultLow
+        logItem = NSSplitViewItem(viewController: logs)
+        logItem.canCollapse = true
+        logItem.minimumThickness = LogPaneHeight.minimum
+        logItem.holdingPriority = NSLayoutConstraint.Priority(260)
+        logItem.isCollapsed = true
+        super.init(nibName: nil, bundle: nil)
+        splitView.isVertical = false
+        splitView.dividerStyle = .thin
+        addSplitViewItem(consoleItem)
+        addSplitViewItem(logItem)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// Brings the pane to the model: open or collapsed, and its stored
+    /// height (nil for a third of the window) placed once per change.
+    func apply(height: Double?, open: Bool) {
+        if logItem.isCollapsed == open {
+            moving = true
+            logItem.isCollapsed = !open
+            moving = false
+            keeper.reset()
+        }
+        guard open, keeper.place(LogPaneHeight.keeperValue(stored: height)) != nil else { return }
+        place(height)
+    }
+
+    private func place(_ stored: Double?) {
+        let total = Double(splitView.bounds.height)
+        guard total > 0 else {
+            pending = .some(stored)
+            return
+        }
+        pending = nil
+        let divider = Double(splitView.dividerThickness)
+        let height = LogPaneHeight.shown(stored: stored, total: total)
+        moving = true
+        splitView.setPosition(CGFloat(total - height - divider), ofDividerAt: 0)
+        moving = false
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        if let pending, splitView.bounds.height > 0 { place(pending) }
+    }
+
+    override func splitView(_ splitView: NSSplitView, shouldCollapseSubview subview: NSView,
+                            forDoubleClickOnDividerAt dividerIndex: Int) -> Bool {
+        false
+    }
+
+    override func splitViewDidResizeSubviews(_ notification: Notification) {
+        super.splitViewDidResizeSubviews(notification)
+        guard !moving else { return }
+        if logItem.isCollapsed {
+            onCollapse()
+            return
+        }
+        // The divider index is in the notification only when the user moved
+        // the divider; a window resize leaves the stored height alone.
+        guard notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
+        let height = Double(logItem.viewController.view.frame.height)
+        keeper.dragged(to: LogPaneHeight.keeperValue(stored: LogPaneHeight.dragged(height)))
+        onDrag(height)
     }
 }
 

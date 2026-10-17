@@ -85,7 +85,10 @@ struct ConsoleView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Palette.surface)
                 .tourTarget(.inspector, app.tour)
-                .ignoresSafeArea())
+                .ignoresSafeArea(),
+            logHeight: app.logPaneHeight,
+            logOpen: app.logPane.isOpen,
+            logPane: LogPaneView(app: app).ignoresSafeArea())
         .frame(minWidth: size.width, minHeight: size.height)
         .background(Palette.surface)
         .overlay { TourOverlay(tour: app.tour) }
@@ -137,13 +140,6 @@ struct ConsoleContent: View {
         // in the inspector, so a row's menu or the Delete key asks it with
         // the inspector collapsed too.
         .modifier(ActionConfirmationDialog(runner: app.actions))
-        // A recorded build's log, opened by its Show Log; closing it stops
-        // the read.
-        .sheet(isPresented: Binding(get: { app.buildLog != nil }, set: { if !$0 { app.closeBuildLog() } })) {
-            if let log = app.buildLog {
-                BuildLogSheet(log: log) { app.closeBuildLog() }
-            }
-        }
         // The guided panel the health banner opens, for the plan it was
         // opened with, so its finished line stays after the state changes.
         .sheet(isPresented: Binding(get: { app.guidedPanel != nil }, set: { if !$0 { app.closeGuided() } })) {

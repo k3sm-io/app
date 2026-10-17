@@ -31,7 +31,7 @@ struct ConsoleInspector: View {
     var body: some View {
         switch app.section {
         case .workloads:
-            Inspector(model: app.workloads, runner: app.actions)
+            Inspector(model: app.workloads, runner: app.actions) { app.openPodLog($0) }
         case .nodes:
             NodeInspector(app: app, workloads: app.workloads)
         case .images:

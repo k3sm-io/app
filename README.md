@@ -368,13 +368,20 @@ login** in the app's Settings turns it off or on again (see
   replaces each pod only when it is deleted. Scale and Rollout Restart run
   with the same trust check and account as Restart, and their line shows
   under the buttons beside Pause's. Neither is on the Delete key.
-- **Follow** on the pod details' Logs tab streams the log into the pane:
+- **Logs open in a pane along the bottom of the window**, under the list,
+  the details and the left panel. **Open Log** in a pod's details shows its
+  last 200 lines of every container there; the pane's title names the log,
+  and its close button stops the read and puts the pane away. Opening
+  another log, a pod's or a build's, replaces what the pane shows. Drag the
+  pane's top edge to resize it, from 120 pt up; it opens at a third of the
+  window, and the app keeps the height you drag to.
+- **Follow** in the log pane streams the pod's log into it:
   `k3sm kubectl logs -f --tail=200 <pod> -n <namespace>`, with `-c
   <container>` from the Follow menu for a pod of several containers. The
   pane keeps the newest line in view and the line under it says how the
   follow stands. **Stop** ends it, keeping the lines read so far; so does
-  selecting another pod or tab, or closing the inspector. The pane holds
-  64 KiB, the inspector's limit for a log, and a follow stops there and
+  closing the pane or opening another log. The pane holds
+  64 KiB, the app's limit for a pod's log, and a follow stops there and
   says so, as it does after 30 minutes; Follow starts it again with the
   newest lines. It only reads.
 - A **service**'s details and its Control-click menu offer **Copy Cluster
@@ -537,9 +544,9 @@ login** in the app's Settings turns it off or on again (see
   message. That line says how each action ended, with the freed size after
   a prune.
 - Each **build** in the history offers, from its row's Control-click menu or
-  its details: **Show Log**, a sheet with the build's stored log
+  its details: **Show Log**, the build's stored log in the log pane
   (`k3sm build logs <id>`, following it with `-f` while the build runs; the
-  sheet shows at most 1 MiB, and closing it stops the read); **Cancel
+  pane shows at most 1 MiB, and closing it stops the read); **Cancel
   Build** while it runs (`k3sm build cancel <id>`); and **Delete Record**
   once it has finished (`k3sm build rm <id>`, which removes the record and
   its log, not the image), which is also on the Delete key. Both ask first,
@@ -582,7 +589,7 @@ login** in the app's Settings turns it off or on again (see
     more than the 256 KiB k3sm holds, is refused, and nothing is deleted. Each step asks for the administrator password.
 - The **details** on the right follow the tab. Click a row on any tab (on
   Builds, the engine card or a build) and its details show there: a pod's facts
-  and its logs, events or manifest; a node's role, readiness, whether it
+  and its events or manifest, with Open Log for its log; a node's role, readiness, whether it
   takes new pods, kubelet and k3sm versions, addresses, capacity and
   allocatable, its live CPU and memory bars with the last few CPU samples and
   the sample's age ("no metrics yet" before metrics-server has sampled it),
@@ -783,7 +790,7 @@ The **General** pane:
 - **Take the Tour** brings the window forward and starts the tour, once k3sm
   is installed.
 - **Reset Window Layout…** asks, then puts the console's left panel back to
-  its natural width (fitting itself again) and first view, shown, shows the details column at its first width, and puts every
+  its natural width (fitting itself again) and first view, shown, shows the details column at its first width, opens logs at a third of the window again, and puts every
   table's columns back to their first widths. Tabs, searches and selections
   stay as they are.
 - **Version** names the app and its own version, `k3sm.app v0.2.0` for a
@@ -1244,7 +1251,7 @@ A tour is a JSON object whose `steps` list holds one step per line:
 | `selectRow pod <namespace>/<name>` | selects a pod; a name ending in `*` is a prefix, for a StatefulSet's pod |
 | `selectRow node <name>` | selects a node; `@server` is the control-plane node |
 | `openInspector`, `closeInspector` | shows or hides the inspector |
-| `runRead <logs\|events\|manifest\|refresh>` | shows the selected pod's logs, events or manifest, or reads the tab again |
+| `runRead <logs\|events\|manifest\|refresh>` | opens the selected pod's log in the log pane, shows its events or manifest, or reads the tab again |
 | `waitFor modelReady <namespace>/<name> [seconds]` | waits until the MLXModel is Ready |
 | `waitFor podRunning <namespace>/<name> [seconds]` | waits until the pod is Running and ready |
 | `waitFor nodesReady <count> [seconds]` | waits until that many nodes are Ready |
