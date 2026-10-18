@@ -38,8 +38,13 @@ struct AppleScriptPrivilegedRunner: PrivilegedRunner {
     /// the script's standard error when it exits non-zero, or, only for a
     /// script that asks (`RootScript.capturesOutput`), its result, the
     /// script's standard output, cut at `PrivilegedRun.maxOutputBytes`, when
-    /// it exits 0. The text is raw; the caller parses or cleans it.
+    /// it exits 0. The cut bounds what is kept: `do shell script` returns the
+    /// whole string first. The text is raw; the caller parses or cleans it.
+    /// A `.secret` script is refused before the prompt.
     func runAsRootReportingError(_ script: RootScript, input: Data?) async -> PrivilegedRun {
+        // A `.secret` script runs only through the capturing call; here its
+        // result would be dropped after root made it.
+        guard PrivilegedCapture.refusal(forRunning: script) == nil else { return PrivilegedRun(outcome: .couldNotStart) }
         if let input, input.count > Self.maxInput {
             return PrivilegedRun(outcome: .couldNotStart)
         }
@@ -51,35 +56,32 @@ struct AppleScriptPrivilegedRunner: PrivilegedRunner {
     }
 
     /// Runs a step with no stdin and returns `do shell script`'s result, its
-    /// standard output, only when the step exited 0. The result string never
-    /// enters argv, a file or the error path: a failed step's error carries
-    /// only standard error, and the mint script prints the token only after
-    /// the CLI exited 0. Output over `capturedOutputLimit` is refused.
+    /// standard output, only when the step exited 0 and only for a script
+    /// that asks for a secret result (`RootScript.returnsSecret`); any other
+    /// script is refused before the prompt (`PrivilegedCapture.capture`). The
+    /// result string never enters argv, a file or the error path: a failed
+    /// step's error carries only standard error, and the mint script prints
+    /// the token only after the CLI exited 0. Output over
+    /// `capturedOutputLimit` is dropped; the limit bounds what is kept, since
+    /// `do shell script` returns the whole string first.
     func runAsRootCapturingOutput(_ script: RootScript) async -> Result<String, PrivilegedFailure> {
-        await withCheckedContinuation { continuation in
+        guard script.returnsSecret else { return .failure(.notCapturable) }
+        return await withCheckedContinuation { continuation in
             Thread.detachNewThread {
-                let (run, output) = Self.execute(script, input: nil)
-                guard run.outcome == .succeeded else {
-                    continuation.resume(returning: .failure(.notSucceeded(run)))
-                    return
-                }
-                guard let output, output.utf8.count <= capturedOutputLimit else {
-                    continuation.resume(returning: .failure(.outputRefused))
-                    return
-                }
-                continuation.resume(returning: .success(output))
+                continuation.resume(returning: PrivilegedCapture.capture(script) { Self.execute($0, input: nil) })
             }
         }
     }
 
     private static func runBlocking(_ script: RootScript, input: Data?) -> PrivilegedRun {
-        execute(script, input: input).run
+        PrivilegedCapture.run(script) { execute($0, input: input).run }
     }
 
-    /// Runs the step; on success also returns the result descriptor's string
-    /// value (the script's standard output), which only the capturing path
-    /// reads.
-    private static func execute(_ script: RootScript, input: Data?) -> (run: PrivilegedRun, output: String?) {
+    /// Runs the step; on success keeps of its result descriptor's string
+    /// value (the script's standard output) only what the script asks for
+    /// (`PrivilegedCapture.succeeded`): nothing, the capped output in the
+    /// run, or the raw secret, which only the capturing path reads.
+    private static func execute(_ script: RootScript, input: Data?) -> (run: PrivilegedRun, secret: String?) {
         var fifo: InputFIFO?
         if let input {
             guard let made = try? InputFIFO(feeding: input) else { return (PrivilegedRun(outcome: .couldNotStart), nil) }
@@ -95,13 +97,7 @@ struct AppleScriptPrivilegedRunner: PrivilegedRunner {
         let result = compiled.executeAndReturnError(&error)
         // `do shell script` returns the script's standard output, its line
         // endings turned into carriage returns and its last newline dropped.
-        // Only a script that asks for it keeps it in the run, cut at the cap;
-        // the capturing path reads the raw result instead.
-        guard let error else {
-            guard script.capturesOutput else { return (PrivilegedRun(outcome: .succeeded), result.stringValue) }
-            let kept = PrivilegedRun.capped(result.stringValue)
-            return (PrivilegedRun(outcome: .succeeded, output: kept.text, outputTruncated: kept.truncated), result.stringValue)
-        }
+        guard let error else { return PrivilegedCapture.succeeded(script, result: result.stringValue) }
         let number = (error[NSAppleScript.errorNumber] as? NSNumber)?.int32Value ?? -1
         // -128 is userCanceledErr: the prompt was dismissed.
         if number == -128 { return (PrivilegedRun(outcome: .cancelled), nil) }

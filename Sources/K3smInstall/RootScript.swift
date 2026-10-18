@@ -47,18 +47,46 @@ public struct RootScript: Hashable, Sendable {
     /// lifecycle verb (`LifecycleScriptBuilder`) stages nothing and takes no
     /// lock.
     public let usesStagingLock: Bool
-    /// Whether the runner hands back the script's standard output, at most
-    /// `PrivilegedRun.maxOutputBytes`. Only the image verbs ask for it
-    /// (`LifecycleScriptBuilder.renderImage`); the copy-out and every
-    /// lifecycle verb return none.
-    public let capturesOutput: Bool
+    /// What the runner keeps of the script's standard output. A script keeps
+    /// nothing unless it asks.
+    public let result: ResultUse
+
+    /// ResultUse is the one opt-in for a root step's standard output. The
+    /// two kinds of output that are kept differ in who may read them, so
+    /// they are two cases, never one flag: a step is at most one of them.
+    public enum ResultUse: Hashable, Sendable {
+        /// The output is dropped where the runner receives it. The copy-out
+        /// and every lifecycle verb.
+        case discarded
+        /// The output rides `PrivilegedRun.output`, cut at
+        /// `PrivilegedRun.maxOutputBytes`, which callers parse or show. Only
+        /// the image verbs (`LifecycleScriptBuilder.renderImage`).
+        case kept
+        /// The output is a secret single value, returned only by
+        /// `PrivilegedRunner.runAsRootCapturingOutput` and never put in a
+        /// `PrivilegedRun`. Only the join token mint (`JoinTokenMint`).
+        case secret
+    }
+
+    /// Whether the runner hands back the script's standard output in its
+    /// `PrivilegedRun`, at most `PrivilegedRun.maxOutputBytes`.
+    public var capturesOutput: Bool { result == .kept }
+
+    /// Whether the script's standard output is a secret only the capturing
+    /// call returns. `runAsRootCapturingOutput` refuses any other script.
+    public var returnsSecret: Bool { result == .secret }
 
     public init(text: String, prompt: String, readsInput: Bool, usesStagingLock: Bool = true, capturesOutput: Bool = false) {
+        self.init(text: text, prompt: prompt, readsInput: readsInput, usesStagingLock: usesStagingLock,
+                  result: capturesOutput ? .kept : .discarded)
+    }
+
+    public init(text: String, prompt: String, readsInput: Bool, usesStagingLock: Bool = true, result: ResultUse) {
         self.text = text
         self.prompt = prompt
         self.readsInput = readsInput
         self.usesStagingLock = usesStagingLock
-        self.capturesOutput = capturesOutput
+        self.result = result
     }
 
     /// The one command line the privileged runner executes: a scrubbed

@@ -59,14 +59,15 @@ public enum JoinTokenMint: String, CaseIterable, Hashable, Sendable {
     /// every lifecycle verb (`InstalledCLIPreamble`), then the CLI with its
     /// standard output held in a variable and printed only after the CLI
     /// exited 0. A failed mint therefore writes nothing to standard output,
-    /// and the runner's error path carries only standard error. Only the
-    /// tests pass another path.
+    /// and the runner's error path carries only standard error. The script
+    /// asks for its output as a secret (`RootScript.ResultUse.secret`), so
+    /// only the capturing call returns it. Only the tests pass another path.
     static func render(_ mint: JoinTokenMint, teamID: TeamID, cliPath: String) -> RootScript {
         let argv = arguments(for: mint).map(ShellQuote.quote).joined(separator: " ")
         let text = InstalledCLIPreamble.render(teamID: teamID, cliPath: cliPath)
             + "token=$(\"$k3sm\" \(argv))\n"
             + "printf '%s\\n' \"$token\"\n"
-        return RootScript(text: text, prompt: mint.prompt, readsInput: false, usesStagingLock: false)
+        return RootScript(text: text, prompt: mint.prompt, readsInput: false, usesStagingLock: false, result: .secret)
     }
 }
 

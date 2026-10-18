@@ -225,6 +225,19 @@ struct JoinTokenGrammarTests {
         #expect(JoinToken(output: sentinelToken + "\n" + sentinelToken) == nil)
     }
 
+    /// A CLI that also prints a warning on standard output leaves a stray
+    /// non-comment line beside the token, so nothing is read and nothing is
+    /// copied. `do shell script` turns line ends into carriage returns.
+    @Test("a warning line beside the token means no token", arguments: ["\n", "\r"])
+    func strayWarningLine(_ eol: String) {
+        let warning = "warning: the server certificate expires in 3 days"
+        #expect(JoinToken(output: warning + eol + sentinelToken) == nil)
+        #expect(JoinToken(output: sentinelToken + eol + warning) == nil)
+        #expect(JoinToken(output: "# k3sm join token" + eol + warning + eol + sentinelToken + eol) == nil)
+        #expect(JoinToken(output: "#warning" + eol + sentinelToken) == nil)
+        #expect(JoinToken(output: "# k3sm join token" + eol + sentinelToken + eol)?.value == sentinelToken)
+    }
+
     @Test("the token never prints through description or reflection")
     func redactedDescription() throws {
         let token = try #require(JoinToken(validating: sentinelToken))

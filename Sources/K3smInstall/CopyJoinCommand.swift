@@ -160,6 +160,9 @@ public final class JoinCommandDriver {
         case .failure(.outputRefused):
             log("join command: mint output refused")
             return .failed(Self.notAToken)
+        case .failure(.notCapturable), .failure(.secretNotRunnable):
+            log("join command: mint script refused by the runner")
+            return .failed(Self.failureText(PrivilegedRun(outcome: .couldNotStart)))
         case .success(let output):
             guard let token = JoinToken(output: output),
                   let text = JoinCommandText.render(token: token, server: server)
