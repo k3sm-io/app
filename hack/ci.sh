@@ -18,7 +18,10 @@
 #   5. hack/build-app.sh --payload with a fake payload: the refusals, the
 #      manifest, the version stamp (and no K3smBuildVersion); then
 #      make-dmg.sh on the result
-#   6. sign-and-notarize.sh refuses to run unattended; release.sh --self-test
+#   6. sign-and-notarize.sh refuses to run unattended; sign-and-notarize.sh
+#      --self-test (every Mach-O in a fixture bundle is found, ad-hoc signed and
+#      verified by name, and an unsigned extra executable fails closed);
+#      release.sh --self-test
 #      (the release driver's refusals, checks and rehearsal, all with fakes);
 #      verify-release.sh --self-test around the rehearsal app of step 5 (real
 #      disk images, mounted read-only: a good one passes, each broken one fails);
@@ -261,6 +264,11 @@ expect_sign_refusal() {
 expect_sign_refusal "CLAUDECODE set" env CLAUDECODE=1
 expect_sign_refusal "K3SM_AUTO set" env -u CLAUDECODE K3SM_AUTO=1
 expect_sign_refusal "stdin not a terminal" env -u CLAUDECODE -u K3SM_AUTO
+
+echo "==> hack/release/sign-and-notarize.sh --self-test"
+bash hack/release/sign-and-notarize.sh --self-test > "$tmp/sign-selftest.log" 2>&1 \
+	|| { echo "FAIL: sign-and-notarize.sh --self-test"; cat "$tmp/sign-selftest.log"; exit 1; }
+tail -n 1 "$tmp/sign-selftest.log" | sed 's/^/    /'
 
 echo "==> hack/release/release.sh --self-test"
 bash hack/release/release.sh --self-test > "$tmp/release-selftest.log" 2>&1 \

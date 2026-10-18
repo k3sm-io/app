@@ -127,7 +127,26 @@ app. The script signs, notarizes and uploads nothing.
 - `sign-and-notarize.sh <k3sm.app> <out.dmg> <identity> <team-id>` checks the
   payload signatures and the Team ID pin, signs the app inside out, notarizes
   and staples it, then builds the disk image with `make-dmg.sh`, signs it,
-  notarizes it and staples it, and prints its SHA-256.
+  notarizes it and staples it, and prints its SHA-256. It signs every Mach-O
+  file under `Contents/MacOS`, `Contents/Helpers` and `Contents/Frameworks`,
+  found by its magic number rather than by name or extension, deepest first
+  and the main executable last, and verifies each against the Developer ID
+  requirement for the team right after signing it. A file that fails is named
+  and the run stops before the bundle is sealed; the main executable is
+  verified with the bundle, right after the seal. A nested bundle (a
+  `.framework` or a helper `.app`) is not signed as a bundle, so the bundle's
+  `--deep` check fails on one and stops the run. Before signing anything it
+  stops, naming the cause, if a directory cannot be listed in full or a
+  Mach-O file has more than one hard link.
+- `sign-and-notarize.sh --self-test` builds a fixture bundle in a temporary
+  directory with an extra executable in `Contents/MacOS` and checks, with
+  ad-hoc signatures and a requirement they satisfy, that every Mach-O is found
+  (and no script, text file, symlink or `Contents/Resources` file), that each
+  signs and verifies, and that an extra executable left unsigned or with
+  another signature fails the run by name, with codesign's reason. It also
+  checks that an unreadable directory and a hard-linked executable stop the
+  run before any file is signed. It needs no identity, notary profile or
+  terminal. `hack/ci.sh` runs it.
 - `make-dmg.sh <k3sm.app> <out.dmg>` builds the image from an unsigned or
   ad-hoc signed app too, for local testing.
 - `release.sh --self-test` runs every step above with fakes for `codesign`,
@@ -143,5 +162,6 @@ app. The script signs, notarizes and uploads nothing.
   keychain profile `k3sm-notary`. Scripts name the profile; they never read
   the key.
 - `release.sh` (outside `--rehearsal` and `--self-test`),
-  `sign-and-notarize.sh` and `publish.sh` refuse to run when `CLAUDECODE` or
-  `K3SM_AUTO` is set, or without a terminal. Do not work around the refusal.
+  `sign-and-notarize.sh` (outside `--self-test`) and `publish.sh` refuse to
+  run when `CLAUDECODE` or `K3SM_AUTO` is set, or without a terminal. Do not
+  work around the refusal.
