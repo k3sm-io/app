@@ -277,31 +277,57 @@ public enum MetricsStep: Equatable, Sendable {
     case wait(Duration)
 }
 
-/// MetricsSchedule is the metrics poll's cadence: under the Normal profile a
-/// read at most every 15 s (the slowest list cadence, so a poll never costs
-/// more than the tabs' own), every 60 s while the API is absent (Low power
-/// doubles both), and only while the console
-/// window is visible. One loop makes every read and awaits each, so no two
-/// are ever in flight.
+/// MetricsDemand is how much the shown view wants the live load: `fast`
+/// while it charts or lists it row by row (the caller decides which views
+/// those are), `slow` while it only shows it in passing, `off` while nothing
+/// is on screen.
+public enum MetricsDemand: Equatable, Sendable {
+    case off
+    case slow
+    case fast
+}
+
+/// MetricsSchedule is the metrics poll's cadence, sized for the view: under
+/// the Normal profile a read at most every 15 s while the demand is fast
+/// (the slowest list cadence, so a poll never costs more than the tabs'
+/// own), every 60 s while it is slow or the API is absent (Low power doubles
+/// each), and none while it is off. One loop makes every read and awaits
+/// each, so no two are ever in flight.
 public enum MetricsSchedule {
-    /// The current `PollProfile`'s metrics cadence, and its retry while
-    /// metrics-server is absent.
+    /// The current `PollProfile`'s fast and slow cadences, and its retry
+    /// while metrics-server is absent.
     public static var interval: Duration { PollSchedule.intervals.metrics }
+    public static var slowInterval: Duration { PollSchedule.intervals.metricsSlow }
     public static var absentInterval: Duration { PollSchedule.intervals.metricsAbsent }
-    /// How soon a hidden window is looked at again.
+    /// How soon a poll with no demand looks again.
     public static let hiddenRecheck: Duration = .seconds(5)
 
-    /// The next move: wait while the window is hidden; read when nothing has
-    /// been read or the interval has passed since the last read; otherwise
-    /// wait out the rest of it. A last read in the future (the clock moved
-    /// back) waits one whole interval. `unit` is the caller's jitter draw for
-    /// this wait (`PollJitter`), drawn once after each read and passed in
+    /// The cadence for `demand` in `intervals`, nil while it is off.
+    public static func interval(for demand: MetricsDemand, in intervals: PollIntervals) -> Duration? {
+        switch demand {
+        case .off: nil
+        case .slow: intervals.metricsSlow
+        case .fast: intervals.metrics
+        }
+    }
+
+    /// The next move: wait while the demand is off; read when nothing has
+    /// been read or the demand's interval (the absent retry, when longer)
+    /// has passed since the last read; otherwise wait out the rest of it.
+    /// The interval is the current demand's, so a rise reads at once when
+    /// the last read is older than the new interval, and a fall waits out
+    /// the longer one. A last read in the future (the clock moved back)
+    /// waits one whole interval. `unit` is the caller's jitter draw for this
+    /// wait (`PollJitter`), drawn once after each read and passed in
     /// unchanged until the next, so the interval is `PollJitter.spread` of
-    /// the profile's; at 0 it is exact. The hidden recheck is not spread.
-    public static func step(visible: Bool, lastRead: Date?, now: Date, absent: Bool, unit: Double = 0) -> MetricsStep {
-        guard visible else { return .wait(hiddenRecheck) }
+    /// the profile's; at 0 it is exact. The recheck while off is not spread.
+    public static func step(
+        demand: MetricsDemand, lastRead: Date?, now: Date, absent: Bool, unit: Double = 0,
+        intervals: PollIntervals = PollSchedule.intervals
+    ) -> MetricsStep {
+        guard let base = interval(for: demand, in: intervals) else { return .wait(hiddenRecheck) }
         guard let lastRead else { return .read }
-        let due = PollJitter.spread(absent ? absentInterval : interval, unit: unit)
+        let due = PollJitter.spread(absent ? max(base, intervals.metricsAbsent) : base, unit: unit)
         let dueSeconds = Double(due.components.seconds) + Double(due.components.attoseconds) / 1e18
         let elapsed = now.timeIntervalSince(lastRead)
         guard elapsed >= 0 else { return .wait(due) }

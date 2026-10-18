@@ -48,12 +48,13 @@ struct PollProfileTests {
         #expect(normal.updateStatus == .seconds(5))
         #expect(normal.background == .seconds(30))
         #expect(normal.metrics == .seconds(15))
+        #expect(normal.metricsSlow == .seconds(60))
         #expect(normal.metricsAbsent == .seconds(60))
         #expect(normal.updateCheck == .seconds(30 * 60))
 
         let low = PollProfile.lowPower.intervals
         #expect(low.all.map(\.name) == normal.all.map(\.name))
-        #expect(normal.all.count == 14)
+        #expect(normal.all.count == 15)
         for (n, l) in zip(normal.all, low.all) {
             #expect(l.value >= n.value * 2, "\(n.name): \(l.value) is not twice \(n.value)")
         }

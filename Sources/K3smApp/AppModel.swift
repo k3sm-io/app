@@ -72,6 +72,7 @@ final class AppModel: ObservableObject {
             selection.switchTo(section, present: presentKeys(section))
             // The tab on screen times its label mark differently.
             waiting.changed()
+            workloads.metricsDemandChanged()
             guard section != oldValue, consoleShown else { return }
             if oldValue != .workloads { loaders[oldValue]?.stop() }
             let chosen = loader(for: section)
@@ -133,6 +134,7 @@ final class AppModel: ObservableObject {
         active: ConsoleTabs.restore(from: UserDefaults.standard.object(forKey: ConsoleTabs.sectionKey)),
         stored: { UserDefaults.standard.object(forKey: ConsoleTabs.selectedKey($0)) }) {
         didSet {
+            workloads.metricsDemandChanged()
             for tab in ConsoleSection.allCases where tab != .workloads {
                 let key = selection.selection(in: tab)?.key
                 if key != oldValue.selection(in: tab)?.key {
@@ -192,7 +194,10 @@ final class AppModel: ObservableObject {
     /// events and manifest) on the right; the details button toggles it.
     /// Kept in the user defaults across launches; shown until hidden.
     @Published var inspectorShown: Bool = UserDefaults.standard.object(forKey: AppModel.inspectorShownKey) as? Bool ?? true {
-        didSet { UserDefaults.standard.set(inspectorShown, forKey: Self.inspectorShownKey) }
+        didSet {
+            UserDefaults.standard.set(inspectorShown, forKey: Self.inspectorShownKey)
+            workloads.metricsDemandChanged()
+        }
     }
     static let inspectorShownKey = AppPreferences.inspectorShownKey
     /// The inspector's width: the default until the user drags its divider,
@@ -590,6 +595,19 @@ final class AppModel: ObservableObject {
     func setWindowVisible(_ visible: Bool) {
         windowVisible = visible
         syncInstallWatch()
+        workloads.metricsDemandChanged()
+    }
+
+    /// What the shown view asks of the metrics poll: nothing while the
+    /// window is not visible; fast on the Stats tab and while the inspector
+    /// shows a selected pod's or node's load rows; slow on any other view,
+    /// whose load bars show the sample in passing.
+    var metricsDemand: MetricsDemand {
+        guard flap.windowVisible() else { return .off }
+        if section == .stats { return .fast }
+        let loadRows = inspectorShown && (section == .workloads || section == .nodes)
+            && selection.selection(in: section) != nil
+        return loadRows ? .fast : .slow
     }
 
     /// Check Again on the first run: with the install watch running, lands
@@ -1172,7 +1190,7 @@ final class AppModel: ObservableObject {
         syncUpdateReader()
         workloads.startStreams()
         workloads.nodeList.start()
-        workloads.startMetrics { [weak self] in self?.flap.windowVisible() ?? false }
+        workloads.startMetrics { [weak self] in self?.metricsDemand ?? .off }
         loader(for: .workloads)?.start()
         loader(for: section)?.start()
         syncEvents()

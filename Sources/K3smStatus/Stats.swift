@@ -64,7 +64,8 @@ public struct StatsUpdatePoint: Equatable, Sendable {
 /// before, and the managed update row's states over the session. Nothing
 /// here reads, and nothing is written to disk; a relaunch starts empty.
 public struct StatsHistory: Equatable, Sendable {
-    /// One hour at the metrics poll's 15 s cadence.
+    /// One hour at the metrics poll's fast 15 s cadence; slower reads
+    /// space their points by their own times.
     public static let capacity = 240
     /// How far back the rings reach, in seconds.
     public static let window: TimeInterval = 3600

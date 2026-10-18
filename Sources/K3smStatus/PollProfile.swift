@@ -47,8 +47,11 @@ public struct PollIntervals: Equatable, Sendable {
     public let updateStatus: Duration
     /// The pod list while another tab is selected.
     public let background: Duration
-    /// The metrics read, and its retry while metrics-server is absent.
+    /// The metrics read while the Stats tab or an inspector's load rows are
+    /// shown, while any other view is, and its retry while metrics-server is
+    /// absent (`MetricsDemand`).
     public let metrics: Duration
+    public let metricsSlow: Duration
     public let metricsAbsent: Duration
     /// The full status read that looks for a new release while the console
     /// is closed, only with the update notification on.
@@ -56,7 +59,8 @@ public struct PollIntervals: Equatable, Sendable {
 
     public init(visible: Duration, hidden: Duration, fast: Duration, consoleReport: Duration, consoleHeartbeat: Duration,
                 images: Duration, objects: Duration, events: Duration, buildsReady: Duration, updateStatus: Duration,
-                background: Duration, metrics: Duration, metricsAbsent: Duration, updateCheck: Duration) {
+                background: Duration, metrics: Duration, metricsSlow: Duration, metricsAbsent: Duration,
+                updateCheck: Duration) {
         self.visible = visible
         self.hidden = hidden
         self.fast = fast
@@ -69,6 +73,7 @@ public struct PollIntervals: Equatable, Sendable {
         self.updateStatus = updateStatus
         self.background = background
         self.metrics = metrics
+        self.metricsSlow = metricsSlow
         self.metricsAbsent = metricsAbsent
         self.updateCheck = updateCheck
     }
@@ -79,7 +84,8 @@ public struct PollIntervals: Equatable, Sendable {
         [("visible", visible), ("hidden", hidden), ("fast", fast), ("consoleReport", consoleReport),
          ("consoleHeartbeat", consoleHeartbeat), ("images", images),
          ("objects", objects), ("events", events), ("buildsReady", buildsReady), ("updateStatus", updateStatus),
-         ("background", background), ("metrics", metrics), ("metricsAbsent", metricsAbsent), ("updateCheck", updateCheck)]
+         ("background", background), ("metrics", metrics), ("metricsSlow", metricsSlow),
+         ("metricsAbsent", metricsAbsent), ("updateCheck", updateCheck)]
     }
 }
 
@@ -111,13 +117,13 @@ public enum PollProfile: String, CaseIterable, Sendable {
             PollIntervals(visible: .seconds(15), hidden: .seconds(60), fast: .seconds(5), consoleReport: .seconds(30),
                           consoleHeartbeat: .seconds(5 * 60), images: .seconds(15),
                           objects: .seconds(15), events: .seconds(5), buildsReady: .seconds(15), updateStatus: .seconds(5),
-                          background: .seconds(30), metrics: .seconds(15), metricsAbsent: .seconds(60),
+                          background: .seconds(30), metrics: .seconds(15), metricsSlow: .seconds(60), metricsAbsent: .seconds(60),
                           updateCheck: .seconds(30 * 60))
         case .lowPower:
             PollIntervals(visible: .seconds(30), hidden: .seconds(120), fast: .seconds(10), consoleReport: .seconds(60),
                           consoleHeartbeat: .seconds(10 * 60), images: .seconds(30),
                           objects: .seconds(30), events: .seconds(10), buildsReady: .seconds(30), updateStatus: .seconds(10),
-                          background: .seconds(60), metrics: .seconds(30), metricsAbsent: .seconds(120),
+                          background: .seconds(60), metrics: .seconds(30), metricsSlow: .seconds(120), metricsAbsent: .seconds(120),
                           updateCheck: .seconds(60 * 60))
         }
     }

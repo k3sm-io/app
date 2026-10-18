@@ -347,7 +347,7 @@ struct MetricsScheduleTests {
             let due = 60 * (1 + PollJitter.maxFraction * unit)
             for elapsed in stride(from: 0.0, to: 60.0, by: 2.5) {
                 let step = MetricsSchedule.step(
-                    visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(elapsed), absent: true, unit: unit)
+                    demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(elapsed), absent: true, unit: unit)
                 guard case .wait(let wait) = step else {
                     Issue.record("read after \(elapsed) s at unit \(unit), before the absent interval")
                     continue
@@ -356,10 +356,10 @@ struct MetricsScheduleTests {
                 #expect(wait <= .milliseconds(Int64(((due - elapsed) * 1000).rounded(.up))))
             }
             // Due at the spread interval (a millisecond over, for the rounding).
-            #expect(MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(due + 0.001), absent: true, unit: unit) == .read)
+            #expect(MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(due + 0.001), absent: true, unit: unit) == .read)
             // The same draw on the next, sampled, wait: never under 15 s either.
             guard case .wait(let next) = MetricsSchedule.step(
-                visible: true, lastRead: Self.t0, now: Self.t0, absent: false, unit: unit) else {
+                demand: .fast, lastRead: Self.t0, now: Self.t0, absent: false, unit: unit) else {
                 Issue.record("a fresh read waits")
                 continue
             }
@@ -404,18 +404,18 @@ struct MetricsScheduleTests {
     @Test("the metrics wait is spread by the draw passed in, and exact at 0")
     func jitteredStep() {
         // At unit 1 the 15 s interval is 18 s: 5 s in, 13 s are left.
-        #expect(MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(5), absent: false, unit: 1) == .wait(.seconds(13)))
-        #expect(MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(15), absent: false, unit: 1) == .wait(.seconds(3)))
-        #expect(MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(18), absent: false, unit: 1) == .read)
-        #expect(MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(20), absent: true, unit: 0.5) == .wait(.seconds(46)))
+        #expect(MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(5), absent: false, unit: 1) == .wait(.seconds(13)))
+        #expect(MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(15), absent: false, unit: 1) == .wait(.seconds(3)))
+        #expect(MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(18), absent: false, unit: 1) == .read)
+        #expect(MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(20), absent: true, unit: 0.5) == .wait(.seconds(46)))
         // The same draw gives the same answer: nothing is drawn inside step.
-        let a = MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(4), absent: false, unit: 0.37)
-        let b = MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(4), absent: false, unit: 0.37)
+        let a = MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(4), absent: false, unit: 0.37)
+        let b = MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(4), absent: false, unit: 0.37)
         #expect(a == b)
         // Unit 0 is the exact schedule.
-        #expect(MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(5), absent: false, unit: 0) == .wait(.seconds(10)))
+        #expect(MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(5), absent: false, unit: 0) == .wait(.seconds(10)))
         // The hidden recheck is not spread.
-        #expect(MetricsSchedule.step(visible: false, lastRead: Self.t0, now: Self.t0, absent: false, unit: 1) == .wait(MetricsSchedule.hiddenRecheck))
+        #expect(MetricsSchedule.step(demand: .off, lastRead: Self.t0, now: Self.t0, absent: false, unit: 1) == .wait(MetricsSchedule.hiddenRecheck))
     }
 
     @Test("15 s between reads, never faster, 60 s while the API is absent")
@@ -427,25 +427,25 @@ struct MetricsScheduleTests {
 
     @Test("a visible console reads at once, then when the interval has passed since the last read")
     func dueWhileVisible() {
-        #expect(MetricsSchedule.step(visible: true, lastRead: nil, now: Self.t0, absent: false) == .read)
-        #expect(MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(5), absent: false) == .wait(.seconds(10)))
-        #expect(MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(15), absent: false) == .read)
-        #expect(MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(20), absent: true) == .wait(.seconds(40)))
-        #expect(MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(60), absent: true) == .read)
+        #expect(MetricsSchedule.step(demand: .fast, lastRead: nil, now: Self.t0, absent: false) == .read)
+        #expect(MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(5), absent: false) == .wait(.seconds(10)))
+        #expect(MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(15), absent: false) == .read)
+        #expect(MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(20), absent: true) == .wait(.seconds(40)))
+        #expect(MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(60), absent: true) == .read)
         // A clock that went back waits one whole interval, never reads at once.
-        #expect(MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(-30), absent: false) == .wait(.seconds(15)))
+        #expect(MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(-30), absent: false) == .wait(.seconds(15)))
     }
 
     @Test("a hidden window never reads; it looks again shortly")
     func hidden() {
-        #expect(MetricsSchedule.step(visible: false, lastRead: nil, now: Self.t0, absent: false) == .wait(MetricsSchedule.hiddenRecheck))
-        #expect(MetricsSchedule.step(visible: false, lastRead: Self.t0, now: Self.t0.addingTimeInterval(600), absent: false) == .wait(MetricsSchedule.hiddenRecheck))
+        #expect(MetricsSchedule.step(demand: .off, lastRead: nil, now: Self.t0, absent: false) == .wait(MetricsSchedule.hiddenRecheck))
+        #expect(MetricsSchedule.step(demand: .off, lastRead: Self.t0, now: Self.t0.addingTimeInterval(600), absent: false) == .wait(MetricsSchedule.hiddenRecheck))
     }
 
     @Test("a reopened console does not read again before the interval")
     func reopened() {
         // Closed 4 s after a read and reopened 3 s later: 8 s still to wait.
-        #expect(MetricsSchedule.step(visible: true, lastRead: Self.t0, now: Self.t0.addingTimeInterval(7), absent: false) == .wait(.seconds(8)))
+        #expect(MetricsSchedule.step(demand: .fast, lastRead: Self.t0, now: Self.t0.addingTimeInterval(7), absent: false) == .wait(.seconds(8)))
     }
 }
 

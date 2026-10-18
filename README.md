@@ -198,8 +198,12 @@ login** in the app's Settings turns it off or on again (see
   range, and that pod traffic on the cable is not encrypted.
 - **Live load** comes from metrics-server when the cluster runs it. While
   the window is on screen the app reads the `metrics.k8s.io` node and pod
-  samples in one `k3sm kubectl get` at most every 15 seconds, one read at
-  a time, and keeps the last sample. Each node in the Cluster view, and this
+  samples in one `k3sm kubectl get`, one read at a time, and keeps the last
+  sample: every 15 seconds while the Stats tab, or a selected pod's or
+  node's load rows in the details column, are shown, every minute on any
+  other view (Low power doubles both), and not at all while the window is
+  hidden. Opening Stats or a pod's or node's details reads at once when the
+  last sample is older than 15 seconds. Each node in the Cluster view, and this
   Mac's node in the This Mac view, gets one CPU and one memory bar: what its
   pods request as a light band, what it uses now drawn solid over it, the
   figures under the bar ("1.43 used of 19 cores", "3.5 requested"), and one

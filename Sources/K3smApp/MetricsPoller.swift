@@ -21,12 +21,14 @@ import K3smStatus
 
 /// MetricsPoller reads metrics-server's node and pod samples while the
 /// console is on screen: one loop makes every read and awaits each, so no two
-/// are ever in flight, and `MetricsSchedule.step` decides each move (15 s
-/// between reads, 60 s while the API is absent, nothing while the window is
-/// hidden), each wait spread by `PollJitter` with one draw per read. One
-/// read brings nodes and pods together; the APIService read follows only
-/// when it did not exit 0. A stop cancels the loop and kills the run in
-/// flight; the next start waits for it.
+/// are ever in flight, and `MetricsSchedule.step` decides each move from the
+/// view's `MetricsDemand` (15 s between reads while it is fast, 60 s while it
+/// is slow or the API is absent, nothing while it is off), each wait spread
+/// by `PollJitter` with one draw per read. A wait ends early on `wake()`, so
+/// a rise in demand reads at once when the last read is older than the new
+/// interval. One read brings nodes and pods together; the APIService read
+/// follows only when it did not exit 0. A stop cancels the loop and kills
+/// the run in flight; the next start waits for it.
 @MainActor
 final class MetricsPoller {
     private let environment: [String: String]
@@ -37,15 +39,17 @@ final class MetricsPoller {
     private var absent = false
     /// The jitter draw for the wait after the last read.
     private var unit = 0.0
+    /// The wait the loop is in, cancelled by `wake()`.
+    private var nap: Task<Void, Never>?
 
     init(environment: [String: String], onReading: @escaping @MainActor (MetricsReading, Date) -> Void) {
         self.environment = environment
         self.onReading = onReading
     }
 
-    /// Starts the loop; `visible` says whether the window is on screen now.
-    /// A second start is a no-op.
-    func start(visible: @escaping @MainActor () -> Bool) {
+    /// Starts the loop; `demand` is what the shown view asks of the metrics
+    /// now, asked before every move. A second start is a no-op.
+    func start(demand: @escaping @MainActor () -> MetricsDemand) {
         guard loop == nil else { return }
         let previous = stopping
         stopping = nil
@@ -54,7 +58,7 @@ final class MetricsPoller {
             while !Task.isCancelled {
                 guard let self else { return }
                 switch MetricsSchedule.step(
-                    visible: visible(), lastRead: self.lastRead, now: Date(), absent: self.absent, unit: self.unit) {
+                    demand: demand(), lastRead: self.lastRead, now: Date(), absent: self.absent, unit: self.unit) {
                 case .read:
                     let reading = await Self.read(environment: self.environment)
                     guard !Task.isCancelled else { return }
@@ -65,10 +69,19 @@ final class MetricsPoller {
                     if case .sampled = reading { self.absent = false }
                     self.onReading(reading, now)
                 case .wait(let wait):
-                    try? await Task.sleep(for: wait)
+                    let nap = Task { _ = try? await Task.sleep(for: wait) }
+                    self.nap = nap
+                    await withTaskCancellationHandler { await nap.value } onCancel: { nap.cancel() }
+                    self.nap = nil
                 }
             }
         }
+    }
+
+    /// Ends the current wait so the loop asks for the demand again: the view
+    /// calls it when what it shows changes. A read in flight is left alone.
+    func wake() {
+        nap?.cancel()
     }
 
     /// Stops the loop; a read in flight is killed and its result dropped.

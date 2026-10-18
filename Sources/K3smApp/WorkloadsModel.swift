@@ -141,10 +141,16 @@ final class WorkloadsModel: ObservableObject {
         }
     }
 
-    /// Starts the metrics poll with the console; `visible` is whether the
-    /// window is on screen, asked before every read.
-    func startMetrics(visible: @escaping @MainActor () -> Bool) {
-        metricsPoller?.start(visible: visible)
+    /// Starts the metrics poll with the console; `demand` is what the shown
+    /// view asks of the metrics, asked before every move.
+    func startMetrics(demand: @escaping @MainActor () -> MetricsDemand) {
+        metricsPoller?.start(demand: demand)
+    }
+
+    /// Tells the metrics poll the shown view changed, so a rise in demand
+    /// reads now rather than after the slower wait.
+    func metricsDemandChanged() {
+        metricsPoller?.wake()
     }
 
     /// Stops the metrics poll; the last sample stays.
