@@ -28,6 +28,10 @@ public enum K3smCLI {
     public static let probeArguments = ["status", "daemons", "-o", "json"]
     /// The full report, run only when the user looks at it.
     public static let reportArguments = ["status", "-o", "json"]
+    /// The held status stream (`StatusStream`): one full report per line
+    /// whenever it changes, started only when the one-shot report lists the
+    /// `watch-json` capability.
+    public static let statusStreamArguments = ["status", "--watch", "-o", "json"]
     /// Only the rows that need attention, each with its alert (`AlertsReport`).
     /// It runs the same checks as the full report and nothing more.
     public static let alertsArguments = ["alerts", "-o", "json"]

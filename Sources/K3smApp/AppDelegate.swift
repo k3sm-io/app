@@ -98,8 +98,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if demoTour == nil {
             model.loginItemNeedsApproval = LoginItem.registerOnFirstLaunch() == .requiresApproval
         }
+        // Each streamed report reaches the status item as a probe run does.
+        model.onStreamReport = { [weak statusItem] report in
+            statusItem?.observe(Reading.of(report), report: report)
+        }
         observeSession()
         poller.start()
+        model.startStatusStream()
         if demoTour == nil {
             model.startUpdateCheck(wanted: { preferences.notifyUpdate })
         }
@@ -138,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A tour still running puts the user's layout back before it is saved.
         model?.tour.end()
         poller?.stop()
+        model?.statusStream.stop()
         // No held kubectl watch outlives the app.
         model?.workloads.stopStreams()
         CLIStream.killAll()
@@ -168,14 +174,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func observeSession() {
         let center = NSWorkspace.shared.notificationCenter
         sessionObservers.append(center.addObserver(forName: NSWorkspace.sessionDidResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poller?.stop() }
+            MainActor.assumeIsolated {
+                self?.poller?.stop()
+                self?.model?.statusStream.stop()
+            }
         })
         sessionObservers.append(center.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poller?.start() }
+            MainActor.assumeIsolated {
+                self?.poller?.start()
+                self?.model?.startStatusStream()
+            }
         })
         // A held watch may be half-open after sleep: each is restarted once.
         sessionObservers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.model?.workloads.wakeStreams() }
+            MainActor.assumeIsolated {
+                self?.model?.workloads.wakeStreams()
+                self?.model?.statusStream.wake()
+            }
         })
     }
 

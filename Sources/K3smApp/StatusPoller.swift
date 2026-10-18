@@ -23,6 +23,10 @@ import K3smStatus
 /// then waits 15 s while the item is visible or 60 s while hidden, each wait
 /// spread by `PollJitter`. A launchd state change touches no file, so no
 /// record watch sees a daemon crash: this probe stays its only detector.
+/// It keeps running beside the status stream (`StatusStream`) too: a launchd
+/// crash touches no file, and the stream's reports are kube-centric,
+/// re-collected on a node or Pod change and otherwise only every 30 s, so
+/// the item would learn of a crashed daemon late or not at all from them.
 @MainActor
 final class StatusPoller {
     private let environment: [String: String]

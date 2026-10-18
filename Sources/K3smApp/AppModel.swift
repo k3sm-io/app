@@ -368,6 +368,9 @@ final class AppModel: ObservableObject {
             // The Stats tab's update chart and the watches' credential
             // follow the rows in each report.
             if let lanReport { workloads.noteReport(lanReport, at: Date()) }
+            // A status stream stopped by a refused credential starts again
+            // once a report shows the kubeconfig row ok after refused.
+            statusStream.noteCredential(WatchCredential.of(lanReport))
             onUpdateRead?()
         }
     }
@@ -404,6 +407,20 @@ final class AppModel: ObservableObject {
     private lazy var reportTrigger = ReportTrigger(
         source: DirectoryChangeSource(), clock: WatchSystemClock(),
         read: { [weak self] in await self?.triggeredRefresh() })
+    /// Whether the console wants the report trigger (it is on screen); the
+    /// trigger runs only while the status stream is not live
+    /// (`syncReportTrigger`).
+    private var reportPollingWanted = false
+    /// The one held `k3sm status --watch -o json`, when the installed k3sm
+    /// offers it (`StatusStream`): its reports feed the status item
+    /// (`onStreamReport`) and the window (`refresh(streamed:)`), with the
+    /// window open or closed.
+    let statusStream: StatusStream
+    /// The status stream's line for the status view; nil while it has
+    /// nothing to say.
+    @Published private(set) var statusStreamLine: String?
+    /// Called with each streamed report: the status item's feed.
+    var onStreamReport: (@MainActor (StatusReport) -> Void)?
     /// How many `refresh()` calls are running, so a tick never doubles one.
     private var refreshesInFlight = 0
     /// A triggered read came while another `refresh()` ran: one more runs
@@ -416,6 +433,7 @@ final class AppModel: ObservableObject {
         let teamID = SelfCheck.teamID()
         self.teamID = teamID
         self.workloads = WorkloadsModel(environment: environment)
+        self.statusStream = StatusStream(launcher: CLIStream(environment: environment), clock: WatchSystemClock())
         self.actions = ActionRunner(environment: environment, teamID: teamID)
         self.imageStore = ImageStoreModel(teamID: teamID, runner: runner)
         self.user = SelfCheck.consoleUser()
@@ -495,6 +513,17 @@ final class AppModel: ObservableObject {
         let previous = Self.readLog()
         if !previous.isEmpty, CopyOutOutcome(log: previous) != .succeeded {
             logTail = previous
+        }
+        statusStream.onReport = { [weak self] report in self?.streamed(report) }
+        // A report too large for a frame is read once by itself.
+        statusStream.onOneShot = { [weak self] in
+            Task { await self?.triggeredRefresh() }
+        }
+        statusStream.onState = { [weak self] in
+            guard let self else { return }
+            let line = self.statusStream.line
+            if line != self.statusStreamLine { self.statusStreamLine = line }
+            self.syncReportTrigger()
         }
     }
 
@@ -850,8 +879,11 @@ final class AppModel: ObservableObject {
     /// screen follows the health check (`HealthClassifier`) over the file
     /// facts, the trust check, the report and the versions: the console's
     /// content pane holds the first run only when nothing is installed, the
-    /// tabs for every other state (`ConsolePane`).
-    func refresh() async {
+    /// tabs for every other state (`ConsolePane`). With `streamed`, a report
+    /// frame from the status stream, nothing is run: the frame stands in for
+    /// the full report, and the installed version and the lifecycle verbs
+    /// keep their last read (an explicit refresh reads them again).
+    func refresh(streamed: StatusReport? = nil) async {
         refreshesInFlight += 1
         defer {
             refreshesInFlight -= 1
@@ -864,9 +896,14 @@ final class AppModel: ObservableObject {
         var trust: HealthFacts.CLITrust = .unchecked
         var read: StatusReport?
         if files.rootExists {
-            read = await fullRead()
+            if let streamed {
+                read = streamed
+                noteReport(streamed)
+            } else {
+                read = await fullRead()
+            }
             trust = lanTrustRefusal.map { .refused($0) } ?? .trusted
-            if case .exited(0, let stdout) = await runCLI(K3smCLI.versionArguments) {
+            if streamed == nil, case .exited(0, let stdout) = await runCLI(K3smCLI.versionArguments) {
                 installedVersion = SemanticVersion.fromVersionCommand(String(decoding: stdout, as: UTF8.self))
             }
         }
@@ -896,7 +933,7 @@ final class AppModel: ObservableObject {
         joinTarget = role == .agent
             ? AgentJoinTarget.resolve(statusJoinTarget: report?.joinTarget, plist: Self.readPlist)
             : nil
-        await refreshLifecycleSupport()
+        if streamed == nil { await refreshLifecycleSupport() }
     }
 
     /// Selects a row on its own tab, for the inspector.
@@ -1412,7 +1449,47 @@ final class AppModel: ObservableObject {
     /// read waits one interval, since showing the window already refreshes.
     /// A second start is a no-op.
     func startReportPolling() {
-        reportTrigger.start()
+        reportPollingWanted = true
+        syncReportTrigger()
+    }
+
+    /// The report trigger runs while the console is on screen and the
+    /// status stream is not live. While it is live the trigger goes idle,
+    /// its record watches included, rather than staying as a wake hint: the
+    /// stream re-collects on every node or Pod change and at least every
+    /// 30 s, so a status record change reaches the window within that
+    /// collect, the app's own actions refresh on their own, and a read the
+    /// trigger made would spawn a second process for a report the stream
+    /// sends anyway. A stream that ends without a rotation gives the trigger
+    /// back (`StatusStream`).
+    private func syncReportTrigger() {
+        if StatusStream.reportTriggerRuns(consoleShown: reportPollingWanted, stream: statusStream.state) {
+            reportTrigger.start()
+        } else {
+            reportTrigger.stop()
+        }
+    }
+
+    /// Wants the status stream, at launch and when the session becomes
+    /// active again. While the installed k3sm's capabilities are unknown,
+    /// one full report is read to learn them, unless a refresh is already
+    /// reading one; that read goes through the trust check like every
+    /// window read, so the stream starts only after a trusted CLI answered.
+    func startStatusStream() {
+        statusStream.start()
+        guard statusStream.state == .detecting else { return }
+        Task { [weak self] in
+            let files = await Task.detached { SelfCheck.installFiles() }.value
+            guard let self, files.rootExists, self.statusStream.capable == nil,
+                  self.refreshesInFlight == 0 else { return }
+            _ = await self.fullRead()
+        }
+    }
+
+    /// A report frame: the status item first, then the window.
+    private func streamed(_ report: StatusReport) {
+        onStreamReport?(report)
+        Task { await refresh(streamed: report) }
     }
 
     /// The trigger's read: never alongside another `refresh()`; one asked
@@ -1445,7 +1522,8 @@ final class AppModel: ObservableObject {
 
     /// Stops the console's report loop when the console leaves the screen.
     func stopReportPolling() {
-        reportTrigger.stop()
+        reportPollingWanted = false
+        syncReportTrigger()
     }
 
     /// Re-detects whether the installed CLI has `k3sm stop`. The CLI is run
@@ -1490,13 +1568,20 @@ final class AppModel: ObservableObject {
             lanTrustRefusal = nil
         }
         if let decoded {
-            lanReport = decoded
-            lanReadAt = Date()
-            lanReadFailed = false
+            noteReport(decoded)
         } else {
             lanReadFailed = true
         }
         return decoded
+    }
+
+    /// Takes a full report that decoded, read or streamed. The first one
+    /// decides whether the status stream is offered.
+    private func noteReport(_ decoded: StatusReport) {
+        statusStream.noteCapabilities(decoded)
+        lanReport = decoded
+        lanReadAt = Date()
+        lanReadFailed = false
     }
 
     /// Takes one poll result: a decoded daemons probe becomes the freshest

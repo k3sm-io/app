@@ -366,6 +366,10 @@ struct StatusView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 problems(report)
+                if let line = model.statusStreamLine {
+                    Text(verbatim: line).font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             } else {
                 Text(verbatim: model.health?.line ?? HealthState.statusUnreadable.line ?? "").font(.title3).bold()
                     .fixedSize(horizontal: false, vertical: true)

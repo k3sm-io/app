@@ -255,12 +255,17 @@ public struct StatusReport: Decodable, Equatable, Sendable {
     /// When the report was made, the CLI's RFC 3339 `timestamp` text as
     /// printed; "" when the field is missing or not a string.
     public let timestamp: String
+    /// The optional modes the printing k3sm offers (`watch-json`: the status
+    /// stream), as printed; empty when the field is absent (a k3sm older
+    /// than it offers none) or not a list. An entry that is not a string is
+    /// dropped, and a word this build does not know is kept and ignored.
+    public let capabilities: [String]
 
     public init(
         schemaVersion: Int, verdict: Verdict, role: String, summary: String, rows: [StatusRow],
         stoppedBy: StoppedBy? = nil, workers: [StatusWorker]? = nil, joinTarget: String? = nil,
         network: LANAccess = .absentField, interconnect: StatusInterconnect? = nil, release: StatusRelease? = nil,
-        next: [String] = [], timestamp: String = ""
+        next: [String] = [], timestamp: String = "", capabilities: [String] = []
     ) {
         self.schemaVersion = schemaVersion
         self.verdict = verdict
@@ -275,11 +280,12 @@ public struct StatusReport: Decodable, Equatable, Sendable {
         self.release = release
         self.next = next
         self.timestamp = timestamp
+        self.capabilities = capabilities
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, verdict, role, summary, rows, daemons, stoppedBy, workers, joinTarget, network, interconnect
-        case next, timestamp
+        case next, timestamp, capabilities
         case release = "version"
     }
 
@@ -325,6 +331,7 @@ public struct StatusReport: Decodable, Equatable, Sendable {
         release = (try? c.decodeIfPresent(StatusRelease.self, forKey: .release)) ?? nil
         next = ((try? c.decodeIfPresent([LenientString].self, forKey: .next)) ?? nil)?.compactMap(\.value) ?? []
         timestamp = ((try? c.decodeIfPresent(String.self, forKey: .timestamp)) ?? nil) ?? ""
+        capabilities = ((try? c.decodeIfPresent([LenientString].self, forKey: .capabilities)) ?? nil)?.compactMap(\.value) ?? []
     }
 
     /// One list entry read as a string, or nil when it is not one, so a

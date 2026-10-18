@@ -339,12 +339,13 @@ if [ -d "$golden" ]; then
 	# The Storage tab's data volume fixtures (k3sm datavol status -o json),
 	# byte for byte against k3sm's goldens of the same name.
 	dv_golden="$k3sm_dir/cmd/k3sm/testdata"
-	for f in Tests/K3smStatusTests/Fixtures/datavol_status_json_*.json; do
+	# The status stream's first frame (k3sm status --watch -o json) too.
+	for f in Tests/K3smStatusTests/Fixtures/datavol_status_json_*.json Tests/K3smStatusTests/Fixtures/status_stream_*.golden; do
 		if ! cmp -s "$f" "$dv_golden/$(basename "$f")"; then
 			echo "    DRIFT: $f differs from $dv_golden/$(basename "$f")"; drift=1
 		fi
 	done
-	[ "$drift" = 0 ] || { echo "FAIL: re-copy the datavol fixtures from $dv_golden"; exit 1; }
+	[ "$drift" = 0 ] || { echo "FAIL: re-copy the datavol and stream fixtures from $dv_golden"; exit 1; }
 	echo "    ok (against $dv_golden)"
 else
 	echo "    skipped: no k3sm checkout at $k3sm_dir (set K3SM_DIR)"

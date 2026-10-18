@@ -37,7 +37,13 @@ public enum Reading: Equatable, Sendable {
         guard let report = try? StatusReport.decode(stdout) else {
             return .cliError
         }
-        return report.nodeDaemonRunning ? .running : .notRunning
+        return of(report)
+    }
+
+    /// The reading a decoded report stands for: a status stream's report
+    /// frame feeds the status item through it, as a probe run does.
+    public static func of(_ report: StatusReport) -> Reading {
+        report.nodeDaemonRunning ? .running : .notRunning
     }
 }
 

@@ -186,7 +186,24 @@ login** in the app's Settings turns it off or on again (see
   how stale its cluster rows (read from the API server) can get; while either
   directory cannot be watched (k3sm not yet installed, the data volume not
   mounted) it is re-read every 30 seconds instead, so the panel follows
-  nodes as they join and leave. The pods stay followed while another tab is selected
+  nodes as they join and leave. When the installed k3sm offers its status
+  stream (`watch-json` in the report's `capabilities`, checked once each
+  time the app starts), the app instead holds one `k3sm status --watch -o
+  json`, with the window open or closed, and the status item and the window
+  both take each report it sends: k3sm checks again when a node or pod
+  changes and every 30 seconds whatever happens, and sends a report only when
+  it says something new. The directory watches and their timer stop while
+  the stream sends reports, so a change to a status record shows within those
+  30 seconds. The stream ends itself about
+  every 30 minutes and the app starts a new one at once; if it ends any other
+  way, the app goes back to the reads above until a new stream, started
+  after a growing, randomized wait of at most a minute, sends a report. If
+  the cluster refuses the admin kubeconfig, the stream is not retried and
+  the status says so; if k3sm cannot watch the cluster (the API server
+  unreachable, no kubeconfig, or the watch forbidden), the stream carries on
+  with its 30-second check and the status names the cause. The status item
+  keeps its own daemon check either way, since a stopped or crashed daemon
+  changes no file. The pods stay followed while another tab is selected
   (without a watch, the pod list is read every 30 seconds), so the panel's
   pod figures stay current; the panel shows their age beside its state when
   that read is late. No other tab is
