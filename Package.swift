@@ -42,5 +42,6 @@ let package = Package(
             resources: [.copy("Fixtures")]
         ),
         .testTarget(name: "K3smInstallTests", dependencies: ["K3smInstall", "K3smStatus"]),
+        .testTarget(name: "K3smHostTests", dependencies: ["K3smHost", "K3smStatus"]),
     ]
 )
