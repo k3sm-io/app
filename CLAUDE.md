@@ -70,6 +70,8 @@ K3SM_DIR=<k3sm checkout> hack/ci.sh      # the full gate
     closing punctuation, never its label); a new tag goes into its area's `all` list.
     `hack/verify-help.sh` (run by `ci.sh`) fails on a help string written outside the catalog and
     on a control with no `.help(` in its modifier chain, unless `hack/help.allow` names it with a reason.
+- **`--background` is a launch contract with the k3sm CLI** (`LaunchPolicy.backgroundArgument`): the CLI
+  passes it after install, join and start, and the app then takes a login launch's window policy.
 - Every `.swift` file starts with the Apache-2.0 header in `hack/boilerplate/boilerplate.swift.txt`
   (after the tools-version line in `Package.swift`); `ci.sh` checks it.
 

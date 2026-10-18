@@ -110,6 +110,58 @@ struct AppPreferencesTests {
         #expect(prefs.checksStoppedNotice(loginLaunch: loginLaunch) == checks)
     }
 
+    /// loginLaunch, background, openWindowAtLogin, opens the window.
+    @Test("a --background launch takes the login launch's window policy", arguments: [
+        (false, true, false, false),
+        (false, true, true, true),
+        (false, false, false, true),
+        (false, false, true, true),
+        (true, true, false, false),
+        (true, true, true, true),
+    ] as [(Bool, Bool, Bool, Bool)])
+    func backgroundLaunchWindow(_ loginLaunch: Bool, _ background: Bool, _ openAtLogin: Bool, _ opens: Bool) {
+        let prefs = AppPreferences(defaults: Self.fresh())
+        prefs.openWindowAtLogin = openAtLogin
+        #expect(prefs.opensWindow(loginLaunch: loginLaunch, background: background) == opens)
+    }
+
+    /// loginLaunch, notifyStoppedAtLogin, checks the notice (with or without --background).
+    @Test("--background leaves the stopped-notice decision to the login launch alone", arguments: [
+        (false, false, false),
+        (false, true, false),
+        (true, false, false),
+        (true, true, true),
+    ] as [(Bool, Bool, Bool)])
+    func backgroundKeepsStoppedNotice(_ loginLaunch: Bool, _ notify: Bool, _ checks: Bool) {
+        let prefs = AppPreferences(defaults: Self.fresh())
+        prefs.notifyStoppedAtLogin = notify
+        prefs.openWindowAtLogin = false
+        for arguments in [["k3sm"], ["k3sm", LaunchPolicy.backgroundArgument]] {
+            let background = LaunchPolicy.isBackground(arguments: arguments)
+            // The notice reads loginLaunch only, so a background launch the
+            // user did not make at login checks nothing...
+            #expect(prefs.checksStoppedNotice(loginLaunch: loginLaunch) == checks)
+            // ...while the same launch does change the window decision.
+            #expect(prefs.opensWindow(loginLaunch: loginLaunch, background: background) == !(loginLaunch || background))
+        }
+    }
+
+    @Test("only the exact --background token after the executable is a background launch", arguments: [
+        (["k3sm", "--background"], true),
+        (["k3sm", "--demo-tour", "t.json", "--background"], true),
+        (["k3sm"], false),
+        (["k3sm", "--backgroundx"], false),
+        (["k3sm", "-background"], false),
+        (["k3sm", "--Background"], false),
+        (["k3sm", "--background=1"], false),
+        (["--background"], false),
+        ([], false),
+    ] as [([String], Bool)])
+    func backgroundArgument(_ arguments: [String], _ background: Bool) {
+        #expect(LaunchPolicy.backgroundArgument == "--background")
+        #expect(LaunchPolicy.isBackground(arguments: arguments) == background)
+    }
+
     @Test("the Dock animation is off and disabled, with a note, under Reduce Motion")
     func dockAnimationUnderReduceMotion() {
         let on = DockAnimationDisplay.decide(preference: true, reduceMotion: false)

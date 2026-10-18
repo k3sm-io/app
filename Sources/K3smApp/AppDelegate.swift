@@ -45,6 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // before anything is built.
         let demoTour = DemoTourRunner.load()
         let loginLaunch = Self.launchedAsLoginItem()
+        // The k3sm CLI's launch after install, join and start: the window
+        // policy of a login launch, nothing else of one.
+        let background = LaunchPolicy.isBackground(arguments: CommandLine.arguments)
         let environment = SelfCheck.cliEnvironment()
         let model = AppModel(runner: AppleScriptPrivilegedRunner(), environment: environment)
         let windowController = MainWindowController(model: model)
@@ -100,16 +103,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.startUpdateCheck(wanted: { preferences.notifyUpdate })
         }
         log.notice("k3sm app started")
-        // A login-item launch shows only the status item, unless Settings asks
-        // for the window at login too; any launch the user made (Finder,
-        // Spotlight, the Dock) shows the window.
+        // A login-item launch, or one with --background, shows only the status
+        // item, unless Settings asks for the window at login too; any launch
+        // the user made (Finder, Spotlight, the Dock) shows the window.
         if let demoTour {
             // The demo tour always shows the window, then walks it and quits.
             windowController.show()
             let demo = DemoTourRunner(entries: demoTour, model: model, window: { [weak windowController] in windowController?.consoleWindow })
             self.demo = demo
             demo.start()
-        } else if preferences.preferences.opensWindow(loginLaunch: loginLaunch) {
+        } else if preferences.preferences.opensWindow(loginLaunch: loginLaunch, background: background) {
             windowController.show()
         }
     }

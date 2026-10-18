@@ -208,9 +208,10 @@ public struct AppPreferences: @unchecked Sendable {
     }
 
     /// Whether a launch opens the window: any launch the user made does; a
-    /// launch at login does only with `openWindowAtLogin`.
-    public func opensWindow(loginLaunch: Bool) -> Bool {
-        !loginLaunch || openWindowAtLogin
+    /// launch at login, or one with `LaunchPolicy.backgroundArgument`, does
+    /// only with `openWindowAtLogin`.
+    public func opensWindow(loginLaunch: Bool, background: Bool = false) -> Bool {
+        !(loginLaunch || background) || openWindowAtLogin
     }
 
     /// Whether the first poll of this launch is checked for the stopped
