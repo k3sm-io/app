@@ -435,12 +435,18 @@ struct MCPTests {
 
     /// Runs the stdio transport over pipes with `lines` as the client's
     /// input, then closes it, and returns every line the server wrote.
-    static func exchange(_ lines: [String], cluster: FakeCluster, log: CallLog? = nil) async throws -> [JSONValue] {
+    /// The client writes everything at once, so a case that is not about the
+    /// queue bound passes a `maxQueued` past its message count: otherwise a
+    /// slow scheduler lets the reader outrun the handler and the overflow is
+    /// answered with `serverBusy`, out of order.
+    static func exchange(_ lines: [String], cluster: FakeCluster, log: CallLog? = nil,
+                         maxQueued: Int = StdioTransport.maxQueued) async throws -> [JSONValue] {
         let input = Pipe()
         let output = Pipe()
         let server = MCPServer(info: ServerInfo(version: "0.2.0"), tools: cluster.tools(), log: log)
         let serving = Task {
-            await StdioTransport.serve(server, input: input.fileHandleForReading, output: output.fileHandleForWriting)
+            await StdioTransport.serve(server, input: input.fileHandleForReading, output: output.fileHandleForWriting,
+                                       maxQueued: maxQueued)
             try? output.fileHandleForWriting.close()
         }
         // Read the replies while writing, so neither pipe can fill and stall.
@@ -510,7 +516,7 @@ struct MCPTests {
             long,
             #"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"k3sm_nodes","arguments":{"all":true}}}"#,
             #"{"jsonrpc":"2.0","id":7,"method":"ping"}"#,
-        ], cluster: cluster)
+        ], cluster: cluster, maxQueued: 32)
         func code(_ reply: JSONValue) -> Int? { reply["error"]?["code"]?.intValue }
         #expect(replies.count == 9)
         #expect(code(replies[0]) == -32700 && replies[0]["id"] == .null)
