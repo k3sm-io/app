@@ -259,13 +259,13 @@ struct JoinTokenGrammarTests {
 /// The copied command: the documented two-step join as one line.
 @Suite("join command text")
 struct JoinCommandTextTests {
-    static let server = try! ServerAddress(parsing: "192.168.0.50")
+    static let server = try! ServerAddress(parsing: "192.0.2.10")
 
     @Test("the copied text, byte for byte")
     func golden() throws {
         let token = try #require(JoinToken(validating: sentinelToken))
         let want = "printf '%s' '\(sentinelToken)' | sudo sh -c 'umask 077; cat > /var/root/k3sm-join-token'"
-            + " && sudo k3sm install --agent --server 192.168.0.50 --token-file /var/root/k3sm-join-token"
+            + " && sudo k3sm install --agent --server 192.0.2.10 --token-file /var/root/k3sm-join-token"
         #expect(JoinCommandText.render(token: token, server: Self.server) == want)
     }
 
@@ -291,6 +291,6 @@ struct JoinCommandTextTests {
         #expect(try String(contentsOf: dir.appending(path: "tok"), encoding: .utf8) == sentinelToken)
         #expect(try String(contentsOf: dir.appending(path: "args.sh"), encoding: .utf8) == "umask 077; cat > /var/root/k3sm-join-token\n")
         #expect(try String(contentsOf: dir.appending(path: "args"), encoding: .utf8)
-            == (["k3sm"] + JoinCommandText.installArguments(server: "192.168.0.50")).joined(separator: "\n") + "\n")
+            == (["k3sm"] + JoinCommandText.installArguments(server: "192.0.2.10")).joined(separator: "\n") + "\n")
     }
 }

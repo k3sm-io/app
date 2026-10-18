@@ -154,7 +154,7 @@ final class CapturingRunner: PrivilegedRunner {
     }
 }
 
-let lan = InterfaceAddress(interface: "en0", address: "192.168.0.50")
+let lan = InterfaceAddress(interface: "en0", address: "192.0.2.10")
 let mesh = InterfaceAddress(interface: "utun4", address: "100.64.0.1", pointToPoint: true)
 
 /// Where the join address comes from: the underlay only, exactly one.
@@ -167,7 +167,7 @@ struct JoinAddressTests {
         var testDescription: String { name }
     }
 
-    static let one = JoinAddressResolution.one(try! ServerAddress(parsing: "192.168.0.50"))
+    static let one = JoinAddressResolution.one(try! ServerAddress(parsing: "192.0.2.10"))
 
     static let cases: [Case] = [
         Case(name: "one LAN address", addresses: [lan], want: one),
@@ -177,7 +177,7 @@ struct JoinAddressTests {
         Case(name: "the top of the mesh range is excluded",
              addresses: [lan, InterfaceAddress(interface: "en7", address: "100.127.255.254")], want: one),
         Case(name: "just outside the mesh range is a candidate",
-             addresses: [lan, InterfaceAddress(interface: "en7", address: "100.128.0.1")], want: .several(["100.128.0.1", "192.168.0.50"])),
+             addresses: [lan, InterfaceAddress(interface: "en7", address: "100.128.0.1")], want: .several(["100.128.0.1", "192.0.2.10"])),
         Case(name: "loopback is never used",
              addresses: [lan, InterfaceAddress(interface: "lo0", address: "127.0.0.1", loopback: true)], want: one),
         Case(name: "link-local is never used",
@@ -191,9 +191,9 @@ struct JoinAddressTests {
         Case(name: "no LAN address", addresses: [mesh], want: .none),
         Case(name: "nothing at all", addresses: [], want: .none),
         Case(name: "two LAN addresses are ambiguous",
-             addresses: [lan, InterfaceAddress(interface: "en1", address: "10.0.0.5")], want: .several(["10.0.0.5", "192.168.0.50"])),
+             addresses: [lan, InterfaceAddress(interface: "en1", address: "10.0.0.5")], want: .several(["10.0.0.5", "192.0.2.10"])),
         Case(name: "the same address twice is one",
-             addresses: [lan, InterfaceAddress(interface: "en1", address: "192.168.0.50")], want: one),
+             addresses: [lan, InterfaceAddress(interface: "en1", address: "192.0.2.10")], want: one),
         Case(name: "a malformed address is ignored",
              addresses: [lan, InterfaceAddress(interface: "en1", address: "10.0.0.05")], want: one),
     ]
@@ -207,8 +207,8 @@ struct JoinAddressTests {
     @Test("zero and several say why")
     func reasons() {
         #expect(JoinAddressResolution.none.disabledReason?.contains("no local network IPv4 address") == true)
-        let several = JoinAddressResolution.several(["10.0.0.5", "192.168.0.50"]).disabledReason ?? ""
-        #expect(several.contains("10.0.0.5, 192.168.0.50"))
+        let several = JoinAddressResolution.several(["10.0.0.5", "192.0.2.10"]).disabledReason ?? ""
+        #expect(several.contains("10.0.0.5, 192.0.2.10"))
         #expect(several.contains("stays off while more than one is active"))
         #expect(several.contains("A later version will let you choose the address"))
         #expect(Self.one.disabledReason == nil)
@@ -228,7 +228,7 @@ struct CopyJoinGatingTests {
         var testDescription: String { name }
     }
 
-    static let addr = try! ServerAddress(parsing: "192.168.0.50")
+    static let addr = try! ServerAddress(parsing: "192.0.2.10")
     static let ok = PrivilegedAvailability.enabled
     static let unsigned = PrivilegedAvailability.disabled(reason: "not signed")
 
@@ -247,7 +247,7 @@ struct CopyJoinGatingTests {
         Case(name: "no address disables it", report: Reports.running, availability: ok, busy: false,
              addresses: .none, want: "no local network"),
         Case(name: "several addresses disable it", report: Reports.running, availability: ok, busy: false,
-             addresses: .several(["10.0.0.5", "192.168.0.50"]), want: "several local network"),
+             addresses: .several(["10.0.0.5", "192.0.2.10"]), want: "several local network"),
     ]
 
     @Test("the gating table", arguments: cases)
@@ -397,7 +397,7 @@ struct LeftoverSweepTests {
     }
 
     nonisolated static let ours = JoinCommandText.render(
-        token: JoinToken(validating: sentinelToken)!, server: try! ServerAddress(parsing: "192.168.0.50"))!
+        token: JoinToken(validating: sentinelToken)!, server: try! ServerAddress(parsing: "192.0.2.10"))!
 
     nonisolated static let cases: [Case] = [
         Case(name: "our concealed join command is cleared", text: ours, types: [.string, .concealed], cleared: true),
@@ -409,7 +409,7 @@ struct LeftoverSweepTests {
              text: ours.replacingOccurrences(of: "deadbeef", with: "DEADBEEF"), types: [.string, .concealed], cleared: false),
         Case(name: "a concealed join command with extra text is left", text: ours + "; id", types: [.string, .concealed], cleared: false),
         Case(name: "a concealed join command naming a host name is left",
-             text: ours.replacingOccurrences(of: "192.168.0.50", with: "server.local"), types: [.string, .concealed], cleared: false),
+             text: ours.replacingOccurrences(of: "192.0.2.10", with: "server.local"), types: [.string, .concealed], cleared: false),
         Case(name: "an empty pasteboard is left", text: nil, types: [], cleared: false),
     ]
 
@@ -470,10 +470,10 @@ struct CopyJoinDriverTests {
         let rig = Self.rig(.success(sentinelToken))
         let result = await rig.driver.perform()
         guard case .copied(let note) = result else { Issue.record("got \(result)"); return }
-        #expect(note.contains("192.168.0.50"))
+        #expect(note.contains("192.0.2.10"))
         #expect(note.contains(CopyJoinCommand.copiedNote))
         let token = try #require(JoinToken(validating: sentinelToken))
-        #expect(rig.pb.writes.map(\.text) == [JoinCommandText.render(token: token, server: try ServerAddress(parsing: "192.168.0.50"))!])
+        #expect(rig.pb.writes.map(\.text) == [JoinCommandText.render(token: token, server: try ServerAddress(parsing: "192.0.2.10"))!])
         #expect(rig.runner.scripts == [JoinTokenMint.render(.workerToken, teamID: Self.team)])
         #expect(rig.runner.plainRuns == 0)
         #expect(!rig.logs.all.isEmpty)
