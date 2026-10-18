@@ -20,8 +20,9 @@ import K3smStatus
 
 /// StatusPoller runs the visibility probe strictly serially: the next run
 /// starts only after the previous one exits (or is killed at the deadline),
-/// then waits 5 s while the item is visible or 15 s while hidden, each wait
-/// spread by `PollJitter`.
+/// then waits 15 s while the item is visible or 60 s while hidden, each wait
+/// spread by `PollJitter`. A launchd state change touches no file, so no
+/// record watch sees a daemon crash: this probe stays its only detector.
 @MainActor
 final class StatusPoller {
     private let environment: [String: String]

@@ -332,14 +332,18 @@ public enum K3smCLI {
 }
 
 /// PollSchedule is the visibility poll's cadence: under the Normal profile
-/// 5 s while the status item is shown, 15 s while it is hidden (Low power
+/// 15 s while the status item is shown, 60 s while it is hidden (Low power
 /// doubles both, `PollProfile`), and a 4 s deadline after which a run is
 /// killed. The poller starts the next run only after the previous one exits.
+/// A launchd state change touches no file, so no record watch sees it: this
+/// probe stays the only detector of a daemon crash, and so stays on a timer.
 public enum PollSchedule {
     /// The cadences below read the current `PollProfile` (`intervals`);
     /// the deadlines are fixed.
     public static var visibleInterval: Duration { intervals.visible }
     public static var hiddenInterval: Duration { intervals.hidden }
+    /// The fast tab cadence: Workloads, Nodes, and Builds until it serves.
+    public static var fastInterval: Duration { intervals.fast }
     public static let killDeadline: Duration = .seconds(4)
     /// The deadline for the console's pod and node list reads. It is longer
     /// than `killDeadline` because those reads go through kubectl to the API
@@ -350,8 +354,14 @@ public enum PollSchedule {
     /// the console's runs serial, so a slow list delays the next poll
     /// without stacking runs.
     public static let listDeadline: Duration = .seconds(10)
-    /// The wait between full status reads while the console window is open.
+    /// The wait between full status reads while the console window is open
+    /// and a record watch cannot be held (`ReportTrigger`'s fallback).
     public static var consoleReportInterval: Duration { intervals.consoleReport }
+    /// The wait between full status reads while the record watches are
+    /// held: a change triggers the read, and this heartbeat re-checks the
+    /// watched paths. Until the report is itself a stream, it also bounds
+    /// how stale the rows k3sm reads from the API server can get.
+    public static var consoleHeartbeatInterval: Duration { intervals.consoleHeartbeat }
 
     /// The wait before the next poll, chosen by whether the item is shown.
     public static func interval(visible: Bool, in intervals: PollIntervals = PollSchedule.intervals) -> Duration {
@@ -367,7 +377,7 @@ public enum PollSchedule {
     /// The Events view's cadence, the pod list's own.
     public static var eventsInterval: Duration { intervals.events }
     /// The Builds tab's cadence once the engine is ready; until then it is
-    /// read at `visibleInterval`, so a starting engine is seen when it serves.
+    /// read at `fastInterval`, so a starting engine is seen when it serves.
     public static var buildsReadyInterval: Duration { intervals.buildsReady }
 
     /// How long a console action's run may take before it is killed: a
@@ -420,8 +430,8 @@ public enum PollSchedule {
     }
 
     /// The wait between a console tab's reads while it is selected:
-    /// Workloads and Nodes at `visibleInterval`, as before tabs; Images at
-    /// `imagesInterval`; Builds at `visibleInterval` until the engine is
+    /// Workloads and Nodes at `fastInterval`, as before tabs; Images at
+    /// `imagesInterval`; Builds at `fastInterval` until the engine is
     /// ready, then `buildsReadyInterval`; Services, Storage and Models at
     /// `objectsInterval`; Stats, which only renders what the other reads
     /// fetched, and Alerts, which renders the status report, at
@@ -430,9 +440,9 @@ public enum PollSchedule {
     public static func interval(for section: ConsoleSection, engineReady: Bool,
                                 in intervals: PollIntervals = PollSchedule.intervals) -> Duration {
         switch section {
-        case .workloads, .nodes: return intervals.visible
+        case .workloads, .nodes: return intervals.fast
         case .images: return intervals.images
-        case .builds: return engineReady ? intervals.buildsReady : intervals.visible
+        case .builds: return engineReady ? intervals.buildsReady : intervals.fast
         case .cluster, .services, .storage, .models, .stats: return intervals.objects
         }
     }

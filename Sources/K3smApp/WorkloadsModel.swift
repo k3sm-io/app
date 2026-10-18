@@ -120,7 +120,7 @@ final class WorkloadsModel: ObservableObject {
                         return TabLoader<NodeListRead>.result(of: outcome, what: "node list", decode: NodeListRead.tabResult(exitCode:stdout:))
                     })
             },
-            interval: { _ in PollSchedule.visibleInterval })
+            interval: { _ in PollSchedule.fastInterval })
         nodeList.onRead = { [weak self] in
             self?.load = HostLoad.read()
             self?.onNodesRead?()

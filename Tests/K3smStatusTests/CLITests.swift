@@ -86,8 +86,8 @@ struct CLITests {
 
     @Test("poll cadence follows visibility")
     func cadence() {
-        #expect(PollSchedule.interval(visible: true) == .seconds(5))
-        #expect(PollSchedule.interval(visible: false) == .seconds(15))
+        #expect(PollSchedule.interval(visible: true) == .seconds(15))
+        #expect(PollSchedule.interval(visible: false) == .seconds(60))
         #expect(PollSchedule.killDeadline < PollSchedule.visibleInterval)
     }
 

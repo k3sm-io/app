@@ -392,10 +392,17 @@ final class AppModel: ObservableObject {
     private let user: ConsoleUser?
     private let runner: any PrivilegedRunner
     private let environment: [String: String]
-    /// The console's report loop; set only while the console is on screen.
-    private var reportTask: Task<Void, Never>?
+    /// The console's report loop: a read on each status record or
+    /// LaunchDaemons change and on its timer, run only while the console is
+    /// on screen (`startReportPolling`).
+    private lazy var reportTrigger = ReportTrigger(
+        source: DirectoryChangeSource(), clock: WatchSystemClock(),
+        read: { [weak self] in await self?.triggeredRefresh() })
     /// How many `refresh()` calls are running, so a tick never doubles one.
     private var refreshesInFlight = 0
+    /// A triggered read came while another `refresh()` ran: one more runs
+    /// when the last in flight finishes, so a change seen mid-read is read.
+    private var refreshPending = false
 
     init(runner: any PrivilegedRunner, environment: [String: String]) {
         self.runner = runner
@@ -416,7 +423,7 @@ final class AppModel: ObservableObject {
         self.availability = availability
         // The shared node list follows the selected tab's cadence.
         workloads.nodeList.interval = { [weak self] _ in
-            guard let self else { return PollSchedule.visibleInterval }
+            guard let self else { return PollSchedule.fastInterval }
             return PollSchedule.interval(for: self.section, engineReady: self.engineReady)
         }
         // The waiting butterflies follow each tab's own read: the pod list,
@@ -827,7 +834,13 @@ final class AppModel: ObservableObject {
     /// tabs for every other state (`ConsolePane`).
     func refresh() async {
         refreshesInFlight += 1
-        defer { refreshesInFlight -= 1 }
+        defer {
+            refreshesInFlight -= 1
+            if refreshesInFlight == 0, refreshPending {
+                refreshPending = false
+                Task { await self.refresh() }
+            }
+        }
         let files = await Task.detached { SelfCheck.installFiles() }.value
         var trust: HealthFacts.CLITrust = .unchecked
         var read: StatusReport?
@@ -1372,21 +1385,25 @@ final class AppModel: ObservableObject {
         await nodes
     }
 
-    /// Starts re-reading the full report while the console is on screen, every
-    /// `PollSchedule.consoleReportInterval` spread by `PollJitter`, one read at a time; a tick that
-    /// finds a read in flight skips it. The first read waits one interval,
-    /// since showing the window already refreshes. A second start is a no-op.
+    /// Starts re-reading the full report while the console is on screen
+    /// (`ReportTrigger`): on a change in the status records or
+    /// /Library/LaunchDaemons, debounced, and on a timer that is a 5 min
+    /// heartbeat while those watches are held and `PollSchedule.consoleReportInterval`
+    /// otherwise, spread by `PollJitter`, one read at a time. The first timed
+    /// read waits one interval, since showing the window already refreshes.
+    /// A second start is a no-op.
     func startReportPolling() {
-        guard reportTask == nil else { return }
-        reportTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: PollJitter.spread(PollSchedule.consoleReportInterval, unit: PollJitter.draw()))
-                guard !Task.isCancelled, let self else { return }
-                if self.refreshesInFlight == 0 {
-                    await self.refresh()
-                }
-            }
+        reportTrigger.start()
+    }
+
+    /// The trigger's read: never alongside another `refresh()`; one asked
+    /// for meanwhile runs once that one finishes.
+    private func triggeredRefresh() async {
+        guard refreshesInFlight == 0 else {
+            refreshPending = true
+            return
         }
+        await refresh()
     }
 
     /// Starts the background update check: while `wanted` says so (the
@@ -1409,8 +1426,7 @@ final class AppModel: ObservableObject {
 
     /// Stops the console's report loop when the console leaves the screen.
     func stopReportPolling() {
-        reportTask?.cancel()
-        reportTask = nil
+        reportTrigger.stop()
     }
 
     /// Re-detects whether the installed CLI has `k3sm stop`. The CLI is run

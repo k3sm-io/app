@@ -21,11 +21,20 @@ import Synchronization
 /// Deadlines are not here: how long a run may take does not change with how
 /// often the app starts one.
 public struct PollIntervals: Equatable, Sendable {
-    /// The status item's poll while the item is shown, and while it is not.
+    /// The status item's `status daemons` probe while the item is shown,
+    /// and while it is not. A launchd state change touches no file, so this
+    /// probe stays the only detector of a daemon that crashed or stopped.
     public let visible: Duration
     public let hidden: Duration
-    /// The full status read while the console window is open.
+    /// The Workloads and Nodes tabs, and Builds until the engine is ready.
+    public let fast: Duration
+    /// The full status read while the console window is open and no record
+    /// watch is held (`ReportTrigger`'s fallback).
     public let consoleReport: Duration
+    /// The full status read while the console window is open and the record
+    /// watches are held: a heartbeat, since a change in a status record or a
+    /// LaunchDaemons plist triggers the read on its own.
+    public let consoleHeartbeat: Duration
     /// The Images tab.
     public let images: Duration
     /// The Services, Storage, Models and Stats tabs.
@@ -45,12 +54,14 @@ public struct PollIntervals: Equatable, Sendable {
     /// is closed, only with the update notification on.
     public let updateCheck: Duration
 
-    public init(visible: Duration, hidden: Duration, consoleReport: Duration, images: Duration, objects: Duration,
-                events: Duration, buildsReady: Duration, updateStatus: Duration, background: Duration,
-                metrics: Duration, metricsAbsent: Duration, updateCheck: Duration) {
+    public init(visible: Duration, hidden: Duration, fast: Duration, consoleReport: Duration, consoleHeartbeat: Duration,
+                images: Duration, objects: Duration, events: Duration, buildsReady: Duration, updateStatus: Duration,
+                background: Duration, metrics: Duration, metricsAbsent: Duration, updateCheck: Duration) {
         self.visible = visible
         self.hidden = hidden
+        self.fast = fast
         self.consoleReport = consoleReport
+        self.consoleHeartbeat = consoleHeartbeat
         self.images = images
         self.objects = objects
         self.events = events
@@ -65,7 +76,8 @@ public struct PollIntervals: Equatable, Sendable {
     /// Every interval by name, in a fixed order, so two profiles compare
     /// field by field.
     public var all: [(name: String, value: Duration)] {
-        [("visible", visible), ("hidden", hidden), ("consoleReport", consoleReport), ("images", images),
+        [("visible", visible), ("hidden", hidden), ("fast", fast), ("consoleReport", consoleReport),
+         ("consoleHeartbeat", consoleHeartbeat), ("images", images),
          ("objects", objects), ("events", events), ("buildsReady", buildsReady), ("updateStatus", updateStatus),
          ("background", background), ("metrics", metrics), ("metricsAbsent", metricsAbsent), ("updateCheck", updateCheck)]
     }
@@ -96,12 +108,14 @@ public enum PollProfile: String, CaseIterable, Sendable {
     public var intervals: PollIntervals {
         switch self {
         case .normal:
-            PollIntervals(visible: .seconds(5), hidden: .seconds(15), consoleReport: .seconds(30), images: .seconds(15),
+            PollIntervals(visible: .seconds(15), hidden: .seconds(60), fast: .seconds(5), consoleReport: .seconds(30),
+                          consoleHeartbeat: .seconds(5 * 60), images: .seconds(15),
                           objects: .seconds(15), events: .seconds(5), buildsReady: .seconds(15), updateStatus: .seconds(5),
                           background: .seconds(30), metrics: .seconds(15), metricsAbsent: .seconds(60),
                           updateCheck: .seconds(30 * 60))
         case .lowPower:
-            PollIntervals(visible: .seconds(10), hidden: .seconds(30), consoleReport: .seconds(60), images: .seconds(30),
+            PollIntervals(visible: .seconds(30), hidden: .seconds(120), fast: .seconds(10), consoleReport: .seconds(60),
+                          consoleHeartbeat: .seconds(10 * 60), images: .seconds(30),
                           objects: .seconds(30), events: .seconds(10), buildsReady: .seconds(30), updateStatus: .seconds(10),
                           background: .seconds(60), metrics: .seconds(30), metricsAbsent: .seconds(120),
                           updateCheck: .seconds(60 * 60))

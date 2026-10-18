@@ -176,9 +176,17 @@ login** in the app's Settings turns it off or on again (see
   until the window opens again. The selected tab's list is re-read every 5 seconds (every 15
   seconds on Images, Services, Storage, Models and Stats (whose storage chart
   uses the Storage tab's reads), and on Builds once the
-  build engine is ready) and the
-  status report is re-read every 30 seconds, so the panel follows nodes as
-  they join and leave. The pods stay followed while another tab is selected
+  build engine is ready). The
+  status report is re-read when k3sm changes one of its status records
+  (`/var/lib/k3sm/status`) or a launchd job file in
+  `/Library/LaunchDaemons` changes: the app watches those two directories
+  for changes and reads nothing from them, then runs `k3sm status -o json`
+  a quarter second after the changes stop (at most 3 seconds after the
+  first). Otherwise the report is re-read every 5 minutes, which also bounds
+  how stale its cluster rows (read from the API server) can get; while either
+  directory cannot be watched (k3sm not yet installed, the data volume not
+  mounted) it is re-read every 30 seconds instead, so the panel follows
+  nodes as they join and leave. The pods stay followed while another tab is selected
   (without a watch, the pod list is read every 30 seconds), so the panel's
   pod figures stay current; the panel shows their age beside its state when
   that read is late. No other tab is
@@ -795,8 +803,9 @@ The **General** pane:
   icon is always still, and the checkbox says so.
 - **Status refresh** is **Normal** (the cadences this README states) or
   **Low power**, which waits at least twice as long between every read the
-  app makes: the status item's poll (10 seconds while it is shown, 30 while
-  it is hidden), each console tab, the status report, the update progress,
+  app makes: the status item's poll (30 seconds while it is shown, 120 while
+  it is hidden, against Normal's 15 and 60; a stopped or crashed daemon
+  changes no file, so this poll is how the item notices one), each console tab, the status report, the update progress,
   live load and the update check. A change applies from each read's next
   wait. It is Normal at first.
 - **Take the Tour** brings the window forward and starts the tour, once k3sm
