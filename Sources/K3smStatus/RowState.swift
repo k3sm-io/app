@@ -55,6 +55,10 @@ public enum RowState: Equatable, Sendable {
     public static let rollingWord = "rolling"
     public static let downWord = "down"
     public static let unhealthyWord = "unhealthy"
+    /// The `kubeconfig` row's word when the apiserver answered 401 to the
+    /// credential (severity fail): shown as printed, like the other
+    /// reported words, and read by `WatchCredential`.
+    public static let refusedWord = "refused"
 
     static let healthyWords: Set<String> = ["running", "ok", "ready", "healthy"]
     static let reportedWords: Set<String> = [
@@ -63,7 +67,7 @@ public enum RowState: Equatable, Sendable {
         "address-mismatch",
         // other row states
         "not-ready", "wrong-owner", "not-mounted", "absent", "partial", "missing", "skip", "drift",
-        "stale",
+        "stale", "refused",
     ]
 
     /// Creates a state from the CLI's wire word.

@@ -177,9 +177,13 @@ final class WorkloadsModel: ObservableObject {
         nodeStream.wake()
     }
 
-    /// Records a full status report's update row for the Stats tab.
-    func noteUpdate(_ report: StatusReport, at time: Date) {
+    /// Records a full status report's update row for the Stats tab, and
+    /// hands its `kubeconfig` row to both watches (`WatchCredential`).
+    func noteReport(_ report: StatusReport, at time: Date) {
         stats.record(update: report, at: time)
+        let credential = WatchCredential.of(report)
+        podStream.noteCredential(credential)
+        nodeStream.noteCredential(credential)
     }
 
     /// The selected pod's live load rows, by `MetricsDisplay.podFacts`.

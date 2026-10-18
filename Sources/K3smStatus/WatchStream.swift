@@ -114,14 +114,18 @@ public enum WatchState: Equatable, Sendable {
     /// Given up until the next start: the list poll stands in.
     case degraded(WatchDegradation)
     /// The cluster refused the kubeconfig (a rotated admin token), as an
-    /// ERROR event's Status says (401, 403): never retried; the text is the
-    /// Status message, through `StatusDisplay.errorText`.
+    /// ERROR event's Status says (401, 403), or as the status report's
+    /// `kubeconfig` row says when a watch fails to start: never retried;
+    /// the text is the Status message, or the row's remedy, through
+    /// `StatusDisplay.errorText`.
     case authFailed(String)
 }
 
 /// WatchAuth is the refused-kubeconfig line, and whether a watch's exit
 /// text says its resource version is gone. An auth failure is never read
-/// from text: it is the ERROR event's Status (`WatchFrame.refused`).
+/// from text: it is the ERROR event's Status (`WatchFrame.refused`), or a
+/// failed start while the status report's `kubeconfig` row is `refused`
+/// (`WatchCredential`).
 public enum WatchAuth {
     /// True when the watch ended because its resource version is too old.
     public static func isGone(_ text: String) -> Bool {
@@ -130,10 +134,47 @@ public enum WatchAuth {
         return lower.split { !$0.isLetter && !$0.isNumber }.contains("410")
     }
 
+    /// The text an `authFailed` read from the status report carries: the
+    /// `kubeconfig` row's remedy, as "run <remedy>", or "" when it names none.
+    public static func remedyText(_ remedy: String) -> String {
+        let command = StatusDisplay.clip(remedy)
+        return command.isEmpty ? "" : "run " + command
+    }
+
     /// The tab's line while the kubeconfig is refused.
     public static func refusedLine(_ text: String) -> String {
         let detail = StatusDisplay.errorText(text)
         return detail.isEmpty ? "the cluster refused the admin kubeconfig" : "the cluster refused the admin kubeconfig: \(detail)"
+    }
+}
+
+/// WatchCredential is what the latest full status report says of the
+/// kubeconfig the watches run with: its `kubeconfig` row, where k3sm proves
+/// the credential with one authenticated request and reports a 401 as
+/// `refused`. kubectl exits 1 for every error, so a watch that fails to
+/// start names no cause of its own; this row is what tells a refused
+/// credential apart. A 403 leaves the row `ok` (the credential
+/// authenticated), so it is never read as a refusal here.
+public enum WatchCredential: Equatable, Sendable {
+    /// The row is `ok`.
+    case accepted
+    /// The row is `refused`; `remedy` is the row's remedy, as printed
+    /// (untrusted: shown only through `WatchAuth.remedyText`).
+    case refused(remedy: String)
+    /// No report, no row, or any other state: says nothing either way.
+    case unknown
+
+    /// The status row that carries it.
+    public static let rowName = "kubeconfig"
+
+    /// The credential as `report` says it.
+    public static func of(_ report: StatusReport?) -> WatchCredential {
+        guard let row = report?.row(named: rowName) else { return .unknown }
+        switch row.rowState {
+        case .healthy("ok"): return .accepted
+        case .reported(RowState.refusedWord): return .refused(remedy: row.remedy)
+        default: return .unknown
+        }
     }
 }
 
@@ -359,6 +400,8 @@ public final class WatchStream {
     private var lastWasGone = false
     private var undecodable: [Duration] = []
     private var lastPublish: Duration?
+    /// The latest full report's word on the kubeconfig (`noteCredential`).
+    private var credential: WatchCredential = .unknown
 
     private var settleTimer: (any WatchTimer)?
     private var firstFrameTimer: (any WatchTimer)?
@@ -422,6 +465,18 @@ public final class WatchStream {
         killCurrent()
         failures = 0
         spawn()
+    }
+
+    /// Takes the latest full status report's word on the kubeconfig. While
+    /// it is `refused`, a watch that fails to start is an auth failure
+    /// (`authFailed`, not retried) rather than a backed-off failure; when a
+    /// later report shows the row `ok` again, a stream stopped by a refusal
+    /// is started again.
+    public func noteCredential(_ next: WatchCredential) {
+        let previous = credential
+        credential = next
+        guard case .refused = previous, next == .accepted, case .authFailed = state else { return }
+        start()
     }
 
     /// The list a tab read uses: after the first settle (or
@@ -549,11 +604,16 @@ public final class WatchStream {
             degrade(.lineTooLong)
         case .failedToLaunch:
             ended(gone: false, generation: generation)
-        case .exited(_, let errors):
+        case .exited(let status, let errors):
             // kubectl exits 1 for every error, a refused credential at
-            // connect included, so the exit status names no auth failure:
-            // any exit is an ordinary end, backed off unless the process
-            // was healthy. `authFailed` comes only from an ERROR event.
+            // connect included, so neither the exit status nor the text
+            // names an auth failure. A failed start (a nonzero exit before
+            // any frame) while the status report's `kubeconfig` row is
+            // `refused` is one; any other exit is an ordinary end, backed
+            // off unless the process was healthy.
+            if status != 0, current?.firstFrameAt == nil, case .refused(let remedy) = credential {
+                return refuse(WatchAuth.remedyText(remedy))
+            }
             ended(gone: WatchAuth.isGone(errors), generation: generation)
         }
     }

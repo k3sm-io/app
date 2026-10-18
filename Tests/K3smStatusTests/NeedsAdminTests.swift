@@ -137,7 +137,7 @@ struct NeedsAdminTests {
         "running", "ok", "ready", "healthy", "needs-admin", "stopped", "not-loaded", "disabled", "failed",
         "crash-loop", "waiting", "expired", "corrupt", "address-mismatch", "down", "not-ready", "wrong-owner",
         "not-mounted", "absent", "partial", "missing", "skip", "drift", "unhealthy", "stale", "behind", "ahead",
-        "rolling",
+        "rolling", "refused",
     ])
     func committedWords(_ word: String) {
         let state = RowState(word: word)

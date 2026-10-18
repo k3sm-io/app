@@ -365,8 +365,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var lanReport: StatusReport? {
         didSet {
             syncUpdateReader()
-            // The Stats tab's update chart follows the row in each report.
-            if let lanReport { workloads.noteUpdate(lanReport, at: Date()) }
+            // The Stats tab's update chart and the watches' credential
+            // follow the rows in each report.
+            if let lanReport { workloads.noteReport(lanReport, at: Date()) }
             onUpdateRead?()
         }
     }

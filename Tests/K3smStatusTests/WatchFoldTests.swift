@@ -588,6 +588,90 @@ struct WatchFoldTests {
         #expect(!WatchAuth.isGone("pod web-4101"))
     }
 
+    /// A report with only a `kubeconfig` row in `state`.
+    private func kubeconfigReport(_ state: String?, remedy: String = "sudo k3sm install") -> StatusReport {
+        let rows = state.map { [StatusRow(name: WatchCredential.rowName, state: $0, detail: "~/.kube/config", remedy: remedy, severity: "fail")] } ?? []
+        return StatusReport(schemaVersion: 1, verdict: .running, role: "server", summary: "", rows: rows)
+    }
+
+    /// A watch that fails to start: kubectl's exit 1 at once, as for a
+    /// refused credential at connect, with text that names nothing.
+    private static let failedStart = FakeScript(exit: (.milliseconds(20), .exited(status: 1, errors: "error: exit status 1")))
+
+    @Test("the status model decodes the kubeconfig row's refused state, and a future state as unknown")
+    func credentialDecodes() throws {
+        let report = try StatusReport.decode(fixture("kubeconfig-refused.json"))
+        let row = try #require(report.row(named: WatchCredential.rowName))
+        #expect(row.state == "refused" && row.severity == "fail" && row.remedy == "sudo k3sm install")
+        #expect(row.rowState == .reported(RowState.refusedWord))
+        #expect(WatchCredential.of(report) == .refused(remedy: "sudo k3sm install"))
+        #expect(WatchCredential.of(try StatusReport.decode(fixture("status_json_running.json"))) == .accepted)
+        // A state this build does not know still decodes, and says nothing.
+        let future = Data(#"{"schemaVersion":1,"verdict":"running","rows":[{"name":"kubeconfig","state":"sideways","detail":"d"}]}"#.utf8)
+        let decoded = try StatusReport.decode(future)
+        #expect(decoded.row(named: "kubeconfig")?.rowState == .unknown("sideways"))
+        #expect(WatchCredential.of(decoded) == .unknown)
+        #expect(WatchCredential.of(kubeconfigReport("missing")) == .unknown)
+        #expect(WatchCredential.of(kubeconfigReport(nil)) == .unknown)
+        #expect(WatchCredential.of(nil) == .unknown)
+    }
+
+    @Test("a failed start while the kubeconfig row is refused is an auth failure, with no retry")
+    func failedStartWithRefusedRow() {
+        let clock = VirtualClock()
+        let launcher = FakeLauncher(clock: clock) { _, _ in Self.failedStart }
+        let stream = makeStream(.pods, launcher)
+        stream.noteCredential(WatchCredential.of(kubeconfigReport("refused")))
+        stream.start()
+        clock.advance(by: .seconds(600))
+        #expect(launcher.processes.count == 1)
+        #expect(stream.state == .authFailed("run sudo k3sm install"))
+        #expect(!stream.running)
+        #expect(WatchRead.fallback(TabResult<Int>.failed("exit status 1"), state: stream.state)
+            == .failed("the cluster refused the admin kubeconfig: run sudo k3sm install"))
+    }
+
+    @Test("a failed start while the kubeconfig row is ok, missing, unknown or absent keeps the bounded backoff",
+          arguments: ["ok", "missing", "sideways", nil] as [String?])
+    func failedStartWithOtherRow(_ state: String?) {
+        let clock = VirtualClock()
+        let launcher = FakeLauncher(clock: clock) { _, _ in Self.failedStart }
+        let stream = makeStream(.pods, launcher, jitter: { 1 })
+        stream.noteCredential(WatchCredential.of(kubeconfigReport(state)))
+        stream.start()
+        clock.advance(by: .seconds(600))
+        #expect(stream.state == .retrying)
+        #expect(launcher.processes.count >= 10 && launcher.processes.count <= 20)
+    }
+
+    @Test("a stream stopped by a refused row re-arms when a report shows the row ok again")
+    func refusedRowRearms() {
+        let clock = VirtualClock()
+        let launcher = FakeLauncher(clock: clock) { _, index in
+            index == 0 ? Self.failedStart : FakeScript(lines: [watchLine("ADDED", uid: "u1", name: "a")])
+        }
+        let stream = makeStream(.pods, launcher)
+        stream.noteCredential(WatchCredential.of(kubeconfigReport("refused")))
+        stream.start()
+        clock.advance(by: .seconds(1))
+        #expect(stream.state == .authFailed("run sudo k3sm install"))
+        // Still refused, or a word that says nothing: stays stopped.
+        stream.noteCredential(WatchCredential.of(kubeconfigReport("refused")))
+        stream.noteCredential(WatchCredential.of(kubeconfigReport("sideways")))
+        clock.advance(by: .seconds(60))
+        #expect(launcher.processes.count == 1)
+        stream.noteCredential(WatchCredential.of(kubeconfigReport("refused")))
+        stream.noteCredential(WatchCredential.of(kubeconfigReport("ok")))
+        #expect(launcher.processes.count == 2)
+        clock.advance(by: .seconds(1))
+        #expect(stream.state == .live)
+        // An ok report over a stream that is not refused starts nothing.
+        stream.stop()
+        stream.noteCredential(WatchCredential.of(kubeconfigReport("refused")))
+        stream.noteCredential(WatchCredential.of(kubeconfigReport("ok")))
+        #expect(stream.state == .idle && launcher.processes.count == 2)
+    }
+
     @Test("(d) the backoff is full jitter under a doubling ceiling capped at 60 s, never under the floor")
     func retryWaitIsFullJitter() {
         #expect(WatchPolicy.retryWait(failures: 0, unit: 1) == .seconds(1))
