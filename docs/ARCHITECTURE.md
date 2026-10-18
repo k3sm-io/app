@@ -443,5 +443,4 @@ The release build (in k3sm and the release pipeline):
 
 - the payload manifest format shared with `stage.sh` (A10), the signed payload
   tree, and the A19 fallback (manifest hash instead of a Team ID) if it is
-  ever needed;
-- the Homebrew cask (A16).
+  ever needed.

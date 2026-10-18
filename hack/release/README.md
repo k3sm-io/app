@@ -44,8 +44,7 @@ hack/release/release.sh --version vX.Y.Z --stage-dir <dir> \
 Any failure stops the run before the upload. `publish.sh --upload` repeats
 every image check itself, so the checks here fail early and with a clearer
 message; they are not the only ones. After the release is promoted, check
-what users download with `verify-release.sh <tag>` (below). Then open the
-Homebrew cask pull request.
+what users download with `verify-release.sh <tag>` (below).
 
 ## The rehearsal: `release.sh --rehearsal`
 

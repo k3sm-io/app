@@ -14,7 +14,7 @@ and is free to use.
 | channel | for | what you get |
 |---|---|---|
 | curl | headless Macs, scripted installs, SSH sessions | `curl -fsSL https://k3sm.io/install.sh \| sh` fetches a release tarball of signed, notarized binaries and runs `k3sm install` |
-| app | desktop users | a notarized disk image holding `k3sm.app`, dragged to `/Applications`; a Homebrew cask that installs the same image will follow |
+| app | desktop users | a notarized disk image holding `k3sm.app`, dragged to `/Applications`; also distributed through the Mac App Store |
 
 Both channels carry the same k3sm build at the same version and end in the
 same installed layout: `/Library/k3sm`, the `io.k3sm.*` LaunchDaemons and the
@@ -1109,8 +1109,8 @@ When it carries an older k3sm than the one installed, or the installed
 version cannot be read, the app offers no app-carried update; a downgrade
 runs in a terminal.
 
-New versions of the app arrive as a new disk image (or, later, through
-`brew upgrade --cask`). The app has no built-in downloader.
+New versions of the app arrive as a new disk image or through the Mac App
+Store. The app has no built-in downloader.
 
 ## Repairing
 
