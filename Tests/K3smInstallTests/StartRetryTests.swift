@@ -186,6 +186,86 @@ struct StartRetryTests {
         #expect(ContinuousClock.now - start < .seconds(2))
     }
 
+    /// Runs the jobs of the tasks that prefer it on one serial dispatch
+    /// queue, off the cooperative pool, so a test can await and time a
+    /// result while every pool thread is blocked.
+    final class QueueTaskExecutor: TaskExecutor {
+        let queue = DispatchQueue(label: "io.k3sm.app.tests.deadline")
+
+        func enqueue(_ job: consuming ExecutorJob) {
+            let job = UnownedJob(job)
+            queue.async { job.runSynchronously(on: self.asUnownedTaskExecutor()) }
+        }
+    }
+
+    /// Holds the calling thread: a sleep that does not give it back to the pool.
+    static func block(seconds: Double) {
+        Thread.sleep(forTimeInterval: seconds)
+    }
+
+    @Test("the deadline returns nil on time while the cooperative pool is saturated")
+    func deadlineSaturatedPool() async {
+        let executor = QueueTaskExecutor()
+        let elapsed = await Task(executorPreference: executor) { () -> (Int?, Duration) in
+            // More blocking jobs than the pool has threads, each holding its
+            // thread for a second with a sleep the pool cannot reclaim.
+            for _ in 0..<(ProcessInfo.processInfo.activeProcessorCount + 4) {
+                Task.detached { Self.block(seconds: 1) }
+            }
+            Self.block(seconds: 0.1)
+            let start = ContinuousClock.now
+            let v: Int? = await Deadline.race(.milliseconds(50)) {
+                try? await Task.sleep(for: .seconds(5))
+                return 7
+            }
+            return (v, ContinuousClock.now - start)
+        }.value
+        #expect(elapsed.0 == nil)
+        #expect(elapsed.1 < .milliseconds(500), "returned after \(elapsed.1)")
+    }
+
+    /// A root step that outlives any deadline and would ask for a re-run if
+    /// it were ever awaited; it counts its calls.
+    final class SlowCordonedRunner: PrivilegedRunner {
+        private let count = Mutex(0)
+        var calls: Int { count.withLock { $0 } }
+
+        func runAsRoot(_ script: RootScript, input: Data?) async -> PrivilegedOutcome {
+            await runAsRootReportingError(script, input: input).outcome
+        }
+
+        func runAsRootReportingError(_ script: RootScript, input: Data?) async -> PrivilegedRun {
+            count.withLock { $0 += 1 }
+            try? await Task.sleep(for: .seconds(5))
+            return StartRetryTests.cordoned
+        }
+    }
+
+    @Test("a start past its deadline times out and runs the root step only once")
+    func startTimesOutOnce() async {
+        let runner = SlowCordonedRunner()
+        let start = ContinuousClock.now
+        // A printed bound of minus the margin is a zero wait, so the
+        // deadline passes while the first run is still going.
+        let d = LifecycleDriver(
+            teamID: Self.team, readStatus: { Reports.stopped }, confirm: { _ in true }, runner: runner,
+            readStartTimeBound: { .printed(-StartTimeBound.marginSeconds) })
+        let result = await d.perform(.start, expected: .stopped)
+        #expect(result == .timedOut(StartRetry.timedOutText(seconds: 0)))
+        #expect(ContinuousClock.now - start < .seconds(2))
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(runner.calls == 1)
+    }
+
+    @Test("the deadline's dispatch interval")
+    func deadlineInterval() {
+        #expect(Deadline.interval(.milliseconds(50)) == .nanoseconds(50_000_000))
+        #expect(Deadline.interval(.seconds(450)) == .nanoseconds(450_000_000_000))
+        #expect(Deadline.interval(.zero) == .nanoseconds(0))
+        #expect(Deadline.interval(.milliseconds(-5)) == .nanoseconds(0))
+        #expect(Deadline.interval(.seconds(Int64.max)) == nil)
+    }
+
     @Test("the timeout sentence names the whole wait")
     func timeoutText() {
         #expect(StartRetry.timedOutText(seconds: 450).contains("within 450 seconds"))

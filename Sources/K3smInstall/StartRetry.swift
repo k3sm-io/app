@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import Dispatch
 import K3smStatus
 import Synchronization
 
@@ -65,23 +66,77 @@ public enum StartRetry {
 }
 
 /// Deadline races an operation against a timer: the operation's value if it
-/// finishes first, nil if `limit` passes first. The operation is not
-/// cancelled (an administrator prompt cannot be), only no longer awaited; a
-/// late value is dropped.
+/// finishes first, nil if `limit` passes first. When the timer wins the
+/// operation's task is cancelled, but an operation that ignores cancellation
+/// (an administrator prompt cannot be cancelled) runs on, no longer awaited;
+/// its late value is dropped.
+///
+/// The timer is a dispatch timer on its own queue, not a task: a task timer
+/// needs a free cooperative thread to fire, so a busy pool would hold the
+/// deadline back until near the operation's own end. It counts uptime, so a
+/// change to the wall clock cannot fire it early or late; time the Mac spends
+/// asleep does not count.
 public enum Deadline {
+    /// Fires every deadline timer; serial, outside the cooperative pool.
+    private static let timers = DispatchQueue(label: "io.k3sm.app.deadline")
+
     public static func race<T: Sendable>(_ limit: Duration, _ operation: @escaping @Sendable () async -> T) async -> T? {
         await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
             let once = ResumeOnce(continuation)
-            let timer = Task {
-                try? await Task.sleep(for: limit)
+            let pending = PendingOperation()
+            // The timer is armed and active before the operation starts, so
+            // nothing ever cancels or releases an inactive source.
+            let timer = DispatchSource.makeTimerSource(queue: timers)
+            timer.setEventHandler {
                 once.resume(nil)
-            }
-            Task {
-                let value = await operation()
+                pending.expire()
                 timer.cancel()
-                once.resume(value)
             }
+            if let wait = interval(limit) {
+                timer.schedule(deadline: .now() + wait)
+            }
+            timer.activate()
+            pending.start(Task {
+                let value = await operation()
+                // Resume first: a cancelled timer never fires, and if it is
+                // firing now ResumeOnce keeps whichever came first.
+                once.resume(value)
+                timer.cancel()
+            })
         }
+    }
+
+    /// The dispatch interval for `limit`: zero for a negative one, nil (never
+    /// fire) for one too long to count in nanoseconds.
+    static func interval(_ limit: Duration) -> DispatchTimeInterval? {
+        let (seconds, attoseconds) = limit.components
+        if seconds < 0 || (seconds == 0 && attoseconds < 0) { return .nanoseconds(0) }
+        let (whole, overflow) = seconds.multipliedReportingOverflow(by: 1_000_000_000)
+        let (total, carry) = whole.addingReportingOverflow(attoseconds / 1_000_000_000)
+        guard !overflow, !carry, total <= Int64(Int.max) else { return nil }
+        return .nanoseconds(Int(total))
+    }
+}
+
+/// PendingOperation holds the operation's task for the timer: a timer that
+/// fires before the task is handed over cancels it on arrival.
+private final class PendingOperation: Sendable {
+    private let state = Mutex<(task: Task<Void, Never>?, expired: Bool)>((nil, false))
+
+    func start(_ task: Task<Void, Never>) {
+        let expired = state.withLock { s -> Bool in
+            s.task = task
+            return s.expired
+        }
+        if expired { task.cancel() }
+    }
+
+    func expire() {
+        let task = state.withLock { s -> Task<Void, Never>? in
+            s.expired = true
+            return s.task
+        }
+        task?.cancel()
     }
 }
 
