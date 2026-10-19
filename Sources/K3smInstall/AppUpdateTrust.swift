@@ -24,7 +24,11 @@ limitations under the License.
 /// (`SecStaticCodeCheckValidity` or `codesign --verify -R`) and the index
 /// check (CMS and `SecTrust`) consume these values.
 public enum AppUpdateTrust {
-    /// The bundle identifier a replacement must carry.
+    /// The code signing identifier a replacement must carry, which the
+    /// requirement's `identifier` clause tests. It is the identifier sealed in
+    /// the code signature, not `CFBundleIdentifier`; the staged bundle's
+    /// verifier also checks that its Info.plist `CFBundleIdentifier` equals
+    /// this value.
     public static let bundleIdentifier = "io.k3sm.app"
 
     /// The code signing identifier of the swap helper the app ships at
@@ -103,6 +107,16 @@ public struct IndexSignerPolicy: Equatable, Sendable {
     /// The number of signers the index carries: exactly one.
     public static let signerCount = 1
 
+    /// The number of certificates in the signer's chain: leaf, intermediate,
+    /// root.
+    public static let chainLength = 3
+
+    /// The fixed domain-separation string the signed content carries, so a
+    /// signature over any other document the same identity signs never reads
+    /// as a release index. It equals k3sm's `ReleaseIndexContext`
+    /// (`pkg/update/releaseindex.go`).
+    public static let contextString = "io.k3sm.release-index/v1"
+
     /// The team the leaf subject OU must equal.
     public let teamID: TeamID
 
@@ -118,11 +132,20 @@ public struct IndexSignerPolicy: Equatable, Sendable {
         DesignatedRequirement.developerID(teamID: teamID)
     }
 
-    /// The checks a verifier makes, in order, each a fixed sentence. An index
-    /// that fails any of them is "could not verify", never an update.
+    /// The checks a verifier makes, each a fixed sentence. This list is the
+    /// complete, ordered contract the release index verifier implements: it
+    /// makes every check, in this order, before it decodes the index, and
+    /// its tests cover every entry. An index that fails any of them is
+    /// "could not verify", never an update.
+    ///
+    /// The anchor check is `anchor apple generic` and no hash of a particular
+    /// Apple root is compiled in: a pinned root hash would lock every
+    /// installed app out of updates, fleet-wide, the day Apple re-roots the
+    /// Developer ID chain, and only a manual reinstall would recover it.
     public var checks: [String] {
         [
             "exactly \(Self.signerCount) CMS signer",
+            "the CMS signature and content digest are valid (kCMSSignerValid)",
             "a secure timestamp countersignature from a trusted timestamp authority; none refuses",
             "the signing time taken only from that countersignature",
             "the chain evaluated at the signing time with the Apple code-signing policy, revocation included",
@@ -131,6 +154,8 @@ public struct IndexSignerPolicy: Equatable, Sendable {
             "the leaf carries \(Self.leafMarkerOID)",
             "the leaf extended key usage includes \(Self.codeSigningUsageOID)",
             "the leaf subject OU equals \(teamID.value)",
+            "the chain is exactly \(Self.chainLength) certificates: leaf, intermediate, root",
+            "the signed content carries the context string \(Self.contextString)",
         ]
     }
 }

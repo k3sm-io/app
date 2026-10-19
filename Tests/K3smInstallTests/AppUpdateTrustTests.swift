@@ -39,6 +39,7 @@ struct AppUpdateTrustTests {
     /// The index verifier's checks, in order.
     static let checksGolden = [
         "exactly 1 CMS signer",
+        "the CMS signature and content digest are valid (kCMSSignerValid)",
         "a secure timestamp countersignature from a trusted timestamp authority; none refuses",
         "the signing time taken only from that countersignature",
         "the chain evaluated at the signing time with the Apple code-signing policy, revocation included",
@@ -47,6 +48,8 @@ struct AppUpdateTrustTests {
         "the leaf carries 1.2.840.113635.100.6.1.13",
         "the leaf extended key usage includes 1.3.6.1.5.5.7.3.3",
         "the leaf subject OU equals ABCDE12345",
+        "the chain is exactly 3 certificates: leaf, intermediate, root",
+        "the signed content carries the context string io.k3sm.release-index/v1",
     ]
 
     /// Compiles `text` with the Security framework's requirement parser, the
@@ -87,6 +90,10 @@ struct AppUpdateTrustTests {
         #expect(signer.requirement == DesignatedRequirement.developerID(teamID: pinned))
         #expect(signer.checks == Self.checksGolden)
         #expect(IndexSignerPolicy.signerCount == 1)
+        #expect(IndexSignerPolicy.chainLength == 3)
+        #expect(IndexSignerPolicy.contextString == "io.k3sm.release-index/v1")
+        #expect(signer.checks.count == Set(signer.checks).count)
+        #expect(signer.checks.last == "the signed content carries the context string io.k3sm.release-index/v1")
         #expect(IndexSignerPolicy.codeSigningUsageOID == "1.3.6.1.5.5.7.3.3")
 
         // The policy's OIDs are the ones the requirement text checks, in the
