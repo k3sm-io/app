@@ -29,7 +29,9 @@
 #   7. every .swift file carries the Apache-2.0 header
 #   8. every file under .github/workflows/ is dormant (fully commented out)
 #   9. the vendored status, alerts and datavol fixtures match a sibling k3sm
-#      checkout, when one exists
+#      checkout, when one exists; the vendored release index corpus matches
+#      k3sm's in both directions (the same file set, each file byte for
+#      byte), and a K3SM_DIR that lacks it fails
 #  10. the dependency supply-chain check: its self-test, then the live tree
 #  11. every control carries a catalog help tag: the check's self-test, then
 #      the live tree (hack/verify-help.sh, hack/help.allow)
@@ -394,6 +396,39 @@ if [ -d "$golden" ]; then
 	done
 	[ "$drift" = 0 ] || { echo "FAIL: re-copy the datavol and stream fixtures from $dv_golden"; exit 1; }
 	echo "    ok (against $dv_golden)"
+else
+	echo "    skipped: no k3sm checkout at $k3sm_dir (set K3SM_DIR)"
+fi
+
+echo "==> release index fixtures (vendored from k3sm)"
+# k3sm owns the k3sm-release-index/v1 contract, its golden document and its
+# refusal corpus. The copy under Tests/K3smStatusTests/Fixtures/release-index
+# must hold exactly k3sm's files, byte for byte: a file k3sm adds or drops is
+# a failure here, not a test this side never runs. SHA256SUMS is this side's
+# own manifest, checked by the Swift tests. A K3SM_DIR without the corpus
+# fails; a lone clone with no k3sm skips.
+ri_local=Tests/K3smStatusTests/Fixtures/release-index
+ri_golden="$k3sm_dir/pkg/update/testdata/release-index"
+if [ -d "$ri_golden" ]; then
+	[ -d "$ri_local" ] || { echo "FAIL: no $ri_local; copy the release index corpus from $ri_golden"; exit 1; }
+	ri_list() { (cd "$1" && for f in *; do [ "$f" = SHA256SUMS ] || printf '%s\n' "$f"; done) | LC_ALL=C sort; }
+	ri_want="$(ri_list "$ri_golden")"
+	ri_have="$(ri_list "$ri_local")"
+	if [ "$ri_want" != "$ri_have" ]; then
+		echo "    DRIFT: the file sets differ (< k3sm, > app):"
+		diff <(printf '%s\n' "$ri_want") <(printf '%s\n' "$ri_have") | grep '^[<>]' | sed 's/^/      /' || true
+		echo "FAIL: re-copy the release index corpus from $ri_golden"; exit 1
+	fi
+	drift=0
+	while IFS= read -r f; do
+		if ! cmp -s "$ri_local/$f" "$ri_golden/$f"; then
+			echo "    DRIFT: $ri_local/$f differs from $ri_golden/$f"; drift=1
+		fi
+	done <<<"$ri_want"
+	[ "$drift" = 0 ] || { echo "FAIL: re-copy the release index corpus from $ri_golden"; exit 1; }
+	echo "    ok ($(printf '%s\n' "$ri_want" | wc -l | tr -d ' ') files, against $ri_golden)"
+elif [ -n "${K3SM_DIR:-}" ]; then
+	echo "FAIL: K3SM_DIR=$K3SM_DIR has no $ri_golden"; exit 1
 else
 	echo "    skipped: no k3sm checkout at $k3sm_dir (set K3SM_DIR)"
 fi
