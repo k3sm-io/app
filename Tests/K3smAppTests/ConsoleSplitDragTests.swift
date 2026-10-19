@@ -80,16 +80,19 @@ struct ConsoleSplitDragTests {
         }
     }
 
-    @Test("dragging the panel's divider widens the panel, not the window")
+    @Test("dragging the panel's divider narrows the panel, not the window")
     func panelDividerKeepsTheWindow() throws {
         try SplitWindow.with { harness in
             let before = harness.window.frame
             let panel = harness.inner.arrangedSubviews[0].frame.width
             let inspector = harness.inner.arrangedSubviews[2].frame.width
-            harness.drag(harness.inner, divider: 0, by: 80)
+            // The panel opens at its natural width, the top of its range.
+            #expect(panel == CGFloat(SplitWindow.panelNatural))
+            harness.drag(harness.inner, divider: 0, by: -80)
             #expect(harness.window.frame == before)
-            #expect(harness.inner.arrangedSubviews[0].frame.width == panel + 80)
+            #expect(harness.inner.arrangedSubviews[0].frame.width == panel - 80)
             #expect(harness.inner.arrangedSubviews[2].frame.width == inspector)
+            #expect(harness.app.consolePanelWidth.dragged == Double(panel - 80))
         }
     }
 
@@ -101,6 +104,33 @@ struct ConsoleSplitDragTests {
             harness.drag(harness.outer, divider: 0, by: -60)
             #expect(harness.window.frame == before)
             #expect(harness.outer.arrangedSubviews[1].frame.height == logs + 60)
+        }
+    }
+
+    @Test("the inspector opens at its stored width and keeps it", arguments: [nil, 400.0])
+    func inspectorOpensAtTheStoredWidth(stored: Double?) throws {
+        let wanted = stored ?? InspectorWidth.defaultWidth
+        try SplitWindow.with(stored: stored.map { [InspectorWidth.key: $0] } ?? [:]) { harness in
+            #expect(harness.app.inspectorWidth == wanted)
+            #expect(harness.inner.arrangedSubviews[2].frame.width == CGFloat(wanted))
+        }
+    }
+
+    @Test("the panel opens at its stored width and keeps it")
+    func panelOpensAtTheStoredWidth() throws {
+        let wanted = PanelLayout.minimum + 60
+        try SplitWindow.with(stored: [PanelLayout.widthKey: wanted]) { harness in
+            #expect(harness.app.consolePanelWidth.dragged == wanted)
+            #expect(harness.inner.arrangedSubviews[0].frame.width == CGFloat(wanted))
+        }
+    }
+
+    @Test("the log pane opens at its stored height and keeps it")
+    func logPaneOpensAtTheStoredHeight() throws {
+        let wanted = LogPaneHeight.minimum + 60
+        try SplitWindow.with(logOpen: true, stored: [LogPaneHeight.key: wanted]) { harness in
+            #expect(harness.app.logPaneHeight == wanted)
+            #expect(harness.outer.arrangedSubviews[1].frame.height == CGFloat(wanted))
         }
     }
 
@@ -118,6 +148,8 @@ struct ConsoleSplitDragTests {
             #expect(harness.inner.arrangedSubviews[0].frame.width == panel)
             #expect(harness.inner.arrangedSubviews[1].frame.width == column - 150)
             #expect(harness.inner.arrangedSubviews[2].frame.width == inspector)
+            #expect(harness.app.inspectorWidth == InspectorWidth.defaultWidth)
+            #expect(harness.app.consolePanelWidth.dragged == nil)
         }
     }
 }
@@ -165,7 +197,10 @@ struct SplitWindow {
     let outer: NSSplitView
     let inner: NSSplitView
 
-    static func with(logOpen: Bool = false, extraWidth: CGFloat = 400, _ body: (SplitWindow) throws -> Void) throws {
+    /// Opens the split with `stored` in the user defaults (a layout key to
+    /// its value), as a launch after an earlier drag finds them.
+    static func with(logOpen: Bool = false, extraWidth: CGFloat = 400, stored: [String: Any] = [:],
+                     _ body: (SplitWindow) throws -> Void) throws {
         let defaults = UserDefaults.standard
         let kept = AppPreferences.layoutKeys.map { ($0, defaults.object(forKey: $0)) }
         defer {
@@ -174,6 +209,7 @@ struct SplitWindow {
             }
         }
         for (key, _) in kept { defaults.removeObject(forKey: key) }
+        for (key, value) in stored { defaults.set(value, forKey: key) }
 
         _ = NSApplication.shared
         let app = AppModel(runner: AppleScriptPrivilegedRunner(), environment: [:])

@@ -124,6 +124,7 @@ final class ConsoleLogSplitController: NSSplitViewController {
     /// inner nil, a third of the window).
     private var pending: Double??
     private var moving = false
+    private let dividers = DividerSplitView()
 
     init(console: ConsoleSplitController, logs: NSViewController) {
         self.console = console
@@ -136,6 +137,7 @@ final class ConsoleLogSplitController: NSSplitViewController {
         logItem.holdingPriority = NSLayoutConstraint.Priority(260)
         logItem.isCollapsed = true
         super.init(nibName: nil, bundle: nil)
+        splitView = dividers
         splitView.isVertical = false
         splitView.dividerStyle = .thin
         addSplitViewItem(consoleItem)
@@ -189,9 +191,9 @@ final class ConsoleLogSplitController: NSSplitViewController {
             onCollapse()
             return
         }
-        // The divider index is in the notification only when the user moved
-        // the divider; a window resize leaves the stored height alone.
-        guard notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
+        // Only the user's drag records a height (`DividerSplitView`); the
+        // window's layout and resizes leave the stored height alone.
+        guard dividers.tracking, notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
         let height = Double(logItem.viewController.view.frame.height)
         keeper.dragged(to: LogPaneHeight.keeperValue(stored: LogPaneHeight.dragged(height)))
         onDrag(height)
@@ -218,7 +220,8 @@ final class ConsoleSplitController: NSSplitViewController {
     /// The width last asked of the split view, so an update that changes
     /// neither the stored width nor the range does not move the divider.
     private var placed: Double?
-    /// The width waiting for the first layout, when the split has no size yet.
+    /// The width waiting for a layout: the split had no size yet, or too
+    /// little room to show it (`placeLater`).
     private var pending: Double?
     /// The inspector's placed width, and the one waiting for a layout.
     private var inspectorKeeper = PaneKeeper()
@@ -227,6 +230,7 @@ final class ConsoleSplitController: NSSplitViewController {
     private var contentMinimum: Double = 0
     /// Set while this controller moves a divider itself.
     private var moving = false
+    private let dividers = DividerSplitView()
 
     init(panel: NSViewController, content: NSViewController, inspector: NSViewController) {
         panelItem = NSSplitViewItem(viewController: panel)
@@ -241,6 +245,7 @@ final class ConsoleSplitController: NSSplitViewController {
         inspectorItem.maximumThickness = InspectorWidth.ceiling
         inspectorItem.holdingPriority = NSLayoutConstraint.Priority(260)
         super.init(nibName: nil, bundle: nil)
+        splitView = dividers
         splitView.isVertical = true
         splitView.dividerStyle = .thin
         addSplitViewItem(panelItem)
@@ -288,10 +293,10 @@ final class ConsoleSplitController: NSSplitViewController {
             pending = width
             return
         }
-        pending = nil
         moving = true
         splitView.setPosition(width, ofDividerAt: 0)
         moving = false
+        pending = Self.placeLater(width, shown: panelItem.viewController.view.frame.width)
     }
 
     /// Moves the inspector's divider so the inspector is `width` wide, or
@@ -302,13 +307,21 @@ final class ConsoleSplitController: NSSplitViewController {
             inspectorPending = width
             return
         }
-        inspectorPending = nil
         let divider = Double(splitView.dividerThickness)
         let panel = panelItem.isCollapsed ? 0 : Double(panelItem.viewController.view.frame.width) + divider
         let shown = InspectorWidth.clamp(width, to: InspectorWidth.range(shared: total - panel, columnMinimum: contentMinimum))
         moving = true
         splitView.setPosition(CGFloat(total - shown - divider), ofDividerAt: 1)
         moving = false
+        inspectorPending = Self.placeLater(width, shown: inspectorItem.viewController.view.frame.width)
+    }
+
+    /// The width to place again at the next layout, or nil when the pane
+    /// shows `width`. The window lays out first at its minimum size, where
+    /// a stored width may not fit; the pane takes it once the window has
+    /// grown, rather than leaving the growth to the tab column.
+    private static func placeLater(_ width: Double, shown: CGFloat) -> Double? {
+        Double(shown) < width - 1 ? width : nil
     }
 
     override func viewDidLayout() {
@@ -330,17 +343,39 @@ final class ConsoleSplitController: NSSplitViewController {
         onCollapse(collapsed)
         let inspectorCollapsed = inspectorItem.isCollapsed
         onInspectorCollapse(inspectorCollapsed)
-        // The divider index is in the notification only when the user moved
-        // a divider; a window resize leaves the stored widths alone.
-        guard let index = notification.userInfo?["NSSplitViewDividerIndex"] as? Int else { return }
+        // Only the user's drag records a width (`DividerSplitView`); the
+        // window's layout and resizes leave the stored widths alone.
+        guard dividers.tracking,
+              let index = notification.userInfo?["NSSplitViewDividerIndex"] as? Int else { return }
         if index == 0, !collapsed {
             let width = Double(panelItem.viewController.view.frame.width)
             placed = width
+            pending = nil
             onDrag(width)
         } else if index == 1, !inspectorCollapsed {
             let width = Double(inspectorItem.viewController.view.frame.width)
+            inspectorPending = nil
             inspectorKeeper.dragged(to: InspectorWidth.dragged(width))
             onInspectorDrag(width)
         }
+    }
+}
+
+/// DividerSplitView is a split view that knows when the user is dragging a
+/// divider. AppKit posts its did-resize notification, with the divider
+/// index in it, for every resize: the window's first layout (the panes at
+/// their minimums, before a size is placed), a window resize and a
+/// `setPosition` call, as well as a drag. A drag runs inside the split
+/// view's own `mouseDown` (AppKit tracks the mouse there until the button
+/// is released), so `tracking` is set only for that span.
+@MainActor
+final class DividerSplitView: NSSplitView {
+    /// Whether the split is tracking the user's mouse on a divider.
+    private(set) var tracking = false
+
+    override func mouseDown(with event: NSEvent) {
+        tracking = true
+        defer { tracking = false }
+        super.mouseDown(with: event)
     }
 }
