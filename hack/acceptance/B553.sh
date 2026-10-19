@@ -17,8 +17,10 @@
 #   2. the LAN verbs' argv are compile-time constants, and no second root
 #      script exists
 #   3. the LAN fixture is the app's own, not a vendored k3sm golden
-#   4. the menu and the window both show the checkbox with its subtitle, and
-#      both flip it only through AppModel.performLAN
+#   4. the window's Network settings pane shows the checkbox with its
+#      subtitle and an unknown state, and flips it only through
+#      AppModel.performLAN; the pane, the menu and the window never reach
+#      the root path themselves
 #
 # K3SM_DIR names the k3sm checkout whose cmd/k3sm, pkg/install and pkg/status
 # the verbs and fields are checked against (default: the sibling ../k3sm).
@@ -100,7 +102,7 @@ for name in \
 	"an unknown covers or alwaysOn word is shown without control or format characters" \
 	"a long covers or alwaysOn list is capped" \
 	"a covers or alwaysOn change between the question and the prompt refuses" \
-	"Cancel is the default only for turning on" \
+	"answering no is the default only for turning on and for aborting an update" \
 	"on: live read, confirm, re-read, the lan-on script, then a confirming read" \
 	"off runs without a question" \
 	"a declined question runs nothing" \
@@ -120,9 +122,13 @@ echo "==> the LAN verbs' argv are constants on the one root path"
 lc="Sources/K3smInstall/Lifecycle.swift"
 grep -qF 'case .lanOn: return ["network", "lan", "on"]' "$lc" || { echo "FAIL: $lc lost the constant lan-on argv"; exit 1; }
 grep -qF 'case .lanOff: return ["network", "lan", "off"]' "$lc" || { echo "FAIL: $lc lost the constant lan-off argv"; exit 1; }
-n="$(grep -rc 'RootScript(text:' Sources | awk -F: '{ s += $2 } END { print s }')"
-[ "$n" = 2 ] || { echo "FAIL: $n RootScript constructions in Sources; want 2 (the copy-out and the lifecycle script)"; exit 1; }
-grep -q 'LifecycleScriptBuilder.render(verb, teamID: teamID)' Sources/K3smInstall/LANAccess.swift \
+# The root scripts are the copy-out, the lifecycle script (which the LAN verbs
+# use) and the join token mint, each built in one place; the LAN feature adds
+# none of its own.
+got="$(grep -rc 'RootScript(text:' Sources | grep -v ':0$' | sort | tr '\n' ' ')"
+want="Sources/K3smInstall/JoinTokenMint.swift:1 Sources/K3smInstall/Lifecycle.swift:1 Sources/K3smInstall/RootScript.swift:1 "
+[ "$got" = "$want" ] || { echo "FAIL: RootScript constructions in Sources are '$got'; want '$want' (the copy-out, the lifecycle script and the join token mint)"; exit 1; }
+grep -qE 'LifecycleScriptBuilder\.render\([A-Za-z]+, teamID: teamID\)' Sources/K3smInstall/LANAccess.swift \
 	|| { echo "FAIL: the LAN driver does not run the lifecycle script"; exit 1; }
 echo "    ok"
 
@@ -134,17 +140,19 @@ fx="Tests/K3smStatusTests/Fixtures/lan-access-refused.json"
 grep -q '"network"' "$fx" || { echo "FAIL: $fx carries no network field"; exit 1; }
 echo "    ok"
 
-echo "==> the menu and the window show the checkbox and flip it through the model"
-for f in Sources/K3smApp/StatusItemController.swift Sources/K3smApp/Views.swift; do
-	grep -q 'LANToggle.title' "$f" || { echo "FAIL: $f does not show the checkbox"; exit 1; }
-	grep -q 'LANToggle.subtitle' "$f" || { echo "FAIL: $f does not show the subtitle"; exit 1; }
-	grep -q 'model.performLAN(' "$f" || { echo "FAIL: $f does not flip through AppModel.performLAN"; exit 1; }
+echo "==> the Network settings pane shows the checkbox and flips it through the model"
+# The status item's menu holds actions only, and the window keeps the setting
+# in its Network settings pane (LANSection); none of them reaches root itself.
+pane="Sources/K3smApp/NetworkPane.swift"
+grep -q 'LANToggle.title' "$pane" || { echo "FAIL: $pane does not show the checkbox"; exit 1; }
+grep -q 'LANToggle.subtitle' "$pane" || { echo "FAIL: $pane does not show the subtitle"; exit 1; }
+grep -q 'model.performLAN(' "$pane" || { echo "FAIL: $pane does not flip through AppModel.performLAN"; exit 1; }
+grep -q 'toggle.value == .unknown' "$pane" || { echo "FAIL: the checkbox has no unknown state"; exit 1; }
+for f in "$pane" Sources/K3smApp/StatusItemController.swift Sources/K3smApp/Views.swift; do
 	if grep -nE 'runAsRoot|LifecycleScriptBuilder|LANDriver\(' "$f"; then
 		echo "FAIL: $f reaches the root path directly"; exit 1
 	fi
 done
-grep -q 'case .unknown: lanItem.state = .mixed' Sources/K3smApp/StatusItemController.swift \
-	|| { echo "FAIL: the menu checkbox is not tri-state"; exit 1; }
 echo "    ok"
 
 echo "B553: green"

@@ -78,7 +78,7 @@ for suite in \
 	"tolerant enums" \
 	"log paths" \
 	"bug report collector" \
-	"status command" \
+	"live status commands" \
 	"command files"; do
 	grep -q "Suite \"$suite\" passed" "$tmp/test.log" || { echo "FAIL: suite \"$suite\" did not run and pass"; exit 1; }
 	echo "    passed: $suite"
