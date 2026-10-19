@@ -18,10 +18,11 @@ import Charts
 import K3smStatus
 import SwiftUI
 
-/// StatsSection is the Stats tab: one navy tile per `StatsChart`, two
-/// across when the column has room, each with its title, its units and its
-/// help tag, and either its chart or the line `StatsDisplay` gives for why
-/// there is none. It makes no read of its own kind: the series come from
+/// StatsSection is the Stats tab: one card per `StatsChart` (light by day,
+/// the site's dark palette by night, following the app's appearance), two
+/// across when the column has room, each with its label, its help tag, the
+/// headline figure `StatsHeadline` decides when the chart has one, and
+/// either its chart or the line `StatsDisplay` gives for why there is none. It makes no read of its own kind: the series come from
 /// `StatsHistory` (fed by the metrics poll, the pod list and the status
 /// report), the shared node list, and the Storage tab's loader, which
 /// `AppModel` runs while Stats is shown. It is in the
@@ -35,19 +36,21 @@ struct StatsSection: View {
     static let tick: TimeInterval = 15
     /// One chart's plot height.
     static let plotHeight: CGFloat = 150
+    /// Every card's height, so a row of cards lines up.
+    static let cardHeight: CGFloat = 290
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: Self.tick)) { context in
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14)], alignment: .leading, spacing: 14) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 18, alignment: .top)], alignment: .leading, spacing: 18) {
                     ForEach(StatsChart.allCases) { chart in
-                        StatsTile(chart: chart) { tileContent(chart, now: context.date) }
+                        tile(chart, now: context.date)
                     }
                 }
                 .padding(.horizontal, 20).padding(.vertical, 16)
             }
         }
-        .background(Palette.surface)
+        .background(Palette.statsPage)
     }
 
     private var pods: StatsInput<[Pod]> {
@@ -55,51 +58,99 @@ struct StatsSection: View {
     }
 
     @ViewBuilder
-    private func tileContent(_ chart: StatsChart, now: Date) -> some View {
+    private func tile(_ chart: StatsChart, now: Date) -> some View {
         let history = workloads.stats
         switch chart {
         case .cpu:
-            StatsUsageChart(state: StatsDisplay.cpu(history, metrics: workloads.metrics, nodes: workloads.nodes))
+            StatsTile(chart: chart) {
+                StatsUsageChart(state: StatsDisplay.cpu(history, metrics: workloads.metrics, nodes: workloads.nodes))
+            }
         case .memory:
-            StatsUsageChart(state: StatsDisplay.memory(history, metrics: workloads.metrics, nodes: workloads.nodes))
+            StatsTile(chart: chart) {
+                StatsUsageChart(state: StatsDisplay.memory(history, metrics: workloads.metrics, nodes: workloads.nodes))
+            }
         case .podsByPhase:
-            StatsBucketChart(state: StatsDisplay.pods(pods, StatsSeries.podsByPhase), byLabel: true)
+            let state = StatsDisplay.pods(pods, StatsSeries.podsByPhase)
+            StatsTile(chart: chart, headline: StatsHeadline.running(state)) {
+                StatsBucketChart(state: state, byLabel: true)
+            }
         case .podsByNode:
-            StatsBucketChart(state: StatsDisplay.pods(pods, StatsSeries.podsByNode), byLabel: false)
+            let state = StatsDisplay.pods(pods, StatsSeries.podsByNode)
+            StatsTile(chart: chart, headline: StatsHeadline.nodes(state)) {
+                StatsBucketChart(state: state, byLabel: false)
+            }
         case .restarts:
-            StatsRestartsChart(state: StatsDisplay.restarts(history, pods: pods, now: now))
+            let state = StatsDisplay.restarts(history, pods: pods, now: now)
+            StatsTile(chart: chart, headline: StatsHeadline.restarts(state)) {
+                StatsRestartsChart(state: state)
+            }
         case .images:
-            StatsImagesChart(state: StatsDisplay.images(
-                StatsInput.of(load: workloads.nodeList.load, value: workloads.nodeList.value?.images)))
+            StatsTile(chart: chart) {
+                StatsImagesChart(state: StatsDisplay.images(
+                    StatsInput.of(load: workloads.nodeList.load, value: workloads.nodeList.value?.images)))
+            }
         case .storage:
-            StatsStorageChart(state: StatsDisplay.storage(
-                StatsInput.of(load: app.storage?.load, value: app.storage?.value), volume: app.dataVolume?.value))
+            let state = StatsDisplay.storage(
+                StatsInput.of(load: app.storage?.load, value: app.storage?.value), volume: app.dataVolume?.value)
+            StatsTile(chart: chart, headline: StatsHeadline.storage(state)) {
+                StatsStorageChart(state: state)
+            }
         case .updates:
-            StatsUpdateChart(state: StatsDisplay.updates(history, now: now))
+            StatsTile(chart: chart) {
+                StatsUpdateChart(state: StatsDisplay.updates(history, now: now))
+            }
         }
     }
 }
 
-/// StatsTile is one chart's tile in the navy panel's look: the title and
-/// its units over the chart, on the panel's raised navy, drawn in the dark
-/// appearance so the axes and legends read on it.
+private struct StatsSymbolKey: EnvironmentKey {
+    static let defaultValue = "chart.bar"
+}
+
+extension EnvironmentValues {
+    /// The card's symbol, so its empty state can draw it large.
+    var statsSymbol: String {
+        get { self[StatsSymbolKey.self] }
+        set { self[StatsSymbolKey.self] = newValue }
+    }
+}
+
+/// StatsTile is one chart's card: its label (`StatsCardLabel`: the symbol,
+/// title and units), the headline figure `StatsHeadline` decides when the
+/// chart has one, then the chart. Light cards by day, the site's dark
+/// palette by night; it follows the app's appearance. The symbol sits beside
+/// the title that names it and the whole card carries the chart's help tag,
+/// so no part of it needs a tag of its own.
 struct StatsTile<Content: View>: View {
     let chart: StatsChart
+    var headline: StatsHeadline? = nil
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: chart.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                Text(verbatim: chart.unit).font(.system(size: 11)).foregroundStyle(.white.opacity(0.62))
+        let label = StatsCardLabel.of(chart)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 9) {
+                Image(systemName: label.symbolName).font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Palette.statsAccent).frame(width: 20)
+                    .accessibilityHidden(true)
+                Text(verbatim: label.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(.primary)
+            }
+            Text(verbatim: label.unit).font(.system(size: 11.5)).foregroundStyle(Palette.statsMuted)
+            if let headline {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(verbatim: headline.figure).font(.system(size: 36, weight: .bold)).monospacedDigit()
+                        .foregroundStyle(Palette.statsNumber)
+                    Text(verbatim: headline.caption).font(.system(size: 12.5)).foregroundStyle(Palette.statsMuted)
+                }
             }
             content()
-                .frame(maxWidth: .infinity, minHeight: StatsSection.plotHeight, alignment: .topLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.deepRaised))
-        .environment(\.colorScheme, .dark)
+        .padding(.horizontal, 18).padding(.vertical, 16)
+        .frame(maxWidth: .infinity, minHeight: StatsSection.cardHeight, maxHeight: StatsSection.cardHeight, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Palette.statsCard))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Palette.statsLine))
+        .environment(\.statsSymbol, label.symbolName)
         .accessibilityElement(children: .combine)
         .help(Help.Stats.tag(for: chart))
     }
@@ -109,12 +160,17 @@ struct StatsTile<Content: View>: View {
 /// nothing to draw, never a blank or a zero.
 struct StatsEmptyLine: View {
     let text: String
+    @Environment(\.statsSymbol) private var symbol
 
     var body: some View {
-        Text(verbatim: StatusDisplay.clip(text)).font(.system(size: 12)).foregroundStyle(.white.opacity(0.62))
-            .lineLimit(3).fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, minHeight: StatsSection.plotHeight, alignment: .center)
-            .multilineTextAlignment(.center)
+        VStack(spacing: 8) {
+            Image(systemName: symbol).font(.system(size: 28, weight: .light)).foregroundStyle(Palette.statsEmpty)
+                .accessibilityHidden(true)
+            Text(verbatim: StatusDisplay.clip(text)).font(.system(size: 12.5)).foregroundStyle(Palette.statsMuted)
+                .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .multilineTextAlignment(.center)
     }
 }
 
@@ -124,7 +180,7 @@ struct StatsCaption: View {
 
     var body: some View {
         Text(verbatim: StatusDisplay.clip(text)).font(.system(size: 11)).monospacedDigit()
-            .foregroundStyle(.white.opacity(0.62)).lineLimit(1).truncationMode(.tail)
+            .foregroundStyle(Palette.statsMuted).lineLimit(1).truncationMode(.tail)
     }
 }
 
@@ -134,22 +190,44 @@ private struct StatsAxes: ViewModifier {
         content
             .chartXAxis {
                 AxisMarks { _ in
-                    AxisGridLine().foregroundStyle(Color.white.opacity(0.10))
-                    AxisValueLabel().foregroundStyle(Color.white.opacity(0.62))
+                    AxisGridLine().foregroundStyle(Palette.statsLine)
+                    AxisValueLabel().foregroundStyle(Palette.statsMuted)
                 }
             }
             .chartYAxis {
                 AxisMarks { _ in
-                    AxisGridLine().foregroundStyle(Color.white.opacity(0.10))
-                    AxisValueLabel().foregroundStyle(Color.white.opacity(0.62))
+                    AxisGridLine().foregroundStyle(Palette.statsLine)
+                    AxisValueLabel().foregroundStyle(Palette.statsMuted)
                 }
             }
     }
 }
 
-/// The colours for `names`, in turn from `Palette.chartSeries`.
+/// StatsBars lays out a horizontal bar chart: thin rounded bars, a row
+/// height per bar instead of one bar filling the plot, the row labels on
+/// the left and the value axis below.
+struct StatsBars: ViewModifier {
+    static let thickness: CGFloat = 12
+    static let row: CGFloat = 30
+    let rows: Int
+    /// Whether each bar is named; one bar needs no name, the headline says it.
+    var labels = true
+
+    func body(content: Content) -> some View {
+        content
+            .chartXAxis(.hidden)
+            .chartYAxis {
+                AxisMarks(position: .leading) { _ in
+                    if labels { AxisValueLabel().foregroundStyle(Palette.statsMuted) }
+                }
+            }
+            .frame(height: CGFloat(max(1, rows)) * Self.row)
+    }
+}
+
+/// The colours for `names`, in turn from `Palette.statsSeries`.
 private func seriesColors(_ count: Int) -> [Color] {
-    (0..<max(1, count)).map { Palette.chartSeries[$0 % Palette.chartSeries.count] }
+    (0..<max(1, count)).map { Palette.statsSeries[$0 % Palette.statsSeries.count] }
 }
 
 /// StatsUsageChart is a node's CPU or memory share over the last hour, one
@@ -196,26 +274,28 @@ struct StatsBucketChart: View {
         case .ready(let buckets):
             Chart {
                 ForEach(buckets, id: \.label) { bucket in
-                    BarMark(x: .value("Pods", bucket.count), y: .value("Label", bucket.label))
-                        .foregroundStyle(byLabel ? Self.phaseColor(bucket.label) : Palette.fill)
+                    BarMark(x: .value("Pods", bucket.count), y: .value("Label", bucket.label), height: .fixed(StatsBars.thickness))
+                        .foregroundStyle(byLabel ? Self.phaseColor(bucket.label) : Palette.statsBar)
+                        .clipShape(Capsule())
                         .annotation(position: .trailing) {
-                            Text(verbatim: "\(bucket.count)").font(.system(size: 10)).monospacedDigit()
-                                .foregroundStyle(.white.opacity(0.8))
+                            if buckets.count > 1 {
+                                Text(verbatim: "\(bucket.count)").font(.system(size: 11)).monospacedDigit()
+                                    .foregroundStyle(Palette.statsMuted)
+                            }
                         }
                 }
             }
-            .modifier(StatsAxes())
-            .frame(height: StatsSection.plotHeight)
+            .modifier(StatsBars(rows: buckets.count, labels: buckets.count > 1))
         }
     }
 
     private static func phaseColor(_ phase: String) -> Color {
         switch phase {
-        case "Running": return Palette.okOnDark
-        case "Pending": return Palette.warnOnDark
-        case "Succeeded": return Palette.fillSoft
+        case "Running": return Palette.statsOk
+        case "Pending": return Palette.statsWarn
+        case "Succeeded": return Palette.statsBarSoft
         case "Failed": return Palette.bad
-        default: return Palette.unknown
+        default: return Palette.statsEmpty
         }
     }
 }
@@ -235,7 +315,7 @@ struct StatsRestartsChart: View {
                         BarMark(xStart: .value("From", bucket.start),
                                 xEnd: .value("To", bucket.start.addingTimeInterval(StatsSeries.restartBucket)),
                                 y: .value("Restarts", bucket.count))
-                            .foregroundStyle(Palette.vm)
+                            .foregroundStyle(Palette.statsWarn)
                     }
                 }
                 .modifier(StatsAxes())
@@ -257,16 +337,16 @@ struct StatsImagesChart: View {
         case .ready(let nodes):
             Chart {
                 ForEach(nodes, id: \.node) { node in
-                    BarMark(x: .value("GB", StatsDisplay.gigabytes(node.bytes)), y: .value("Node", node.node))
-                        .foregroundStyle(Palette.fill)
+                    BarMark(x: .value("GB", StatsDisplay.gigabytes(node.bytes)), y: .value("Node", node.node), height: .fixed(StatsBars.thickness))
+                        .foregroundStyle(Palette.statsBar)
+                        .clipShape(Capsule())
                         .annotation(position: .trailing) {
                             Text(verbatim: StatsDisplay.imagesLine(node)).font(.system(size: 10)).monospacedDigit()
-                                .foregroundStyle(.white.opacity(0.8))
+                                .foregroundStyle(Palette.statsMuted)
                         }
                 }
             }
-            .modifier(StatsAxes())
-            .frame(height: StatsSection.plotHeight)
+            .modifier(StatsBars(rows: nodes.count))
         }
     }
 }
@@ -282,15 +362,16 @@ struct StatsStorageChart: View {
         case .ready(let split):
             VStack(alignment: .leading, spacing: 6) {
                 Chart {
-                    BarMark(x: .value("GB", StatsDisplay.gigabytes(split.boundBytes)), y: .value("Kind", "Bound"))
-                        .foregroundStyle(Palette.fill)
+                    BarMark(x: .value("GB", StatsDisplay.gigabytes(split.boundBytes)), y: .value("Kind", "Bound"), height: .fixed(StatsBars.thickness))
+                        .foregroundStyle(Palette.statsBar)
+                        .clipShape(Capsule())
                     if let free = split.availableBytes {
-                        BarMark(x: .value("GB", StatsDisplay.gigabytes(free)), y: .value("Kind", "Free"))
-                            .foregroundStyle(Palette.fillDim)
+                        BarMark(x: .value("GB", StatsDisplay.gigabytes(free)), y: .value("Kind", "Free"), height: .fixed(StatsBars.thickness))
+                            .foregroundStyle(Palette.statsBarSoft)
+                            .clipShape(Capsule())
                     }
                 }
-                .modifier(StatsAxes())
-                .frame(height: StatsSection.plotHeight)
+                .modifier(StatsBars(rows: split.availableBytes == nil ? 1 : 2))
                 StatsCaption(text: StatsDisplay.storageLine(split))
             }
         }
@@ -319,8 +400,8 @@ struct StatsUpdateChart: View {
                 .chartYAxis(.hidden)
                 .chartXAxis {
                     AxisMarks { _ in
-                        AxisGridLine().foregroundStyle(Color.white.opacity(0.10))
-                        AxisValueLabel().foregroundStyle(Color.white.opacity(0.62))
+                        AxisGridLine().foregroundStyle(Palette.statsLine)
+                        AxisValueLabel().foregroundStyle(Palette.statsMuted)
                     }
                 }
                 .frame(height: StatsSection.plotHeight)
