@@ -1,0 +1,121 @@
+/*
+Copyright The k3sm Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+/// AppUpdateTrust is the one source of what the compiled Team ID pin
+/// authorizes for a self-update: replacing the app with a new bundle, and
+/// accepting a release index as signed by the same team. Both are built from
+/// `TeamIDPin.teamID` and nothing else, so a self-update adds no key, no
+/// signer and no trust root beside the one the root step already pins.
+///
+/// This is policy as data. It verifies nothing itself: the bundle check
+/// (`SecStaticCodeCheckValidity` or `codesign --verify -R`) and the index
+/// check (CMS and `SecTrust`) consume these values.
+public enum AppUpdateTrust {
+    /// The bundle identifier a replacement must carry.
+    public static let bundleIdentifier = "io.k3sm.app"
+
+    /// The code requirement a staged replacement of the app must satisfy:
+    /// the Developer ID Application requirement for `teamID` (an Apple
+    /// anchor, the Developer ID intermediate and leaf markers, the leaf OU
+    /// equal to the team), the app's bundle identifier, and Apple's
+    /// notarization. The four Developer ID clauses come from
+    /// `DesignatedRequirement.developerID(teamID:)`, the same text the root
+    /// step checks the installed CLI against.
+    public static func appRequirement(teamID: TeamID) -> String {
+        DesignatedRequirement.developerID(teamID: teamID)
+            + " and identifier \"\(bundleIdentifier)\""
+            + " and notarized"
+    }
+
+    /// The app-update requirement for the team this binary pins, or nil for
+    /// a developer build, which never updates itself.
+    public static var pinnedAppRequirement: String? {
+        TeamIDPin.teamID.map(appRequirement(teamID:))
+    }
+
+    /// The policy a release index signer must satisfy for `teamID`.
+    public static func indexSigner(teamID: TeamID) -> IndexSignerPolicy {
+        IndexSignerPolicy(teamID: teamID)
+    }
+
+    /// The index signer policy for the team this binary pins, or nil for a
+    /// developer build, which never checks for updates.
+    public static var pinnedIndexSigner: IndexSignerPolicy? {
+        TeamIDPin.teamID.map(indexSigner(teamID:))
+    }
+
+    /// Whether a staged bundle whose compiled pin is `staged` may replace a
+    /// running app whose compiled pin is `running`. Only the same team is
+    /// authorized: a developer build replaces nothing and is never a
+    /// replacement, and a bundle pinning another team is always refused, so
+    /// a change of signing team can never ride an update.
+    public static func authorizesReplacement(running: TeamID?, staged: TeamID?) -> Bool {
+        guard let running, let staged else { return false }
+        return running == staged
+    }
+}
+
+/// IndexSignerPolicy is what a release index's CMS signer must be: the
+/// Developer ID Application identity of the pinned team, with a secure
+/// timestamp, evaluated at the time that timestamp attests.
+public struct IndexSignerPolicy: Equatable, Sendable {
+    /// The OID marking Apple's Developer ID Certification Authority
+    /// intermediate (`certificate 1` of the chain).
+    public static let intermediateMarkerOID = "1.2.840.113635.100.6.2.6"
+
+    /// The OID marking a Developer ID Application leaf certificate.
+    public static let leafMarkerOID = "1.2.840.113635.100.6.1.13"
+
+    /// The extended key usage the leaf must carry: code signing
+    /// (id-kp-codeSigning, RFC 5280 section 4.2.1.12). The requirement
+    /// language cannot test an extended key usage value, so the verifier
+    /// checks it through the Apple code-signing trust policy.
+    public static let codeSigningUsageOID = "1.3.6.1.5.5.7.3.3"
+
+    /// The number of signers the index carries: exactly one.
+    public static let signerCount = 1
+
+    /// The team the leaf subject OU must equal.
+    public let teamID: TeamID
+
+    public init(teamID: TeamID) {
+        self.teamID = teamID
+    }
+
+    /// The certificate facts in the code requirement language, for a
+    /// verifier that evaluates the signer chain against a requirement. It is
+    /// the app requirement without the clauses that only code has (the
+    /// bundle identifier and notarization).
+    public var requirement: String {
+        DesignatedRequirement.developerID(teamID: teamID)
+    }
+
+    /// The checks a verifier makes, in order, each a fixed sentence. An index
+    /// that fails any of them is "could not verify", never an update.
+    public var checks: [String] {
+        [
+            "exactly \(Self.signerCount) CMS signer",
+            "a secure timestamp countersignature from a trusted timestamp authority; none refuses",
+            "the signing time taken only from that countersignature",
+            "the chain evaluated at the signing time with the Apple code-signing policy, revocation included",
+            "anchor apple generic",
+            "certificate 1 carries \(Self.intermediateMarkerOID)",
+            "the leaf carries \(Self.leafMarkerOID)",
+            "the leaf extended key usage includes \(Self.codeSigningUsageOID)",
+            "the leaf subject OU equals \(teamID.value)",
+        ]
+    }
+}
