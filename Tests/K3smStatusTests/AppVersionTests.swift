@@ -160,12 +160,28 @@ struct AppVersionTests {
         let bad: [Any] = [
             "0.2.0", "v0.2.0+build", "v0.2.1", "v0.1.0", "v0.2.0-rc.01", "v0.2.0-beta.1", "v0.2.0-rc",
             " v0.2.0", "v0.2.0\n", "V0.2.0", "v00.2.0", "", "v0.2.0-rc.1-rc.2", 3, ["v0.2.0"],
+            "v0.2.0-rc.12345", "v0.2.0-rc.", "v0.2.0-rc.+1",
         ]
         for value in bad {
             let info: [String: Any] = ["CFBundleShortVersionString": "0.2.0", "K3smPayloadTag": value]
             #expect(AppVersion.payloadTag(info: info) == nil, "\(value)")
             #expect(AppVersion.payloadRelease(info: info) == nil, "\(value)")
         }
+        // The digit limits of the shell grammar: nine for X, Y and Z, four for N.
+        for long in ["v9999999999999.0.0", "v0.9999999999.0", "v0.0.1234567890"] {
+            #expect(AppVersion.releaseTagVersion(long) == nil, "\(long)")
+        }
+        #expect(AppVersion.releaseTagVersion("v999999999.999999999.999999999-rc.9999") != nil)
+        #expect(AppVersion.releaseTagVersion("v0.2.0-rc.12345") == nil)
+
+        // The rc number orders numerically, and every rc ranks below its final.
+        let rc2 = try #require(AppVersion.payloadRelease(info: ["CFBundleShortVersionString": "0.2.0", "K3smPayloadTag": "v0.2.0-rc.2"]))
+        let rc10 = try #require(AppVersion.payloadRelease(info: ["CFBundleShortVersionString": "0.2.0", "K3smPayloadTag": "v0.2.0-rc.10"]))
+        #expect(rc2 < rc10)
+        #expect(rc10 < final)
+        #expect(rc2 < final)
+        #expect(!(rc10 < rc2))
+
         // A tagged development build carries no release either.
         let dev: [String: Any] = ["CFBundleShortVersionString": "0.0.0", "K3smPayloadTag": "v0.0.0"]
         #expect(AppVersion.payloadRelease(info: dev) == nil)

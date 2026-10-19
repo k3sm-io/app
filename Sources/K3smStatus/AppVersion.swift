@@ -101,6 +101,12 @@ public struct AppVersion: Equatable, Sendable {
     /// (`payloadRelease(shortVersion:)`); that fallback is kept for one
     /// release, and in it an rc and its final compare equal. Nil for
     /// `0.0.0` either way, a development build carrying no release.
+    ///
+    /// The missing-key fallback is for the running, installed bundle's own
+    /// display only. A staged candidate bundle (a self-update) must carry a
+    /// valid `K3smPayloadTag`: a caller deciding whether to accept one reads
+    /// `payloadTag(info:)`, never this fallback, and treats nil from either
+    /// as "no release", which a refusal decision handles fail-closed.
     public static func payloadRelease(info: [String: Any]?) -> SemanticVersion? {
         guard info?[payloadTagKey] != nil else {
             return payloadRelease(shortVersion: info?[shortVersionKey] as? String)
@@ -124,17 +130,23 @@ public struct AppVersion: Equatable, Sendable {
     }
 
     /// The version a release tag names, when the tag is exactly
-    /// `vMAJOR.MINOR.PATCH` or `vMAJOR.MINOR.PATCH-rc.N` (each number without
-    /// a leading zero, at most nine digits; N at most four); nil otherwise.
+    /// `vMAJOR.MINOR.PATCH` or `vMAJOR.MINOR.PATCH-rc.N`, nil otherwise: the
+    /// grammar of `hack/release/payload-release.sh check-tag` and
+    /// `release.sh`, each of MAJOR, MINOR and PATCH at most nine digits and N
+    /// at most four, none with a leading zero. The digit limits are checked
+    /// here on the tag's own text, not left to `SemanticVersion`.
     static func releaseTagVersion(_ tag: String) -> SemanticVersion? {
-        guard tag.utf8.count <= 64, tag.hasPrefix("v"), let version = SemanticVersion(tag)
+        guard tag.utf8.count <= 64, tag.hasPrefix("v") else { return nil }
+        let core = tag.dropFirst().prefix { $0 != "-" }.split(separator: ".", omittingEmptySubsequences: false)
+        guard core.count == 3, core.allSatisfy({ (1...9).contains($0.count) }),
+              let version = SemanticVersion(tag)
         else { return nil }
         switch version.prerelease.count {
         case 0:
             break
         case 2:
             let n = version.prerelease[1]
-            guard version.prerelease[0] == "rc", !n.isEmpty, n.count <= 4, n.allSatisfy(\.isASCIIDigit)
+            guard version.prerelease[0] == "rc", (1...4).contains(n.count), n.allSatisfy(\.isASCIIDigit)
             else { return nil }
         default:
             return nil
