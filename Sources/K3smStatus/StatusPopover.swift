@@ -24,6 +24,11 @@ import Foundation
 public enum StatusPopover {
     /// The disclosure that holds the full table and Refresh.
     public static let allChecksTitle = "All checks"
+    /// The eyebrow over the lifecycle controls and the build's notes, shown
+    /// only while the popover has a note on what this build cannot do.
+    public static let buildNotesTitle = "What this build can do"
+    /// The eyebrow over the update plan's line, shown only while there is one.
+    public static let updatesTitle = "Updates"
 
     /// Whether a row is a problem the popover lists: the CLI's severity is
     /// `warn` or `fail`. `ok`, `skip` (nothing to probe) and `unknown`

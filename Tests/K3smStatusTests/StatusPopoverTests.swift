@@ -21,6 +21,13 @@ import Testing
 
 @Suite("the info popover")
 struct StatusPopoverTests {
+    @Test("the section titles are fixed words")
+    func sectionTitles() {
+        #expect(StatusPopover.allChecksTitle == "All checks")
+        #expect(StatusPopover.buildNotesTitle == "What this build can do")
+        #expect(StatusPopover.updatesTitle == "Updates")
+    }
+
     private static func report(_ name: String) throws -> StatusReport {
         try StatusReport.decode(fixture(name))
     }
