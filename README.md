@@ -244,9 +244,10 @@ login** in the app's Settings turns it off or on again (see
   the pod count and how many checks need an administrator.
 - The **info button** opens the status popover: the state of this Mac (and
   who stopped k3sm, when it is stopped), only the checks that need
-  attention, or "All N checks are ok." when none does, the installed
-  version with the same **Update** button and the plan's line under it, and
-  Stop, Restart or Start. **All checks**, closed at first, holds every check
+  attention, or "All N checks are ok." when none does, two version cards
+  (the k3sm installed on this Mac, and the release this app carries or the
+  app's own build) with the same **Update** button and the plan's line
+  under them, and Stop, Restart or Start. **All checks**, closed at first, holds every check
   and Refresh; the app remembers whether you left it open. The log of an
   install, update or uninstall shows there only while one runs or after one
   failed. Connections from other devices and Uninstall are in Settings.
