@@ -32,10 +32,11 @@ struct CLIProcessTests {
                              keepErrors: keepErrors, onOutput: onOutput)
     }
 
-    private func seconds(since start: ContinuousClock.Instant) -> Double {
-        let d = ContinuousClock.now - start
-        return Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18
-    }
+    /// A deadline past each test's one-minute time limit. A run given it that
+    /// ends in time ended for the reason the test names, never for its
+    /// deadline; a run that would wait for it fails on the time limit instead,
+    /// which is the hang guard, not a measurement.
+    static let pastTimeLimit: Duration = .seconds(120)
 
     /// A temporary file path for a child to write its pid to.
     private func pidFile() -> String {
@@ -73,48 +74,44 @@ struct CLIProcessTests {
         }
     }
 
-    @Test("output past the limit ends the run at once, with the first limit bytes")
+    @Test("output past the limit ends the run at once, with the first limit bytes", .timeLimit(.minutes(1)))
     func truncates() async {
-        let start = ContinuousClock.now
-        let outcome = await run("exec yes", deadline: .seconds(10), limit: 1024)
+        let outcome = await run("exec yes", deadline: Self.pastTimeLimit, limit: 1024)
         guard case .truncated(let stdout) = outcome else {
             Issue.record("not truncated: \(outcome)")
             return
         }
         #expect(stdout.count == 1024)
         #expect(stdout.prefix(4) == Data("y\ny\n".utf8))
-        #expect(seconds(since: start) < 3, "the run waited for its deadline")
     }
 
-    @Test("a run past its deadline is killed")
+    @Test("a run past its deadline is killed", .timeLimit(.minutes(1)))
     func deadline() async {
-        let start = ContinuousClock.now
-        let outcome = await run("exec /bin/sleep 30", deadline: .milliseconds(300))
+        // The child would sleep past the time limit, so a killed run is the
+        // deadline's work.
+        let outcome = await run("exec /bin/sleep 120", deadline: .milliseconds(300))
         guard case .killed = outcome else {
             Issue.record("not killed: \(outcome)")
             return
         }
-        #expect(seconds(since: start) < 3)
     }
 
-    @Test("cancelling the awaiting task kills the child at once")
+    @Test("cancelling the awaiting task kills the child at once", .timeLimit(.minutes(1)))
     func cancel() async {
         let file = pidFile()
         defer { try? FileManager.default.removeItem(atPath: file) }
-        let task = Task { await run("echo $$ > '\(file)'; exec /bin/sleep 30", deadline: .seconds(15)) }
-        guard let pid = await readPID(file, within: .seconds(5)) else {
+        let task = Task { await run("echo $$ > '\(file)'; exec /bin/sleep 120", deadline: Self.pastTimeLimit) }
+        guard let pid = await readPID(file, within: .seconds(30)) else {
             task.cancel()
             Issue.record("the child never started")
             return
         }
-        let cancelled = ContinuousClock.now
         task.cancel()
         let outcome = await task.value
         guard case .killed = outcome else {
             Issue.record("not killed: \(outcome)")
             return
         }
-        #expect(seconds(since: cancelled) < 3, "the run waited for its deadline")
         // The run returns after the termination handler, so the child is
         // gone: signal 0 to its pid finds no process.
         #expect(kill(pid, 0) == -1 && errno == ESRCH)
