@@ -28,6 +28,11 @@ import Security
 // pins no team and refuses), and never as root. It builds the engine from
 // the compiled requirements and the real adapters only; nothing selects
 // another requirement or a seam.
+//
+// The copy it runs from is in a directory the user owns. A root mode, when
+// one is added, must never exec this copy or any file a user can write: root
+// runs only a copy it made itself into a root-owned directory and verified
+// there.
 
 func refuse(_ message: String) -> Never {
     FileHandle.standardError.write(Data(("k3sm-app-update: refused: " + message + "\n").utf8))

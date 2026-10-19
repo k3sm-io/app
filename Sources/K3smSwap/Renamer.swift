@@ -50,9 +50,14 @@ public enum RenameOutcome: Equatable, Sendable {
     case crossDevice
     /// `ENOTSUP`: the volume cannot exchange two names in one step.
     case unsupportedVolume
-    /// `EPERM`: macOS refused the rename (App Management); the update needs
-    /// the administrator path.
+    /// `EPERM` (macOS refused the rename: App Management, a MAC policy) or
+    /// `EACCES` (this account cannot write the target's directory, as a
+    /// standard user cannot write `/Applications`): the update needs the
+    /// administrator path, which reads this outcome from the journal's
+    /// reason and takes over the verified staged copy.
     case needsAdministrator
+    /// `EROFS`: the target's volume is mounted read-only.
+    case readOnlyVolume
     /// Any other errno, `ENOENT` included. There is no plain-rename
     /// fallback: the target always exists, so a missing name is an error.
     case failed(Int32)
@@ -62,7 +67,8 @@ public enum RenameOutcome: Equatable, Sendable {
         case 0: self = .done
         case EXDEV: self = .crossDevice
         case ENOTSUP: self = .unsupportedVolume
-        case EPERM: self = .needsAdministrator
+        case EPERM, EACCES: self = .needsAdministrator
+        case EROFS: self = .readOnlyVolume
         default: self = .failed(code)
         }
     }
@@ -73,6 +79,7 @@ public enum RenameOutcome: Equatable, Sendable {
         switch self {
         case .unsupportedVolume: return "Move k3sm.app to Applications on the startup disk"
         case .needsAdministrator: return "Updating k3sm.app needs an administrator"
+        case .readOnlyVolume: return "Move k3sm.app to Applications to get updates"
         case .failed: return "k3sm.app could not be replaced; it was left as it was"
         case .done, .crossDevice: return nil
         }
@@ -82,8 +89,12 @@ public enum RenameOutcome: Equatable, Sendable {
 /// DittoCopier copies a bundle to a new path, for the cross-volume case:
 /// `/usr/bin/ditto --norsrc --noextattr --noqtn --noacl`, by absolute path
 /// and never through a shell. The destination must not exist yet, so the
-/// copy only ever creates files.
+/// copy only ever creates files. A copy still running at the bound (a
+/// stalled network volume) is terminated, then killed, and counts as failed.
 enum DittoCopier {
+    /// How long a copy may take.
+    static let bound: Duration = .seconds(600)
+
     static func copy(from source: String, to destination: String) -> Bool {
         var st = stat()
         guard lstat(destination, &st) != 0, errno == ENOENT else { return false }
@@ -97,6 +108,16 @@ enum DittoCopier {
         do {
             try process.run()
         } catch {
+            return false
+        }
+        let done = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in done.signal() }
+        if process.isRunning, done.wait(timeout: .now() + Double(bound.components.seconds)) == .timedOut {
+            process.terminate()
+            if done.wait(timeout: .now() + 5) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+            }
+            process.waitUntilExit()
             return false
         }
         process.waitUntilExit()

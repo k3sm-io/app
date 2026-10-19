@@ -83,6 +83,10 @@ public struct SwapPaths: Equatable, Sendable {
     public var lockPath: String { privateDirectory + "/" + Self.lockName }
     /// Where the app copies the helper before it runs it.
     public var helperCopyPath: String { privateDirectory + "/" + Self.helperName }
+    /// The engine's own record of the previous copy it kept
+    /// (`PreviousRecord`).
+    public var previousRecordPath: String { privateDirectory + "/" + Self.previousRecordName }
+    public static let previousRecordName = "previous.json"
 
     /// The targets a request may name, exactly.
     public var allowedTargets: [String] { applicationsRoots.map { $0 + "/" + Self.bundleName } }
@@ -136,14 +140,44 @@ public struct SwapPaths: Equatable, Sendable {
         /// The target or a directory above it is a symlink, or it is not a
         /// directory.
         case notADirectory
+        /// The target's volume cannot exchange two names in one step
+        /// (`VOL_CAP_INT_RENAME_SWAP`), or the previous root is on another
+        /// volume, so the old bundle could not leave the Applications
+        /// directory by a rename.
+        case unsupportedVolume
 
         /// The sentence the app shows for this refusal.
         public var message: String {
             switch self {
             case .notAllowed, .translocated, .readOnly, .notADirectory:
                 return "Move k3sm.app to Applications to get updates"
+            case .unsupportedVolume:
+                return "Move k3sm.app to Applications on the startup disk"
             }
         }
+    }
+
+    /// Why the target's volume cannot take a swap, or nil when it can: the
+    /// volume must support `RENAME_SWAP`, and the previous root must be on
+    /// the same volume (compared by volume UUID), because the old bundle
+    /// leaves the Applications directory by a rename, and a rename never
+    /// crosses volumes. Checked before the app quits, by the app before it
+    /// starts the helper and by the helper before it waits, so a volume that
+    /// cannot take the swap is never discovered after the app is gone.
+    ///
+    /// Refusing a target on another volume than the home folder, rather than
+    /// keeping the previous copy on the target's volume, keeps the one
+    /// previous location outside every Applications folder and owned by this
+    /// account; on a second volume it would have to sit in a folder the app
+    /// creates at that volume's root.
+    public func volumeRefusal(target path: String) -> TargetRefusal? {
+        let parent = (path as NSString).deletingLastPathComponent
+        guard SwapVolume.supportsRenameSwap(path: parent) == true else { return .unsupportedVolume }
+        let previousSide = FileManager.default.fileExists(atPath: supportDirectory) ? supportDirectory : home + "/Library"
+        guard let targetVolume = SwapVolume.uuid(path: parent), let previousVolume = SwapVolume.uuid(path: previousSide),
+              targetVolume == previousVolume
+        else { return .unsupportedVolume }
+        return nil
     }
 
     /// Why `path` cannot be updated in place, or nil when it can: it must be

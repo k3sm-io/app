@@ -91,8 +91,9 @@ public struct StaticCodeVerifier: BundleVerifier {
 
     public func verify(bundleAt path: String, requireTag: Bool) throws(BundleVerifyError) -> VerifiedBundle {
         var st = stat()
-        guard lstat(path, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR else { throw .missing }
-        let identity = FileIdentity(st)
+        guard lstat(path, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR, let identity = FileIdentity.of(path: path) else {
+            throw .missing
+        }
         let checked = try Self.checkSignature(path: path, requirement: requirement)
         guard let plist = checked.info, plist["CFBundleIdentifier"] as? String == AppUpdateTrust.bundleIdentifier else {
             throw .bundleIdentifier
@@ -118,7 +119,10 @@ public struct StaticCodeVerifier: BundleVerifier {
         var req: SecRequirement?
         status = SecRequirementCreateWithString(requirement as CFString, [], &req)
         guard status == errSecSuccess, let req else { throw .signature(status) }
-        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode | kSecCSStrictValidate)
+        // No network: the notarization ticket is read from the bundle
+        // (stapled) or the local cache, so a check never waits on a server.
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode | kSecCSStrictValidate
+            | SecCSFlags.noNetworkAccess.rawValue)
         status = SecStaticCodeCheckValidity(code, flags, req)
         guard status == errSecSuccess else { throw .signature(status) }
         var info: CFDictionary?

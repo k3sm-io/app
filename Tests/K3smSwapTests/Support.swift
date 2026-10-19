@@ -85,12 +85,15 @@ final class Scratch: @unchecked Sendable {
     var applications: String { paths.applicationsRoots[0] }
     private var helpers: [ProcessIdentity] = []
 
-    init() {
+    /// A scratch world; `home` puts the home folder elsewhere (another
+    /// volume, in a test).
+    init(home: String? = nil) {
         root = realPath(NSTemporaryDirectory()) + "/k3sm-swap-" + UUID().uuidString.prefix(8)
         let fm = FileManager.default
-        try? fm.createDirectory(atPath: root + "/home/Library/Application Support", withIntermediateDirectories: true)
+        let homePath = home ?? root + "/home"
+        try? fm.createDirectory(atPath: homePath + "/Library/Application Support", withIntermediateDirectories: true)
         try? fm.createDirectory(atPath: root + "/Applications", withIntermediateDirectories: true)
-        paths = SwapPaths(home: root + "/home", applicationsRoots: [root + "/Applications"])
+        paths = SwapPaths(home: homePath, applicationsRoots: [root + "/Applications"])
         launcher = FixtureLauncher(privateDirectory: paths.privateDirectory)
         try? JournalStore(paths: paths).prepare()
     }
@@ -163,6 +166,21 @@ final class Scratch: @unchecked Sendable {
     }
 
     var journal: SwapJournal? { try? JournalStore(paths: paths).read() }
+
+    /// Writes a go-back request for `tag`.
+    func requestGoBack(tag: String, app: ProcessIdentity) {
+        let journal = SwapJournal(request: SwapRequest(mode: .goBack, target: target, stagedName: "", expectedTag: tag,
+                                                       token: SwapRequest.newToken(), app: app))
+        try! JournalStore(paths: paths).write(journal)
+    }
+
+    /// Installs v1.0.0, swaps to v1.1.0 and checks the commit.
+    func updateOnce() {
+        install(tag: "v1.0.0")
+        let name = stage(tag: "v1.1.0")
+        request(stagedName: name, expectedTag: "v1.1.0", app: appProcess(exitingAfter: 0.2))
+        precondition(engine().swap() == .committed, "the setup update did not commit")
+    }
 
     var verifier: StaticCodeVerifier { StaticCodeVerifier(requirement: fixtureRequirement, runningTeam: fixtureTeam) }
 

@@ -20,9 +20,9 @@ import Testing
 
 @Suite("swap reconcile and launch arguments")
 struct ReconcileTests {
-    static let original = FileIdentity(dev: 1, ino: 100)
-    static let incoming = FileIdentity(dev: 1, ino: 200)
-    static let other = FileIdentity(dev: 1, ino: 300)
+    static let original = FileIdentity(volume: "V", ino: 100, dev: 1)
+    static let incoming = FileIdentity(volume: "V", ino: 200, dev: 1)
+    static let other = FileIdentity(volume: "V", ino: 300, dev: 1)
 
     static func journal(_ state: JournalState, incoming: FileIdentity? = ReconcileTests.incoming) -> SwapJournal {
         var j = SwapJournal(request: SwapRequest(mode: .update, target: "/Applications/k3sm.app", stagedName: ".k3sm.app.update-abcdefgh",

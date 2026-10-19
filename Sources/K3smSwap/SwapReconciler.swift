@@ -121,6 +121,12 @@ public struct SwapReconciler: Sendable {
         let store = JournalStore(paths: paths)
         guard store.exists else { return .carryOn }
         guard let journal = try? store.read() else { return .carryOn }
+        // The journal is this account's file; a name or tag outside its
+        // grammar is never used, so nothing is decided from it.
+        guard journal.namesAreValid, paths.allowedTargets.contains(journal.request.target) else {
+            SwapLog.logger.error("reconcile: the journal fails its grammar; left as is")
+            return .carryOn
+        }
         let facts = gatherFacts(journal: journal, runningTag: runningTag, runningSelfCheck: runningSelfCheck)
         let action = Self.decide(journal: journal, facts: facts)
         SwapLog.reconcile(action)
@@ -133,7 +139,7 @@ public struct SwapReconciler: Sendable {
         let lockHeld = store.isLockHeld()
         let atTarget = FileIdentity.of(path: journal.request.target)
         var outgoingVerifies = false
-        if let original = journal.original, let path = locate(original, journal: journal),
+        if journal.namesAreValid, let original = journal.original, let path = locate(original, journal: journal),
            let verified = try? verifier.verify(bundleAt: path, requireTag: false), verified.identity == original {
             outgoingVerifies = true
         }
@@ -149,6 +155,7 @@ public struct SwapReconciler: Sendable {
     }
 
     private func candidates(_ journal: SwapJournal) -> [String] {
+        guard journal.namesAreValid else { return [] }
         var list: [String] = []
         if let name = journal.previousName { list.append(paths.previousDirectory + "/" + name) }
         if journal.request.mode == .update, SwapPaths.isStagingName(journal.request.stagedName) {
@@ -162,7 +169,7 @@ public struct SwapReconciler: Sendable {
 
     /// Executes `action` for `journal`.
     public func perform(_ action: ReconcileAction, journal: SwapJournal) -> ReconcileResult {
-        guard action != .nothing, action != .leave else { return .carryOn }
+        guard action != .nothing, action != .leave, journal.namesAreValid else { return .carryOn }
         let store = JournalStore(paths: paths)
         guard let lock = store.lock() else { return .carryOn }
         defer { lock.release() }

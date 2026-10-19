@@ -152,12 +152,75 @@ public struct SwapJournal: Codable, Equatable, Sendable {
     public var previousName: String?
     /// The launched process, once there is one.
     public var launched: ProcessIdentity?
+    /// Why the swap ended where it did, written with the state when the
+    /// helper stops short of a commit: the relaunched app reads this (the
+    /// helper's exit status reaches nobody), and the administrator path
+    /// takes over a `verified` journal whose reason is `needsAdministrator`.
+    public var reason: SwapExit?
 
     public init(request: SwapRequest, state: JournalState = .staged, at: Date = Date()) {
         schema = Self.currentSchema
         self.request = request
         self.state = state
         self.at = at
+    }
+
+    /// Whether every name and tag the journal carries has its grammar: the
+    /// tags are release tags, the previous name is `k3sm-<tag>.previous`,
+    /// the staging name is a staging name (or empty for a go-back). The
+    /// journal is written by this account and so by anything running as it;
+    /// nothing in it is used before this holds.
+    public var namesAreValid: Bool {
+        guard SwapTag.isReleaseTag(request.expectedTag),
+              request.failedTag.map(SwapTag.isReleaseTag) ?? true,
+              outgoingTag.map(SwapTag.isReleaseTag) ?? true,
+              previousName.map({ SwapPaths.tag(ofPreviousName: $0) != nil }) ?? true
+        else { return false }
+        switch request.mode {
+        case .update: return SwapPaths.isStagingName(request.stagedName)
+        case .goBack: return request.stagedName.isEmpty
+        }
+    }
+}
+
+/// PreviousRecord is the engine's own record of the previous copy it keeps:
+/// its name, its tag and its main executable's cdhash, and the tag and
+/// cdhash of the bundle that replaced it. The engine writes it right before
+/// a swap and removes it when the swap is undone. A go-back restores only
+/// the copy this record names, only while the installed bundle is the one
+/// it names, and only with both cdhashes and tags checked again on the
+/// bundles themselves.
+///
+/// The record lives in the private directory, so a process running as this
+/// account can rewrite it. It narrows a go-back to a Developer ID signed
+/// bundle of this team whose cdhash is written here; it does not stop such a
+/// process from choosing an older signed release, which an administrator
+/// account's process can also copy into /Applications directly. The
+/// administrator path keeps its own root-owned record.
+public struct PreviousRecord: Codable, Equatable, Sendable {
+    public var name: String
+    public var tag: String
+    /// The previous copy's cdhash, lowercase hex.
+    public var cdhash: String
+    public var installedTag: String
+    public var installedCDHash: String
+
+    public init(name: String, tag: String, cdhash: Data, installedTag: String, installedCDHash: Data) {
+        self.name = name
+        self.tag = tag
+        self.cdhash = FileOps.hex(cdhash)
+        self.installedTag = installedTag
+        self.installedCDHash = FileOps.hex(installedCDHash)
+    }
+
+    /// Whether the names, tags and hashes have their grammar.
+    public var isValid: Bool {
+        SwapPaths.tag(ofPreviousName: name) == tag && SwapTag.isReleaseTag(installedTag)
+            && Self.isHash(cdhash) && Self.isHash(installedCDHash)
+    }
+
+    static func isHash(_ s: String) -> Bool {
+        (40...64).contains(s.utf8.count) && s.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
     }
 }
 
@@ -239,6 +302,30 @@ public struct JournalStore: Sendable {
         guard let data = try? Self.encoder.encode(stamped),
               FileOps.replaceDurably(dirFD: dirFD, name: SwapPaths.requestName, data: data, mode: 0o600)
         else { throw .write }
+    }
+
+    /// Reads the previous record, checked like the journal; nil when there
+    /// is none or it fails a check or its grammar.
+    public func readRecord() -> PreviousRecord? {
+        guard privateDirectoryIsSafe(),
+              let data = FileOps.read(paths.previousRecordPath, check: .init(owner: getuid(), mode: 0o600, limit: 4096)),
+              let record = try? Self.decoder.decode(PreviousRecord.self, from: data), record.isValid
+        else { return nil }
+        return record
+    }
+
+    /// Writes the previous record durably, or removes it for nil.
+    @discardableResult
+    public func writeRecord(_ record: PreviousRecord?) -> Bool {
+        guard privateDirectoryIsSafe(), let dirFD = FileOps.openDirectory(paths.privateDirectory) else { return false }
+        defer { close(dirFD) }
+        guard let record else {
+            let ok = unlinkat(dirFD, SwapPaths.previousRecordName, 0) == 0 || errno == ENOENT
+            FileOps.fullSync(dirFD)
+            return ok
+        }
+        guard let data = try? Self.encoder.encode(record) else { return false }
+        return FileOps.replaceDurably(dirFD: dirFD, name: SwapPaths.previousRecordName, data: data, mode: 0o600)
     }
 
     /// Takes the lock without waiting, or returns nil when another process

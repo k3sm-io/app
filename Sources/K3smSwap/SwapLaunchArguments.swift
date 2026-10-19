@@ -24,7 +24,10 @@ public struct SwapLaunchArguments: Equatable, Sendable {
     /// The release this launch replaced: `--updated-from <tag>`.
     public static let updatedFrom = "--updated-from"
     /// The release that did not start, so this one is back:
-    /// `--update-failed <tag>`.
+    /// `--update-failed <tag>`. Anything that can launch the app can pass
+    /// it, so a consumer that suppresses that release's offer must first
+    /// read the journal and find it `rolledBack` (or stopped with a reason)
+    /// for exactly that tag.
     public static let updateFailed = "--update-failed"
 
     /// Whether the app must write the handshake.

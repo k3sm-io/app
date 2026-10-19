@@ -18,7 +18,12 @@ import os
 
 /// SwapExit names the helper's exit statuses, one per outcome, in the
 /// pattern of `CopyOutExit`.
-public enum SwapExit: Int32, Sendable, CaseIterable {
+///
+/// The app that asked for the swap has quit and the helper runs in its own
+/// session, so nobody reads this status but a caller that waits for it (the
+/// administrator path, the tests). The relaunched app learns the outcome from
+/// the journal: its state and its `reason`, one of these values.
+public enum SwapExit: Int32, Codable, Sendable, CaseIterable {
     /// The new bundle is in place and answered the handshake (or, for
     /// `--relaunch`, the relaunched app answered).
     case committed = 0
@@ -31,7 +36,8 @@ public enum SwapExit: Int32, Sendable, CaseIterable {
     /// The rename was refused with `EPERM`: the administrator path is needed.
     /// The old bundle is in place and the journal is at `verified`.
     case needsAdministrator = 66
-    /// The volume cannot swap two names in one step (`ENOTSUP`).
+    /// The volume cannot swap two names in one step (`VOL_CAP_INT_RENAME_SWAP`
+    /// absent, or `ENOTSUP`), or the previous root is on another volume.
     case unsupportedVolume = 67
     /// The new bundle did not answer, or exited early; the old one is back
     /// in place and was relaunched.
@@ -39,6 +45,8 @@ public enum SwapExit: Int32, Sendable, CaseIterable {
     /// The update stopped without a swap: the app did not exit in time, or
     /// the rename failed with another errno. The staged copy is kept.
     case abandoned = 69
+    /// The target's volume is read-only (`EROFS`).
+    case readOnlyVolume = 70
     /// Another helper holds the lock.
     case busy = 75
 }
@@ -56,6 +64,7 @@ enum SwapLog {
         case .verificationFailed: logger.error("swap: verification failed")
         case .needsAdministrator: logger.error("swap: rename refused, needs an administrator")
         case .unsupportedVolume: logger.error("swap: the volume cannot swap in one step")
+        case .readOnlyVolume: logger.error("swap: the volume is read-only")
         case .rolledBack: logger.error("swap: rolled back")
         case .abandoned: logger.error("swap: abandoned, nothing replaced")
         case .busy: logger.notice("swap: another helper is running")

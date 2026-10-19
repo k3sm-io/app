@@ -63,6 +63,7 @@ struct SwapEngineTests {
         #expect(identity(s.target) == original)
         #expect(s.tag(at: s.target) == "v1.0.0")
         #expect(s.journal?.state == .rolledBack)
+        #expect(s.journal?.reason == .rolledBack)
         #expect(s.launcher.launches.last == .init(path: s.target, arguments: ["--update-failed", "v1.1.0"]))
         #expect(s.previousEntries().isEmpty)
         #expect(s.stagingEntries().isEmpty)
@@ -242,6 +243,8 @@ struct SwapEngineTests {
         let cases: [(Int32, SwapExit, RenameOutcome)] = [
             (ENOTSUP, .unsupportedVolume, .unsupportedVolume),
             (EPERM, .needsAdministrator, .needsAdministrator),
+            (EACCES, .needsAdministrator, .needsAdministrator),
+            (EROFS, .readOnlyVolume, .readOnlyVolume),
             (EIO, .abandoned, .failed(EIO)),
             (ENOENT, .abandoned, .failed(ENOENT)),
         ]
@@ -255,6 +258,7 @@ struct SwapEngineTests {
             #expect(s.engine(renamer: SpyRenamer(swapErrno: code)).swap() == exit, "errno \(code)")
             #expect(identity(s.target) == original, "errno \(code)")
             #expect(s.journal?.state == .verified, "errno \(code)")
+            #expect(s.journal?.reason == exit, "errno \(code)")
             #expect(s.stagingEntries() == [name], "errno \(code)")
             #expect(s.launcher.launches == [.init(path: s.target, arguments: ["--update-failed", "v1.1.0"])], "errno \(code)")
         }

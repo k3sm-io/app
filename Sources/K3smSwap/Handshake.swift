@@ -75,10 +75,15 @@ public struct HandshakeCheck: Sendable {
         guard SecRequirementCreateWithString(requirement as CFString, [], &req) == errSecSuccess, let req,
               SecCodeCheckValidity(code, [], req) == errSecSuccess
         else { return nil }
-        // A dynamic code reference is accepted where a static one is asked
-        // for; its signing information is the running code's.
+        // The running guest's code on disk, through the documented bridge.
+        // SecCodeCheckValidity above checked the dynamic code: the kernel
+        // still holds it valid and it matches this static code, so the
+        // static cdhash is the running one. The kernel's own view
+        // (csops CS_OPS_CDHASH) is not in the public SDK and is not used.
+        var staticCode: SecStaticCode?
         var info: CFDictionary?
-        guard SecCodeCopySigningInformation(unsafeBitCast(code, to: SecStaticCode.self), [], &info) == errSecSuccess,
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode,
+              SecCodeCopySigningInformation(staticCode, [], &info) == errSecSuccess,
               let dict = info as? [String: Any]
         else { return nil }
         return dict[kSecCodeInfoUnique as String] as? Data

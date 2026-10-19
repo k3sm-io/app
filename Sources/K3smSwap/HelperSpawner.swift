@@ -55,6 +55,12 @@ public enum HelperError: Error, Equatable, Sendable {
 /// - `spawn(mode:bundled:)` verifies again and `posix_spawn`s the copy with
 ///   `POSIX_SPAWN_SETSID`, so it outlives the app, with a fixed environment
 ///   and its standard streams on `/dev/null`.
+///
+/// The copy lives in a directory this account owns, so anything running as
+/// this account can replace it between a check and an exec. It runs only as
+/// this account. A root mode must never exec it, nor any file a user can
+/// write: root runs only a copy it made itself into a root-owned directory
+/// and verified there.
 public struct HelperSpawner: Sendable {
     public let paths: SwapPaths
     /// The helper requirement (`AppUpdateTrust.helperRequirement(teamID:)`).
@@ -80,12 +86,18 @@ public struct HelperSpawner: Sendable {
         let temp = SwapPaths.helperName + ".tmp-" + FileOps.randomName(length: 12)
         guard fclonefileat(source, dirFD, temp, 0) == 0 || Self.copyBytes(from: source, size: Int(st.st_size), dirFD: dirFD, name: temp)
         else { throw .copy }
+        let copyFD = openat(dirFD, temp, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        if copyFD >= 0 {
+            FileOps.fullSync(copyFD)
+            close(copyFD)
+        }
         guard fchmodat(dirFD, temp, 0o500, AT_SYMLINK_NOFOLLOW) == 0,
               renameatx_np(dirFD, temp, dirFD, SwapPaths.helperName, UInt32(RENAME_EXCL)) == 0
         else {
             unlinkat(dirFD, temp, 0)
             throw .copy
         }
+        FileOps.fullSync(dirFD)
         try verifyInstalledCopy(bundled: bundled)
     }
 
@@ -110,7 +122,7 @@ public struct HelperSpawner: Sendable {
             }
             offset += off_t(n)
         }
-        ok = ok && fsync(fd) == 0
+        ok = ok && FileOps.fullSync(fd)
         close(fd)
         if !ok { unlinkat(dirFD, name, 0) }
         return ok
@@ -167,28 +179,43 @@ public struct SwapClient: Sendable {
         self.bundledHelper = bundledHelper
     }
 
-    /// Refuses while a live helper holds the lock.
+    /// Why a swap was not started. Each is decided before the app quits.
     public enum StartError: Error, Equatable, Sendable {
+        /// A live helper holds the lock.
         case busy
+        /// The target cannot be updated in place; the refusal carries the
+        /// sentence to show.
+        case refused(SwapPaths.TargetRefusal)
         case request
         case helper(HelperError)
+    }
+
+    /// Why `target` cannot take a swap, or nil: the path checks and the
+    /// volume checks (`RENAME_SWAP` support, the previous root on the same
+    /// volume). The app calls this before it offers an update, and
+    /// `beginUpdate` calls it again before it writes anything.
+    public func refusal(target: String) -> SwapPaths.TargetRefusal? {
+        paths.refusal(target: target) ?? paths.volumeRefusal(target: target)
     }
 
     /// Asks the helper to replace `target` with the bundle staged in
     /// `stagedName`, which carries `expectedTag`.
     public func beginUpdate(target: String, stagedName: String, expectedTag: String) throws(StartError) {
+        if let refusal = refusal(target: target) { throw .refused(refusal) }
         guard let app = ProcessIdentity.current() else { throw .request }
         let request = SwapRequest(mode: .update, target: target, stagedName: stagedName, expectedTag: expectedTag,
                                   token: SwapRequest.newToken(), app: app)
         try begin(request, mode: .swap)
     }
 
-    /// Asks the helper to put the kept previous copy back: the last
-    /// committed journal must name it.
+    /// Asks the helper to put the kept previous copy back: the one the
+    /// engine's previous record names, after the last swap committed.
     public func beginGoBack() throws(StartError) {
-        guard let journal = try? JournalStore(paths: paths).read(), journal.state == .committed,
-              let tag = journal.outgoingTag, let app = ProcessIdentity.current()
+        let store = JournalStore(paths: paths)
+        guard let journal = try? store.read(), journal.state == .committed, journal.namesAreValid,
+              let record = store.readRecord(), let app = ProcessIdentity.current()
         else { throw .request }
+        let tag = record.tag
         let request = SwapRequest(mode: .goBack, target: journal.request.target, stagedName: "", expectedTag: tag,
                                   token: SwapRequest.newToken(), app: app)
         try begin(request, mode: .goBack)

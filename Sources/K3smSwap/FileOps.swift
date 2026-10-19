@@ -17,21 +17,28 @@ limitations under the License.
 import Darwin
 import Foundation
 
-/// FileIdentity is a file system object's identity: its device and inode.
-/// The swap engine records the identity of the installed bundle and of the
-/// incoming one before the swap and decides afterwards from the identity
-/// actually at the target, never from a path's say-so.
-public struct FileIdentity: Codable, Hashable, Sendable {
-    public let dev: Int64
+/// FileIdentity is a file system object's identity: its volume's UUID and
+/// its inode. The swap engine records the identity of the installed bundle
+/// and of the incoming one before the swap and decides afterwards from the
+/// identity actually at the target, never from a path's say-so.
+///
+/// The volume is named by its UUID (`ATTR_VOL_UUID`), not by `st_dev`:
+/// `st_dev` comes from the disk node and can change across a reboot, and a
+/// changed identity would read as "something else is at the target", the
+/// one reading that leads the reconcile to forget a swap. A volume with no
+/// UUID is named by its `st_dev`. `dev` is kept for the record only and takes
+/// no part in equality.
+public struct FileIdentity: Codable, Sendable {
+    /// The volume's UUID, or `dev:<st_dev>` for a volume without one.
+    public let volume: String
     public let ino: UInt64
+    /// The `st_dev` seen when the identity was taken; not compared.
+    public let dev: Int64
 
-    public init(dev: Int64, ino: UInt64) {
-        self.dev = dev
+    public init(volume: String, ino: UInt64, dev: Int64 = 0) {
+        self.volume = volume
         self.ino = ino
-    }
-
-    init(_ st: stat) {
-        self.init(dev: Int64(st.st_dev), ino: UInt64(st.st_ino))
+        self.dev = dev
     }
 
     /// The identity of `path` itself (`lstat`, so a symlink is its own
@@ -39,7 +46,7 @@ public struct FileIdentity: Codable, Hashable, Sendable {
     public static func of(path: String) -> FileIdentity? {
         var st = stat()
         guard lstat(path, &st) == 0 else { return nil }
-        return FileIdentity(st)
+        return FileIdentity(volume: SwapVolume.uuid(path: path) ?? "dev:\(st.st_dev)", ino: UInt64(st.st_ino), dev: Int64(st.st_dev))
     }
 
     /// The identity of `name` inside the open directory `dirFD`, without
@@ -47,7 +54,70 @@ public struct FileIdentity: Codable, Hashable, Sendable {
     public static func of(dirFD: Int32, name: String) -> FileIdentity? {
         var st = stat()
         guard fstatat(dirFD, name, &st, AT_SYMLINK_NOFOLLOW) == 0 else { return nil }
-        return FileIdentity(st)
+        return FileIdentity(volume: SwapVolume.uuid(dirFD: dirFD, name: name) ?? "dev:\(st.st_dev)", ino: UInt64(st.st_ino),
+                            dev: Int64(st.st_dev))
+    }
+}
+
+extension FileIdentity: Hashable {
+    public static func == (a: FileIdentity, b: FileIdentity) -> Bool {
+        a.volume == b.volume && a.ino == b.ino
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(volume)
+        hasher.combine(ino)
+    }
+}
+
+/// SwapVolume answers the two volume questions a swap asks, through
+/// `getattrlist`: the volume's UUID, and whether it can exchange two names
+/// in one step (`VOL_CAP_INT_RENAME_SWAP`).
+public enum SwapVolume {
+    private static func attributes(_ call: (inout attrlist, UnsafeMutableRawBufferPointer) -> Int32) -> (caps: vol_capabilities_attr_t, uuid: uuid_t)? {
+        var list = attrlist()
+        list.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
+        list.volattr = attrgroup_t(ATTR_VOL_INFO) | attrgroup_t(ATTR_VOL_CAPABILITIES) | attrgroup_t(ATTR_VOL_UUID)
+        var buffer = [UInt8](repeating: 0, count: 256)
+        let ok = buffer.withUnsafeMutableBytes { call(&list, $0) == 0 }
+        guard ok else { return nil }
+        return buffer.withUnsafeBytes { raw in
+            // The reply: a u_int32_t length, then the attributes in bit order.
+            let caps = raw.loadUnaligned(fromByteOffset: 4, as: vol_capabilities_attr_t.self)
+            let uuid = raw.loadUnaligned(fromByteOffset: 4 + MemoryLayout<vol_capabilities_attr_t>.size, as: uuid_t.self)
+            return (caps, uuid)
+        }
+    }
+
+    /// The UUID of the volume holding `path`, or nil.
+    public static func uuid(path: String) -> String? {
+        attributes { list, buffer in getattrlist(path, &list, buffer.baseAddress, buffer.count, UInt32(FSOPT_NOFOLLOW)) }
+            .flatMap { name($0.uuid) }
+    }
+
+    /// The UUID of the volume holding `name` in `dirFD`, or nil.
+    public static func uuid(dirFD: Int32, name: String) -> String? {
+        attributes { list, buffer in getattrlistat(dirFD, name, &list, buffer.baseAddress, buffer.count, UInt(FSOPT_NOFOLLOW)) }
+            .flatMap { self.name($0.uuid) }
+    }
+
+    private static func name(_ uuid: uuid_t) -> String? {
+        let value = UUID(uuid: uuid)
+        return value == UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)) ? nil : value.uuidString
+    }
+
+    /// Whether the volume holding `path` supports `RENAME_SWAP`; nil when
+    /// the volume does not say.
+    public static func supportsRenameSwap(path: String) -> Bool? {
+        guard let caps = attributes({ list, buffer in getattrlist(path, &list, buffer.baseAddress, buffer.count, 0) })?.caps else {
+            return nil
+        }
+        let index = Int(VOL_CAPABILITIES_INTERFACES)
+        let bit = UInt32(VOL_CAP_INT_RENAME_SWAP)
+        let valid = withUnsafeBytes(of: caps.valid) { $0.load(fromByteOffset: index * 4, as: UInt32.self) }
+        let capable = withUnsafeBytes(of: caps.capabilities) { $0.load(fromByteOffset: index * 4, as: UInt32.self) }
+        guard valid & bit != 0 else { return nil }
+        return capable & bit != 0
     }
 }
 
@@ -130,13 +200,37 @@ enum FileOps {
                 return true
             }
         }
-        ok = ok && fsync(fd) == 0
+        ok = ok && fullSync(fd)
         close(fd)
         guard ok, renameat(dirFD, temp, dirFD, name) == 0 else {
             unlinkat(dirFD, temp, 0)
             return false
         }
-        return fsync(dirFD) == 0
+        return fullSync(dirFD)
+    }
+
+    /// Flushes `fd` to permanent storage: `fcntl(F_FULLFSYNC)`, because on
+    /// macOS `fsync` does not flush the drive's cache. A file system that
+    /// refuses it gets `fsync`, and the fallback is logged.
+    @discardableResult
+    static func fullSync(_ fd: Int32) -> Bool {
+        if fcntl(fd, F_FULLFSYNC) == 0 { return true }
+        SwapLog.logger.notice("sync: F_FULLFSYNC refused, used fsync")
+        return fsync(fd) == 0
+    }
+
+    /// Whether `name` in `dirFD`, and everything under it when it is a
+    /// directory, is owned by this account and writable by no group and no
+    /// other user. Nothing is followed; a symlink counts as itself.
+    static func isPrivateTree(at dirFD: Int32, _ name: String) -> Bool {
+        var st = stat()
+        guard fstatat(dirFD, name, &st, AT_SYMLINK_NOFOLLOW) == 0, st.st_uid == getuid(), st.st_mode & 0o022 == 0 else {
+            return false
+        }
+        guard (st.st_mode & S_IFMT) == S_IFDIR else { return true }
+        guard let fd = openDirectory(at: dirFD, name) else { return false }
+        defer { close(fd) }
+        return entries(fd).allSatisfy { isPrivateTree(at: fd, $0) }
     }
 
     /// Removes `name` from `dirFD`: a file is unlinked, a directory is

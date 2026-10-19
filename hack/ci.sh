@@ -112,7 +112,9 @@ SWAP_TESTS=(swapSuccessKeepsPreviousCopy missingHandshakeRollsBack earlyExitRoll
 	parentNeverExitsAbandonsKeepsStaged killAtEveryJournalStepReconciles requestNamingAnotherDirectoryRefused
 	oldExecutableInodeUnchanged renameErrnoOutcomes exdevCopiesOntoTargetVolume exitWatcherTreatsESRCHAsExited
 	startTimeMismatchCountsAsExited floorReadFromInstalledBundle handshakeBoundToLaunchedCdhash
-	helperCopyMustMatchBundledHelper previousCopyVerifiesUnderNonBundleName reconcileDecisionTable)
+	helperCopyMustMatchBundledHelper previousCopyVerifiesUnderNonBundleName reconcileDecisionTable
+	goBackRestoresOnlyTheRecordedCopy rollbackRestoresThePriorRecord journalNamesOutsideGrammarAreNeverUsed
+	stagedTreeMustBePrivate volumeRefusedBeforeTheAppQuits reconcileSurvivesDevRenumbering)
 swap_engine_stage() {
 	echo "==> swap engine (k3sm-app-update, K3smSwapTests, the in-place write guard)"
 	swift build ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} --product k3sm-app-update
