@@ -42,4 +42,41 @@ public struct VersionCard: Equatable, Sendable {
         self.value = value
         self.note = note
     }
+
+    /// The first card's eyebrow: the k3sm installed on this Mac.
+    public static let installedEyebrow = "INSTALLED"
+    /// The second card's eyebrow: the release this app carries, or the app
+    /// itself when it carries none.
+    public static let appEyebrow = "THIS APP"
+    /// The second card's note under a development build's pseudo-version.
+    public static let developmentNote = "development build"
+}
+
+extension AppVersion {
+    /// The status popover's two version cards, the same cases as
+    /// `versionLine(installed:payload:)`, which stays as the cards'
+    /// accessibility text. The first card is the installed k3sm ("unknown"
+    /// when it cannot be read). The second is the release this app carries,
+    /// with a note that relates it to the installed one ("a newer release",
+    /// "up to date", "an older release"; none when the installed release is
+    /// unknown), or, for a build that carries no release, the app's own
+    /// version (`text`, the pseudo-version, never `0.0.0`) with the
+    /// development note; "unknown" for a binary outside a bundle.
+    public func versionCards(installed: SemanticVersion?, payload: SemanticVersion?) -> [VersionCard] {
+        let first = VersionCard(eyebrow: VersionCard.installedEyebrow, value: installed?.description ?? "unknown", note: nil)
+        guard let payload else {
+            let note = isDevelopment ? VersionCard.developmentNote : nil
+            return [first, VersionCard(eyebrow: VersionCard.appEyebrow, value: text ?? "unknown", note: note)]
+        }
+        guard let current = installed else {
+            return [first, VersionCard(eyebrow: VersionCard.appEyebrow, value: payload.description, note: nil)]
+        }
+        let note: String
+        switch PayloadRelation(payload: payload, installed: current) {
+        case .newer: note = "a newer release"
+        case .same: note = "up to date"
+        case .older: note = "an older release"
+        }
+        return [first, VersionCard(eyebrow: VersionCard.appEyebrow, value: payload.description, note: note)]
+    }
 }
