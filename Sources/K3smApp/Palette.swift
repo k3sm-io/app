@@ -35,6 +35,11 @@ enum Palette {
     /// Rules between the console's columns and rows.
     static let line = Color(nsColor: .separatorColor)
     static let navy = adaptive(light: 0x011389, dark: 0x7d97ff)          // icons and native marks; 12.4:1 / 4.67:1 on tint
+    /// The k3sm blue as an accent on the system surfaces: `blue` itself in
+    /// light (7.49:1 on white, 6.34:1 on #ececec) and the navy's dark value
+    /// in dark (6.15:1 on #1e1e1e, 4.73:1 on #323232), where #022ffb would
+    /// measure 2.22:1. The popover's top bar and a version card's edge use it.
+    static let accent = adaptive(light: 0x022ffb, dark: 0x7d97ff)
     static let tint = adaptive(light: 0xeaedff, dark: 0x24305e)          // the selected row
     static let wash = adaptive(light: 0xf6f7fb, dark: 0x2a2b31)          // text wells
     static let raised = adaptive(light: 0xffffff, dark: 0x3a3b42)        // the selected chip

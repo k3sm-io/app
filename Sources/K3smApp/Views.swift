@@ -48,14 +48,17 @@ struct SetUpPane: View {
     }
 }
 
-/// StatusPopoverPanel is the console's info popover, about 380 pt wide: the
+/// StatusPopoverPanel is the console's info popover, 420 pt wide: the
 /// status (`StatusView`), then the last root step's log only while a step
 /// runs or after one failed (`StatusPopover.showsLog`), then the outcome.
+/// It carries the k3sm look: a 3 pt bar in the accent along the top and
+/// the mark as a faint watermark off the bottom-right corner, both
+/// decoration that accessibility skips.
 struct StatusPopoverPanel: View {
     @ObservedObject var model: AppModel
 
-    /// The popover's width.
-    static let width: CGFloat = 380
+    /// The popover's width: 420 pt seats the two version cards side by side.
+    static let width: CGFloat = 420
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -69,8 +72,74 @@ struct StatusPopoverPanel: View {
                 Text(verbatim: message).font(.callout).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(16)
+        .padding(.horizontal, 18)
+        .padding(.top, 20)
+        .padding(.bottom, 16)
         .frame(width: Self.width, alignment: .topLeading)
+        .background(alignment: .bottomTrailing) {
+            Butterfly().fill(Palette.navy.opacity(0.06))
+                .frame(width: 150, height: 143)
+                .offset(x: 28, y: 24)
+                .accessibilityHidden(true)
+        }
+        .overlay(alignment: .top) {
+            Rectangle().fill(Palette.accent).frame(height: 3).accessibilityHidden(true)
+        }
+        .clipped()
+    }
+}
+
+/// Eyebrow is a section's small-capitals title in the brand's navy, as the
+/// info popover labels its sections. The text is shown as given.
+struct Eyebrow: View {
+    let title: String
+    init(_ title: String) { self.title = title }
+
+    var body: some View {
+        Text(verbatim: title.uppercased())
+            .font(.system(size: 11, weight: .semibold))
+            .tracking(0.6)
+            .foregroundStyle(Palette.navy)
+    }
+}
+
+/// VersionCardView draws one `VersionCard`: its eyebrow, the value in large
+/// type (a long pseudo-version shrinks and truncates in the middle; the
+/// accessibility text carries the whole line), the note after it, and a
+/// coloured left edge.
+struct VersionCardView: View {
+    let card: VersionCard
+    let edge: Color
+    let eyebrowColor: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: card.eyebrow)
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(eyebrowColor)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(verbatim: card.value)
+                    .font(.system(size: 20, weight: .semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .truncationMode(.middle)
+                if let note = card.note {
+                    Text(verbatim: note).font(.system(size: 12)).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.raised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Palette.line, lineWidth: 1))
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 1.5).fill(edge).frame(width: 3).padding(.vertical, 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -371,18 +440,31 @@ struct StatusView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
-                Text(verbatim: model.health?.line ?? HealthState.statusUnreadable.line ?? "").font(.title3).bold()
+                Text(verbatim: model.health?.line ?? HealthState.statusUnreadable.line ?? "")
+                    .font(.system(size: 17, weight: .bold))
                     .fixedSize(horizontal: false, vertical: true)
             }
-            versionRow
-            LifecycleSection(model: model)
-            UpdateSection(model: model)
-            if case .disabled(let reason) = model.availability {
-                Text(verbatim: reason).font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            versionCards
+            if showsBuildNotes {
+                VStack(alignment: .leading, spacing: 4) {
+                    Eyebrow(StatusPopover.buildNotesTitle)
+                    LifecycleSection(model: model)
+                    if case .disabled(let reason) = model.availability {
+                        Text(verbatim: reason).font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            } else {
+                LifecycleSection(model: model)
+            }
+            if model.updatePlan.line != nil {
+                VStack(alignment: .leading, spacing: 4) {
+                    Eyebrow(StatusPopover.updatesTitle)
+                    UpdateSection(model: model)
+                }
             }
             Divider()
-            DisclosureGroup(StatusPopover.allChecksTitle, isExpanded: $preferences.allChecksOpen) {
+            DisclosureGroup(isExpanded: $preferences.allChecksOpen) {
                 VStack(alignment: .leading, spacing: 8) {
                     if let report = model.report {
                         allChecks(report)
@@ -392,6 +474,47 @@ struct StatusView: View {
                         .help(Help.Popover.refresh)
                 }
                 .padding(.top, 6)
+            } label: {
+                Text(verbatim: StatusPopover.allChecksTitle)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Palette.navy)
+            }
+            .tint(Palette.navy)
+        }
+    }
+
+    /// Whether the popover has a note on what this build cannot do: an
+    /// installed CLI the app will not run as root, or a build that cannot
+    /// install or change k3sm. Only then does the lifecycle section take
+    /// its eyebrow.
+    private var showsBuildNotes: Bool {
+        if case .unavailable = model.lifecycleSupport { return true }
+        if case .disabled = model.availability { return true }
+        return false
+    }
+
+    /// The two versions as cards (`AppVersion.versionCards`): the installed
+    /// k3sm with the accent edge, then the release this app carries or the
+    /// app itself with a grey one. Accessibility reads them as the one
+    /// version line. The update plan's button sits under them.
+    private var versionCards: some View {
+        let plan = model.updatePlan
+        let cards = model.appVersion.versionCards(installed: model.installedVersion, payload: model.payloadVersion)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                ForEach(Array(cards.enumerated()), id: \.offset) { index, card in
+                    VersionCardView(card: card,
+                                    edge: index == 0 ? Palette.accent : Palette.unknown,
+                                    eyebrowColor: index == 0 ? Palette.navy : Palette.ink2)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: versionLine))
+            if let title = plan.buttonTitle {
+                Button(title) { model.performUpdate() }
+                    .controlSize(.small)
+                    .disabled(!plan.isEnabled)
+                    .help(Help.Strip.update(plan))
             }
         }
     }
@@ -460,24 +583,7 @@ struct StatusView: View {
         }
     }
 
-    /// The version line, and the update plan's button while it has one.
-    private var versionRow: some View {
-        let plan = model.updatePlan
-        return HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(verbatim: versionLine)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let title = plan.buttonTitle {
-                Spacer(minLength: 0)
-                Button(title) { model.performUpdate() }
-                    .controlSize(.small)
-                    .disabled(!plan.isEnabled)
-                    .help(Help.Strip.update(plan))
-            }
-        }
-    }
-
+    /// The one-line form of the version cards, for accessibility.
     private var versionLine: String {
         model.appVersion.versionLine(installed: model.installedVersion, payload: model.payloadVersion)
     }
@@ -517,11 +623,11 @@ struct LifecycleSection: View {
     }
 }
 
-/// UpdateSection is the update plan's line under the version row's button:
+/// UpdateSection is the update plan's line under the version cards' button:
 /// what Update does or why it cannot run, the datastore checks before the
 /// control plane installs the app's release, and the address a worker's
 /// app-carried update rejoins. It has no button of its own: the version
-/// row's is the popover's one Update.
+/// cards' is the popover's one Update.
 struct UpdateSection: View {
     @ObservedObject var model: AppModel
 
