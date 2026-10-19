@@ -1,9 +1,10 @@
 # k3sm app
 
 The k3sm macOS app (SwiftPM package `K3smApp`): the menu bar status item, the window, and the
-installer that puts k3sm on a Mac. It is a leaf. It reads state only from `k3sm status -o json`
-(and the `k3sm status daemons -o json` probe), the machine interface the k3sm CLI documents, and
-imports no code from the other k3sm repositories.
+installer that puts k3sm on a Mac. It is a leaf. Its state comes only from `k3sm status -o json`
+(and the `k3sm status daemons -o json` probe), the machine interface the k3sm CLI documents. Its
+edges are that JSON, the `k3sm kubectl` read path, and the Swift SDK (`k3sm-sdk-swift`). It imports
+no code from any other k3sm repository.
 
 > User-facing behavior: `README.md`. Source map: `docs/ARCHITECTURE.md`. Release signing: `hack/release/README.md`.
 
@@ -28,9 +29,10 @@ K3SM_DIR=<k3sm checkout> hack/ci.sh      # the full gate
   sandbox cannot nest inside another, so `ci.sh` and `build-app.sh` then pass `--disable-sandbox`.
 - With only the Command Line Tools, `swift test` needs the swift-testing macro plugin path;
   `hack/ci.sh` adds it.
-- **No third-party dependencies, ever.** The package depends on nothing outside the toolchain.
+- **One first-party dependency, no other.** The package may depend on `k3sm-sdk-swift` and nothing
+  else, pinned at an exact revision listed in `hack/deps.allow`. It takes no other package.
   `hack/verify-deps.sh` (run by `ci.sh`) fails on any `.package(` not listed in `hack/deps.allow`
-  with an exact revision, and the allow file is empty.
+  with an exact revision.
 
 ## Conventions
 - **No SwiftUI macros and no `@State` in views.** The Command Line Tools toolchain has no SwiftUI
