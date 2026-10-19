@@ -33,6 +33,15 @@
 #  10. the dependency supply-chain check: its self-test, then the live tree
 #  11. every control carries a catalog help tag: the check's self-test, then
 #      the live tree (hack/verify-help.sh, hack/help.allow)
+#  12. the acceptance gates: hack/run-acceptance.sh --self-test (a planted
+#      failing gate must red the runner), then every hack/acceptance/B<n>.sh;
+#      a gate that cannot run here says LAB-PENDING and exits 3, and is named
+#      in the summary, never counted as a pass
+#
+# hack/ci.sh --acceptance runs only stage 12. The gates cross-check the k3sm
+# CLI source, so stage 12 needs a k3sm checkout (K3SM_DIR, or a sibling
+# ../k3sm): the full run skips it by name on a lone clone, and --acceptance
+# fails there.
 #
 # K3SM_SWIFTPM_DISABLE_SANDBOX=1 passes --disable-sandbox to every swift
 # package, build and test run. SwiftPM applies its own sandbox when it compiles
@@ -41,6 +50,36 @@
 # this to turn off the inner sandbox and keep its own. Unset, nothing changes.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+mode=all
+case "${1:-}" in
+"") ;;
+--acceptance) mode=acceptance ;;
+*) echo "usage: hack/ci.sh [--acceptance]" >&2; exit 2 ;;
+esac
+[ "$#" -le 1 ] || { echo "usage: hack/ci.sh [--acceptance]" >&2; exit 2; }
+
+# The acceptance stage (12). K3SM_DIR is resolved to an absolute path here
+# because every gate changes to the repository root before reading it.
+acceptance_stage() {
+	local k3sm_dir="${K3SM_DIR:-../k3sm}"
+	echo "==> acceptance gates (hack/run-acceptance.sh)"
+	bash hack/run-acceptance.sh --self-test
+	if [ ! -d "$k3sm_dir/cmd/k3sm" ]; then
+		if [ "$mode" = acceptance ]; then
+			echo "FAIL: no k3sm checkout at $k3sm_dir; the acceptance gates need one (set K3SM_DIR)"
+			exit 1
+		fi
+		echo "    skipped: no k3sm checkout at $k3sm_dir (set K3SM_DIR); the gates cross-check its CLI source"
+		return 0
+	fi
+	K3SM_DIR="$(cd "$k3sm_dir" && pwd)" bash hack/run-acceptance.sh
+}
+if [ "$mode" = acceptance ]; then
+	acceptance_stage
+	echo "app ci --acceptance: green"
+	exit 0
+fi
 
 # The Command Line Tools ship the swift-testing macro plugin in a directory
 # SwiftPM does not search on its own; point the compiler at it. A full Xcode
@@ -366,5 +405,7 @@ bash hack/verify-deps.sh
 echo "==> help tags (hack/verify-help.sh)"
 bash hack/verify-help.sh --self-test
 bash hack/verify-help.sh
+
+acceptance_stage
 
 echo "app ci: green"

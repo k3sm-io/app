@@ -40,6 +40,12 @@ export K3SM_DIR
 
 # The Command Line Tools keep the swift-testing macro plugin where SwiftPM
 # does not look; ci.sh does the same.
+# K3SM_SWIFTPM_DISABLE_SANDBOX=1 adds --disable-sandbox, for a caller already
+# inside a sandbox: SwiftPM's own sandbox cannot nest inside another one.
+SWIFT_FLAGS=()
+if [ "${K3SM_SWIFTPM_DISABLE_SANDBOX:-}" = 1 ]; then
+	SWIFT_FLAGS=(--disable-sandbox)
+fi
 TEST_FLAGS=()
 devdir="$(xcode-select -p 2>/dev/null || true)"
 plugdir="$devdir/usr/lib/swift/host/plugins/testing"
@@ -52,7 +58,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 echo "==> swift test"
 status=0
-swift test ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} > "$tmp/test.log" 2>&1 || status=$?
+swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} > "$tmp/test.log" 2>&1 || status=$?
 if [ "$status" != 0 ]; then
 	tail -n 60 "$tmp/test.log"
 	echo "FAIL: swift test exited $status"
