@@ -41,7 +41,7 @@ let package = Package(
             dependencies: ["K3smStatus", "K3smMCP"],
             resources: [.copy("Fixtures")]
         ),
-        .testTarget(name: "K3smInstallTests", dependencies: ["K3smInstall", "K3smStatus"]),
+        .testTarget(name: "K3smInstallTests", dependencies: ["K3smInstall", "K3smStatus"], resources: [.copy("Fixtures")]),
         .testTarget(name: "K3smHostTests", dependencies: ["K3smHost", "K3smStatus"]),
         // Drives the console's split views in a real window: the few app
         // behaviours that only AppKit and SwiftUI together decide.

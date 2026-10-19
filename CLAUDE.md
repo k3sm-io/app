@@ -11,8 +11,9 @@ no code from any other k3sm repository.
 ## Targets
 - **`K3smStatus`** (library, Foundation only): decodes the status JSON, decides visibility, builds
   the CLI argument lists and every display string. Tested without a GUI.
-- **`K3smInstall`** (library, Foundation only): the root step as data and text (the copy-out and
-  lifecycle scripts, their argv, quoting, the Team ID pin, update policy). Tested without a GUI.
+- **`K3smInstall`** (library, Foundation and Security): the root step as data and text (the copy-out
+  and lifecycle scripts, their argv, quoting, the Team ID pin, update policy) and the release index
+  verifier (CMS and `SecTrust`, no network code). Tested without a GUI.
 - **`K3smApp`** (executable, AppKit and SwiftUI): wires both libraries to the screen and to root.
 
 ## Build / test
