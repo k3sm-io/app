@@ -14,7 +14,7 @@ and is free to use.
 | channel | for | what you get |
 |---|---|---|
 | curl | headless Macs, scripted installs, SSH sessions | `curl -fsSL https://k3sm.io/install.sh \| sh` fetches a release tarball of signed, notarized binaries and runs `k3sm install` |
-| app | desktop users | a notarized disk image holding `k3sm.app`, dragged to `/Applications`; also distributed through the Mac App Store |
+| app | desktop users | a notarized disk image holding `k3sm.app`, dragged to `/Applications`; Developer ID signed, downloaded from k3sm.io, and it updates itself |
 
 Both channels carry the same k3sm build at the same version and end in the
 same installed layout: `/Library/k3sm`, the `io.k3sm.*` LaunchDaemons and the
