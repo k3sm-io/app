@@ -187,6 +187,18 @@ struct UpdateAbortTests {
         }
     }
 
+    /// The `k3sm update apply` flags the app's update path never passes, each with why. The app's
+    /// flags plus these must be every flag the apply declares, so a new apply flag reds the test
+    /// until it is either passed or named here. A name may be listed before the CLI declares it.
+    static let applyFlagsNeverPassed: [String: String] = [
+        // An operator's recovery verb: it removes the server's release pin and exits, takes no
+        // other flag, and runs as root from Terminal. No app path removes a pin.
+        "clear-pin": "operator recovery, run by hand",
+        // Binds a roll to one archive digest. The update menu never passes it; the version-set
+        // offer will, through its own root verb with its own argv test, never through UpdateOptions.
+        "pin-sha256": "passed only by the version-set root verb, never by the update menu",
+    ]
+
     @Test("every update option the app passes is a flag k3sm update apply declares",
           .enabled(if: updateSource?.contains("func runUpdateApply(") == true))
     func optionFlagsDeclared() throws {
@@ -214,6 +226,9 @@ struct UpdateAbortTests {
                                                                  release: ReleaseTag("v0.1.8")!)
         #expect(pinned == all + ["--version", "v0.1.8"])
         let passed = Set(pinned.filter { $0.hasPrefix("--") }.map { String($0.dropFirst(2)) })
-        #expect(passed == declared, "the app and k3sm update apply disagree on the flags: app \(passed), CLI \(declared)")
+        let neverPassed = Set(Self.applyFlagsNeverPassed.keys)
+        #expect(passed.isDisjoint(with: neverPassed), "the app passes a flag listed as never passed: \(passed.intersection(neverPassed))")
+        #expect(passed == declared.subtracting(neverPassed),
+                "the app and k3sm update apply disagree on the flags: app \(passed), CLI \(declared), never passed \(neverPassed)")
     }
 }
