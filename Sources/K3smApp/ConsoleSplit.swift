@@ -86,6 +86,18 @@ struct ConsoleSplit<Panel: View, Content: View, Details: View, Logs: View>: NSVi
         apply(controller)
     }
 
+    /// The split takes whatever size it is offered. Left to the default,
+    /// SwiftUI sizes it to the split view's fitting size, which a divider
+    /// drag changes (AppKit holds the dragged divider at a priority that
+    /// may resize the window), and the window's hosting controller follows
+    /// that size: the drag moved the window's edge, not the divider. The
+    /// window's own minimum is `ConsoleView`'s frame, and a window resize
+    /// still goes to the tab column, by the items' holding priorities.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsViewController: ConsoleLogSplitController,
+                      context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions(by: .zero)
+    }
+
     private func apply(_ outer: ConsoleLogSplitController) {
         let controller = outer.console
         controller.apply(range: range, width: width, collapsed: collapsed, contentMinimum: contentMinimum)

@@ -43,5 +43,8 @@ let package = Package(
         ),
         .testTarget(name: "K3smInstallTests", dependencies: ["K3smInstall", "K3smStatus"]),
         .testTarget(name: "K3smHostTests", dependencies: ["K3smHost", "K3smStatus"]),
+        // Drives the console's split views in a real window: the few app
+        // behaviours that only AppKit and SwiftUI together decide.
+        .testTarget(name: "K3smAppTests", dependencies: ["K3smApp", "K3smInstall", "K3smStatus"]),
     ]
 )
