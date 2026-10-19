@@ -43,11 +43,12 @@ enum SelfCheck {
         return ConsoleUser(String(cString: entry.pointee.pw_name))
     }
 
-    /// The payload version: the bundle's own short version, which a release
-    /// build stamps with the same release version as the payload; nil for a
-    /// development build's `0.0.0` (`AppVersion.payloadRelease`).
+    /// The payload version: the bundle's exact `K3smPayloadTag`, which a
+    /// release build stamps with the payload's tag (an rc keeps its suffix),
+    /// or the short version for a bundle built before that key; nil for a
+    /// development build's `0.0.0` (`AppVersion.payloadRelease(info:)`).
     static func payloadVersion(in bundle: Bundle = .main) -> SemanticVersion? {
-        AppVersion.payloadRelease(shortVersion: bundle.object(forInfoDictionaryKey: AppVersion.shortVersionKey) as? String)
+        AppVersion.payloadRelease(info: bundle.infoDictionary)
     }
 
     /// The version the app shows for itself (`AppVersion`).

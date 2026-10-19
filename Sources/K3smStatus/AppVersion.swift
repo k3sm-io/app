@@ -69,8 +69,50 @@ public struct AppVersion: Equatable, Sendable {
         return "k3sm.app " + (text.hasPrefix("v") ? text : "v" + text)
     }
 
+    /// The Info.plist key a release build carries its exact payload tag in
+    /// (`hack/build-app.sh --payload-tag`): `v0.2.0-rc.1` for a release
+    /// candidate, `v0.2.0` for the final. The short version cannot tell the
+    /// two apart, because macOS takes digits only there and `vX.Y.Z-rc.N`
+    /// builds `X.Y.Z`. The key is sealed by the bundle signature, so the app
+    /// can trust what it reads; it is the payload release every comparison
+    /// uses, the downgrade floor included.
+    public static let payloadTagKey = "K3smPayloadTag"
+
+    /// The exact payload tag the bundle carries: the `K3smPayloadTag` value
+    /// when it is a release tag, `v` then `MAJOR.MINOR.PATCH` with an
+    /// optional `-rc.N`, the grammar `build-app.sh` stamps (no build
+    /// metadata, no other pre-release, no leading zeros), whose core is the
+    /// bundle's short version. Nil when the key is absent or is anything
+    /// else.
+    public static func payloadTag(info: [String: Any]?) -> String? {
+        guard let tag = info?[payloadTagKey] as? String,
+              let short = info?[shortVersionKey] as? String,
+              let version = releaseTagVersion(tag),
+              "\(version.major).\(version.minor).\(version.patch)" == short
+        else { return nil }
+        return tag
+    }
+
+    /// The release the app carries as its payload, from the bundle's Info.plist.
+    /// A bundle with `K3smPayloadTag` is read from that tag alone: a value
+    /// `payloadTag(info:)` refuses yields nil, never the short-version
+    /// fallback, so a release candidate is never taken for its final. A
+    /// bundle built before the key falls back to the short version
+    /// (`payloadRelease(shortVersion:)`); that fallback is kept for one
+    /// release, and in it an rc and its final compare equal. Nil for
+    /// `0.0.0` either way, a development build carrying no release.
+    public static func payloadRelease(info: [String: Any]?) -> SemanticVersion? {
+        guard info?[payloadTagKey] != nil else {
+            return payloadRelease(shortVersion: info?[shortVersionKey] as? String)
+        }
+        guard let tag = payloadTag(info: info), let version = SemanticVersion(tag) else { return nil }
+        if version.major == 0, version.minor == 0, version.patch == 0 { return nil }
+        return version
+    }
+
     /// The release the app carries as its payload, from the bundle's short
-    /// version, which a release build stamps with the payload's own version.
+    /// version alone: the reading for a bundle built before
+    /// `K3smPayloadTag` (`payloadRelease(info:)` is the one the app uses).
     /// Nil when it does not parse, and nil for `0.0.0`, which is how a
     /// development build marks that it carries no release (a pseudo-version
     /// with a `0.0.0` core counts the same): every path that needs the
@@ -79,6 +121,27 @@ public struct AppVersion: Equatable, Sendable {
         guard let short = shortVersion, let version = SemanticVersion(short) else { return nil }
         if version.major == 0, version.minor == 0, version.patch == 0 { return nil }
         return version
+    }
+
+    /// The version a release tag names, when the tag is exactly
+    /// `vMAJOR.MINOR.PATCH` or `vMAJOR.MINOR.PATCH-rc.N` (each number without
+    /// a leading zero, at most nine digits; N at most four); nil otherwise.
+    static func releaseTagVersion(_ tag: String) -> SemanticVersion? {
+        guard tag.utf8.count <= 64, tag.hasPrefix("v"), let version = SemanticVersion(tag)
+        else { return nil }
+        switch version.prerelease.count {
+        case 0:
+            break
+        case 2:
+            let n = version.prerelease[1]
+            guard version.prerelease[0] == "rc", !n.isEmpty, n.count <= 4, n.allSatisfy(\.isASCIIDigit)
+            else { return nil }
+        default:
+            return nil
+        }
+        // The canonical form round-trips, so build metadata and anything
+        // else SemanticVersion accepts but drops is refused.
+        return "v" + version.description == tag ? version : nil
     }
 
     /// The status popover's version line. With a payload release it compares

@@ -21,14 +21,19 @@ hack/release/release.sh --version vX.Y.Z --stage-dir <dir> \
 1. runs the k3sm checkout's `hack/release/publish.sh --through-verify`,
    which stages, signs, verifies and packages the k3sm tree at
    `<stage-dir>`, then seals it
-2. checks that the staged `k3sm` reports the tag's version and that the
-   seal names the tree's `PAYLOAD-SHA256`
+2. checks that the staged `k3sm` reports the tag's version, that the seal
+   names the tag, and that the seal names the tree's `PAYLOAD-SHA256`
 3. runs `hack/build-app.sh --version <x.y.z> --team-id <TEAMID> --payload
-   <stage-dir> <stage-dir>.app-build`; `x.y.z` is the tag's core version, so
-   `vX.Y.Z-rc.N` builds `X.Y.Z`
+   <stage-dir> --payload-tag <tag> --payload-release <stage-dir>.seal
+   <stage-dir>.app-build`; `x.y.z` is the tag's core version, so
+   `vX.Y.Z-rc.N` builds `X.Y.Z`, and the exact tag goes into the app's
+   `K3smPayloadTag`, so an rc app and the final app differ
 4. checks every file under the app's `payload/` against the tree's
    `PAYLOAD-SHA256`: exactly the listed files and the manifest itself, byte
-   for byte, and nothing else; then the app's version and bundle id
+   for byte, and nothing else; then the app's version, bundle id and
+   `K3smPayloadTag`, and its `payload.release`: exactly the tag, the seal's
+   `tarball_sha256`, and a `payload_manifest_sha256` equal to the seal's and
+   to the SHA-256 of the bundled `PAYLOAD-SHA256`
 5. runs `sign-and-notarize.sh`, which signs, notarizes and staples the app,
    then builds, signs, notarizes and staples
    `<stage-dir>.app-build/k3sm_<version>_darwin_arm64.dmg`
@@ -123,6 +128,15 @@ app. The script signs, notarizes and uploads nothing.
 
 - `hack/build-app.sh --version <x.y.z> --payload <tree> <outdir>` builds the
   app around a tree and writes the payload's SHA-256 manifest.
+  `--payload-tag <tag>` stamps the exact tag as `K3smPayloadTag` in
+  `Info.plist`, and `--payload-release <seal>` writes
+  `Contents/Resources/payload.release` (the tag, `tarball_sha256` and
+  `payload_manifest_sha256`) from the k3sm publish seal. Both are sealed by
+  the bundle signature. The app reads the tag as the release it carries and
+  as its own downgrade floor.
+- `payload-release.sh check-tag <tag> <x.y.z>` and `payload-release.sh write
+  <seal> <tag> <manifest> <out>` are the tag grammar and the record writer
+  `build-app.sh` runs; the `release.sh` self-test runs them on fixtures.
 - `sign-and-notarize.sh <k3sm.app> <out.dmg> <identity> <team-id>` checks the
   payload signatures and the Team ID pin, signs the app inside out, notarizes
   and staples it, then builds the disk image with `make-dmg.sh`, signs it,

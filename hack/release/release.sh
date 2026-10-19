@@ -23,15 +23,23 @@
 # THE FULL RELEASE, each step refusing to continue on any failure:
 #   1. publish.sh --through-verify: stage, sign, verify and package the k3sm
 #      tree at <stage-dir>, then seal it
-#   2. the staged k3sm reports the tag's version, and the seal's manifest hash
-#      is the tree's PAYLOAD-SHA256
+#   2. the staged k3sm reports the tag's version, the seal names the tag, and
+#      the seal's manifest hash is the tree's PAYLOAD-SHA256
 #   3. hack/build-app.sh --version <x.y.z> --team-id <TEAMID> --payload
-#      <stage-dir> <stage-dir>.app-build, where x.y.z is the tag's core
-#      version (vX.Y.Z-rc.N builds X.Y.Z)
+#      <stage-dir> --payload-tag <tag> --payload-release <stage-dir>.seal
+#      <stage-dir>.app-build, where x.y.z is the tag's core version
+#      (vX.Y.Z-rc.N builds X.Y.Z) and the exact tag goes to K3smPayloadTag,
+#      so an rc app and the final app differ
 #   4. every file under the app's payload/ is checked against the tree's
 #      PAYLOAD-SHA256: exactly the listed files plus the manifest itself,
 #      byte for byte, nothing else (no .DS_Store, no symlink); the app's own
-#      payload.sha256 lists the same lines; the app's version and bundle id
+#      payload.sha256 lists the same lines; the app's version, bundle id and
+#      K3smPayloadTag (exactly the tag); and its payload.release holds exactly
+#      the tag, the seal's tarball_sha256 and a payload_manifest_sha256 that
+#      equals both the seal's and the SHA-256 of the bundled PAYLOAD-SHA256.
+#      publish.sh --upload then refuses a tarball whose hash is not the
+#      seal's, the hash it writes into the checksums file, so the digest the
+#      app's signature carries is the one users and nodes download
 #   5. hack/release/sign-and-notarize.sh (attended; it keeps its refusals)
 #      signs, notarizes and staples the app and the image
 #      <stage-dir>.app-build/k3sm_<version>_darwin_arm64.dmg
@@ -41,7 +49,8 @@
 #      -t open --context context:primary-signature accept it; mounted
 #      read-only at a private mount point, its root holds only k3sm.app and an
 #      Applications symlink (and at most a .fseventsd directory), and the app
-#      passes the checks of step 4 again plus codesign --verify --strict
+#      passes the checks of step 4 again (K3smPayloadTag and payload.release
+#      included) plus codesign --verify --strict
 #      --deep against the requirement, stapler validate, the compiled Team ID
 #      pin, and no K3smTeamID key in Info.plist
 #   7. publish.sh --upload --disk-image <the image>
@@ -61,7 +70,9 @@
 # THE REHEARSAL (--rehearsal) is the unsigned mode the autonomous loop and the
 # lab use. It runs the k3sm checkout's hack/release/stage.sh (ad-hoc, no
 # Developer ID), builds the app ad-hoc with the bundle id
-# io.k3sm.app.rehearsal and no Team ID (hack/build-app.sh --rehearsal), builds
+# io.k3sm.app.rehearsal, no Team ID and the exact tag as K3smPayloadTag
+# (hack/build-app.sh --rehearsal --payload-tag <tag>), but no payload.release,
+# since stage.sh writes no seal and no tarball; builds
 # the image with make-dmg.sh, and runs the same payload and mount checks. In
 # place of the signed checks it requires an ad-hoc signature that verifies:
 # codesign -dv reports Signature=adhoc, no Authority and no Team ID, and the
@@ -98,6 +109,7 @@ CHECK_TEAM_PIN="$APP_ROOT/hack/check-team-pin.sh"
 SIGN_NOTARIZE="$HERE/sign-and-notarize.sh"
 MAKE_DMG="$HERE/make-dmg.sh"
 VERIFY_RELEASE="$HERE/verify-release.sh"
+PAYLOAD_RELEASE="$HERE/payload-release.sh"
 
 BUNDLE_ID=io.k3sm.app
 REHEARSAL_BUNDLE_ID=io.k3sm.app.rehearsal
@@ -111,7 +123,9 @@ refuse() {
 	exit 3
 }
 
-valid_version() { [[ "$1" =~ ^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-rc\.[0-9]{1,4})?$ ]]; }
+# The release tag grammar, the one hack/release/payload-release.sh check-tag
+# and AppVersion.payloadTag hold K3smPayloadTag to (no leading zero in N).
+valid_version() { [[ "$1" =~ ^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-rc\.(0|[1-9][0-9]{0,3}))?$ ]]; }
 # core_version vX.Y.Z[-rc.N] -> X.Y.Z, the only form CFBundleShortVersionString takes
 core_version() { local v="${1#v}"; printf '%s' "${v%-rc.*}"; }
 # image_name <tag> [suffix] -> k3sm_<version>_darwin_arm64<suffix>.dmg
@@ -186,10 +200,12 @@ payload_problems() {
 	return "$rc"
 }
 
-# app_problems <app> <tag> <bundle-id> <manifest>: the bundle's identity and
-# its payload, signed or not. Prints every problem.
+# app_problems <app> <tag> <bundle-id> <manifest> [seal]: the bundle's
+# identity and its payload, signed or not. With a seal, the app's
+# payload.release must match it; without one (the rehearsal) the app must
+# carry no payload.release. Prints every problem.
 app_problems() {
-	local app="$1" tag="$2" bundle="$3" manifest="$4" rc=0 plist want v key own
+	local app="$1" tag="$2" bundle="$3" manifest="$4" seal="${5:-}" rc=0 plist want v key own
 	plist="$app/Contents/Info.plist"
 	if [ -L "$app" ] || [ ! -d "$app" ] || [ ! -f "$plist" ]; then echo "    no app bundle at $app"; return 1; fi
 	want="$(core_version "$tag")"
@@ -199,6 +215,10 @@ app_problems() {
 	done
 	v="$(plutil -extract CFBundleIdentifier raw -o - "$plist" 2>/dev/null || true)"
 	[ "$v" = "$bundle" ] || { echo "    the app's CFBundleIdentifier is '$v', not '$bundle'"; rc=1; }
+	v="$(plutil -extract K3smPayloadTag raw -o - "$plist" 2>/dev/null || true)"
+	[ "$v" = "$tag" ] || { echo "    the app's K3smPayloadTag is '$v', not '$tag'"; rc=1; }
+	release_record_problems "$app/Contents/Resources/payload.release" "$tag" "$seal" \
+		"$app/Contents/Resources/payload/PAYLOAD-SHA256" || rc=1
 	# The Team ID the app trusts is compiled in, never read from Info.plist.
 	if plutil -extract K3smTeamID raw -o - "$plist" >/dev/null 2>&1; then
 		echo "    the app's Info.plist carries K3smTeamID; the Team ID must come only from the compiled pin"; rc=1
@@ -211,6 +231,29 @@ app_problems() {
 		echo "    the app's payload.sha256 does not list the manifest's lines"; rc=1
 	fi
 	return "$rc"
+}
+
+# release_record_problems <payload.release> <tag> <seal> <bundled manifest>:
+# with a seal, the record is a regular file holding exactly the comment line
+# and tag, tarball_sha256 and payload_manifest_sha256 as the seal gives them,
+# and the manifest digest is also the SHA-256 of the bundled PAYLOAD-SHA256;
+# with an empty seal there must be no record. Prints every problem.
+release_record_problems() {
+	local rec="$1" tag="$2" seal="$3" bundled="$4" want got msum tsum
+	if [ -z "$seal" ]; then
+		if [ -e "$rec" ] || [ -L "$rec" ]; then echo "    the app carries a payload.release but no seal was given"; return 1; fi
+		return 0
+	fi
+	if [ -L "$rec" ] || [ ! -f "$rec" ]; then echo "    the app has no payload.release"; return 1; fi
+	msum="$(sed -n 's/^payload_manifest_sha256=//p' "$seal")"
+	tsum="$(sed -n 's/^tarball_sha256=//p' "$seal")"
+	want="$(printf 'tag=%s\ntarball_sha256=%s\npayload_manifest_sha256=%s' "$tag" "$tsum" "$msum")"
+	got="$(sed '/^#/d' "$rec")"
+	[ "$got" = "$want" ] || { echo "    the app's payload.release is not exactly the tag $tag and the seal's two digests"; return 1; }
+	if [ ! -f "$bundled" ] || [ "$(sha256_of "$bundled")" != "$msum" ]; then
+		echo "    the app's payload.release payload_manifest_sha256 is not the SHA-256 of its bundled PAYLOAD-SHA256"; return 1
+	fi
+	return 0
 }
 
 developer_id_requirement() {
@@ -292,7 +335,7 @@ detach_image() {
 	IMAGE_MNT="" IMAGE_ATTACHED=0
 }
 
-# mounted_image_problems <image> <tag> <bundle-id> <manifest> <app-check>
+# mounted_image_problems <image> <tag> <bundle-id> <manifest> <seal> <app-check>
 # [args...]: attach the image read-only at a private mount point and check its
 # root, the app and its payload, then run `<app-check> <mounted app> [args...]`
 # (signed_app_problems for a release, rehearsal_app_problems for a rehearsal,
@@ -301,8 +344,8 @@ detach_image() {
 # Run it only in a command substitution: its EXIT, HUP, INT and TERM traps
 # detach the image and must not replace the caller's.
 mounted_image_problems() {
-	local img="$1" tag="$2" bundle="$3" manifest="$4" check="$5" rc=0 root entries
-	shift 5
+	local img="$1" tag="$2" bundle="$3" manifest="$4" seal="$5" check="$6" rc=0 root entries
+	shift 6
 	IMAGE_MNT="$(mktemp -d)"
 	chmod 700 "$IMAGE_MNT"
 	trap 'detach_image || exit 1' EXIT
@@ -328,7 +371,7 @@ mounted_image_problems() {
 	if [ ! -L "$root/Applications" ] || [ "$(readlink "$root/Applications")" != /Applications ]; then
 		echo "    Applications in the image is not a symlink to /Applications"; rc=1
 	fi
-	app_problems "$root/k3sm.app" "$tag" "$bundle" "$manifest" || rc=1
+	app_problems "$root/k3sm.app" "$tag" "$bundle" "$manifest" "$seal" || rc=1
 	"$check" "$root/k3sm.app" "$@" || rc=1
 	detach_image || { echo "    hdiutil could not detach the image; it is still mounted"; rc=1; }
 	trap - EXIT HUP INT TERM
@@ -357,12 +400,12 @@ check_tree() {
 		refuse version-mismatch "the staged k3sm reports version '$v', not '${tag#v}' ($tag)."
 }
 
-# check_app <app> <tag> <bundle-id> <manifest>: refuse on any app_problems.
+# check_app <app> <tag> <bundle-id> <manifest> [seal]: refuse on any app_problems.
 check_app() {
 	local problems
 	if ! problems="$(app_problems "$@")"; then
 		printf '%s\n' "$problems" >&2
-		refuse app-mismatch "the built k3sm.app does not carry exactly the stage tree, its version and bundle id."
+		refuse app-mismatch "the built k3sm.app does not carry exactly the stage tree, its version, tag and bundle id."
 	fi
 }
 
@@ -373,7 +416,7 @@ OUT_DIR="" STUB_PAYLOAD=0
 
 # run_full: steps 1 to 7 of the header, over the globals parse_full sets.
 run_full() {
-	local publish build img core problems seal_sum
+	local publish build img core problems seal_sum seal_tag
 	publish="$K3SM_CHECKOUT/hack/release/publish.sh"
 	build="$STAGE.app-build"
 	core="$(core_version "$VERSION")"
@@ -391,16 +434,20 @@ run_full() {
 
 	echo "==> 2/7 the verified tree"
 	check_tree "$STAGE" "$VERSION"
+	seal_tag="$(sed -n 's/^tag=//p' "$STAGE.seal")"
+	[ "$seal_tag" = "$VERSION" ] ||
+		refuse seal-mismatch "the seal is for '$seal_tag', not $VERSION."
 	seal_sum="$(sed -n 's/^payload_manifest_sha256=//p' "$STAGE.seal")"
 	[ "$seal_sum" = "$(sha256_of "$STAGE/PAYLOAD-SHA256")" ] ||
 		refuse seal-mismatch "the seal's payload_manifest_sha256 is not the tree's PAYLOAD-SHA256."
 
-	echo "==> 3/7 build k3sm.app $core around the tree (team $TEAM_ID)"
-	bash "$BUILD_APP" --version "$core" --team-id "$TEAM_ID" --payload "$STAGE" "$build" ||
+	echo "==> 3/7 build k3sm.app $core ($VERSION) around the tree (team $TEAM_ID)"
+	bash "$BUILD_APP" --version "$core" --team-id "$TEAM_ID" --payload "$STAGE" \
+		--payload-tag "$VERSION" --payload-release "$STAGE.seal" "$build" ||
 		die "hack/build-app.sh failed"
 
-	echo "==> 4/7 the app's payload against PAYLOAD-SHA256"
-	check_app "$build/k3sm.app" "$VERSION" "$BUNDLE_ID" "$STAGE/PAYLOAD-SHA256"
+	echo "==> 4/7 the app's payload against PAYLOAD-SHA256, its tag and payload.release"
+	check_app "$build/k3sm.app" "$VERSION" "$BUNDLE_ID" "$STAGE/PAYLOAD-SHA256" "$STAGE.seal"
 
 	echo "==> 5/7 sign-and-notarize.sh (sign, notarize and staple the app and the image)"
 	bash "$SIGN_NOTARIZE" "$build/k3sm.app" "$img" "$IDENTITY" "$TEAM_ID" ||
@@ -416,7 +463,7 @@ run_full() {
 		printf '%s\n' "$problems" >&2
 		refuse image-unverified "the signed image fails its checks; nothing was uploaded."
 	fi
-	if ! problems="$(mounted_image_problems "$img" "$VERSION" "$BUNDLE_ID" "$STAGE/PAYLOAD-SHA256" signed_app_problems "$TEAM_ID")"; then
+	if ! problems="$(mounted_image_problems "$img" "$VERSION" "$BUNDLE_ID" "$STAGE/PAYLOAD-SHA256" "$STAGE.seal" signed_app_problems "$TEAM_ID")"; then
 		printf '%s\n' "$problems" >&2
 		refuse image-unverified "the image's contents fail their checks; nothing was uploaded."
 	fi
@@ -521,7 +568,8 @@ run_rehearsal() {
 	check_tree "$tree" "$VERSION"
 
 	echo "==> 3/6 build the rehearsal k3sm.app $core (ad-hoc, no Team ID)"
-	scrubbed bash "$BUILD_APP" --rehearsal --version "$core" --payload "$tree" "$build" || die "hack/build-app.sh failed"
+	scrubbed bash "$BUILD_APP" --rehearsal --version "$core" --payload "$tree" --payload-tag "$VERSION" "$build" ||
+		die "hack/build-app.sh failed"
 	check_app "$build/k3sm.app" "$VERSION" "$REHEARSAL_BUNDLE_ID" "$tree/PAYLOAD-SHA256"
 	if ! problems="$(rehearsal_app_problems "$build/k3sm.app")"; then
 		printf '%s\n' "$problems" >&2
@@ -537,7 +585,7 @@ run_rehearsal() {
 		refuse image-name "the rehearsal image is misnamed."
 	fi
 	[ -f "$img" ] && [ ! -L "$img" ] || die "make-dmg.sh left no image at $img"
-	if ! problems="$(mounted_image_problems "$img" "$VERSION" "$REHEARSAL_BUNDLE_ID" "$tree/PAYLOAD-SHA256" rehearsal_app_problems)"; then
+	if ! problems="$(mounted_image_problems "$img" "$VERSION" "$REHEARSAL_BUNDLE_ID" "$tree/PAYLOAD-SHA256" "" rehearsal_app_problems)"; then
 		printf '%s\n' "$problems" >&2
 		refuse image-unverified "the rehearsal image's contents fail their checks."
 	fi
@@ -709,7 +757,9 @@ while [ \$# -gt 0 ]; do
 done
 if [ "\$mode" = --through-verify ]; then
 	"$F/mk-tree" "\$stage" "\${version#v}"
-	printf 'tag=%s\npayload_manifest_sha256=%s\n' "\$version" "\$(shasum -a 256 "\$stage/PAYLOAD-SHA256" | cut -d' ' -f1)" >"\$stage.seal"
+	printf 'tag=%s\npayload_manifest_sha256=%s\ntarball_sha256=%s\n' "\${FAKE_SEAL_TAG:-\$version}" \
+		"\$(shasum -a 256 "\$stage/PAYLOAD-SHA256" | cut -d' ' -f1)" \
+		"\$(printf 'tarball %s' "\$version" | shasum -a 256 | cut -d' ' -f1)" >"\$stage.seal"
 fi
 exit 0
 EOF
@@ -721,21 +771,26 @@ printf 'stage.sh %s\n' "\$(env | sed 's/=.*//' | grep -v '^FAKE_' | LC_ALL=C sor
 v="\$(printf '%s\n' "\$*" | sed -n 's/.*pkg\/version.Version=\([^ ]*\).*/\1/p')"
 "$F/mk-tree" "\$1" "\$v"
 EOF
-	# build-app.sh: copies the payload and its manifest like the real one and
-	# writes an Info.plist; FAKE_APP_VERSION, FAKE_APP_BUNDLE_ID,
-	# FAKE_APP_TAMPER (edit|extra|missing|dsstore) and FAKE_APP_STAMP bend it;
-	# FAKE_MCP_STAMP bends k3sm-mcp's stamp alone.
+	# build-app.sh: copies the payload and its manifest like the real one,
+	# writes an Info.plist with K3smPayloadTag, and runs the real
+	# payload-release.sh write for --payload-release; FAKE_APP_VERSION,
+	# FAKE_APP_BUNDLE_ID, FAKE_APP_PAYLOAD_TAG (- for none),
+	# FAKE_APP_TAMPER (edit|extra|missing|dsstore), FAKE_RELEASE_TAMPER
+	# (tarball|missing|extra) and FAKE_APP_STAMP bend it; FAKE_MCP_STAMP bends
+	# k3sm-mcp's stamp alone.
 	cat >"$A/build-app.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "build-app.sh $*" >>"$FAKE_TOOL_LOG"
 printf 'build-app.sh %s\n' "$(env | sed 's/=.*//' | grep -v '^FAKE_' | LC_ALL=C sort | tr '\n' ' ')" >>"$FAKE_CHILD_ENV"
-version="" team="" payload="" out="" bundle=io.k3sm.app
+version="" team="" payload="" out="" bundle=io.k3sm.app ptag="" pseal=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--version) version="$2"; shift 2 ;;
 	--team-id) team="$2"; shift 2 ;;
 	--payload) payload="$2"; shift 2 ;;
+	--payload-tag) ptag="$2"; shift 2 ;;
+	--payload-release) pseal="$2"; shift 2 ;;
 	--rehearsal) bundle=io.k3sm.app.rehearsal; shift ;;
 	*) out="$1"; shift ;;
 	esac
@@ -744,6 +799,9 @@ app="$out/k3sm.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 version="${FAKE_APP_VERSION:-$version}"
 bundle="${FAKE_APP_BUNDLE_ID:-$bundle}"
+stamped="${FAKE_APP_PAYLOAD_TAG:-$ptag}"
+tagline=""
+[ -z "$stamped" ] || [ "$stamped" = - ] || tagline="<key>K3smPayloadTag</key><string>$stamped</string>"
 cat >"$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -751,6 +809,7 @@ cat >"$app/Contents/Info.plist" <<PLIST
 <key>CFBundleIdentifier</key><string>$bundle</string>
 <key>CFBundleShortVersionString</key><string>$version</string>
 <key>CFBundleVersion</key><string>$version</string>
+$tagline
 </dict></plist>
 PLIST
 stamp=""
@@ -762,6 +821,13 @@ printf 'binary\0k3sm-team-id-pin:\0%s\0' "$stamp" >"$app/Contents/MacOS/k3sm-mcp
 cp -R "$payload" "$app/Contents/Resources/payload"
 p="$app/Contents/Resources/payload"
 (cd "$p" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256) | sed 's|  \./|  |' >"$app/Contents/Resources/payload.sha256"
+rel="$app/Contents/Resources/payload.release"
+[ -z "$pseal" ] || bash "$FAKE_PAYLOAD_RELEASE_SH" write "$pseal" "$ptag" "$p/PAYLOAD-SHA256" "$rel"
+case "${FAKE_RELEASE_TAMPER:-}" in
+tarball) sed 's/^tarball_sha256=.*/tarball_sha256=0000000000000000000000000000000000000000000000000000000000000000/' "$rel" >"$rel.x"; mv "$rel.x" "$rel" ;;
+missing) rm -f "$rel" ;;
+extra) printf '# none\ntag=v9.9.9\n' >"$rel" ;;
+esac
 case "${FAKE_APP_TAMPER:-}" in
 edit) printf 'tampered\n' >>"$p/share/notes.txt" ;;
 extra) printf 'extra\n' >"$p/share/extra.txt" ;;
@@ -810,7 +876,7 @@ EOF
 		mv "$f.tmp" "$f"
 	done
 	chmod +x "$F/"* "$K/hack/release/"*.sh "$A/"*.sh
-	export FAKE_CHILD_ENV="$T/child-env"
+	export FAKE_CHILD_ENV="$T/child-env" FAKE_PAYLOAD_RELEASE_SH="$PAYLOAD_RELEASE"
 	sync_ctl
 	local FPATH="$F:$PATH"
 	printf 'notes\n' >"$T/notes.md"
@@ -886,8 +952,8 @@ publish.sh --upload"
 		eval '[ "$got_order" = 11 ] && [ "$(grep -c "^publish.sh" "$log")" = 2 ] && [ "$(tail -1 "$log" | cut -d" " -f1-2)" = "publish.sh --upload" ]'
 	check "through-verify gets the stage, cp-build, ldflags, identity and Team ID" \
 		logged "^publish.sh --through-verify --version v1.2.3 --stage-dir $T/run-ok/stage --cp-build $T/cp --ldflags -X fixture --identity $id --team-id $team\$"
-	check "build-app gets the core version, the Team ID and the verified tree" \
-		logged "^build-app.sh --version 1.2.3 --team-id $team --payload $T/run-ok/stage $T/run-ok/stage.app-build\$"
+	check "build-app gets the core version, the Team ID, the verified tree, the exact tag and the seal" \
+		logged "^build-app.sh --version 1.2.3 --team-id $team --payload $T/run-ok/stage --payload-tag v1.2.3 --payload-release $T/run-ok/stage.seal $T/run-ok/stage.app-build\$"
 	check "sign-and-notarize gets the app, the exact image name, the identity and the Team ID" \
 		logged "^sign-and-notarize.sh $T/run-ok/stage.app-build/k3sm.app $img_ok $id $team\$"
 	check "upload gets exactly the checked image" \
@@ -899,6 +965,85 @@ publish.sh --upload"
 	run_case in_fakes run_full
 	check "a release candidate builds the core version and keeps the tag in the image name" \
 		eval '[ "$CASE_RC" = 0 ] && logged "^build-app.sh --version 1.2.3 " && logged "k3sm_1.2.3-rc.1_darwin_arm64.dmg" && logged "^publish.sh --upload .* --repo example/k3sm\$"'
+
+	# The rc tree and the final tree (the two runs above) build apps with one
+	# short version and two different exact tags.
+	local app_rc="$T/run-rc/stage.app-build/k3sm.app" app_final="$T/run-ok/stage.app-build/k3sm.app"
+	plist_get() { plutil -extract "$2" raw -o - "$1/Contents/Info.plist" 2>/dev/null; }
+	check "an rc tree and the final tree yield different K3smPayloadTag values" \
+		eval '[ "$(plist_get "$app_rc" K3smPayloadTag)" = v1.2.3-rc.1 ] && [ "$(plist_get "$app_final" K3smPayloadTag)" = v1.2.3 ] && [ "$(plist_get "$app_rc" CFBundleShortVersionString)" = "$(plist_get "$app_final" CFBundleShortVersionString)" ]'
+	check "an rc tree and the final tree yield different payload.release records" \
+		eval 'grep -qx "tag=v1.2.3-rc.1" "$app_rc/Contents/Resources/payload.release" && grep -qx "tag=v1.2.3" "$app_final/Contents/Resources/payload.release" && ! cmp -s "$app_rc/Contents/Resources/payload.release" "$app_final/Contents/Resources/payload.release"'
+	check "payload.release carries the seal's tarball_sha256 and the bundled manifest's hash" \
+		eval '[ "$(sed -n "s/^tarball_sha256=//p" "$app_final/Contents/Resources/payload.release")" = "$(sed -n "s/^tarball_sha256=//p" "$T/run-ok/stage.seal")" ] && [ "$(sed -n "s/^payload_manifest_sha256=//p" "$app_final/Contents/Resources/payload.release")" = "$(shasum -a 256 "$app_final/Contents/Resources/payload/PAYLOAD-SHA256" | cut -d" " -f1)" ]'
+
+	full_case seal-tag
+	export FAKE_SEAL_TAG=v1.2.4
+	run_case in_fakes run_full
+	unset FAKE_SEAL_TAG
+	check "a seal for another tag refuses before the app is built" \
+		eval '[ "$CASE_RC" = 3 ] && out_has "REFUSE: seal-mismatch" && not_logged "^build-app" && not_logged "^publish.sh --upload"'
+	full_case rc-tag v1.2.3-rc.1
+	export FAKE_APP_PAYLOAD_TAG=v1.2.3
+	run_case in_fakes run_full
+	unset FAKE_APP_PAYLOAD_TAG
+	check "an rc app stamped with the final tag refuses before signing" \
+		eval '[ "$CASE_RC" = 3 ] && out_has "K3smPayloadTag is .v1.2.3., not .v1.2.3-rc.1." && not_logged "^sign-and-notarize" && not_logged "^publish.sh --upload"'
+	full_case no-tag
+	export FAKE_APP_PAYLOAD_TAG=-
+	run_case in_fakes run_full
+	unset FAKE_APP_PAYLOAD_TAG
+	check "an app without K3smPayloadTag refuses before signing" \
+		eval '[ "$CASE_RC" = 3 ] && out_has "K3smPayloadTag is .., not .v1.2.3." && not_logged "^sign-and-notarize"'
+	for t in tarball missing extra; do
+		full_case "release-$t"
+		export FAKE_RELEASE_TAMPER="$t"
+		run_case in_fakes run_full
+		unset FAKE_RELEASE_TAMPER
+		check "a payload.release that does not match the seal ($t) refuses before signing" \
+			eval '[ "$CASE_RC" = 3 ] && out_has "payload.release" && out_has "REFUSE: app-mismatch" && not_logged "^sign-and-notarize" && not_logged "^publish.sh --upload"'
+	done
+
+	echo "payload-release.sh (the real script, on fixtures)"
+	local PR="$T/pr" pr_rc
+	mkdir -p "$PR"
+	printf 'abc  k3sm\n' >"$PR/manifest"
+	local msum tsum
+	msum="$(shasum -a 256 "$PR/manifest" | cut -d' ' -f1)"
+	tsum="$(printf 'tarball' | shasum -a 256 | cut -d' ' -f1)"
+	# pr_seal <file> <tag> <manifest-sum> <tarball-sum> [extra line]
+	pr_seal() { printf '# seal\ntag=%s\nhead=x\npayload_manifest_sha256=%s\ntarball_sha256=%s\nteam_id=ABCDE12345\n%s' "$2" "$3" "$4" "${5:-}" >"$1"; }
+	pr_write() { rm -f "$PR/out"; pr_rc=0; bash "$PAYLOAD_RELEASE" write "$@" "$PR/manifest" "$PR/out" >"$T/out" 2>&1 || pr_rc=$?; }
+	pr_seal "$PR/seal" v1.2.3-rc.1 "$msum" "$tsum"
+	pr_write "$PR/seal" v1.2.3-rc.1
+	check "write: a matching seal writes exactly the tag and the two digests" \
+		eval '[ "$pr_rc" = 0 ] && [ "$(sed /^#/d "$PR/out")" = "$(printf "tag=v1.2.3-rc.1\ntarball_sha256=%s\npayload_manifest_sha256=%s" "$tsum" "$msum")" ] && [ "$(stat -f %Lp "$PR/out")" = 644 ]'
+	pr_write "$PR/seal" v1.2.3
+	check "write: a seal for the rc refuses the final tag" eval '[ "$pr_rc" = 1 ] && [ ! -e "$PR/out" ] && out_has "the seal is for v1.2.3-rc.1"'
+	pr_seal "$PR/seal" v1.2.3 "$tsum" "$tsum"
+	pr_write "$PR/seal" v1.2.3
+	check "write: a manifest hash other than the bundled manifest's refuses" eval '[ "$pr_rc" = 1 ] && [ ! -e "$PR/out" ] && out_has "is not the SHA-256 of"'
+	pr_seal "$PR/seal" v1.2.3 "$msum" "$tsum" "tag=v1.2.3"$'\n'
+	pr_write "$PR/seal" v1.2.3
+	check "write: a repeated key refuses" eval '[ "$pr_rc" = 1 ] && [ ! -e "$PR/out" ] && out_has "holds 2 tag lines"'
+	pr_seal "$PR/seal" v1.2.3 "$msum" "$(printf %s "$tsum" | tr a-f A-F)"
+	pr_write "$PR/seal" v1.2.3
+	check "write: a digest that is not lowercase hex refuses" eval '[ "$pr_rc" = 1 ] && [ ! -e "$PR/out" ]'
+	pr_seal "$PR/seal" v1.2.3 "$msum" "$tsum"
+	ln -s "$PR/seal" "$PR/seal-link"
+	pr_write "$PR/seal-link" v1.2.3
+	check "write: a symlinked seal refuses" eval '[ "$pr_rc" = 1 ] && [ ! -e "$PR/out" ]'
+	: >"$PR/out"
+	pr_rc=0; bash "$PAYLOAD_RELEASE" write "$PR/seal" v1.2.3 "$PR/manifest" "$PR/out" >"$T/out" 2>&1 || pr_rc=$?
+	check "write: an existing record is never overwritten" eval '[ "$pr_rc" = 1 ] && [ ! -s "$PR/out" ]'
+	local good badtag
+	for good in "v1.2.3 1.2.3" "v1.2.3-rc.1 1.2.3" "v0.2.0-rc.0 0.2.0" "v10.0.9999-rc.9999 10.0.9999"; do
+		check "check-tag: ${good% *} is a tag of ${good#* }" eval 'bash "$PAYLOAD_RELEASE" check-tag $good >/dev/null 2>&1'
+	done
+	for badtag in "1.2.3 1.2.3" "v1.2.3-rc.01 1.2.3" "v1.2.3-beta.1 1.2.3" "v1.2.3+meta 1.2.3" "v01.2.3 1.2.3" \
+		"v1.2.3-rc.1 1.2.4" "v1.2.3-rc.10000 1.2.3" "v1.2.3-rc 1.2.3"; do
+		check "check-tag: ${badtag% *} is refused for ${badtag#* }" eval '! bash "$PAYLOAD_RELEASE" check-tag $badtag >/dev/null 2>&1'
+	done
 
 	# A sandboxed process cannot set the setuid bit: chmod succeeds and the
 	# bit is dropped, so the setuid tamper case would test nothing. Probe
@@ -1039,6 +1184,8 @@ publish.sh --upload"
 		eval '[ "$(cat "$rsums")" = "$(shasum -a 256 "$rimg" | cut -d" " -f1)  $(basename "$rimg")" ]'
 	check "the rehearsal runs verify-release.sh on exactly the image and that file, last" \
 		eval '[ "$(tail -1 "$log")" = "verify-release.sh --image $rimg --checksums $rsums" ]'
+	check "the rehearsal app carries the exact rc tag and no payload.release" \
+		eval '[ "$(plutil -extract K3smPayloadTag raw -o - "$T/reh-ok/out/app-build/k3sm.app/Contents/Info.plist")" = v1.2.3-rc.1 ] && [ ! -e "$T/reh-ok/out/app-build/k3sm.app/Contents/Resources/payload.release" ] && logged "^build-app.sh --rehearsal --version 1.2.3 --payload [^ ]* --payload-tag v1.2.3-rc.1 "'
 	check "the rehearsal app carries io.k3sm.app.rehearsal" \
 		eval '[ "$(plutil -extract CFBundleIdentifier raw -o - "$T/reh-ok/out/app-build/k3sm.app/Contents/Info.plist")" = io.k3sm.app.rehearsal ]'
 	# Every function the rehearsal path reaches: the closure, over this

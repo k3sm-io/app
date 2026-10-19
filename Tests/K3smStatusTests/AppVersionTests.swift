@@ -125,4 +125,49 @@ struct AppVersionTests {
             #expect(plan == .none)
         }
     }
+
+    /// An rc build and the final build of one release carry the same short
+    /// version (`vX.Y.Z-rc.N` builds `X.Y.Z`), so the app reads the exact
+    /// tag `build-app.sh --payload-tag` stamps as `K3smPayloadTag`: the rc
+    /// ranks below the final, and an app built before the key falls back to
+    /// the short version.
+    @Test func payloadTagDistinguishesReleaseCandidate() throws {
+        #expect(AppVersion.payloadTagKey == "K3smPayloadTag")
+        let rcInfo: [String: Any] = ["CFBundleShortVersionString": "0.2.0", "K3smPayloadTag": "v0.2.0-rc.1"]
+        let finalInfo: [String: Any] = ["CFBundleShortVersionString": "0.2.0", "K3smPayloadTag": "v0.2.0"]
+        let rc = try #require(AppVersion.payloadRelease(info: rcInfo))
+        let final = try #require(AppVersion.payloadRelease(info: finalInfo))
+        #expect(rc != final)
+        #expect(rc < final)
+        #expect(rc.description == "0.2.0-rc.1")
+        #expect(final.description == "0.2.0")
+        #expect(AppVersion.payloadTag(info: rcInfo) == "v0.2.0-rc.1")
+        #expect(AppVersion.payloadTag(info: finalInfo) == "v0.2.0")
+        #expect(PayloadRelation(payload: rc, installed: final) == .older)
+        let app = AppVersion(info: rcInfo)
+        #expect(app.versionLine(installed: final, payload: rc)
+            == "Installed: 0.2.0 · this app carries an older release, 0.2.0-rc.1")
+
+        // An app built before the key: the short version, for one release.
+        let legacy: [String: Any] = ["CFBundleShortVersionString": "0.2.0"]
+        #expect(AppVersion.payloadTag(info: legacy) == nil)
+        #expect(AppVersion.payloadRelease(info: legacy) == SemanticVersion("0.2.0"))
+        #expect(AppVersion.payloadRelease(info: ["CFBundleShortVersionString": "0.0.0"]) == nil)
+        #expect(AppVersion.payloadRelease(info: nil) == nil)
+
+        // A key that is present but not a release tag of this bundle's
+        // version is no release at all, never the short-version fallback.
+        let bad: [Any] = [
+            "0.2.0", "v0.2.0+build", "v0.2.1", "v0.1.0", "v0.2.0-rc.01", "v0.2.0-beta.1", "v0.2.0-rc",
+            " v0.2.0", "v0.2.0\n", "V0.2.0", "v00.2.0", "", "v0.2.0-rc.1-rc.2", 3, ["v0.2.0"],
+        ]
+        for value in bad {
+            let info: [String: Any] = ["CFBundleShortVersionString": "0.2.0", "K3smPayloadTag": value]
+            #expect(AppVersion.payloadTag(info: info) == nil, "\(value)")
+            #expect(AppVersion.payloadRelease(info: info) == nil, "\(value)")
+        }
+        // A tagged development build carries no release either.
+        let dev: [String: Any] = ["CFBundleShortVersionString": "0.0.0", "K3smPayloadTag": "v0.0.0"]
+        #expect(AppVersion.payloadRelease(info: dev) == nil)
+    }
 }

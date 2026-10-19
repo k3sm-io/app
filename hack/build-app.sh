@@ -2,7 +2,8 @@
 # Copyright The k3sm Authors.
 # SPDX-License-Identifier: Apache-2.0
 #
-# build-app.sh [--version <x.y.z>] [--team-id <ID> | --rehearsal] [--payload <staged-tree>] <outdir>
+# build-app.sh [--version <x.y.z>] [--team-id <ID> | --rehearsal] [--payload <staged-tree>]
+#              [--payload-tag <tag> [--payload-release <seal>]] <outdir>
 #
 # Builds "k3sm.app" for arm64 and ad-hoc signs it. The bundle holds the app
 # (Contents/MacOS/k3sm-app) and the read-only MCP server beside it
@@ -33,6 +34,28 @@
 #   --payload <staged-tree>  copies a k3sm staged tree (the stage.sh output)
 #                            into Contents/Resources/payload and writes its
 #                            SHA-256 manifest beside it as payload.sha256
+#   --payload-tag <tag>      stamps K3smPayloadTag in Info.plist with the exact
+#                            release tag of the payload (v0.2.0-rc.1 for a
+#                            release candidate, v0.2.0 for the final), which
+#                            the short version cannot carry: macOS takes digits
+#                            only there, so an rc and its final share x.y.z.
+#                            Needs --version and --payload; the tag must be
+#                            vMAJOR.MINOR.PATCH[-rc.N] with the core version
+#                            --version names (hack/release/payload-release.sh
+#                            check-tag). The app reads it as the release it
+#                            carries (AppVersion.payloadRelease) and as its
+#                            own downgrade floor.
+#   --payload-release <seal> writes Contents/Resources/payload.release (the tag,
+#                            tarball_sha256 and payload_manifest_sha256) from
+#                            the seal k3sm's publish.sh --through-verify wrote
+#                            beside the staged tree, refusing unless the seal
+#                            names the --payload-tag tag and its manifest hash
+#                            is the SHA-256 of the payload's PAYLOAD-SHA256
+#                            (hack/release/payload-release.sh write). Needs
+#                            --payload-tag.
+#
+# Info.plist and every file under Contents/Resources are sealed by the bundle
+# signature, so K3smPayloadTag and payload.release are covered by it.
 #
 # The payload is refused before anything is built if it holds a symlink, a
 # special file, a setuid or setgid file, a group- or other-writable entry, or
@@ -53,7 +76,7 @@
 set -euo pipefail
 
 usage() {
-	echo "usage: hack/build-app.sh [--version <x.y.z>] [--team-id <ID> | --rehearsal] [--payload <staged-tree>] <outdir>" >&2
+	echo "usage: hack/build-app.sh [--version <x.y.z>] [--team-id <ID> | --rehearsal] [--payload <staged-tree>] [--payload-tag <tag> [--payload-release <seal>]] <outdir>" >&2
 	exit 2
 }
 
@@ -61,6 +84,8 @@ VERSION=0.0.0
 RELEASE=
 TEAM_ID=
 PAYLOAD=
+PAYLOAD_TAG=
+PAYLOAD_SEAL=
 OUTARG=
 BUNDLE_ID=
 while [ "$#" -gt 0 ]; do
@@ -83,6 +108,16 @@ while [ "$#" -gt 0 ]; do
 	--payload)
 		[ "$#" -ge 2 ] || usage
 		PAYLOAD="$2"
+		shift 2
+		;;
+	--payload-tag)
+		[ "$#" -ge 2 ] || usage
+		PAYLOAD_TAG="$2"
+		shift 2
+		;;
+	--payload-release)
+		[ "$#" -ge 2 ] || usage
+		PAYLOAD_SEAL="$2"
 		shift 2
 		;;
 	-*) usage ;;
@@ -111,6 +146,20 @@ if [ -n "$TEAM_ID" ] && [ -n "$BUNDLE_ID" ]; then
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PAYLOAD_RELEASE_SH="$ROOT/hack/release/payload-release.sh"
+
+if [ -n "$PAYLOAD_TAG" ]; then
+	if [ -z "$RELEASE" ] || [ -z "$PAYLOAD" ]; then
+		echo "build-app: refused: --payload-tag needs --version and --payload (it names the payload's release)" >&2
+		exit 2
+	fi
+	bash "$PAYLOAD_RELEASE_SH" check-tag "$PAYLOAD_TAG" "$VERSION" || exit 2
+fi
+if [ -n "$PAYLOAD_SEAL" ] && [ -z "$PAYLOAD_TAG" ]; then
+	echo "build-app: refused: --payload-release needs --payload-tag" >&2
+	exit 2
+fi
+
 BUILD_VERSION=
 if [ -z "$RELEASE" ]; then
 	BUILD_VERSION="$(bash "$ROOT/hack/build-version.sh" "$ROOT")"
@@ -160,6 +209,12 @@ if [ -n "$PAYLOAD" ]; then
 		echo "build-app: refused: the payload has no executable k3sm at its root" >&2
 		exit 1
 	fi
+	# The release record is written from the checked copy before anything is
+	# built, so a seal that does not match refuses early.
+	if [ -n "$PAYLOAD_SEAL" ]; then
+		bash "$PAYLOAD_RELEASE_SH" write "$PAYLOAD_SEAL" "$PAYLOAD_TAG" \
+			"$work/payload/PAYLOAD-SHA256" "$work/payload.release" || exit 1
+	fi
 fi
 
 mkdir -p "$OUTARG"
@@ -198,13 +253,14 @@ BIN_DIR="$(cd "$SRC" && swift build ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} -c rel
 [ -x "$BIN_DIR/$PRODUCT" ] || { echo "build-app: $BIN_DIR/$PRODUCT not found" >&2; exit 1; }
 [ -x "$BIN_DIR/$MCP" ] || { echo "build-app: $BIN_DIR/$MCP not found" >&2; exit 1; }
 
-echo "==> assemble $APP (version $VERSION${BUILD_VERSION:+, build $BUILD_VERSION})"
+echo "==> assemble $APP (version $VERSION${BUILD_VERSION:+, build $BUILD_VERSION}${PAYLOAD_TAG:+, payload tag $PAYLOAD_TAG})"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
 [ -z "$BUILD_VERSION" ] || plutil -replace K3smBuildVersion -string "$BUILD_VERSION" "$APP/Contents/Info.plist"
+[ -z "$PAYLOAD_TAG" ] || plutil -replace K3smPayloadTag -string "$PAYLOAD_TAG" "$APP/Contents/Info.plist"
 [ -z "$BUNDLE_ID" ] || plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$APP/Contents/Info.plist"
 cp "$BIN_DIR/$PRODUCT" "$APP/Contents/MacOS/$EXE"
 # The MCP server sits beside the app's executable, so the bundle's signature
@@ -237,6 +293,10 @@ if [ -n "$PAYLOAD" ]; then
 		&& /usr/bin/find . -type f -print0 | LC_ALL=C sort -z | xargs -0 /usr/bin/shasum -a 256 ) \
 		| sed 's|  \./|  |' > "$APP/Contents/Resources/payload.sha256"
 	echo "    $(wc -l < "$APP/Contents/Resources/payload.sha256" | tr -d ' ') files"
+	if [ -n "$PAYLOAD_SEAL" ]; then
+		mv "$work/payload.release" "$APP/Contents/Resources/payload.release"
+		echo "    payload.release: $PAYLOAD_TAG"
+	fi
 fi
 
 echo "==> ad-hoc sign (inside out)"
