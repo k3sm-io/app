@@ -143,7 +143,7 @@ public struct NodeUpdateControl: Equatable, Sendable {
 
     static func control(for names: [String], plan: UpdatePlan) -> NodeUpdateControl {
         switch plan {
-        case .managed:
+        case .managed, .bundled:
             return NodeUpdateControl(enabled: true, reason: nil)
         case .catchUp(_, let moves):
             return names.contains(where: moves.contains) ? NodeUpdateControl(enabled: true, reason: nil)

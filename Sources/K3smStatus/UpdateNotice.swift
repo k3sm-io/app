@@ -55,7 +55,7 @@ public struct UpdateNotice: Equatable, Sendable {
     private static func shownRelease(_ plan: UpdatePlan) -> String? {
         switch plan.path {
         case .payload(let version): return version.description
-        case .managed(let tag), .catchUp(let tag, _):
+        case .managed(let tag), .catchUp(let tag, _), .bundled(let tag):
             let clipped = StatusDisplay.clip(tag)
             return clipped.isEmpty ? nil : clipped
         case nil: return nil

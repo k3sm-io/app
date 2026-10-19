@@ -64,6 +64,11 @@ public struct AppPreferences: @unchecked Sendable {
     /// It is a record, not a preference: Reset to Defaults keeps it, so the
     /// same release is never announced twice.
     public static let updateNotifiedKey = "updateNotifiedRelease"
+    /// The release the version-set question after a self-update was last
+    /// answered for (`VersionSetOffer`), yes or no. A record, not a
+    /// preference: Reset to Defaults keeps it, so the question is not asked
+    /// again for the same release.
+    public static let versionSetAnsweredKey = "versionSetAnsweredTag"
     /// The Settings window's last pane.
     public static let settingsPaneKey = "settingsPane"
     /// The Settings window's frame and screen, a `WindowFrame.Saved` value.
@@ -150,6 +155,13 @@ public struct AppPreferences: @unchecked Sendable {
     public var updateNotifiedRelease: String? {
         get { defaults.object(forKey: Self.updateNotifiedKey) as? String }
         nonmutating set { defaults.set(newValue, forKey: Self.updateNotifiedKey) }
+    }
+
+    /// The release the version-set question was last answered for; nil
+    /// before the first answer.
+    public var versionSetAnsweredTag: String? {
+        get { defaults.object(forKey: Self.versionSetAnsweredKey) as? String }
+        nonmutating set { defaults.set(newValue, forKey: Self.versionSetAnsweredKey) }
     }
 
     /// The stored signature policy; a missing value, another type or a word

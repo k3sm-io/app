@@ -127,6 +127,8 @@ public enum Help {
                 return "Install k3sm \(version) from this app on this Mac, as an administrator"
             case .catchUp(let tag, _)?:
                 return "Move the nodes behind to the server's k3sm \(StatusDisplay.clip(tag))"
+            case .bundled(let tag)?:
+                return "Update every node to k3sm \(StatusDisplay.clip(tag)), this app's release, the server last"
             case nil:
                 return updateAny.text
             }

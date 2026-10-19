@@ -136,6 +136,18 @@ public struct CopyOutPlan: Hashable, Sendable {
     public init(
         bundlePath: String, payloadVersion: SemanticVersion, teamID: TeamID, user: ConsoleUser, action: CopyOutAction
     ) throws(PlanError) {
+        try Self.checkBundlePath(bundlePath)
+        self.bundlePath = bundlePath
+        self.payloadVersion = payloadVersion
+        self.teamID = teamID
+        self.user = user
+        self.action = action
+    }
+
+    /// The bundle path checks every root step that copies the app makes
+    /// before a script is rendered: absolute, canonical (no empty, `.` or
+    /// `..` component), ending in `.app`, and free of control characters.
+    public static func checkBundlePath(_ bundlePath: String) throws(PlanError) {
         guard bundlePath.hasPrefix("/") else { throw .bundlePathNotAbsolute }
         guard !bundlePath.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else {
             throw .bundlePathHasControlCharacter
@@ -145,11 +157,6 @@ public struct CopyOutPlan: Hashable, Sendable {
             throw .bundlePathNotCanonical
         }
         guard let last = components.last, last.count > 4, last.hasSuffix(".app") else { throw .bundlePathNotAnApp }
-        self.bundlePath = bundlePath
-        self.payloadVersion = payloadVersion
-        self.teamID = teamID
-        self.user = user
-        self.action = action
     }
 
     /// The `mktemp -d` template for this run's staging directory:

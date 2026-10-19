@@ -392,6 +392,12 @@ final class AppModel: ObservableObject {
     private var updateStatus: TabLoader<UpdateStatus>?
 
     let payloadVersion: SemanticVersion?
+    /// The exact payload tag the bundle's sealed Info.plist carries
+    /// (`AppVersion.payloadTag`), the version set the app offers to roll the
+    /// cluster to; nil for a build without one.
+    let payloadTag: String?
+    /// Whether the bundle carries its sealed `payload.release` record.
+    let payloadRecord: Bool
     /// The version the app shows for itself.
     let appVersion: AppVersion
     /// The k3sm in the bundle's payload, for a Terminal install; nil when
@@ -442,6 +448,8 @@ final class AppModel: ObservableObject {
         self.imageStore = ImageStoreModel(teamID: teamID, runner: runner)
         self.user = SelfCheck.consoleUser()
         self.payloadVersion = SelfCheck.payloadVersion()
+        self.payloadTag = AppVersion.payloadTag(info: Bundle.main.infoDictionary)
+        self.payloadRecord = Self.hasPayloadRecord(bundlePath: Bundle.main.bundlePath)
         self.appVersion = SelfCheck.appVersion()
         self.payloadCLI = SelfCheck.payloadCLI()
         var availability = SelfCheck.availability()
@@ -739,7 +747,17 @@ final class AppModel: ObservableObject {
         return UpdatePlanFacts(
             report: lanReport ?? report, progress: updateProgress, installed: installedVersion, payload: payloadVersion,
             nodes: workloads.nodes, joinTargetReadable: joinTargetReadable, developerBuild: teamID == nil,
-            refusal: refusal, managedRefusal: managedRefusal)
+            refusal: refusal, managedRefusal: managedRefusal,
+            payloadTag: payloadTag, payloadRecord: payloadRecord)
+    }
+
+    /// Whether `bundlePath` holds `payload.release` as a regular file, by
+    /// `lstat` only (a symlink is no record). The root step reads the record
+    /// again, from its own verified copy of the bundle.
+    nonisolated static func hasPayloadRecord(bundlePath: String) -> Bool {
+        var st = stat()
+        guard lstat(bundlePath + "/" + BundledRollPlan.recordPath, &st) == 0 else { return false }
+        return st.st_mode & S_IFMT == S_IFREG
     }
 
     /// The one update plan every Update control reads: the status item's
@@ -1309,6 +1327,8 @@ final class AppModel: ObservableObject {
             applyManagedUpdate(tag: tag, target: .latest, finished: finished)
         case .catchUp(let tag, _):
             applyManagedUpdate(tag: tag, target: .serverRelease, finished: finished)
+        case .bundled(let tag):
+            applyBundledRoll(tag: tag, finished: finished)
         case .payload:
             guard let action = payloadUpdateAction else {
                 finished?(false, UpdateBlock.joinTargetUnknownText)
@@ -1351,6 +1371,80 @@ final class AppModel: ObservableObject {
             log.notice("update apply finished")
             await refresh()
         }
+    }
+
+    /// Runs the roll to the version set this app carries
+    /// (`BundledRollDriver`): the pinned root verb behind one administrator
+    /// prompt, then the watch that cancels a roll the controller did not
+    /// bind to this app's release.
+    private func applyBundledRoll(tag: String, finished: ((Bool?, String) -> Void)?) {
+        guard let teamID else {
+            finished?(false, UpdateBlock.managedDeveloperBuild)
+            return
+        }
+        let driver = bundledRollDriver(teamID)
+        Task {
+            running = true
+            outcomeMessage = nil
+            updateProgress.applyStarted()
+            let result = await driver.apply(tag: tag)
+            running = false
+            finishUpdate(result, title: LifecycleVerb.updateApply.title)
+            switch result {
+            case .declined: finished?(nil, "")
+            case .refused(let why): finished?(false, why)
+            case .ran(let started, _, let text): finished?(started != .notStarted, text)
+            }
+            log.notice("bundled update apply finished")
+            await refresh()
+        }
+    }
+
+    /// Asks, once per release, whether to move k3sm to the release this app
+    /// now carries, after the app updated itself (`VersionSetOffer`); a yes
+    /// runs the one plan's update. `updatedFrom` is the caller's hint that
+    /// this launch follows a self-update.
+    func offerVersionSet(updatedFrom: String?) {
+        let preferences = AppPreferences()
+        guard !running, let offer = VersionSetOffer.decide(facts: updatePlanFacts, updatedFrom: updatedFrom,
+                                                           answeredTag: preferences.versionSetAnsweredTag)
+        else { return }
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = offer.title
+        alert.informativeText = offer.body
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: VersionSetOffer.confirmTitle)
+        alert.addButton(withTitle: VersionSetOffer.declineTitle)
+        let yes = alert.runModal() == .alertFirstButtonReturn
+        preferences.versionSetAnsweredTag = offer.tag
+        log.notice("version set question answered")
+        if yes { performUpdate() }
+    }
+
+    private func bundledRollDriver(_ teamID: TeamID) -> BundledRollDriver {
+        let cli = cli
+        return BundledRollDriver(
+            teamID: teamID,
+            bundlePath: Bundle.main.bundlePath,
+            readStatus: { await self.readFullReport() },
+            readNodes: { await self.readNodesNow() },
+            confirm: { Self.confirm($0) },
+            runner: runner,
+            readUpdate: {
+                guard case .ran(.exited(0, let stdout)) = await cli.run(K3smCLI.updateStatusArguments) else { return nil }
+                return try? UpdateStatus.decode(stdout)
+            },
+            cancelUnprivileged: {
+                guard case .ran(.exited(0, _)) = await cli.run(K3smCLI.updateCancelArguments) else { return false }
+                return true
+            })
+    }
+
+    /// Reads the node list now; nil when the read failed.
+    private func readNodesNow() async -> [ClusterNode]? {
+        await workloads.nodeList.refresh()
+        return workloads.nodes
     }
 
     /// Runs `k3sm update cancel` from the progress panel, through the

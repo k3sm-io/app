@@ -421,6 +421,9 @@ public struct UpdateCard: Equatable, Sendable {
         } else {
             switch plan.path {
             case .catchUp(let tag, let nodes)?: title = behind(nodes.count, tag)
+            case .bundled(let tag)?:
+                let count = behindCount(report, tag: tag)
+                title = count > 0 ? behind(count, tag) : "This app carries k3sm \(tag)"
             case .managed(let tag)?:
                 let count = behindCount(report, tag: tag)
                 title = count > 0 ? behind(count, tag) : "k3sm \(tag) is available"

@@ -110,8 +110,38 @@ public struct RootScript: Hashable, Sendable {
 public enum RootScriptBuilder {
     public static func render(_ plan: CopyOutPlan) -> RootScript {
         let q = ShellQuote.quote
-        let staged = "\"$stage\"/\(q(CopyOutPlan.stagedBundleName))"
-        let text = #"""
+        let staged = stagedBundle
+        let text = stagedCopy(bundlePath: plan.bundlePath, stagingTemplate: plan.stagingTemplate,
+                              designatedRequirement: plan.designatedRequirement) + #"""
+            k3sm=\#(staged)/\#(q(CopyOutPlan.payloadCLI))
+            \#(actionLines(plan, q: q))
+            """#
+        return stagedStep(text: text + "\n", prompt: plan.action.prompt, readsInput: plan.action.readsToken)
+    }
+
+    /// The root script of a step that begins with `stagedCopy`: it holds the
+    /// copy-out lock and keeps none of its output. The copy-out and the
+    /// version set's roll (`BundledRollScriptBuilder`) are built through it.
+    static func stagedStep(text: String, prompt: String, readsInput: Bool) -> RootScript {
+        RootScript(text: text, prompt: prompt, readsInput: readsInput, usesStagingLock: true, result: .discarded)
+    }
+
+    /// The staged bundle's path in the script: `"$stage"/'k3sm.app'`.
+    static var stagedBundle: String { "\"$stage\"/\(ShellQuote.quote(CopyOutPlan.stagedBundleName))" }
+
+    /// The one definition of the staged copy every script that reads the app
+    /// bundle as root starts with, ending in a newline: set up the log, take
+    /// over the staging root (refusing a symlink) and sweep it, make a fresh
+    /// root-owned stage, copy the bundle at `bundlePath` into it with no
+    /// extended attributes, refuse any unsafe entry, chown it to root, and
+    /// verify the copy against `designatedRequirement`. The stage is removed
+    /// on every exit path and the log ends with `copy-out: exit <status>`.
+    /// After it, `$stage` is set and the verified copy is
+    /// `stagedBundle`; nothing is read from `bundlePath` again.
+    static func stagedCopy(bundlePath: String, stagingTemplate: String, designatedRequirement: String) -> String {
+        let q = ShellQuote.quote
+        let staged = stagedBundle
+        return #"""
             set -eu
             umask 077
             cd /
@@ -147,11 +177,11 @@ public enum RootScriptBuilder {
             /bin/chmod 0700 "$root"
             echo 'copy-out: sweeping stale staging entries'
             /usr/bin/find "$root" -mindepth 1 -maxdepth 1 -exec /bin/rm -rf {} +
-            stage=$(/usr/bin/mktemp -d \#(q(plan.stagingTemplate)))
+            stage=$(/usr/bin/mktemp -d \#(q(stagingTemplate)))
             /usr/sbin/chown root:wheel "$stage"
             /bin/chmod 0700 "$stage"
             echo 'copy-out: copying the app bundle'
-            /usr/bin/ditto --norsrc --noextattr --noqtn --noacl \#(q(plan.bundlePath)) \#(staged)
+            /usr/bin/ditto --norsrc --noextattr --noqtn --noacl \#(q(bundlePath)) \#(staged)
             bad=$(/usr/bin/find \#(staged) \( ! \( -type f -o -type d \) -o -perm +6022 \) -print | /usr/bin/head -n 1)
             if [ -n "$bad" ]; then
             	echo "copy-out: refused: $bad is a symlink, a special file, setuid or setgid, or writable by group or others"
@@ -159,14 +189,12 @@ public enum RootScriptBuilder {
             fi
             /usr/sbin/chown -R root:wheel \#(staged)
             echo 'copy-out: verifying the signature'
-            if ! /usr/bin/codesign --verify --strict --deep \#(q("-R=" + plan.designatedRequirement)) \#(staged); then
+            if ! /usr/bin/codesign --verify --strict --deep \#(q("-R=" + designatedRequirement)) \#(staged); then
             	echo 'copy-out: refused: the app is not signed by the k3sm Developer ID'
             	exit \#(CopyOutExit.signatureRejected)
             fi
-            k3sm=\#(staged)/\#(q(CopyOutPlan.payloadCLI))
-            \#(actionLines(plan, q: q))
+
             """#
-        return RootScript(text: text + "\n", prompt: plan.action.prompt, readsInput: plan.action.readsToken)
     }
 
     /// The argv the staged CLI runs with, after its own path. It is the one

@@ -74,13 +74,25 @@ public struct ClusterCatchUp: Equatable, Sendable {
     /// The catch-up a server's report describes; nil on a worker, or when
     /// the report does not say the role or list the other nodes.
     public static func decide(report: StatusReport?) -> ClusterCatchUp? {
+        decide(report: report, tag: report?.release?.tag)
+    }
+
+    /// The same reading of a server's report for a roll to `target`, a
+    /// release tag other than the server's own: the version set this app
+    /// carries. The sets are sorted against `target` exactly as the
+    /// controller would sort them for an Update to it; nil as above.
+    public static func decide(report: StatusReport?, target: String) -> ClusterCatchUp? {
+        decide(report: report, tag: target)
+    }
+
+    private static func decide(report: StatusReport?, tag: String?) -> ClusterCatchUp? {
         guard let report, NodeRole.detect(in: report) == .server, let workers = report.workers else { return nil }
         let text = report.release?.text
         let nodeRow = report.row(named: "node")
         let serverName = nodeRow?.wide["node"].flatMap { $0.isEmpty ? nil : $0 }
         let serverKubelet = nodeRow?.wide["kubelet"].flatMap { $0.isEmpty ? nil : $0 }
         let serverKnown = serverName != nil && serverKubelet != nil && !workers.contains { $0.name == serverName }
-        guard let tag = report.release?.tag, let target = SemanticVersion(tag) else {
+        guard let tag, let target = SemanticVersion(tag) else {
             return ClusterCatchUp(serverRelease: text, tag: nil, server: serverName, serverKnown: serverKnown,
                                   moves: [], behind: [], ahead: [])
         }
@@ -99,6 +111,15 @@ public struct ClusterCatchUp: Equatable, Sendable {
         return ClusterCatchUp(serverRelease: text, tag: tag, server: serverName, serverKnown: serverKnown,
                               moves: moves, behind: behind.sorted(), ahead: ahead.sorted())
     }
+    /// The release the server's own Node runs, from the report's `node`
+    /// row: the k3sm part of its kubelet version as a version, which is the
+    /// release of the daemon that runs the update controller. Nil when the
+    /// row, its kubelet version or the `+k3sm.` marker is missing.
+    public static func serverRunning(report: StatusReport?) -> SemanticVersion? {
+        let kubelet = report?.row(named: "node")?.wide["kubelet"]
+        return k3smPart(kubelet).flatMap(SemanticVersion.init)
+    }
+
     /// The k3sm part of a kubelet version, after `+k3sm.`, as the
     /// controller's `nodeRelease` reads it; nil with no marker.
     static func k3smPart(_ kubelet: String?) -> String? {

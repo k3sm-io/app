@@ -195,7 +195,8 @@ struct UpdateAbortTests {
         // other flag, and runs as root from Terminal. No app path removes a pin.
         "clear-pin": "operator recovery, run by hand",
         // Binds a roll to one archive digest. The update menu never passes it; the version-set
-        // offer will, through its own root verb with its own argv test, never through UpdateOptions.
+        // roll does, through its own root verb (BundledRollScriptBuilder.arguments, with its own
+        // argv test), never through UpdateOptions.
         "pin-sha256": "passed only by the version-set root verb, never by the update menu",
     ]
 

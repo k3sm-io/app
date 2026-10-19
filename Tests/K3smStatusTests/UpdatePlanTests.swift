@@ -115,7 +115,7 @@ struct UpdatePlanTests {
         // roll, enabled only for a path that can run, a reason for every
         // disabled one, and one line that never contradicts them.
         switch plan {
-        case .payload, .managed, .catchUp:
+        case .payload, .managed, .catchUp, .bundled:
             #expect(plan.isEnabled && plan.disabledReason == nil)
             #expect(plan.menuTitle != nil && plan.buttonTitle == "Update")
             #expect(plan.line == plan.path?.sentence)
