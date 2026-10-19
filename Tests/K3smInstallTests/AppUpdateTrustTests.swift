@@ -28,6 +28,10 @@ struct AppUpdateTrustTests {
     static let appGolden =
         #"anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = "ABCDE12345" and identifier "io.k3sm.app" and notarized"#
 
+    /// The swap helper's requirement, byte for byte: no `notarized`.
+    static let helperGolden =
+        #"anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = "ABCDE12345" and identifier "io.k3sm.app.update""#
+
     /// The index signer's certificate facts, byte for byte.
     static let indexGolden =
         #"anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = "ABCDE12345""#
@@ -70,6 +74,13 @@ struct AppUpdateTrustTests {
         #expect(app.hasPrefix(DesignatedRequirement.developerID(teamID: pinned)))
         #expect(AppUpdateTrust.bundleIdentifier == "io.k3sm.app")
 
+        let helper = AppUpdateTrust.helperRequirement(teamID: pinned)
+        #expect(helper == Self.helperGolden)
+        #expect(helper.hasPrefix(DesignatedRequirement.developerID(teamID: pinned)))
+        #expect(AppUpdateTrust.helperIdentifier == "io.k3sm.app.update")
+        #expect(!helper.contains("notarized"))
+        #expect(Self.compiles(helper))
+
         let signer = AppUpdateTrust.indexSigner(teamID: pinned)
         #expect(signer.teamID == pinned)
         #expect(signer.requirement == Self.indexGolden)
@@ -107,6 +118,19 @@ struct AppUpdateTrustTests {
         let app = AppUpdateTrust.appRequirement(teamID: Self.team)
         #expect(app.components(separatedBy: clause).count == 2, "\(clause) is not in the requirement once")
         #expect(app.replacingOccurrences(of: clause, with: "") != Self.appGolden)
+    }
+
+    @Test("each clause of the helper golden is present exactly once", arguments: [
+        "anchor apple generic",
+        " and certificate 1[field.1.2.840.113635.100.6.2.6]",
+        " and certificate leaf[field.1.2.840.113635.100.6.1.13]",
+        #" and certificate leaf[subject.OU] = "ABCDE12345""#,
+        #" and identifier "io.k3sm.app.update""#,
+    ])
+    func helperClause(_ clause: String) {
+        let helper = AppUpdateTrust.helperRequirement(teamID: Self.team)
+        #expect(helper.components(separatedBy: clause).count == 2, "\(clause) is not in the requirement once")
+        #expect(helper.replacingOccurrences(of: clause, with: "") != Self.helperGolden)
     }
 
     @Test("only the same team may replace the app", arguments: [

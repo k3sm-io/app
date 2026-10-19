@@ -27,6 +27,10 @@ public enum AppUpdateTrust {
     /// The bundle identifier a replacement must carry.
     public static let bundleIdentifier = "io.k3sm.app"
 
+    /// The code signing identifier of the swap helper the app ships at
+    /// `Contents/Helpers/k3sm-app-update`.
+    public static let helperIdentifier = "io.k3sm.app.update"
+
     /// The code requirement a staged replacement of the app must satisfy:
     /// the Developer ID Application requirement for `teamID` (an Apple
     /// anchor, the Developer ID intermediate and leaf markers, the leaf OU
@@ -38,6 +42,17 @@ public enum AppUpdateTrust {
         DesignatedRequirement.developerID(teamID: teamID)
             + " and identifier \"\(bundleIdentifier)\""
             + " and notarized"
+    }
+
+    /// The code requirement the swap helper must satisfy before it runs from
+    /// its private copy: the same Developer ID clauses for `teamID` as the
+    /// app requirement, and the helper's own identifier. It has no
+    /// `notarized` clause: the copy runs as a loose Mach-O, which carries no
+    /// stapled ticket, and it is verified as a member of the app bundle
+    /// that already passed `appRequirement(teamID:)`, `notarized` included.
+    public static func helperRequirement(teamID: TeamID) -> String {
+        DesignatedRequirement.developerID(teamID: teamID)
+            + " and identifier \"\(helperIdentifier)\""
     }
 
     /// The app-update requirement for the team this binary pins, or nil for
