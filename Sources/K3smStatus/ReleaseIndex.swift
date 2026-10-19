@@ -235,7 +235,7 @@ extension ReleaseIndex {
     /// Maps the checked tree onto the fields. A missing field is its zero
     /// value, as in k3sm, so the grammar check names it; a value of the wrong
     /// type is refused here.
-    private static func decode(_ root: [String: JSONValue]) throws(ReleaseIndexError) -> ReleaseIndex {
+    private static func decode(_ root: [JSONKey: JSONValue]) throws(ReleaseIndexError) -> ReleaseIndex {
         let app = try object(root, "app")
         let image = try object(app, "image")
         let k3sm = try object(root, "k3sm")
@@ -263,16 +263,16 @@ extension ReleaseIndex {
                 payloadManifestSHA256: try string(k3sm, "payloadManifestSHA256")))
     }
 
-    private static func string(_ obj: [String: JSONValue], _ key: String) throws(ReleaseIndexError) -> String {
-        switch obj[key] {
+    private static func string(_ obj: [JSONKey: JSONValue], _ key: String) throws(ReleaseIndexError) -> String {
+        switch obj[Array(key.utf8)] {
         case nil: return ""
         case .string(let s): return s
         default: throw .invalidDocument("key \"\(key)\" is not a string")
         }
     }
 
-    private static func object(_ obj: [String: JSONValue], _ key: String) throws(ReleaseIndexError) -> [String: JSONValue] {
-        switch obj[key] {
+    private static func object(_ obj: [JSONKey: JSONValue], _ key: String) throws(ReleaseIndexError) -> [JSONKey: JSONValue] {
+        switch obj[Array(key.utf8)] {
         case nil: return [:]
         case .object(let o): return o
         default: throw .invalidDocument("key \"\(key)\" is not an object")
@@ -280,8 +280,8 @@ extension ReleaseIndex {
     }
 
     /// An integer written as one: no fraction, no exponent, within Int64.
-    private static func integer(_ obj: [String: JSONValue], _ key: String) throws(ReleaseIndexError) -> Int64 {
-        switch obj[key] {
+    private static func integer(_ obj: [JSONKey: JSONValue], _ key: String) throws(ReleaseIndexError) -> Int64 {
+        switch obj[Array(key.utf8)] {
         case nil: return 0
         case .number(let text, let isInteger):
             guard isInteger, let n = Int64(text) else {
@@ -301,24 +301,31 @@ extension ReleaseIndex {
 
     /// The grammar check, in k3sm's order; it returns the tag as a version.
     private func check() throws(ReleaseIndexError) -> SemanticVersion {
-        guard schema == Self.schema else { throw .schema }
-        guard context == Self.context else { throw .context }
+        guard Self.same(schema, Self.schema) else { throw .schema }
+        guard Self.same(context, Self.context) else { throw .context }
         guard Self.isFinalTag(tag), let parsed = SemanticVersion(tag), parsed.prerelease.isEmpty else { throw .tag }
         guard Self.isMacOSVersion(minimumMacOS) else { throw .minimumMacOS }
         guard Self.isIssuedAt(issuedAt) else { throw .issuedAt }
         let core = String(tag.dropFirst())
-        guard app.bundleID == Self.bundleID else { throw .bundleID }
-        guard app.shortVersion == core else { throw .shortVersion(core) }
+        guard Self.same(app.bundleID, Self.bundleID) else { throw .bundleID }
+        guard Self.same(app.shortVersion, core) else { throw .shortVersion(core) }
         let im = app.image
-        guard im.name == "k3sm_" + core + "_darwin_arm64.dmg" else { throw .imageName(core) }
+        guard Self.same(im.name, "k3sm_" + core + "_darwin_arm64.dmg") else { throw .imageName(core) }
         guard Self.isSHA256Hex(im.sha256) else { throw .imageSHA256 }
         guard im.size >= 1, im.size <= Self.maxImageBytes else { throw .imageSize(im.size) }
         let want = Self.downloadURL(tag: tag, name: im.name)
-        guard Array(im.url.utf8) == Array(want.utf8) else { throw .imageURL(want) }
-        guard k3sm.archive == "k3sm_" + core + "_darwin_arm64.tar.gz" else { throw .archive(core) }
+        guard Self.same(im.url, want) else { throw .imageURL(want) }
+        guard Self.same(k3sm.archive, "k3sm_" + core + "_darwin_arm64.tar.gz") else { throw .archive(core) }
         guard Self.isSHA256Hex(k3sm.archiveSHA256) else { throw .archiveSHA256 }
         guard Self.isSHA256Hex(k3sm.payloadManifestSHA256) else { throw .payloadManifestSHA256 }
         return parsed
+    }
+
+    /// Byte equality of the UTF-8 encodings, as k3sm compares. Swift's `==`
+    /// on strings is canonical equivalence (U+212A KELVIN SIGN equals `K`),
+    /// so no field or key is ever compared with it.
+    static func same(_ a: String, _ b: String) -> Bool {
+        a.utf8.elementsEqual(b.utf8)
     }
 
     /// `^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$`.
@@ -384,15 +391,20 @@ extension ReleaseIndex {
 /// KeyTree is the set of keys an object may hold, each with the keys of the
 /// object it may hold in turn.
 final class KeyTree: Sendable {
-    let keys: [String: KeyTree]
+    /// Keyed by the UTF-8 bytes of each key, never by `String`, whose
+    /// hashing and equality are canonical equivalence.
+    let keys: [JSONKey: KeyTree]
 
     init(_ keys: [String: KeyTree]) {
-        self.keys = keys
+        self.keys = Dictionary(uniqueKeysWithValues: keys.map { (Array($0.key.utf8), $0.value) })
     }
 
     /// A scalar's tree: no key is allowed inside it.
     static let scalar = KeyTree([:])
 }
+
+/// A decoded object key: its UTF-8 bytes, compared and hashed as bytes.
+typealias JSONKey = [UInt8]
 
 /// One decoded JSON value. Arrays never reach a value: they are refused where
 /// they are found.
@@ -403,7 +415,7 @@ enum JSONValue: Equatable {
     case number(String, isInteger: Bool)
     case bool(Bool)
     case null
-    case object([String: JSONValue])
+    case object([JSONKey: JSONValue])
 }
 
 /// StrictJSONScanner reads one RFC 8259 JSON object from UTF-8 bytes and
@@ -423,7 +435,7 @@ struct StrictJSONScanner {
     }
 
     /// The one top-level value, which must be an object.
-    mutating func document(keys: KeyTree) throws(ReleaseIndexError) -> [String: JSONValue] {
+    mutating func document(keys: KeyTree) throws(ReleaseIndexError) -> [JSONKey: JSONValue] {
         skipSpace()
         guard let c = peek() else { throw .invalidDocument("no JSON value") }
         switch c {
@@ -445,8 +457,8 @@ struct StrictJSONScanner {
     }
 
     /// The members of an object and its closing brace; the opening brace is read.
-    private mutating func object(keys: KeyTree) throws(ReleaseIndexError) -> [String: JSONValue] {
-        var members: [String: JSONValue] = [:]
+    private mutating func object(keys: KeyTree) throws(ReleaseIndexError) -> [JSONKey: JSONValue] {
+        var members: [JSONKey: JSONValue] = [:]
         skipSpace()
         if peek() == UInt8(ascii: "}") {
             pos += 1
@@ -457,8 +469,9 @@ struct StrictJSONScanner {
             guard peek() == UInt8(ascii: "\"") else { throw syntax("a key") }
             pos += 1
             let key = try stringBody()
-            guard let sub = keys.keys[key] else { throw .unknownKey(key) }
-            guard members[key] == nil else { throw .duplicateKey(key) }
+            let bytes = Array(key.utf8)
+            guard let sub = keys.keys[bytes] else { throw .unknownKey(key) }
+            guard members[bytes] == nil else { throw .duplicateKey(key) }
             skipSpace()
             guard peek() == UInt8(ascii: ":") else { throw syntax("':'") }
             pos += 1
@@ -466,11 +479,11 @@ struct StrictJSONScanner {
             switch peek() {
             case UInt8(ascii: "{"):
                 pos += 1
-                members[key] = .object(try object(keys: sub))
+                members[bytes] = .object(try object(keys: sub))
             case UInt8(ascii: "["):
                 throw .arrayValue(key)
             default:
-                members[key] = try scalar(key: key)
+                members[bytes] = try scalar(key: key)
             }
             skipSpace()
             switch peek() {
