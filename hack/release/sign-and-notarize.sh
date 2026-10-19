@@ -113,12 +113,16 @@ bundle_machos() {
 	printf '%s\n' "$main"
 }
 
-# sign_one <file>: sign one file with the policy above. The MCP server keeps
-# its own identifier; every other file takes codesign's default.
+# sign_one <file>: sign one file with the policy above. The MCP server and
+# the swap helper keep their own identifiers (the helper's is the one its
+# requirement names, AppUpdateTrust.helperIdentifier); every other file takes
+# codesign's default.
 sign_one() {
 	local f="$1"
 	if [ "$(basename "$f")" = k3sm-mcp ]; then
 		/usr/bin/codesign --force --options runtime "$SIGN_TIMESTAMP" --identifier io.k3sm.app.mcp --sign "$SIGN_IDENTITY" "$f"
+	elif [ "$(basename "$f")" = k3sm-app-update ] && [ "$(basename "$(dirname "$f")")" = Helpers ]; then
+		/usr/bin/codesign --force --options runtime "$SIGN_TIMESTAMP" --identifier io.k3sm.app.update --sign "$SIGN_IDENTITY" "$f"
 	else
 		/usr/bin/codesign --force --options runtime "$SIGN_TIMESTAMP" --sign "$SIGN_IDENTITY" "$f"
 	fi
@@ -188,6 +192,7 @@ PLIST
 		cp /usr/bin/true "$a/Contents/MacOS/k3sm-mcp"
 		cp /usr/bin/true "$a/Contents/MacOS/extra-tool"
 		cp /usr/bin/true "$a/Contents/Helpers/helper-bin"
+		cp /usr/bin/true "$a/Contents/Helpers/k3sm-app-update"
 		cp /usr/bin/true "$a/Contents/Frameworks/libfixture.dylib"
 		if [ "$decoys" = decoys ]; then
 			printf '#!/bin/sh\nexit 0\n' >"$a/Contents/MacOS/run.sh"
@@ -220,6 +225,7 @@ PLIST
 	expected="Contents/Frameworks/nested/libdeep.dylib
 Contents/Frameworks/libfixture.dylib
 Contents/Helpers/helper-bin
+Contents/Helpers/k3sm-app-update
 Contents/MacOS/extra-tool
 Contents/MacOS/k3sm-mcp
 Contents/MacOS/k3sm-app"
@@ -232,8 +238,9 @@ Contents/MacOS/k3sm-app"
 	make_fixture "$app"
 	rc=0; out="$(SIGNER=sign_one sign_executables "$app" "$req" 2>&1)" || rc=$?
 	check "every file signs and verifies" [ "$rc" = 0 ]
-	check "every file is signed by name" [ "$(count_lines "$out" "    sign Contents/")" = 6 ]
+	check "every file is signed by name" [ "$(count_lines "$out" "    sign Contents/")" = 7 ]
 	check "the MCP server keeps its identifier" ident_is "$app/Contents/MacOS/k3sm-mcp" io.k3sm.app.mcp
+	check "the swap helper keeps its identifier" ident_is "$app/Contents/Helpers/k3sm-app-update" io.k3sm.app.update
 	check "the extra executable carries a signature that satisfies the requirement" \
 		/usr/bin/codesign --verify --strict -R="$req" "$app/Contents/MacOS/extra-tool"
 	check "the bundle seals over the signed executables" \

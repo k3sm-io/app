@@ -26,6 +26,8 @@ let package = Package(
         .executable(name: "K3smApp", targets: ["K3smApp"]),
         // The read-only MCP server the bundle ships at Contents/MacOS/k3sm-mcp.
         .executable(name: "k3sm-mcp", targets: ["K3smMCPServer"]),
+        // The swap helper the bundle ships at Contents/Helpers/k3sm-app-update.
+        .executable(name: "k3sm-app-update", targets: ["K3smAppUpdate"]),
     ],
     targets: [
         .target(name: "K3smStatus"),
@@ -34,7 +36,11 @@ let package = Package(
         // and the MCP server, so both read k3sm the same way.
         .target(name: "K3smHost", dependencies: ["K3smStatus", "K3smInstall"]),
         .target(name: "K3smMCP", dependencies: ["K3smStatus"]),
-        .executableTarget(name: "K3smApp", dependencies: ["K3smStatus", "K3smInstall", "K3smHost"]),
+        // The self-update's swap engine: the journal, the verified swap, the
+        // handshake and the launch-time reconcile, every seam injected.
+        .target(name: "K3smSwap", dependencies: ["K3smInstall", "K3smStatus"]),
+        .executableTarget(name: "K3smApp", dependencies: ["K3smStatus", "K3smInstall", "K3smHost", "K3smSwap"]),
+        .executableTarget(name: "K3smAppUpdate", dependencies: ["K3smSwap", "K3smInstall", "K3smStatus"]),
         .executableTarget(name: "K3smMCPServer", dependencies: ["K3smMCP", "K3smHost", "K3smInstall", "K3smStatus"]),
         .testTarget(
             name: "K3smStatusTests",
@@ -43,6 +49,11 @@ let package = Package(
         ),
         .testTarget(name: "K3smInstallTests", dependencies: ["K3smInstall", "K3smStatus"], resources: [.copy("Fixtures")]),
         .testTarget(name: "K3smHostTests", dependencies: ["K3smHost", "K3smStatus"]),
+        .testTarget(
+            name: "K3smSwapTests",
+            dependencies: ["K3smSwap", "K3smInstall", "K3smStatus"],
+            exclude: ["Fixtures"]
+        ),
         // Drives the console's split views in a real window: the few app
         // behaviours that only AppKit and SwiftUI together decide.
         .testTarget(name: "K3smAppTests", dependencies: ["K3smApp", "K3smInstall", "K3smStatus"]),

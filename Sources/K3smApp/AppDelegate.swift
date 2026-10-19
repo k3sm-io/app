@@ -19,6 +19,7 @@ import Combine
 import K3smHost
 import K3smInstall
 import K3smStatus
+import K3smSwap
 
 /// AppDelegate wires the parts together: the poller feeds the status item,
 /// the status item and a reopen open the window, the login item is
@@ -43,6 +44,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var demo: DemoTourRunner?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // A self-update a killed helper, a logout or a reboot interrupted is
+        // finished or undone first, before any UI; a swap back quits now.
+        if Self.reconcileSwap() == .quitForSwapBack {
+            NSApplication.shared.terminate(nil)
+            return
+        }
         // A refused --demo-tour argument or file ends the process here,
         // before anything is built.
         let demoTour = DemoTourRunner.load()
@@ -126,6 +133,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             demo.start()
         } else if preferences.preferences.opensWindow(loginLaunch: loginLaunch, background: background) {
             windowController.show()
+        }
+        // The swap helper launched this app and waits for its answer, now
+        // that the status item is up.
+        if SwapLaunchArguments(arguments: CommandLine.arguments).answersHandshake {
+            Self.answerHandshake()
+        }
+    }
+
+    /// Runs the launch-time reconcile of a self-update (`SwapReconciler`).
+    /// A developer build pins no team and never updates itself, so it has
+    /// nothing to reconcile.
+    private static func reconcileSwap() -> ReconcileResult {
+        guard let team = SelfCheck.teamID(), let paths = SwapPaths.forCurrentUser() else { return .carryOn }
+        let appRequirement = AppUpdateTrust.appRequirement(teamID: team)
+        let helper = Bundle.main.bundlePath + "/" + SwapPaths.bundledHelperPath
+        let spawner = HelperSpawner(paths: paths, requirement: AppUpdateTrust.helperRequirement(teamID: team))
+        let reconciler = SwapReconciler(
+            paths: paths,
+            verifier: StaticCodeVerifier(requirement: appRequirement, runningTeam: team),
+            currentApp: ProcessIdentity.current(),
+            spawnGoBack: {
+                do {
+                    try spawner.installHelperCopy(from: helper)
+                    try spawner.spawn(mode: .goBack, bundled: helper)
+                    return true
+                } catch {
+                    return false
+                }
+            })
+        return reconciler.reconcile(runningTag: AppVersion.payloadTag(info: Bundle.main.infoDictionary),
+                                    runningSelfCheck: { SelfCheck.signatureValid(team: team) })
+    }
+
+    /// Answers the swap helper's handshake once this bundle's own signature
+    /// check passes (`SelfCheck`); the helper binds the answer to this
+    /// process's pid and code.
+    private static func answerHandshake() {
+        guard let team = SelfCheck.teamID(), SelfCheck.signatureValid(team: team),
+              let paths = SwapPaths.forCurrentUser()
+        else { return }
+        if HandshakeAnswer.write(paths: paths) {
+            log.notice("self-update: answered the swap helper")
         }
     }
 

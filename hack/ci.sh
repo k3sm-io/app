@@ -11,6 +11,8 @@
 #      the app icon is in it and reads back with a 1024-pixel member; the
 #      MCP server is in it, sealed by the bundle's signature, and answers
 #      initialize and tools/list over stdio with only its read-only tools;
+#      the swap helper is at Contents/Helpers/k3sm-app-update, verifies, and
+#      carries the identifier io.k3sm.app.update;
 #      the development build's versions: 0.0.0 in both bundle keys and the
 #      checkout's pseudo-version in K3smBuildVersion and k3sm-mcp's reply),
 #      then hack/build-version.sh over fixture repositories
@@ -41,8 +43,14 @@
 #      recorded stream), then every hack/acceptance/B<n>.sh;
 #      a gate that cannot run here says LAB-PENDING and exits 3, and is named
 #      in the summary, never counted as a pass
+#  13. the swap engine: swift build --product k3sm-app-update, every named
+#      swap engine test listed by swift test list (a deleted test reds the
+#      stage), and hack/verify-no-inplace-write.sh (its self-test, then the
+#      live tree: the swap code never writes into a file in place). The full
+#      run's stage 2 already ran the K3smSwapTests suite.
 #
-# hack/ci.sh --acceptance runs only stage 12. The gates cross-check the k3sm
+# hack/ci.sh --acceptance runs only stage 12. hack/ci.sh --swap-engine runs
+# stage 13 with the K3smSwapTests suite itself (swift test --filter). The gates cross-check the k3sm
 # CLI source, so stage 12 needs a k3sm checkout (K3SM_DIR, or a sibling
 # ../k3sm): the full run skips it by name on a lone clone, and --acceptance
 # fails there.
@@ -55,13 +63,29 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+usage() { echo "usage: hack/ci.sh [--acceptance | --swap-engine]" >&2; exit 2; }
 mode=all
 case "${1:-}" in
 "") ;;
 --acceptance) mode=acceptance ;;
-*) echo "usage: hack/ci.sh [--acceptance]" >&2; exit 2 ;;
+--swap-engine) mode=swap-engine ;;
+*) usage ;;
 esac
-[ "$#" -le 1 ] || { echo "usage: hack/ci.sh [--acceptance]" >&2; exit 2; }
+[ "$#" -le 1 ] || usage
+
+# The Command Line Tools ship the swift-testing macro plugin in a directory
+# SwiftPM does not search on its own; point the compiler at it. A full Xcode
+# toolchain finds it without help, so this applies only when the plugin exists.
+SWIFT_FLAGS=()
+if [ "${K3SM_SWIFTPM_DISABLE_SANDBOX:-}" = 1 ]; then
+	SWIFT_FLAGS=(--disable-sandbox)
+fi
+TEST_FLAGS=()
+devdir="$(xcode-select -p 2>/dev/null || true)"
+plugdir="$devdir/usr/lib/swift/host/plugins/testing"
+if [ -n "$devdir" ] && [ -f "$plugdir/libTestingMacros.dylib" ]; then
+	TEST_FLAGS=(-Xswiftc -plugin-path -Xswiftc "$plugdir")
+fi
 
 # The acceptance stage (12). K3SM_DIR is resolved to an absolute path here
 # because every gate changes to the repository root before reading it.
@@ -81,24 +105,46 @@ acceptance_stage() {
 	fi
 	K3SM_DIR="$(cd "$k3sm_dir" && pwd)" bash hack/run-acceptance.sh
 }
+# The swap engine stage (13). The named tests are the gate's contract: each
+# must be listed, so deleting or renaming one reds the stage. With "run" the
+# suite itself runs here; the full run already ran it in stage 2.
+SWAP_TESTS=(swapSuccessKeepsPreviousCopy missingHandshakeRollsBack earlyExitRollsBack
+	parentNeverExitsAbandonsKeepsStaged killAtEveryJournalStepReconciles requestNamingAnotherDirectoryRefused
+	oldExecutableInodeUnchanged renameErrnoOutcomes exdevCopiesOntoTargetVolume exitWatcherTreatsESRCHAsExited
+	startTimeMismatchCountsAsExited floorReadFromInstalledBundle handshakeBoundToLaunchedCdhash
+	helperCopyMustMatchBundledHelper previousCopyVerifiesUnderNonBundleName reconcileDecisionTable)
+swap_engine_stage() {
+	echo "==> swap engine (k3sm-app-update, K3smSwapTests, the in-place write guard)"
+	swift build ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} --product k3sm-app-update
+	if [ "${1:-}" = run ]; then
+		swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} --filter K3smSwapTests
+	fi
+	local listed missing=0 name
+	listed="$(swift test list ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} 2>/dev/null)"
+	# Red-path check, so the match below cannot pass vacuously.
+	! grep -Eq '^K3smSwapTests\.[A-Za-z]+/noSuchSwapTest\(' <<<"$listed" \
+		|| { echo "FAIL: the named-test match accepts a test that does not exist"; exit 1; }
+	for name in "${SWAP_TESTS[@]}"; do
+		# A here-string, not a pipe: grep -q exits at its first match, and a
+		# printf still writing would die of SIGPIPE and fail the pipeline.
+		grep -Eq "^K3smSwapTests\.[A-Za-z]+/${name}\(" <<<"$listed" \
+			|| { echo "    missing named test: $name"; missing=1; }
+	done
+	[ "$missing" = 0 ] || { echo "FAIL: the swap engine gate's named tests must exist in K3smSwapTests"; exit 1; }
+	echo "    ok (${#SWAP_TESTS[@]} named tests listed)"
+	bash hack/verify-no-inplace-write.sh --self-test
+	bash hack/verify-no-inplace-write.sh
+}
+
 if [ "$mode" = acceptance ]; then
 	acceptance_stage
 	echo "app ci --acceptance: green"
 	exit 0
 fi
-
-# The Command Line Tools ship the swift-testing macro plugin in a directory
-# SwiftPM does not search on its own; point the compiler at it. A full Xcode
-# toolchain finds it without help, so this applies only when the plugin exists.
-SWIFT_FLAGS=()
-if [ "${K3SM_SWIFTPM_DISABLE_SANDBOX:-}" = 1 ]; then
-	SWIFT_FLAGS=(--disable-sandbox)
-fi
-TEST_FLAGS=()
-devdir="$(xcode-select -p 2>/dev/null || true)"
-plugdir="$devdir/usr/lib/swift/host/plugins/testing"
-if [ -n "$devdir" ] && [ -f "$plugdir/libTestingMacros.dylib" ]; then
-	TEST_FLAGS=(-Xswiftc -plugin-path -Xswiftc "$plugdir")
+if [ "$mode" = swap-engine ]; then
+	swap_engine_stage run
+	echo "app ci --swap-engine: green"
+	exit 0
 fi
 
 echo "==> no third-party dependencies"
@@ -161,6 +207,15 @@ tools="$(grep -o '"name":"k3sm_[a-z_]*"' "$tmp/mcp.out" | sort -u | tr '\n' ' ')
 	|| { echo "FAIL: k3sm-mcp lists other tools: $tools"; exit 1; }
 ! grep -q '"readOnlyHint":false' "$tmp/mcp.out" || { echo "FAIL: a k3sm-mcp tool is not read-only"; exit 1; }
 echo "    ok (k3sm-mcp: signed, sealed, six read-only tools on stdio)"
+# The swap helper: in Contents/Helpers, signed under its own identifier (the
+# one its requirement names) and sealed by the bundle's signature.
+helper="$tmp/out/k3sm.app/Contents/Helpers/k3sm-app-update"
+[ -x "$helper" ] || { echo "FAIL: the bundle has no Contents/Helpers/k3sm-app-update"; exit 1; }
+codesign --verify --strict -R='identifier "io.k3sm.app.update"' "$helper" \
+	|| { echo "FAIL: k3sm-app-update does not verify as io.k3sm.app.update"; exit 1; }
+codesign -dv "$helper" 2>&1 | grep -qx 'Identifier=io.k3sm.app.update' \
+	|| { echo "FAIL: k3sm-app-update's identifier is not io.k3sm.app.update"; exit 1; }
+echo "    ok (k3sm-app-update: in Contents/Helpers, signed as io.k3sm.app.update)"
 # A development build: both bundle versions stay 0.0.0 (the app's
 # developer-build rule reads that) and K3smBuildVersion carries the
 # checkout's pseudo-version, which k3sm-mcp reports as its own.
@@ -446,5 +501,7 @@ bash hack/verify-help.sh --self-test
 bash hack/verify-help.sh
 
 acceptance_stage
+
+swap_engine_stage
 
 echo "app ci: green"

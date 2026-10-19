@@ -135,7 +135,7 @@ public struct AppVersion: Equatable, Sendable {
     /// `release.sh`, each of MAJOR, MINOR and PATCH at most nine digits and N
     /// at most four, none with a leading zero. The digit limits are checked
     /// here on the tag's own text, not left to `SemanticVersion`.
-    static func releaseTagVersion(_ tag: String) -> SemanticVersion? {
+    public static func releaseTagVersion(_ tag: String) -> SemanticVersion? {
         guard tag.utf8.count <= 64, tag.hasPrefix("v") else { return nil }
         let core = tag.dropFirst().prefix { $0 != "-" }.split(separator: ".", omittingEmptySubsequences: false)
         guard core.count == 3, core.allSatisfy({ (1...9).contains($0.count) }),
