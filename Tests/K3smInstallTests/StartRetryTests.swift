@@ -53,6 +53,93 @@ final class Progress: Sendable {
     func readBound() { boundReads.withLock { $0 += 1 } }
 }
 
+/// A deadline timer the test fires by hand. It records the limit of each
+/// arm and reports each disarm, and never fires on its own, so a
+/// deadline is checked on virtual time. A race disarms only after it has
+/// resumed its caller, so a test waits for the disarms it expects.
+final class ManualTimer: Sendable {
+    private struct Arm: Sendable {
+        let limit: Duration
+        let fire: @Sendable () -> Void
+    }
+
+    private let arms = Mutex<[Arm]>([])
+    /// Yields the limit of each arm as it happens.
+    let armed: AsyncStream<Duration>
+    private let armedContinuation: AsyncStream<Duration>.Continuation
+    private let disarms: AsyncStream<Int>
+    private let disarmsContinuation: AsyncStream<Int>.Continuation
+
+    init() {
+        (armed, armedContinuation) = AsyncStream.makeStream()
+        (disarms, disarmsContinuation) = AsyncStream.makeStream()
+    }
+
+    var timer: DeadlineTimer {
+        DeadlineTimer { limit, fire in
+            let index = self.arms.withLock { a -> Int in
+                a.append(Arm(limit: limit, fire: fire))
+                return a.count - 1
+            }
+            self.armedContinuation.yield(limit)
+            return { self.disarmsContinuation.yield(index) }
+        }
+    }
+
+    var limits: [Duration] { arms.withLock { $0.map(\.limit) } }
+
+    /// Waits for `count` disarms and returns which arms they were, in order.
+    /// Call it once per timer: it reads the one stream of disarms.
+    func disarmed(count: Int) async -> [Int] {
+        var seen: [Int] = []
+        for await index in disarms {
+            seen.append(index)
+            if seen.count == count { break }
+        }
+        return seen
+    }
+
+    /// Fires arm number `index` (0 for the first), as its limit passing would.
+    func fire(_ index: Int) {
+        let fire = arms.withLock { $0[index].fire }
+        fire()
+    }
+}
+
+/// Holds every caller of `wait` until `open`. A waiting caller ignores
+/// cancellation, as an administrator prompt does.
+final class Gate: Sendable {
+    private let state = Mutex<(open: Bool, waiters: [CheckedContinuation<Void, Never>])>((false, []))
+
+    func wait() async {
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            let now = state.withLock { s -> Bool in
+                if s.open { return true }
+                s.waiters.append(c)
+                return false
+            }
+            if now { c.resume() }
+        }
+    }
+
+    func open() {
+        let waiters = state.withLock { s -> [CheckedContinuation<Void, Never>] in
+            s.open = true
+            defer { s.waiters = [] }
+            return s.waiters
+        }
+        for w in waiters { w.resume() }
+    }
+}
+
+/// A value shared with an escaping closure.
+final class Box<T: Sendable>: Sendable {
+    private let value: Mutex<T>
+    init(_ value: T) { self.value = Mutex(value) }
+    var get: T { value.withLock { $0 } }
+    func set(_ new: T) { value.withLock { $0 = new } }
+}
+
 @Suite("start retry")
 struct StartRetryTests {
     static let team = TeamID("ABCDE12345")!
@@ -97,8 +184,9 @@ struct StartRetryTests {
         #expect(StartRetry.notSchedulableText.contains("`sudo k3sm start`"))
     }
 
-    static func driver(_ runner: ScriptedRunner, progress: Progress, bound: StartTimeBound.Reading = .printed(420)) -> LifecycleDriver {
-        LifecycleDriver(
+    static func driver(_ runner: ScriptedRunner, progress: Progress, timer: ManualTimer,
+                       bound: StartTimeBound.Reading = .printed(420)) -> LifecycleDriver {
+        var d = LifecycleDriver(
             teamID: team,
             readStatus: { Reports.stopped },
             confirm: { _ in true },
@@ -108,14 +196,23 @@ struct StartRetryTests {
                 return bound
             },
             progress: { progress.append($0) })
+        d.deadlineTimer = timer.timer
+        return d
     }
+
+    /// The deadline every start run races: the printed 420 plus the margin.
+    static let wait: Duration = .seconds(420 + StartTimeBound.marginSeconds)
 
     @Test("a cordoned start is re-run once and then succeeds")
     func retryThenSuccess() async {
         let runner = ScriptedRunner([Self.cordoned, Self.ok])
         let progress = Progress()
-        let result = await Self.driver(runner, progress: progress).perform(.start, expected: .stopped)
+        let timer = ManualTimer()
+        let result = await Self.driver(runner, progress: progress, timer: timer).perform(.start, expected: .stopped)
         #expect(result == .ran(.succeeded, "k3sm is starting."))
+        // Each run raced the whole bound, and each finished first.
+        #expect(timer.limits == [Self.wait, Self.wait])
+        #expect(await timer.disarmed(count: 2).sorted() == [0, 1])
         #expect(runner.scripts == [LifecycleScriptBuilder.render(.start, teamID: Self.team),
                                    LifecycleScriptBuilder.render(.start, teamID: Self.team)])
         #expect(progress.all == [StartRetry.retryingText])
@@ -126,8 +223,10 @@ struct StartRetryTests {
     func retryThenStillCordoned() async {
         let runner = ScriptedRunner([Self.cordoned, Self.cordoned, Self.ok])
         let progress = Progress()
-        let result = await Self.driver(runner, progress: progress).perform(.start, expected: .stopped)
+        let timer = ManualTimer()
+        let result = await Self.driver(runner, progress: progress, timer: timer).perform(.start, expected: .stopped)
         #expect(result == .startedNotSchedulable(StartRetry.notSchedulableText))
+        #expect(timer.limits == [Self.wait, Self.wait])
         #expect(runner.scripts.count == 2)
         #expect(progress.all == [StartRetry.retryingText])
     }
@@ -136,7 +235,9 @@ struct StartRetryTests {
     func otherExitOne() async {
         let runner = ScriptedRunner([Self.otherFailure, Self.ok])
         let progress = Progress()
-        let result = await Self.driver(runner, progress: progress).perform(.start, expected: .stopped)
+        let timer = ManualTimer()
+        let result = await Self.driver(runner, progress: progress, timer: timer).perform(.start, expected: .stopped)
+        #expect(timer.limits == [Self.wait])
         #expect(result == .ran(.failed(exitStatus: 1), LifecycleOutcome.text(.failed(exitStatus: 1), verb: .start)))
         #expect(runner.scripts.count == 1)
         #expect(progress.all.isEmpty)
@@ -171,19 +272,43 @@ struct StartRetryTests {
 
     @Test("the deadline returns the value when the operation is first")
     func deadlineValue() async {
-        let v = await Deadline.race(.seconds(5)) { 7 }
+        // A limit no stalled pool can reach: only the value can win.
+        let v = await Deadline.race(.seconds(3600)) { 7 }
         #expect(v == 7)
     }
 
     @Test("the deadline returns nil when the operation runs past it")
     func deadlinePassed() async {
-        let start = ContinuousClock.now
-        let v: Int? = await Deadline.race(.milliseconds(50)) {
-            try? await Task.sleep(for: .seconds(3))
-            return 7
+        let timer = ManualTimer()
+        var armed = timer.armed.makeAsyncIterator()
+        let gate = Gate(), done = Gate()
+        let sawCancel = Box(false)
+        let race = Task {
+            await Deadline.race(.milliseconds(50), timer: timer.timer) { () -> Int in
+                await gate.wait()
+                sawCancel.set(Task.isCancelled)
+                done.open()
+                return 7
+            }
         }
-        #expect(v == nil)
-        #expect(ContinuousClock.now - start < .seconds(2))
+        #expect(await armed.next() == .milliseconds(50))
+        timer.fire(0)
+        // The operation cannot finish before the gate opens, so the nil is
+        // the timer's, and the operation saw the race cancel it.
+        #expect(await race.value == nil)
+        gate.open()
+        await done.wait()
+        #expect(sawCancel.get)
+    }
+
+    @Test("the operation's value wins, disarms the timer, and a late fire is dropped")
+    func deadlineOperationFirst() async {
+        let timer = ManualTimer()
+        let v = await Deadline.race(.seconds(30), timer: timer.timer) { 7 }
+        #expect(v == 7)
+        #expect(timer.limits == [.seconds(30)])
+        #expect(await timer.disarmed(count: 1) == [0])
+        timer.fire(0)
     }
 
     /// Runs the jobs of the tasks that prefer it on one serial dispatch
@@ -198,36 +323,56 @@ struct StartRetryTests {
         }
     }
 
-    /// Holds the calling thread: a sleep that does not give it back to the pool.
-    static func block(seconds: Double) {
-        Thread.sleep(forTimeInterval: seconds)
+    /// Holds the calling thread, without giving it back to the pool, until
+    /// `semaphore` is signalled or a minute passes; false on the minute.
+    static func hold(_ semaphore: DispatchSemaphore) -> Bool {
+        semaphore.wait(timeout: .now() + 60) == .success
     }
 
-    @Test("the deadline returns nil on time while the cooperative pool is saturated")
+    /// Lets the holders take their threads before the race starts.
+    static func settle() {
+        Thread.sleep(forTimeInterval: 0.1)
+    }
+
+    @Test("the deadline fires while every cooperative thread is held")
     func deadlineSaturatedPool() async {
         let executor = QueueTaskExecutor()
-        let elapsed = await Task(executorPreference: executor) { () -> (Int?, Duration) in
+        let width = ProcessInfo.processInfo.activeProcessorCount
+        let release = DispatchSemaphore(value: 0)
+        let gaveUp = Box(0)
+        let v: Int? = await Task(executorPreference: executor) { () -> Int? in
             // More blocking jobs than the pool has threads, each holding its
-            // thread for a second with a sleep the pool cannot reclaim.
-            for _ in 0..<(ProcessInfo.processInfo.activeProcessorCount + 4) {
-                Task.detached { Self.block(seconds: 1) }
+            // thread until the race is over, so the pool stays blocked only
+            // as long as the race. A holder gives up only after a minute, a
+            // hang guard: the race returning first is the proof that the
+            // timer needed no pool thread.
+            for _ in 0..<(width + 4) {
+                Task.detached {
+                    if !Self.hold(release) {
+                        gaveUp.set(gaveUp.get + 1)
+                    }
+                }
             }
-            Self.block(seconds: 0.1)
-            let start = ContinuousClock.now
+            Self.settle()
             let v: Int? = await Deadline.race(.milliseconds(50)) {
-                try? await Task.sleep(for: .seconds(5))
+                try? await Task.sleep(for: .seconds(3600))
                 return 7
             }
-            return (v, ContinuousClock.now - start)
+            // Released from here, on the queue: this test's own body runs on
+            // the pool and could not resume to do it.
+            let held = gaveUp.get
+            for _ in 0..<(width + 4) { release.signal() }
+            return held == 0 ? v : -1
         }.value
-        #expect(elapsed.0 == nil)
-        #expect(elapsed.1 < .milliseconds(500), "returned after \(elapsed.1)")
+        #expect(v == nil, "-1: the race returned only after a held thread gave up")
     }
 
-    /// A root step that outlives any deadline and would ask for a re-run if
-    /// it were ever awaited; it counts its calls.
-    final class SlowCordonedRunner: PrivilegedRunner {
+    /// A root step that returns only when the test opens its gate, and would
+    /// ask for a re-run if it were ever awaited; it counts its calls.
+    final class GatedCordonedRunner: PrivilegedRunner {
         private let count = Mutex(0)
+        let gate = Gate()
+        let returned = Gate()
         var calls: Int { count.withLock { $0 } }
 
         func runAsRoot(_ script: RootScript, input: Data?) async -> PrivilegedOutcome {
@@ -236,25 +381,34 @@ struct StartRetryTests {
 
         func runAsRootReportingError(_ script: RootScript, input: Data?) async -> PrivilegedRun {
             count.withLock { $0 += 1 }
-            try? await Task.sleep(for: .seconds(5))
+            await gate.wait()
+            returned.open()
             return StartRetryTests.cordoned
         }
     }
 
     @Test("a start past its deadline times out and runs the root step only once")
     func startTimesOutOnce() async {
-        let runner = SlowCordonedRunner()
-        let start = ContinuousClock.now
-        // A printed bound of minus the margin is a zero wait, so the
-        // deadline passes while the first run is still going.
-        let d = LifecycleDriver(
-            teamID: Self.team, readStatus: { Reports.stopped }, confirm: { _ in true }, runner: runner,
-            readStartTimeBound: { .printed(-StartTimeBound.marginSeconds) })
-        let result = await d.perform(.start, expected: .stopped)
-        #expect(result == .timedOut(StartRetry.timedOutText(seconds: 0)))
-        #expect(ContinuousClock.now - start < .seconds(2))
-        try? await Task.sleep(for: .milliseconds(200))
+        let runner = GatedCordonedRunner()
+        let timer = ManualTimer()
+        var armed = timer.armed.makeAsyncIterator()
+        let d = {
+            var d = LifecycleDriver(
+                teamID: Self.team, readStatus: { Reports.stopped }, confirm: { _ in true }, runner: runner,
+                readStartTimeBound: { .printed(420) })
+            d.deadlineTimer = timer.timer
+            return d
+        }()
+        let perform = Task { await d.perform(.start, expected: .stopped) }
+        #expect(await armed.next() == Self.wait)
+        timer.fire(0)
+        #expect(await perform.value == .timedOut(StartRetry.timedOutText(seconds: 420 + StartTimeBound.marginSeconds)))
+        // The run the driver stopped waiting for now ends cordoned; the
+        // driver has returned, so nothing runs it again.
+        runner.gate.open()
+        await runner.returned.wait()
         #expect(runner.calls == 1)
+        #expect(timer.limits == [Self.wait])
     }
 
     @Test("the deadline's dispatch interval")
