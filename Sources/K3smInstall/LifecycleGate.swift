@@ -202,6 +202,8 @@ public struct LifecycleDriver: Sendable {
     let runner: any PrivilegedRunner
     let readStartTimeBound: @Sendable () async -> StartTimeBound.Reading
     let progress: @MainActor @Sendable (String) -> Void
+    /// The timer each start run races; the tests swap in one they fire by hand.
+    var deadlineTimer: DeadlineTimer = .dispatch
 
     /// `readStartTimeBound` runs `K3smCLI.startTimeBoundArguments` and
     /// classifies it with `StartTimeBound.parse`; `progress` receives the
@@ -251,10 +253,11 @@ public struct LifecycleDriver: Sendable {
         let bound = await readStartTimeBound()
         let script = LifecycleScriptBuilder.render(.start, teamID: teamID)
         let runner = self.runner
+        let timer = deadlineTimer
         var attempt = 0
         while true {
             attempt += 1
-            guard let run = await Deadline.race(bound.timeout, { await runner.runAsRootReportingError(script, input: nil) }) else {
+            guard let run = await Deadline.race(bound.timeout, timer: timer, { await runner.runAsRootReportingError(script, input: nil) }) else {
                 return .timedOut(StartRetry.timedOutText(seconds: bound.seconds + StartTimeBound.marginSeconds))
             }
             switch StartRetry.next(after: run, attempt: attempt) {

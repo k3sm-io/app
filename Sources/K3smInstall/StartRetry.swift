@@ -77,31 +77,29 @@ public enum StartRetry {
 /// change to the wall clock cannot fire it early or late; time the Mac spends
 /// asleep does not count.
 public enum Deadline {
-    /// Fires every deadline timer; serial, outside the cooperative pool.
-    private static let timers = DispatchQueue(label: "io.k3sm.app.deadline")
-
+    /// Races `operation` against a dispatch timer set to `limit`.
     public static func race<T: Sendable>(_ limit: Duration, _ operation: @escaping @Sendable () async -> T) async -> T? {
+        await race(limit, timer: .dispatch, operation)
+    }
+
+    /// The race on `timer`: `.dispatch` in the app, a hand-fired timer in the
+    /// tests, so a deadline is checked on virtual time, never on the wall clock.
+    static func race<T: Sendable>(_ limit: Duration, timer: DeadlineTimer, _ operation: @escaping @Sendable () async -> T) async -> T? {
         await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
             let once = ResumeOnce(continuation)
             let pending = PendingOperation()
-            // The timer is armed and active before the operation starts, so
-            // nothing ever cancels or releases an inactive source.
-            let timer = DispatchSource.makeTimerSource(queue: timers)
-            timer.setEventHandler {
+            // The timer is armed before the operation starts; one that fires
+            // before the hand-over cancels the task when it arrives.
+            let disarm = timer.arm(limit) {
                 once.resume(nil)
                 pending.expire()
-                timer.cancel()
             }
-            if let wait = interval(limit) {
-                timer.schedule(deadline: .now() + wait)
-            }
-            timer.activate()
             pending.start(Task {
                 let value = await operation()
-                // Resume first: a cancelled timer never fires, and if it is
+                // Resume first: a disarmed timer never fires, and if it is
                 // firing now ResumeOnce keeps whichever came first.
                 once.resume(value)
-                timer.cancel()
+                disarm()
             })
         }
     }
@@ -115,6 +113,32 @@ public enum Deadline {
         let (total, carry) = whole.addingReportingOverflow(attoseconds / 1_000_000_000)
         guard !overflow, !carry, total <= Int64(Int.max) else { return nil }
         return .nanoseconds(Int(total))
+    }
+}
+
+/// DeadlineTimer arms the one-shot timer a deadline race waits on: `arm`
+/// calls `fire` once `limit` has passed, unless the returned closure disarms
+/// it first.
+struct DeadlineTimer: Sendable {
+    let arm: @Sendable (_ limit: Duration, _ fire: @escaping @Sendable () -> Void) -> @Sendable () -> Void
+
+    /// Fires every dispatch deadline timer; serial, outside the cooperative pool.
+    private static let timers = DispatchQueue(label: "io.k3sm.app.deadline")
+
+    /// The app's timer: a dispatch timer on its own queue. Nothing ever
+    /// cancels or releases an inactive source, because it is active before
+    /// `arm` returns.
+    static let dispatch = DeadlineTimer { limit, fire in
+        let timer = DispatchSource.makeTimerSource(queue: timers)
+        timer.setEventHandler {
+            fire()
+            timer.cancel()
+        }
+        if let wait = Deadline.interval(limit) {
+            timer.schedule(deadline: .now() + wait)
+        }
+        timer.activate()
+        return { timer.cancel() }
     }
 }
 
