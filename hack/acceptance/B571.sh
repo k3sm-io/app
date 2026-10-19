@@ -23,6 +23,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PATH="/opt/homebrew/bin:$PATH"
+# shellcheck source=hack/acceptance/lib/test-passed.sh
+. hack/acceptance/lib/test-passed.sh
 
 # The Command Line Tools keep the swift-testing macro plugin where SwiftPM
 # does not look; ci.sh does the same.
@@ -80,13 +82,15 @@ export K3SM_B571_STATE="$tmp/state"
 
 echo "==> the Start flow against the fake k3sm"
 status=0
-swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} --filter StartFakeCLITests > "$tmp/flow.log" 2>&1 || status=$?
+swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} --filter StartFakeCLITests \
+	--experimental-event-stream-output "$tmp/flow-events.jsonl" > "$tmp/flow.log" 2>&1 || status=$?
 if [ "$status" != 0 ]; then
 	tail -n 60 "$tmp/flow.log"
 	echo "FAIL: swift test --filter StartFakeCLITests exited $status"
 	exit 1
 fi
-grep -q 'Suite "start against a fake CLI" passed' "$tmp/flow.log" \
+test_results "$tmp/flow-events.jsonl" > "$tmp/flow-results.tsv" || exit 1
+suite_passed "$tmp/flow-results.tsv" "start against a fake CLI" \
 	|| { echo "FAIL: the Start flow did not run (is the suite still enabled by K3SM_B571_FAKE_K3SM?)"; exit 1; }
 [ -s "$tmp/state" ] || { echo "FAIL: the Start flow wrote no state"; exit 1; }
 sed 's/^/    | /' "$tmp/state"
@@ -108,15 +112,19 @@ echo "    ok (start invoked $calls times, first one past the printed bound)"
 echo "==> swift test"
 : > "$tmp/calls"
 status=0
-swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} > "$tmp/test.log" 2>&1 || status=$?
+swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} \
+	--experimental-event-stream-output "$tmp/events.jsonl" > "$tmp/test.log" 2>&1 || status=$?
 if [ "$status" != 0 ]; then
 	tail -n 60 "$tmp/test.log"
 	echo "FAIL: swift test exited $status"
 	exit 1
 fi
+# The verdicts come from the event stream, not from test.log, whose lines
+# interleave when tests run in parallel.
+test_results "$tmp/events.jsonl" > "$tmp/results.tsv" || exit 1
 
 for suite in "start time bound" "start retry" "start against a fake CLI" "lifecycle driver"; do
-	grep -q "Suite \"$suite\" passed" "$tmp/test.log" || { echo "FAIL: suite \"$suite\" did not run and pass"; exit 1; }
+	suite_passed "$tmp/results.tsv" "$suite" || { echo "FAIL: suite \"$suite\" did not run and pass"; exit 1; }
 	echo "    passed: $suite"
 done
 
@@ -132,7 +140,7 @@ for name in \
 	"stop and restart never read the start bound and never re-run" \
 	"the deadline returns nil when the operation runs past it" \
 	"Start reads the bound, waits past it, re-runs a cordoned start once, and reports"; do
-	if ! grep -F "Test \"$name\"" "$tmp/test.log" | grep -q "passed"; then
+	if ! test_passed "$tmp/results.tsv" "$name"; then
 		echo "FAIL: test \"$name\" did not run and pass"
 		exit 1
 	fi

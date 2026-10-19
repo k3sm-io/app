@@ -26,6 +26,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PATH="/opt/homebrew/bin:$PATH"
+# shellcheck source=hack/acceptance/lib/test-passed.sh
+. hack/acceptance/lib/test-passed.sh
 
 K3SM_DIR="${K3SM_DIR:-../k3sm}"
 for f in cmd/k3sm/lifecycle.go cmd/k3sm/main.go; do
@@ -57,12 +59,16 @@ trap 'rm -rf "$tmp"' EXIT
 
 echo "==> swift test"
 status=0
-swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} > "$tmp/test.log" 2>&1 || status=$?
+swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} \
+	--experimental-event-stream-output "$tmp/events.jsonl" > "$tmp/test.log" 2>&1 || status=$?
 if [ "$status" != 0 ]; then
 	tail -n 60 "$tmp/test.log"
 	echo "FAIL: swift test exited $status"
 	exit 1
 fi
+# The verdicts come from the event stream, not from test.log, whose lines
+# interleave when tests run in parallel.
+test_results "$tmp/events.jsonl" > "$tmp/results.tsv" || exit 1
 
 for suite in \
 	"lifecycle root script" \
@@ -80,7 +86,7 @@ for suite in \
 	"bug report collector" \
 	"live status commands" \
 	"command files"; do
-	grep -q "Suite \"$suite\" passed" "$tmp/test.log" || { echo "FAIL: suite \"$suite\" did not run and pass"; exit 1; }
+	suite_passed "$tmp/results.tsv" "$suite" || { echo "FAIL: suite \"$suite\" did not run and pass"; exit 1; }
 	echo "    passed: $suite"
 done
 
@@ -109,7 +115,7 @@ for name in \
 	"the title names who stopped k3sm" \
 	"it reads only the allowlist" \
 	"the redaction pass"; do
-	if ! grep -F "Test \"$name\"" "$tmp/test.log" | grep -q "passed"; then
+	if ! test_passed "$tmp/results.tsv" "$name"; then
 		echo "FAIL: test \"$name\" did not run and pass (CLI source: $K3SM_DIR)"
 		exit 1
 	fi

@@ -34,7 +34,9 @@
 #  11. every control carries a catalog help tag: the check's self-test, then
 #      the live tree (hack/verify-help.sh, hack/help.allow)
 #  12. the acceptance gates: hack/run-acceptance.sh --self-test (a planted
-#      failing gate must red the runner), then every hack/acceptance/B<n>.sh;
+#      failing gate must red the runner), hack/acceptance/lib/test-passed.sh
+#      --self-test (the gates' reader of swift-testing's event stream, over a
+#      recorded stream), then every hack/acceptance/B<n>.sh;
 #      a gate that cannot run here says LAB-PENDING and exits 3, and is named
 #      in the summary, never counted as a pass
 #
@@ -65,6 +67,8 @@ acceptance_stage() {
 	local k3sm_dir="${K3SM_DIR:-../k3sm}"
 	echo "==> acceptance gates (hack/run-acceptance.sh)"
 	bash hack/run-acceptance.sh --self-test
+	echo "==> hack/acceptance/lib/test-passed.sh --self-test"
+	bash hack/acceptance/lib/test-passed.sh --self-test
 	if [ ! -d "$k3sm_dir/cmd/k3sm" ]; then
 		if [ "$mode" = acceptance ]; then
 			echo "FAIL: no k3sm checkout at $k3sm_dir; the acceptance gates need one (set K3SM_DIR)"

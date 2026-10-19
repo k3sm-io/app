@@ -25,6 +25,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PATH="/opt/homebrew/bin:$PATH"
+# shellcheck source=hack/acceptance/lib/test-passed.sh
+. hack/acceptance/lib/test-passed.sh
 
 K3SM_DIR="${K3SM_DIR:-../k3sm}"
 for f in cmd/k3sm/main.go cmd/k3sm/lifecycle.go cmd/k3sm/network.go pkg/install/networklan.go pkg/status/network.go pkg/status/daemons.go pkg/status/report.go; do
@@ -56,19 +58,23 @@ trap 'rm -rf "$tmp"' EXIT
 
 echo "==> swift test"
 status=0
-swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} > "$tmp/test.log" 2>&1 || status=$?
+swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} \
+	--experimental-event-stream-output "$tmp/events.jsonl" > "$tmp/test.log" 2>&1 || status=$?
 if [ "$status" != 0 ]; then
 	tail -n 60 "$tmp/test.log"
 	echo "FAIL: swift test exited $status"
 	exit 1
 fi
+# The verdicts come from the event stream, not from test.log, whose lines
+# interleave when tests run in parallel.
+test_results "$tmp/events.jsonl" > "$tmp/results.tsv" || exit 1
 
 for suite in \
 	"LAN access decoder" \
 	"LAN record and probe" \
 	"LAN checkbox" \
 	"LAN root script"; do
-	grep -q "Suite \"$suite\" passed" "$tmp/test.log" || { echo "FAIL: suite \"$suite\" did not run and pass"; exit 1; }
+	suite_passed "$tmp/results.tsv" "$suite" || { echo "FAIL: suite \"$suite\" did not run and pass"; exit 1; }
 	echo "    passed: $suite"
 done
 
@@ -88,7 +94,7 @@ for name in \
 	"the full read's applied state rides a newer probe only while they agree" \
 	"an unknown record state in the live status refuses before the prompt" \
 	"every LAN verb and status field the app uses is one the CLI declares"; do
-	if ! grep -F "Test \"$name\"" "$tmp/test.log" | grep -q "passed"; then
+	if ! test_passed "$tmp/results.tsv" "$name"; then
 		echo "FAIL: test \"$name\" did not run and pass (CLI source: $K3SM_DIR)"
 		exit 1
 	fi
