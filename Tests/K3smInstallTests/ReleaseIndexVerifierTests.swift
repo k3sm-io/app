@@ -375,6 +375,10 @@ struct ReleaseIndexVerifierTests {
         }
     }
 
+    @Test func theFutureSkewIsOneHour() {
+        #expect(ReleaseIndexVerifier.maxTimestampLead == 3_600)
+    }
+
     @Test func aTimestampFromTheFutureIsRefused() throws {
         let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
         let verifier = try Self.verifier(clock: { now })
@@ -435,6 +439,38 @@ struct ReleaseIndexVerifierTests {
     }
 
     // MARK: verify, then parse
+
+    /// The signer chain is evaluated only at the attested signing time:
+    /// `verified(p7m:)` binds `signingTime`'s result to `signedAt`, passes
+    /// that to `checkSigner`, returns it, and reads no clock of its own; and
+    /// `checkSigner` has no other caller in the app. Passing `Date()` there
+    /// fails this test.
+    @Test func checkSignerOnlyReceivesTheAttestedSigningTime() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let sources = root.appendingPathComponent("Sources")
+        let file = sources.appendingPathComponent("K3smInstall/ReleaseIndexVerifier.swift")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let code = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line in line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? String(line) }
+        let start = try #require(code.firstIndex { $0.contains("func verified(p7m:") })
+        let end = try #require(code[start...].firstIndex { $0 == "    }" })
+        let body = code[start...end].joined(separator: "\n")
+        #expect(body.contains("let signedAt = try signingTime(signed.decoder)"))
+        #expect(body.contains("try checkSigner(signed.trust, at: signedAt)"))
+        #expect(body.contains("signedAt: signedAt"))
+        #expect(!body.contains("Date("), "verified reads a clock: \(body)")
+        #expect(!body.contains("clock"), "verified reads a clock: \(body)")
+
+        var users: [String] = []
+        for url in try #require(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)).compactMap({ $0 as? URL })
+        where url.pathExtension == "swift" {
+            let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map { line in
+                line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? String(line)
+            }
+            users += lines.filter { $0.contains("checkSigner(") && !$0.contains("func checkSigner") }
+        }
+        #expect(users.count == 1 && users[0].contains("at: signedAt"), "\(users)")
+    }
 
     /// `ReleaseIndexVerifier.verified(p7m:)` is the only way into
     /// `ReleaseIndex.parse` in the app's sources: one call, in the verifier's

@@ -51,9 +51,17 @@ public struct ReleaseIndexVerifier: Sendable {
     public static let maxSignedBytes = 262_144
 
     /// How far past this Mac's clock the attested signing time may be. A
-    /// timestamp from the future means a wrong clock or a forged time; a day
-    /// leaves room for a clock set slightly back without accepting either.
-    public static let maxTimestampLead: TimeInterval = 86_400
+    /// timestamp from the future means a wrong clock or a forged time; an
+    /// hour leaves room for ordinary clock drift without accepting either.
+    public static let maxTimestampLead: TimeInterval = 3_600
+
+    /// A release index the verifier accepted, with the signing time the
+    /// timestamp authority attested. The caller enforces the index's own
+    /// `issuedAt` against `signedAt`, never against a clock it reads itself.
+    public struct VerifiedReleaseIndex: Sendable {
+        public let index: ReleaseIndex
+        public let signedAt: Date
+    }
 
     /// Where the chain's root, or the timestamp authority's, must come from.
     enum Roots: Sendable {
@@ -109,12 +117,15 @@ public struct ReleaseIndexVerifier: Sendable {
         return data
     }
 
-    /// The release index inside `p7m`, after every check passed.
-    public func verified(p7m: Data) throws(ReleaseIndexVerifierError) -> ReleaseIndex {
+    /// The release index inside `p7m`, after every check passed, with the
+    /// attested signing time. The signer chain is evaluated only at
+    /// `signedAt`, the date `signingTime` derived from the timestamp (a test
+    /// holds that no other date reaches `checkSigner`).
+    public func verified(p7m: Data) throws(ReleaseIndexVerifierError) -> VerifiedReleaseIndex {
         let signed = try SignedIndex(p7m)
         let signedAt = try signingTime(signed.decoder)
         try checkSigner(signed.trust, at: signedAt)
-        return try index(from: signed.content)
+        return VerifiedReleaseIndex(index: try index(from: signed.content), signedAt: signedAt)
     }
 
     // MARK: the stages, in order
@@ -219,6 +230,10 @@ public struct ReleaseIndexVerifier: Sendable {
         let chain = try Self.evaluate([authority] + others, policies: [stamping], anchors: roots, at: date) {
             code throws(ReleaseIndexVerifierError) in .timestampAuthority(code)
         }
+        // Redundant by design: the evaluation above sets anchors-only, so a
+        // chain it accepts already ends at one of `roots`. Kept as a second,
+        // independent check in case a later SDK changes how anchors-only
+        // behaves; no input reaches it today.
         guard let root = chain.last, roots.contains(SecCertificateCopyData(root) as Data) else {
             throw .timestampAuthority(errSecTimestampNotTrusted)
         }
@@ -227,6 +242,13 @@ public struct ReleaseIndexVerifier: Sendable {
     /// The signer chain at `date`: evaluated with the Apple code-signing
     /// policy and revocation against the anchors only, then the Developer
     /// ID facts by hand, in the order `IndexSignerPolicy.checks` lists.
+    ///
+    /// Revocation: `kSecRevocationUseAnyAvailableMethod` without
+    /// `kSecRevocationRequirePositiveResponse` soft-fails, so an unreachable
+    /// OCSP responder does not refuse the index. That is a ruled residual
+    /// risk; the compensating control is the (tag, issuedAt) monotonic floor
+    /// the update flow enforces (B827), which a replayed older index cannot
+    /// pass.
     func checkSigner(_ trust: SecTrust, at date: Date) throws(ReleaseIndexVerifierError) {
         let roots = Self.roots(anchors)
         guard let codeSigning = SecPolicyCreateWithProperties(kSecPolicyAppleCodeSigning, nil),
@@ -238,6 +260,9 @@ public struct ReleaseIndexVerifier: Sendable {
         let chain = try Self.evaluate(trust, anchors: roots, at: date) { code throws(ReleaseIndexVerifierError) in
             .chainUntrusted(code)
         }
+        // Redundant by design: anchors-only evaluation already ends the chain
+        // at one of `roots`. Kept as defence in depth against a change in
+        // that behaviour; unreachable today.
         guard let root = chain.last, roots.contains(SecCertificateCopyData(root) as Data) else { throw .anchor }
         guard chain.count > 1, Self.hasExtension(chain[1], IndexSignerPolicy.intermediateMarkerOID) else {
             throw .intermediateMarker
@@ -246,6 +271,12 @@ public struct ReleaseIndexVerifier: Sendable {
         guard Self.hasExtension(leaf, IndexSignerPolicy.leafMarkerOID) else { throw .leafMarker }
         guard Self.extendedKeyUsage(leaf).contains(Self.codeSigningUsage) else { throw .codeSigningUsage }
         guard Self.subjectValues(leaf, Self.organizationalUnitOID) == [policy.teamID.value] else { throw .teamOU }
+        // Redundant by design in the shipped path: the marker checks above
+        // already tie certificates 0 and 1 to Apple's Developer ID
+        // intermediate, which chains straight to the Apple root, so no real
+        // Developer ID chain is longer than three. The check pins the shape
+        // anyway as defence in depth; only the test roots' long-chain fixture
+        // reaches it.
         guard chain.count == IndexSignerPolicy.chainLength else { throw .chainLength(chain.count) }
     }
 
@@ -267,6 +298,13 @@ public struct ReleaseIndexVerifier: Sendable {
     /// check over it selects Apple's roots and nothing else. Apple can add a
     /// root (macOS 27 carries the Apple Platform roots beside Apple Root CA)
     /// without an app update.
+    ///
+    /// Threat model: the system anchor store is root- and SIP-protected, and
+    /// an attacker who can write it can replace the app itself, so trusting
+    /// it adds no exposure. That a root added by a user or an administrator
+    /// is not returned here is verified on a real install in B834: add a
+    /// self-issued "Apple Inc." root to the System keychain and to the admin
+    /// trust domain, then assert it is absent from `appleRoots()`.
     static func appleRoots() -> [Data] {
         var anchors: CFArray?
         guard SecTrustCopyAnchorCertificates(&anchors) == errSecSuccess,
