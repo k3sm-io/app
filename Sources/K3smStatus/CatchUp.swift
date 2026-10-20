@@ -112,12 +112,15 @@ public struct ClusterCatchUp: Equatable, Sendable {
                               moves: moves, behind: behind.sorted(), ahead: ahead.sorted())
     }
     /// The release the server's own Node runs, from the report's `node`
-    /// row: the k3sm part of its kubelet version as a version, which is the
-    /// release of the daemon that runs the update controller. Nil when the
-    /// row, its kubelet version or the `+k3sm.` marker is missing.
-    public static func serverRunning(report: StatusReport?) -> SemanticVersion? {
+    /// row: `v` and the k3sm part of its kubelet version (the controller's
+    /// `fromRelease`), which names the release of the daemon that runs the
+    /// update controller. A release tag reads back as itself (`v0.1.8`,
+    /// `v0.1.9-rc.1`); a modified or developer build does not (its `+` became
+    /// `.`). Nil when the row, its kubelet version or the `+k3sm.` marker is
+    /// missing. The text is untrusted: callers check it as a release tag.
+    public static func serverRunning(report: StatusReport?) -> String? {
         let kubelet = report?.row(named: "node")?.wide["kubelet"]
-        return k3smPart(kubelet).flatMap(SemanticVersion.init)
+        return k3smPart(kubelet).map { "v" + $0 }
     }
 
     /// The k3sm part of a kubelet version, after `+k3sm.`, as the

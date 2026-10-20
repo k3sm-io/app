@@ -32,6 +32,10 @@ public enum BundledRollExit {
     public static let tagMismatch: Int32 = 103
     /// The record's `tarball_sha256` is not 64 lowercase hex digits.
     public static let digestRefused: Int32 = 104
+    /// A command of the record check itself failed (`stat`, `grep` or `sed`
+    /// reading the record), so its statuses never pass for the CLI's own 1
+    /// and 2.
+    public static let recordUnreadable: Int32 = 105
 }
 
 /// BundledRollPlan is the version set's root step as data: the running app
@@ -189,16 +193,26 @@ public enum BundledRollScriptBuilder {
             	echo "bundled-roll: refused: $1"
             	exit \#(BundledRollExit.tagMismatch)
             }
+            check_failed() {
+            	echo "bundled-roll: refused: $1"
+            	exit \#(BundledRollExit.recordUnreadable)
+            }
             if [ -L "$record" ] || [ ! -f "$record" ]; then record_refused 'the payload record is missing, a symlink or not a regular file'; fi
-            size=$(/usr/bin/stat -f %z "$record")
+            size=$(/usr/bin/stat -f %z "$record") || check_failed 'the payload record could not be measured'
+            case "$size" in ''|*[!0-9]*) check_failed 'the payload record could not be measured' ;; esac
             if [ "$size" -gt \#(BundledRollPlan.maxRecordBytes) ]; then record_refused 'the payload record is larger than \#(BundledRollPlan.maxRecordBytes) bytes'; fi
-            if /usr/bin/grep -q "$cr" "$record"; then record_refused 'the payload record holds a carriage return'; fi
+            if /usr/bin/grep -q "$cr" "$record"; then
+            	record_refused 'the payload record holds a carriage return'
+            else
+            	st=$?
+            	if [ "$st" -ne 1 ]; then check_failed 'the payload record could not be read'; fi
+            fi
             for key in \#(keyChecks); do
-            	n=$(/usr/bin/grep -c "^$key=" "$record" || true)
+            	n=$(/usr/bin/grep -c "^$key=" "$record") || { st=$?; if [ "$st" -ne 1 ]; then check_failed 'the payload record could not be read'; fi; }
             	if [ "$n" != 1 ]; then record_refused "the payload record holds $n $key lines, not exactly one"; fi
             done
-            record_tag=$(/usr/bin/sed -n 's/^tag=//p' "$record")
-            digest=$(/usr/bin/sed -n 's/^tarball_sha256=//p' "$record")
+            record_tag=$(/usr/bin/sed -n 's/^tag=//p' "$record") || check_failed 'the payload record could not be read'
+            digest=$(/usr/bin/sed -n 's/^tarball_sha256=//p' "$record") || check_failed 'the payload record could not be read'
             plist_tag=$(/usr/libexec/PlistBuddy -c 'Print :\#(AppVersion.payloadTagKey)' "$bundle"/\#(q(BundledRollPlan.infoPlistPath))) || plist_tag=
             case "$tag" in *"$nl"*|*"$cr"*) tag_refused 'the release tag holds a line break' ;; esac
             if ! printf '%s\n' "$tag" | /usr/bin/grep -Eq \#(q(BundledRollPlan.tagPattern)); then tag_refused 'the release tag is not a release tag'; fi
@@ -246,7 +260,7 @@ extension UpdatePrecondition {
         guard installed < set else {
             return .refused("The server already runs k3sm \(StatusDisplay.clip(installedTag)), not older than \(StatusDisplay.clip(tag)), so there is nothing to update." + unchanged)
         }
-        guard BundledRollSupport.hasPin(installed) else {
+        guard BundledRollSupport.hasPin(tag: installedTag) else {
             return .refused(UpdateBlock.bundledServerCLITooOld(installed: installed, tag: tag).sentence + unchanged)
         }
         guard BundledRollSupport.skewAllowed(installed: installed, set: set) else {
@@ -255,7 +269,7 @@ extension UpdatePrecondition {
         guard let running = ClusterCatchUp.serverRunning(report: live) else {
             return .refused(UpdateBlock.serverNodeUnknownText + unchanged)
         }
-        guard BundledRollSupport.hasPin(running) else {
+        guard BundledRollSupport.hasPin(tag: running) else {
             return .refused(UpdateBlock.bundledControllerTooOld(tag: tag).sentence + unchanged)
         }
         guard let nodes else { return .refused(UpdateBlock.bundledNodesUnknownText + unchanged) }
@@ -330,6 +344,8 @@ public enum BundledRollOutcome {
             return "This app's record of its k3sm release does not name the release offered, so nothing was run. Nothing was changed."
         case BundledRollExit.digestRefused:
             return "This app's record of its k3sm release has no valid digest, so nothing was run. Download k3sm.app again. Nothing was changed."
+        case BundledRollExit.recordUnreadable:
+            return "k3sm could not read this app's record of its k3sm release as root, so nothing was run. Nothing was changed."
         default:
             return nil
         }
@@ -354,7 +370,16 @@ public enum BundledRollOutcome {
 /// controller resolves the release. A resolve that is not `ResolvedPinned`
 /// means the controller did not enforce the pin, and the driver cancels the
 /// roll before a node starts: unprivileged through the trust-checked CLI
-/// first, and only if that refuses, through the root cancel.
+/// first, then through the root cancel when that did not run, failed, or
+/// was not seen to take effect.
+///
+/// The watch and the unprivileged cancel run with the user's own cluster
+/// credentials, which need not name the cluster the root step updated. So
+/// every claim the driver makes rests on what it read of the Update the
+/// root step created (`UpdateIdentity`): "bound" only on a `ResolvedPinned`
+/// reading of it, "cancelled" only on a Cancelled or finished reading of it
+/// after a cancel. Anything else is reported as unconfirmed, with the
+/// Terminal command that checks the server itself.
 public struct BundledRollDriver: Sendable {
     /// The Resolved condition, and the reasons the controller gives it
     /// (`pkg/updatectl` `ConditionResolved`, `ReasonResolvedPinned`,
@@ -366,8 +391,36 @@ public struct BundledRollDriver: Sendable {
     public static let watchInterval: Duration = .seconds(3)
     public static let watchReads = 40
 
+    /// The Update the root step created. `k3sm update apply` keeps one
+    /// Update, named `current` (`updatesv1alpha1.UpdateName`), and
+    /// `k3sm update status -o json` gives its name and version but no uid, so
+    /// these two, with the pre-run reading set aside, are the identity.
+    public struct UpdateIdentity: Equatable, Sendable {
+        /// `updatesv1alpha1.UpdateName`.
+        public static let createdName = "current"
+        public let name: String
+        public let version: String
+
+        public init(tag: String) {
+            name = Self.createdName
+            version = tag
+        }
+
+        /// Whether `status` is a reading of this Update.
+        public func matches(_ status: UpdateStatus) -> Bool {
+            status.name == name && status.version == version
+        }
+    }
+
+    /// How many times the Update is read after a cancel before the cancel
+    /// counts as not confirmed.
+    public static let cancelConfirmReads = 10
+
     public static let unboundCancelled =
         "The update was not bound to this app's release, so k3sm cancelled it before any node started."
+    public static let unboundCancelUnconfirmed =
+        "The update was not bound to this app's release. k3sm asked to cancel it but could not confirm that it stopped. "
+        + "Run `sudo k3sm update status` in Terminal to check, and `sudo k3sm update cancel` to stop it."
     public static let unboundNotCancelled =
         "The update was not bound to this app's release, and k3sm could not cancel it. Cancel it from the window, or run `sudo k3sm update cancel` in Terminal."
     public static let pinMismatch =
@@ -443,10 +496,11 @@ public struct BundledRollDriver: Sendable {
             return .refused("The nodes the update would move changed while the question was open. Nothing was changed.")
         case .refused(let why): return .refused(why)
         }
+        let before = await readUpdate()
         let run = await runner.runAsRootReportingError(BundledRollScriptBuilder.render(plan: plan), input: nil)
         let result = Self.classify(run)
         guard case .ran(.started, let outcome, _) = result else { return result }
-        return .ran(.started, outcome, await watch(tag: tag))
+        return .ran(.started, outcome, await watch(tag: tag, before: before))
     }
 
     /// Reads one finished root step: the script's own refusals by their
@@ -464,17 +518,29 @@ public struct BundledRollDriver: Sendable {
         return UpdateDriver.classify(run, verb: .updateApply)
     }
 
-    /// Watches the Update to `tag` until the controller resolves its
-    /// release, and returns the sentence to show. An unpinned resolve is
-    /// cancelled.
-    func watch(tag: String) async -> String {
+    /// Whether `status` is a reading of the Update the root step created:
+    /// the identity matches, and it is not the finished Update read before
+    /// the run, which the apply replaced.
+    static func created(_ status: UpdateStatus, identity: UpdateIdentity, before: UpdateStatus?) -> Bool {
+        guard identity.matches(status) else { return false }
+        if let before, before.finished, status == before { return false }
+        return true
+    }
+
+    /// Watches the Update to `tag` the root step created until the
+    /// controller resolves its release, and returns the sentence to show.
+    /// `before` is the reading taken just before the root step. A reading
+    /// of any other Update, or no reading, proves nothing and is skipped. An
+    /// unpinned resolve is cancelled.
+    func watch(tag: String, before: UpdateStatus?) async -> String {
+        let identity = UpdateIdentity(tag: tag)
         for read in 0..<Self.watchReads {
             if read > 0 { await sleep(Self.watchInterval) }
-            guard let status = await readUpdate(), status.version == tag else { continue }
+            guard let status = await readUpdate(), Self.created(status, identity: identity, before: before) else { continue }
             if let resolved = status.conditions.first(where: { $0.type == Self.resolvedCondition }) {
                 if resolved.status == "True" {
                     if resolved.reason == Self.resolvedPinnedReason { return Self.bound }
-                    return await cancelUnbound()
+                    return await cancelUnbound(identity: identity, before: before)
                 }
                 if resolved.reason == Self.pinMismatchReason { return Self.pinMismatch }
             }
@@ -484,10 +550,24 @@ public struct BundledRollDriver: Sendable {
     }
 
     /// Cancels a roll the controller resolved without the pin: as the user
-    /// first, then, only if that did not run or failed, as root.
-    func cancelUnbound() async -> String {
-        if await cancelUnprivileged() { return Self.unboundCancelled }
+    /// first; then as root when that did not run, failed, or was not seen to
+    /// take effect. "Cancelled" is said only after a reading of the same
+    /// Update shows it Cancelled or finished.
+    func cancelUnbound(identity: UpdateIdentity, before: UpdateStatus?) async -> String {
+        if await cancelUnprivileged(), await cancelSeen(identity: identity, before: before) { return Self.unboundCancelled }
         let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(.updateCancel, teamID: teamID), input: nil)
-        return run.outcome == .succeeded ? Self.unboundCancelled : Self.unboundNotCancelled
+        guard run.outcome == .succeeded else { return Self.unboundNotCancelled }
+        return await cancelSeen(identity: identity, before: before) ? Self.unboundCancelled : Self.unboundCancelUnconfirmed
+    }
+
+    /// Whether a reading of the created Update shows it Cancelled or
+    /// finished, within `cancelConfirmReads` reads.
+    func cancelSeen(identity: UpdateIdentity, before: UpdateStatus?) async -> Bool {
+        for read in 0..<Self.cancelConfirmReads {
+            if read > 0 { await sleep(Self.watchInterval) }
+            guard let status = await readUpdate(), Self.created(status, identity: identity, before: before) else { continue }
+            if status.phase == .cancelled || status.finished { return true }
+        }
+        return false
     }
 }

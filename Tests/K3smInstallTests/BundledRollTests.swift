@@ -104,16 +104,26 @@ struct BundledRollTests {
         	echo "bundled-roll: refused: $1"
         	exit 103
         }
+        check_failed() {
+        	echo "bundled-roll: refused: $1"
+        	exit 105
+        }
         if [ -L "$record" ] || [ ! -f "$record" ]; then record_refused 'the payload record is missing, a symlink or not a regular file'; fi
-        size=$(/usr/bin/stat -f %z "$record")
+        size=$(/usr/bin/stat -f %z "$record") || check_failed 'the payload record could not be measured'
+        case "$size" in ''|*[!0-9]*) check_failed 'the payload record could not be measured' ;; esac
         if [ "$size" -gt 1024 ]; then record_refused 'the payload record is larger than 1024 bytes'; fi
-        if /usr/bin/grep -q "$cr" "$record"; then record_refused 'the payload record holds a carriage return'; fi
+        if /usr/bin/grep -q "$cr" "$record"; then
+        	record_refused 'the payload record holds a carriage return'
+        else
+        	st=$?
+        	if [ "$st" -ne 1 ]; then check_failed 'the payload record could not be read'; fi
+        fi
         for key in 'tag' 'tarball_sha256' 'payload_manifest_sha256'; do
-        	n=$(/usr/bin/grep -c "^$key=" "$record" || true)
+        	n=$(/usr/bin/grep -c "^$key=" "$record") || { st=$?; if [ "$st" -ne 1 ]; then check_failed 'the payload record could not be read'; fi; }
         	if [ "$n" != 1 ]; then record_refused "the payload record holds $n $key lines, not exactly one"; fi
         done
-        record_tag=$(/usr/bin/sed -n 's/^tag=//p' "$record")
-        digest=$(/usr/bin/sed -n 's/^tarball_sha256=//p' "$record")
+        record_tag=$(/usr/bin/sed -n 's/^tag=//p' "$record") || check_failed 'the payload record could not be read'
+        digest=$(/usr/bin/sed -n 's/^tarball_sha256=//p' "$record") || check_failed 'the payload record could not be read'
         plist_tag=$(/usr/libexec/PlistBuddy -c 'Print :K3smPayloadTag' "$bundle"/'Contents/Info.plist') || plist_tag=
         case "$tag" in *"$nl"*|*"$cr"*) tag_refused 'the release tag holds a line break' ;; esac
         if ! printf '%s\n' "$tag" | /usr/bin/grep -Eq '^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-rc\.(0|[1-9][0-9]{0,3}))?$'; then tag_refused 'the release tag is not a release tag'; fi
@@ -184,7 +194,8 @@ struct BundledRollTests {
         #expect(try at("k3sm='/Library/k3sm/k3sm'") < at("\"$k3sm\" 'update'"))
         // The bundle in /Applications is named once, as the copy's source;
         // everything after reads the verified root-owned copy.
-        #expect(text.components(separatedBy: "'/Applications/k3sm.app'").count == 2)
+        let named = text.split(separator: "\n").filter { $0.contains("/Applications/k3sm.app") }
+        #expect(named.count == 1 && named.first?.hasPrefix("/usr/bin/ditto ") == true, "\(named)")
         #expect(text.contains("bundle=\"$stage\"/'k3sm.app'\n"))
         // The staged copy must carry the app's identifier too.
         #expect(plan.designatedRequirement == DesignatedRequirement.developerID(teamID: Self.team) + " and identifier \"io.k3sm.app\"")
@@ -240,6 +251,8 @@ struct BundledRollTests {
         let hostile = try Self.plan(path: "/Applications/it's $(id).app")
         let text = BundledRollScriptBuilder.render(plan: hostile).text
         #expect(text.contains("/usr/bin/ditto --norsrc --noextattr --noqtn --noacl '/Applications/it'\\''s $(id).app' "))
+        let named = text.split(separator: "\n").filter { $0.contains("$(id).app") }
+        #expect(named.count == 1 && named.first?.hasPrefix("/usr/bin/ditto ") == true)
     }
 
     // MARK: the record and tag checks, run for real
@@ -319,6 +332,20 @@ struct BundledRollTests {
         #expect(!result.output.contains("digest="))
     }
 
+    @Test("a record the check cannot read exits 105, never the CLI's 1 or 2")
+    func unreadableRecord() throws {
+        let bundle = try Self.fixture(record: Self.record())
+        let record = bundle.appending(path: BundledRollPlan.recordPath)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: record.path)
+            try? FileManager.default.removeItem(at: bundle.deletingLastPathComponent())
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: record.path)
+        let result = try Self.check(bundle)
+        #expect(result.status == BundledRollExit.recordUnreadable, "\(result.output)")
+        #expect(result.output.contains("could not be read"))
+    }
+
     @Test("a symlinked record is refused, even one pointing at a valid record")
     func symlinkedRecord() throws {
         let bundle = try Self.fixture(record: nil)
@@ -354,7 +381,7 @@ struct BundledRollTests {
     @Test("every refusal of the root step has a sentence and starts nothing", arguments: [
         (Int32(64), "symlink"), (65, "unsafe file"), (75, "Another install or update"), (77, "not signed by the k3sm Developer ID"),
         (100, "is not owned by root"), (101, "installed k3sm is not signed"), (102, "missing or malformed"),
-        (103, "does not name the release offered"), (104, "no valid digest"),
+        (103, "does not name the release offered"), (104, "no valid digest"), (105, "could not read this app's record"),
     ])
     func refusalSentences(_ status: Int32, _ words: String) {
         let result = BundledRollDriver.classify(PrivilegedRun(outcome: .failed(exitStatus: status)))
@@ -439,10 +466,17 @@ struct BundledRollTests {
         UpdateStatus(phase: .rolling, version: version, conditions: [UpdateCondition(type: "Resolved", status: status, reason: reason)])
     }
 
+    static func cancelled(version: String = "v0.1.9") -> UpdateStatus {
+        UpdateStatus(phase: .cancelled, version: version, finished: true)
+    }
+
+    static let rolling = UpdateStatus(phase: .rolling, version: "v0.1.9")
+
     @Test("the roll reads twice, asks once between, runs the pinned script, and confirms the pinned resolve")
     func pinnedRoll() async throws {
+        // The first update read is the one taken just before the root step.
         let reads = Reads([Self.report(), Self.report()], nodes: [Self.nodes(), Self.nodes()],
-                          updates: [nil, UpdateStatus(phase: .pending, version: "v0.1.9"), Self.resolved("ResolvedPinned")])
+                          updates: [nil, nil, UpdateStatus(phase: .pending, version: "v0.1.9"), Self.resolved("ResolvedPinned")])
         let runner = LANRunner()
         let asked = Questions()
         let result = await Self.driver(reads, runner: runner, asked: asked).apply(tag: "v0.1.9")
@@ -487,9 +521,10 @@ struct BundledRollTests {
         #expect(runner.scripts.isEmpty)
     }
 
-    @Test("an unpinned resolve is cancelled as the user first")
+    @Test("an unpinned resolve is cancelled as the user, and said cancelled only once the Update reads Cancelled")
     func unpinnedCancelledUnprivileged() async throws {
-        let reads = Reads([Self.report(), Self.report()], nodes: [Self.nodes(), Self.nodes()], updates: [Self.resolved("Resolved")])
+        let reads = Reads([Self.report(), Self.report()], nodes: [Self.nodes(), Self.nodes()],
+                          updates: [nil, Self.resolved("Resolved"), Self.rolling, Self.cancelled()])
         let runner = LANRunner()
         let result = await Self.driver(reads, runner: runner).apply(tag: "v0.1.9")
         #expect(result == .ran(.started, .succeeded, BundledRollDriver.unboundCancelled))
@@ -497,49 +532,98 @@ struct BundledRollTests {
         #expect(runner.scripts.count == 1)
     }
 
+    @Test("a user cancel that exits 0 while the Update still runs falls to the root cancel, and an unseen cancel is unconfirmed")
+    func userCancelNotSeen() async throws {
+        // The user's cancel exits 0, but the Update keeps rolling: the root
+        // cancel runs, and its effect is seen.
+        let stillRolling = Array(repeating: Optional(Self.rolling), count: BundledRollDriver.cancelConfirmReads)
+        let seenAfterRoot = Reads([Self.report(), Self.report()], nodes: [Self.nodes(), Self.nodes()],
+                                  updates: [nil, Self.resolved("Resolved")] + stillRolling + [Self.cancelled()])
+        let runner = LANRunner()
+        #expect(await Self.driver(seenAfterRoot, runner: runner).apply(tag: "v0.1.9")
+            == .ran(.started, .succeeded, BundledRollDriver.unboundCancelled))
+        #expect(seenAfterRoot.cancelled == 1)
+        try #require(runner.scripts.count == 2)
+        #expect(runner.scripts[1] == LifecycleScriptBuilder.render(.updateCancel, teamID: Self.team))
+
+        // Neither cancel is seen to take effect: never "cancelled".
+        let neverSeen = Reads([Self.report(), Self.report()], nodes: [Self.nodes(), Self.nodes()],
+                              updates: [nil, Self.resolved("Resolved")] + stillRolling + stillRolling)
+        let result = await Self.driver(neverSeen, runner: LANRunner()).apply(tag: "v0.1.9")
+        #expect(result == .ran(.started, .succeeded, BundledRollDriver.unboundCancelUnconfirmed))
+        #expect(BundledRollDriver.unboundCancelUnconfirmed.contains("`sudo k3sm update status`"))
+
+        // A Cancelled reading of another Update does not confirm this one.
+        let other = Reads([Self.report(), Self.report()], nodes: [Self.nodes(), Self.nodes()],
+                          updates: [nil, Self.resolved("Resolved"), Self.cancelled(version: "v0.2.0")])
+        #expect(await Self.driver(other, runner: LANRunner()).apply(tag: "v0.1.9")
+            == .ran(.started, .succeeded, BundledRollDriver.unboundCancelUnconfirmed))
+    }
+
     @Test("an unpinned resolve the user cannot cancel is cancelled as root")
     func unpinnedCancelledAsRoot() async throws {
-        let reads = Reads([Self.report(), Self.report()], nodes: [Self.nodes(), Self.nodes()], updates: [Self.resolved("Resolved")],
-                          cancelSucceeds: false)
+        let reads = Reads([Self.report(), Self.report()], nodes: [Self.nodes(), Self.nodes()],
+                          updates: [nil, Self.resolved("Resolved"), Self.cancelled()], cancelSucceeds: false)
         let runner = LANRunner()
         let result = await Self.driver(reads, runner: runner).apply(tag: "v0.1.9")
         #expect(result == .ran(.started, .succeeded, BundledRollDriver.unboundCancelled))
         try #require(runner.scripts.count == 2)
         #expect(runner.scripts[1] == LifecycleScriptBuilder.render(.updateCancel, teamID: Self.team))
 
-        let failing = LANRunner(PrivilegedRun(outcome: .succeeded))
-        let reads2 = Reads([Self.report(), Self.report()], nodes: [Self.nodes(), Self.nodes()], updates: [Self.resolved("Resolved")],
-                           cancelSucceeds: false)
-        let driver = Self.driver(reads2, runner: failing)
-        #expect(await driver.cancelUnbound() == BundledRollDriver.unboundCancelled)
-        let refusing = Self.driver(reads2, runner: LANRunner(PrivilegedRun(outcome: .cancelled)))
-        #expect(await refusing.cancelUnbound() == BundledRollDriver.unboundNotCancelled)
+        let refusing = Reads([], nodes: [], cancelSucceeds: false)
+        let identity = BundledRollDriver.UpdateIdentity(tag: "v0.1.9")
+        #expect(await Self.driver(refusing, runner: LANRunner(PrivilegedRun(outcome: .cancelled))).cancelUnbound(identity: identity, before: nil)
+            == BundledRollDriver.unboundNotCancelled)
     }
 
-    @Test("a pin mismatch, an Update for another release, an end before the resolve, and no resolve in time")
+    @Test("only readings of the created Update count: another name, another release, the replaced Update, or no reading")
+    func watchIdentity() async throws {
+        let base = [Self.report(), Self.report()]
+        // Another Update's pinned resolve never says bound.
+        let otherName = UpdateStatus(phase: .rolling, version: "v0.1.9",
+                                     conditions: [UpdateCondition(type: "Resolved", status: "True", reason: "ResolvedPinned")], name: "other")
+        let named = Reads(base, nodes: [Self.nodes(), Self.nodes()], updates: [nil, otherName])
+        #expect(await Self.driver(named, runner: LANRunner()).apply(tag: "v0.1.9")
+            == .ran(.started, .succeeded, BundledRollDriver.bindingUnconfirmed))
+        let otherRelease = Reads(base, nodes: [Self.nodes(), Self.nodes()], updates: [nil, Self.resolved("ResolvedPinned", version: "v0.2.0")])
+        #expect(await Self.driver(otherRelease, runner: LANRunner()).apply(tag: "v0.1.9")
+            == .ran(.started, .succeeded, BundledRollDriver.bindingUnconfirmed))
+        // ... and another Update's unpinned resolve cancels nothing.
+        let unpinnedOther = Reads(base, nodes: [Self.nodes(), Self.nodes()], updates: [nil, Self.resolved("Resolved", version: "v0.2.0")])
+        _ = await Self.driver(unpinnedOther, runner: LANRunner()).apply(tag: "v0.1.9")
+        #expect(unpinnedOther.cancelled == 0)
+        // The finished Update read before the run, which the apply replaced,
+        // is not the created one; the created one's reading still counts.
+        var old = Self.resolved("ResolvedPinned")
+        old = UpdateStatus(phase: .succeeded, version: "v0.1.9", conditions: old.conditions, finished: true)
+        let replaced = Reads(base, nodes: [Self.nodes(), Self.nodes()], updates: [old, old, Self.resolved("ResolvedPinned")])
+        #expect(await Self.driver(replaced, runner: LANRunner()).apply(tag: "v0.1.9")
+            == .ran(.started, .succeeded, BundledRollDriver.bound))
+        let onlyOld = Reads(base, nodes: [Self.nodes(), Self.nodes()], updates: [old, old])
+        #expect(await Self.driver(onlyOld, runner: LANRunner()).apply(tag: "v0.1.9")
+            == .ran(.started, .succeeded, BundledRollDriver.bindingUnconfirmed))
+        // No reading at all: unconfirmed, never bound.
+        let silent = Reads(base, nodes: [Self.nodes(), Self.nodes()])
+        #expect(await Self.driver(silent, runner: LANRunner()).apply(tag: "v0.1.9")
+            == .ran(.started, .succeeded, BundledRollDriver.bindingUnconfirmed))
+        #expect(silent.cancelled == 0)
+    }
+
+    @Test("a pin mismatch and an end before the resolve")
     func watchOutcomes() async throws {
         let base = [Self.report(), Self.report()]
-        let mismatch = Reads(base, nodes: [Self.nodes(), Self.nodes()], updates: [Self.resolved("ReleasePinMismatch", status: "False")])
+        let mismatch = Reads(base, nodes: [Self.nodes(), Self.nodes()], updates: [nil, Self.resolved("ReleasePinMismatch", status: "False")])
         #expect(await Self.driver(mismatch, runner: LANRunner()).apply(tag: "v0.1.9") == .ran(.started, .succeeded, BundledRollDriver.pinMismatch))
         #expect(mismatch.cancelled == 0)
 
-        let other = Reads(base, nodes: [Self.nodes(), Self.nodes()],
-                          updates: [Self.resolved("Resolved", version: "v0.2.0"), Self.resolved("ResolvedPinned")])
-        #expect(await Self.driver(other, runner: LANRunner()).apply(tag: "v0.1.9") == .ran(.started, .succeeded, BundledRollDriver.bound))
-        #expect(other.cancelled == 0)
-
         let ended = Reads(base, nodes: [Self.nodes(), Self.nodes()],
-                          updates: [UpdateStatus(phase: .failed, version: "v0.1.9", finished: true)])
+                          updates: [nil, UpdateStatus(phase: .failed, version: "v0.1.9", finished: true)])
         #expect(await Self.driver(ended, runner: LANRunner()).apply(tag: "v0.1.9") == .ran(.started, .succeeded, BundledRollDriver.endedUnresolved))
-
-        let silent = Reads(base, nodes: [Self.nodes(), Self.nodes()])
-        #expect(await Self.driver(silent, runner: LANRunner()).apply(tag: "v0.1.9") == .ran(.started, .succeeded, BundledRollDriver.bindingUnconfirmed))
-        #expect(silent.cancelled == 0)
     }
 
     @Test("a refused or failed run is not watched")
     func noWatchWithoutStart() async throws {
-        let reads = Reads([Self.report(), Self.report()], nodes: [Self.nodes(), Self.nodes()], updates: [Self.resolved("Resolved")])
+        let reads = Reads([Self.report(), Self.report()], nodes: [Self.nodes(), Self.nodes()], updates: [nil, Self.resolved("Resolved")])
         let result = await Self.driver(reads, runner: LANRunner(PrivilegedRun(outcome: .failed(exitStatus: 103)))).apply(tag: "v0.1.9")
         #expect(result == .ran(.notStarted, .failed(exitStatus: 103), BundledRollOutcome.text(exitStatus: 103)!))
         #expect(reads.cancelled == 0)
@@ -577,5 +661,16 @@ struct BundledRollTests {
                                                                                                  version: "v1.36.2+k3sm.0.2.0")]),
                                            nodes: nodes), "Update the server first")
         refused(UpdatePrecondition.bundled(tag: "v0.1.9", live: Self.report(release: "v0.1.8-dirty+x"), nodes: nodes), "reports no release")
+        // Not an exact release tag: no pin, on either side.
+        for text in ["v0.1.8-beta.1", "v0.1.8-3-gabcdef1", "dev"] {
+            guard case .refused = UpdatePrecondition.bundled(tag: "v0.1.9", live: Self.report(release: text), nodes: nodes) else {
+                Issue.record("\(text) proceeded")
+                continue
+            }
+        }
+        for part in ["0.1.8.dirty", "0.1.8-3-gabcdef1", "garbage"] {
+            refused(UpdatePrecondition.bundled(tag: "v0.1.9", live: Self.report(kubelet: "v1.36.2+k3sm.\(part)"), nodes: nodes),
+                    "does not check a release pin")
+        }
     }
 }

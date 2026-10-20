@@ -282,10 +282,15 @@ public struct UpdatePlanFacts: Equatable, Sendable {
     /// The listed nodes that are not Ready (no Ready condition, or not
     /// True), by name; nil when the node list was not read.
     public var notReady: [String]?
-    /// The release the server's own Node runs (its kubelet version's
-    /// `+k3sm.` part), which is the release of the update controller; nil
-    /// when the report does not say.
-    public var serverRunning: SemanticVersion?
+    /// The release the server's own Node runs (`v` and its kubelet
+    /// version's `+k3sm.` part, `ClusterCatchUp.serverRunning`), which is the
+    /// release of the update controller, as text; nil when the report does
+    /// not say.
+    public var serverRunning: String?
+    /// The release text the server's installed k3sm reports
+    /// (`StatusRelease.tag`: nil for a modified tree's build or a
+    /// pseudo-version); the release pin is judged on this exact text.
+    public var installedTag: String?
     /// On a server, the roll to `payloadTag` as the controller would sort
     /// the nodes (`ClusterCatchUp.decide(report:target:)`); nil when there is
     /// no payload tag, on a worker, or when the report lists no nodes.
@@ -297,7 +302,7 @@ public struct UpdatePlanFacts: Equatable, Sendable {
                 refusal: String? = nil, managedRefusal: String? = nil,
                 catchUp: ClusterCatchUp? = nil, listedBehind: [String] = [],
                 payloadTag: String? = nil, payloadRecord: Bool = false, notReady: [String]? = nil,
-                serverRunning: SemanticVersion? = nil, bundledRoll: ClusterCatchUp? = nil) {
+                serverRunning: String? = nil, installedTag: String? = nil, bundledRoll: ClusterCatchUp? = nil) {
         self.role = role
         self.installed = installed
         self.payload = payload
@@ -314,6 +319,7 @@ public struct UpdatePlanFacts: Equatable, Sendable {
         self.payloadRecord = payloadRecord
         self.notReady = notReady
         self.serverRunning = serverRunning
+        self.installedTag = installedTag
         self.bundledRoll = bundledRoll
     }
 
@@ -339,6 +345,7 @@ public struct UpdatePlanFacts: Equatable, Sendable {
                   payloadTag: payloadTag, payloadRecord: payloadRecord,
                   notReady: nodes.map { $0.filter { $0.ready != true }.map(\.name).sorted() },
                   serverRunning: ClusterCatchUp.serverRunning(report: report),
+                  installedTag: report?.release?.tag,
                   bundledRoll: payloadTag.flatMap { ClusterCatchUp.decide(report: report, target: $0) })
     }
 }
@@ -508,12 +515,14 @@ public enum UpdatePlan: Equatable, Sendable {
         guard let tag = facts.payloadTag, BundledRollSupport.isReleaseTag(tag), let set = SemanticVersion(tag),
               let installed = facts.installed, installed < set
         else { return .none }
-        guard BundledRollSupport.hasPin(installed) else { return .fallback(.bundledServerCLITooOld(installed: installed, tag: tag)) }
+        guard BundledRollSupport.hasPin(tag: facts.installedTag) else {
+            return .fallback(.bundledServerCLITooOld(installed: installed, tag: tag))
+        }
         guard BundledRollSupport.skewAllowed(installed: installed, set: set) else {
             return .fallback(.bundledSkewTooWide(installed: installed, set: set))
         }
         guard let running = facts.serverRunning else { return .offer(tag: tag, block: .serverNodeUnknown) }
-        guard BundledRollSupport.hasPin(running) else { return .fallback(.bundledControllerTooOld(tag: tag)) }
+        guard BundledRollSupport.hasPin(tag: running) else { return .fallback(.bundledControllerTooOld(tag: tag)) }
         guard facts.payloadRecord else { return .offer(tag: tag, block: .bundledNoPayloadRecord) }
         guard let notReady = facts.notReady else { return .offer(tag: tag, block: .bundledNodesUnknown) }
         guard notReady.isEmpty else { return .offer(tag: tag, block: .bundledNodeNotReady(notReady)) }
@@ -596,9 +605,15 @@ public enum BundledRollSupport {
     /// has it.
     public static let lastReleaseWithoutPin = SemanticVersion("0.1.7")!
 
-    /// Whether `version` has the release pin.
-    public static func hasPin(_ version: SemanticVersion) -> Bool {
-        version > lastReleaseWithoutPin
+    /// Whether the k3sm that reports `tag` has the release pin: only an
+    /// exact release tag in the strict grammar (`isReleaseTag`) above
+    /// `lastReleaseWithoutPin`. Anything else counts as no pin: nil, a
+    /// pre-release outside `-rc.N`, a git-describe, modified or developer
+    /// build's version, or text that does not parse. Such a build may lack
+    /// the pin whatever number it carries, so it is never trusted to have it.
+    public static func hasPin(tag: String?) -> Bool {
+        guard let tag, isReleaseTag(tag), let version = SemanticVersion(tag) else { return false }
+        return version > lastReleaseWithoutPin
     }
 
     /// Whether the cluster's release `installed` may roll to `set` in one

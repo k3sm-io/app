@@ -163,13 +163,50 @@ struct BundledOfferTests {
     @Test("the pin and skew rules")
     func support() {
         #expect(BundledRollSupport.lastReleaseWithoutPin == Self.v017)
-        #expect(!BundledRollSupport.hasPin(Self.v017))
-        #expect(BundledRollSupport.hasPin(Self.v018))
-        #expect(BundledRollSupport.hasPin(SemanticVersion("0.1.8-rc.1")!))
         #expect(BundledRollSupport.skewAllowed(installed: Self.v018, set: Self.v019))
         #expect(BundledRollSupport.skewAllowed(installed: Self.v018, set: SemanticVersion("0.2.5")!))
         #expect(!BundledRollSupport.skewAllowed(installed: Self.v018, set: SemanticVersion("0.3.0")!))
         #expect(!BundledRollSupport.skewAllowed(installed: Self.v018, set: SemanticVersion("1.0.0")!))
+    }
+
+    @Test("only an exact release tag above 0.1.7 has the pin", arguments: [
+        ("v0.1.8", true), ("v0.1.8-rc.1", true), ("v0.2.0", true), ("v1.0.0", true),
+        ("v0.1.7", false), ("v0.1.7-rc.3", false), ("v0.0.1", false),
+        // A pre-release outside the strict grammar.
+        ("v0.1.8-beta.1", false), ("v0.1.8-rc.1.2", false), ("v0.1.8-rc", false),
+        // git describe, a modified tree, a developer build.
+        ("v0.1.8-3-gabcdef1", false), ("v0.1.8-3-gabcdef1-dirty", false), ("v0.1.8+dirty", false), ("v0.1.8.dirty", false),
+        ("v0.0.0-0.20261016221530-2eda966a1b2c", false), ("dev", false),
+        // Unparseable, or not a tag at all.
+        ("0.1.8", false), ("v0.1", false), ("garbage", false), ("", false),
+    ])
+    func pinRequiresAnExactTag(_ tag: String, _ pinned: Bool) {
+        #expect(BundledRollSupport.hasPin(tag: tag) == pinned)
+    }
+
+    static let notATag = ["v0.1.8-beta.1", "v0.1.8-3-gabcdef1", "v0.1.8-3-gabcdef1-dirty", "v0.0.0-0.20261016221530-2eda966a1b2c", "dev", "garbage"]
+
+    @Test("an installed CLI whose version is not an exact release tag counts as no pin", arguments: notATag)
+    func installedNotATag(_ text: String) {
+        #expect(!BundledRollSupport.hasPin(tag: nil))
+        let plan = UpdatePlan.decide(Self.facts(Self.report(release: text)))
+        #expect(plan == .blocked(.bundledServerCLITooOld(installed: Self.v018, tag: "v0.1.9")), "\(plan)")
+        // A modified tree's build of a release tag too.
+        let dirty = StatusReport(schemaVersion: 1, verdict: .running, role: "server", summary: "s", rows: Self.report().rows,
+                                 workers: [Self.worker()], release: StatusRelease(text: "v0.1.8", dirty: true))
+        #expect(UpdatePlan.decide(Self.facts(dirty)) == .blocked(.bundledServerCLITooOld(installed: Self.v018, tag: "v0.1.9")))
+    }
+
+    @Test("a running controller whose release is not an exact release tag counts as no pin", arguments: [
+        "0.1.8.dirty", "0.1.8-3-gabcdef1", "0.1.8-beta.1", "0.0.0-0.20261016221530-2eda966a1b2c", "dev", "garbage",
+    ])
+    func controllerNotATag(_ part: String) {
+        let facts = Self.facts(Self.report(kubelet: "v1.36.2+k3sm.\(part)"))
+        #expect(UpdatePlan.bundledStep(facts) == .fallback(.bundledControllerTooOld(tag: "v0.1.9")))
+        // No bundled offer: the plan goes on as before (a pre-release of the
+        // installed release reads as behind it, so today's catch-up moves it).
+        let plan = UpdatePlan.decide(facts)
+        #expect(plan.path != .bundled(tag: "v0.1.9"), "\(plan)")
     }
 
     @Test("the strict release tag grammar", arguments: [
@@ -187,7 +224,7 @@ struct BundledOfferTests {
         let facts = Self.facts(nodes: Self.nodes(notReady: ["node-b"]))
         #expect(facts.payloadTag == "v0.1.9" && facts.payloadRecord)
         #expect(facts.notReady == ["node-b"])
-        #expect(facts.serverRunning == Self.v018)
+        #expect(facts.serverRunning == "v0.1.8" && facts.installedTag == "v0.1.8")
         #expect(facts.bundledRoll?.tag == "v0.1.9" && facts.bundledRoll?.moves == ["node-b", "my-mac"])
         #expect(Self.facts(nodes: nil).notReady == nil)
         #expect(Self.facts(payloadTag: nil).bundledRoll == nil)
