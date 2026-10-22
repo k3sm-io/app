@@ -124,7 +124,9 @@ SWAP_TESTS+=(rootSwapCommitsAndKeepsARootOwnedRecord rootSwapRefusesATargetRepla
 	rootSwapWorkFolderMustBeRootsOwn rootRecordFloorOnlyRises rootSwapIgnoresTheRequestFile rootSwapLockIsHeldAcrossTheHandOff
 	rootSwapAbandonsWhenTheAppNeverQuits consoleSessionRunnerDropsToTheUser detachedHalfGetsOnlyTheLock
 	rootModeRunsOnlyFromItsOwnCopy reconcileClosesARootJournal beginAdministratorUpdateWritesARootRequest
-	detachedHalfRelaunchesTheAppOnEveryStop)
+	detachedHalfRelaunchesTheAppOnEveryStop rootSwapRefusesAnotherNewerBundle rootSwapRefusesAnInstalledReleaseBelowTheFloor
+	rootSwapReportsARecordItCouldNotWrite rootSwapKeepsTheOldBundleAfterAKillBetweenSwapAndMove rootRenameRefusedBySystemIsItsOwnStatus
+	rootSwapLeavesAVerifiedUpdateWhenTheUserSideCannotRun detachedHalfGetsTheLockEvenOnDescriptorThree)
 swap_engine_stage() {
 	echo "==> swap engine (k3sm-app-update, K3smSwapTests, the in-place write guard)"
 	swift build ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} --product k3sm-app-update

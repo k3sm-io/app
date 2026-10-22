@@ -16,6 +16,7 @@ limitations under the License.
 
 import Darwin
 import Foundation
+import K3smStatus
 
 /// HelperMode is the one argument the swap helper takes.
 public enum HelperMode: String, Sendable, CaseIterable {
@@ -237,7 +238,7 @@ public struct SwapClient: Sendable {
     }
 
     /// AdministratorTicket is what the root step (`AppSwapScriptBuilder`)
-    /// carries: three integers and nothing else.
+    /// carries: three integers and the verified release tag, nothing else.
     public struct AdministratorTicket: Equatable, Sendable {
         /// This account's uid, which root requires to be the console user.
         public let uid: UInt32
@@ -245,6 +246,9 @@ public struct SwapClient: Sendable {
         public let appPid: Int32
         /// The app's start time in microseconds, which binds the pid.
         public let appStart: UInt64
+        /// The release tag the app verified; root refuses a staged bundle
+        /// carrying any other.
+        public let expectedTag: String
     }
 
     /// Prepares the standard-user root path for the bundle staged at
@@ -261,7 +265,7 @@ public struct SwapClient: Sendable {
             throw .refused(.unsupportedVolume)
         }
         var st = stat()
-        guard SwapTag.isReleaseTag(expectedTag), lstat(paths.userStagedForRoot, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR,
+        guard BundledRollSupport.isReleaseTag(expectedTag), lstat(paths.userStagedForRoot, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR,
               let app = ProcessIdentity.current(), let start = app.start.packedMicroseconds
         else { throw .request }
         var journal = SwapJournal(request: SwapRequest(mode: .rootUpdate, target: target, stagedName: "", expectedTag: expectedTag,
@@ -276,7 +280,7 @@ public struct SwapClient: Sendable {
         } catch {
             throw .helper(error)
         }
-        return AdministratorTicket(uid: UInt32(getuid()), appPid: app.pid, appStart: start)
+        return AdministratorTicket(uid: UInt32(getuid()), appPid: app.pid, appStart: start, expectedTag: expectedTag)
     }
 
     private func begin(_ request: SwapRequest, mode: HelperMode) throws(StartError) {

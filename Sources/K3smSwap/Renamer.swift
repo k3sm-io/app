@@ -98,7 +98,7 @@ enum DittoCopier {
     /// How long a copy may take.
     static let bound: Duration = .seconds(600)
 
-    static func copy(from source: String, to destination: String) -> Bool {
+    static func copy(from source: String, to destination: String, bound: Duration = DittoCopier.bound) -> Bool {
         var st = stat()
         guard lstat(destination, &st) != 0, errno == ENOENT else { return false }
         let process = Process()

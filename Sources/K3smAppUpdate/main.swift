@@ -30,7 +30,8 @@ import Security
 // the real adapters only; nothing selects another requirement or a seam.
 //
 // Its root mode (--root-swap or --root-swap-detached, then the console
-// user's uid, the app's pid and its start time: three integers, no path)
+// user's uid, the app's pid and its start time, three integers, and the
+// release tag the app verified; no path)
 // runs only as root, only from a root-owned 0500 copy named helper.<random>
 // directly in the root work directory, which the root step made from the
 // installed bundle and verified there, and only when its own code satisfies
@@ -95,6 +96,7 @@ func runRoot(_ request: RootSwapArguments) -> Never {
         owner: .root,
         account: request.uid,
         app: request.app,
+        expectedTag: request.expectedTag,
         verifier: StaticCodeVerifier(requirement: appRequirement, runningTeam: team),
         watcher: KqueueProcessWatcher(),
         renamer: SystemRenamer(),
@@ -106,13 +108,12 @@ func runRoot(_ request: RootSwapArguments) -> Never {
         case .failure(let refusal):
             refuseAndRemove("the update was refused", refusal.exit)
         case .success(let lock):
-            let detached = RootSwapArguments(mode: .detached, uid: request.uid, app: request.app)
-            guard let words = detached.words, RootSwapSpawner.spawnDetached(executable: own, arguments: words, lockFD: lock.fd) else {
+            guard let words = request.with(mode: .detached)?.words, RootSwapSpawner.spawnDetached(executable: own, arguments: words, lockFD: lock.fd) else {
                 engine.discardStage()
                 refuseAndRemove("the detached half could not start", .startFailed)
             }
             lock.handOff()
-            exit(AppSwapExit.committed.rawValue)
+            exit(AppSwapExit.handedOff.rawValue)
         }
     case .detached:
         guard let lock = engine.adoptLock(fd: RootSwapSpawner.lockDescriptor) else {

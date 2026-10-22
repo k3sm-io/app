@@ -212,13 +212,16 @@ public enum PrivilegedAvailability: Equatable, Sendable {
     /// account: a standard user is asked for an administrator's name and
     /// password by the prompt itself. It enables only the app swap; every
     /// other privileged action still goes through `evaluate`.
-    public static func evaluateAppSwap(teamID: TeamID?, signatureValid: Bool) -> PrivilegedAvailability {
-        guard teamID != nil else {
+    ///
+    /// Its enabled result is an `AppSwapAuthorization`, a distinct type only
+    /// `AppSwapScriptBuilder` accepts, never `PrivilegedAvailability.enabled`.
+    public static func evaluateAppSwap(teamID: TeamID?, signatureValid: Bool) -> AppSwapAvailability {
+        guard let teamID else {
             return .disabled(reason: "This build of k3sm is not Developer ID signed, so it cannot update itself.")
         }
         guard signatureValid else {
             return .disabled(reason: "This copy of k3sm failed its signature check. Download it again.")
         }
-        return .enabled
+        return .enabled(AppSwapAuthorization(teamID: teamID))
     }
 }

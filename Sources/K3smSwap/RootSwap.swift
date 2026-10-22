@@ -28,37 +28,50 @@ public enum RootSwapMode: String, Sendable, CaseIterable {
     case detached = "--root-swap-detached"
 }
 
-/// RootSwapArguments is the root mode's whole argument list: the mode and
-/// three integers, the console user's uid, the app's pid and its start time
-/// in microseconds. No path, no name, no tag. Each integer is decimal digits
-/// only, with no sign and no leading zero; uid 0 and pid 0 are refused.
+/// RootSwapArguments is the root mode's whole argument list: the mode,
+/// three integers (the console user's uid, the app's pid and its start time
+/// in microseconds) and the release tag the app verified. No path, no name.
+/// Each integer is decimal digits only, with no sign and no leading zero;
+/// uid 0 and pid 0 are refused. The tag must be a release tag in the strict
+/// grammar (`BundledRollSupport.isReleaseTag`), the same rule the root
+/// script was rendered under.
 public struct RootSwapArguments: Equatable, Sendable {
     public let mode: RootSwapMode
     public let uid: uid_t
     public let app: ProcessIdentity
+    /// The `K3smPayloadTag` the staged bundle must carry, exactly.
+    public let expectedTag: String
 
-    public init(mode: RootSwapMode, uid: uid_t, app: ProcessIdentity) {
+    public init?(mode: RootSwapMode, uid: uid_t, app: ProcessIdentity, expectedTag: String) {
+        guard uid != 0, app.pid > 0, BundledRollSupport.isReleaseTag(expectedTag) else { return nil }
         self.mode = mode
         self.uid = uid
         self.app = app
+        self.expectedTag = expectedTag
     }
 
     /// Parses the arguments after the executable; nil unless they are
-    /// exactly a root mode and its three integers.
+    /// exactly a root mode, its three integers and a release tag.
     public init?(arguments: [String]) {
-        guard arguments.count == 4, let mode = RootSwapMode(rawValue: arguments[0]),
+        guard arguments.count == 5, let mode = RootSwapMode(rawValue: arguments[0]),
               let uid = Self.integer(arguments[1], max: UInt64(UInt32.max - 1)), uid > 0,
               let pid = Self.integer(arguments[2], max: UInt64(Int32.max)), pid > 0,
               let start = Self.integer(arguments[3], max: UInt64.max)
         else { return nil }
-        self.init(mode: mode, uid: uid_t(uid), app: ProcessIdentity(pid: Int32(pid), start: ProcessStart(packedMicroseconds: start)))
+        self.init(mode: mode, uid: uid_t(uid), app: ProcessIdentity(pid: Int32(pid), start: ProcessStart(packedMicroseconds: start)),
+                  expectedTag: arguments[4])
     }
 
     /// The words after the executable, as `init?(arguments:)` reads them;
     /// nil when the start time does not pack.
     public var words: [String]? {
         guard let start = app.start.packedMicroseconds else { return nil }
-        return [mode.rawValue, String(uid), String(app.pid), String(start)]
+        return [mode.rawValue, String(uid), String(app.pid), String(start), expectedTag]
+    }
+
+    /// The same arguments for `mode`.
+    public func with(mode: RootSwapMode) -> RootSwapArguments? {
+        RootSwapArguments(mode: mode, uid: uid, app: app, expectedTag: expectedTag)
     }
 
     static func integer(_ text: String, max: UInt64) -> UInt64? {
@@ -177,17 +190,21 @@ public struct ConsoleSessionRunner: UserSideRunner {
     }
 }
 
-/// RootSwapHooks is the tests' race seam: `beforeRename` runs right before
-/// the target's identity is checked the last time. The helper never sets
-/// it.
+/// RootSwapHooks is the tests' seam: `beforeRename` runs right before the
+/// target's identity is checked the last time (a race), and `killAfterSwap`,
+/// when it returns true, stops the detached half right after the swap with
+/// no cleanup at all, as a kill or a power loss would. The helper never sets
+/// either.
 public struct RootSwapHooks: Sendable {
     public let beforeRename: (@Sendable () -> Void)?
+    public let killAfterSwap: (@Sendable () -> Bool)?
 
-    public init(beforeRename: (@Sendable () -> Void)?) {
+    public init(beforeRename: (@Sendable () -> Void)? = nil, killAfterSwap: (@Sendable () -> Bool)? = nil) {
         self.beforeRename = beforeRename
+        self.killAfterSwap = killAfterSwap
     }
 
-    public static let none = RootSwapHooks(beforeRename: nil)
+    public static let none = RootSwapHooks()
 }
 
 /// RootSwapLock is the held `flock` on the work directory's `lock` file. The
@@ -237,7 +254,9 @@ public struct RootSwapRefusal: Error, Equatable, Sendable {
 /// `prepare` (the root step waits for it, so a refusal reaches the app):
 ///
 /// 1. the work directory owned by root, mode 0700, no symlink; its lock,
-///    without waiting; stale stages and helper copies swept;
+///    without waiting; stale helper copies swept; a stale stage swept, but a
+///    bundle in it older than the installed one (the old bundle a killed
+///    run left after its swap) is kept as the previous copy, never deleted;
 /// 2. the work directory on the target's volume, which can swap two names
 ///    in one step;
 /// 3. every directory from the home folder down to the staged bundle owned
@@ -246,10 +265,11 @@ public struct RootSwapRefusal: Error, Equatable, Sendable {
 ///    symlink, a special file, a setuid or setgid file or a group- or
 ///    other-writable entry in the copy, and chown it all to root;
 /// 5. the stage on the target's file system (`statfs` `f_fsid`);
-/// 6. verify the installed bundle (its tag, the floor, read through the
-///    Applications directory's descriptor) and the copy (the requirement,
-///    the bundle id, the team stamp, a `K3smPayloadTag` strictly above the
-///    installed one);
+/// 6. verify the installed bundle (its tag read through the Applications
+///    directory's descriptor, not below the root-owned record's floor) and
+///    the copy (the requirement, the bundle id, the team stamp, a
+///    `K3smPayloadTag` exactly the tag the app verified and strictly above
+///    the installed one);
 /// 7. give the copy's top folder the target's owner and group and its mode
 ///    without group or other write or special bits.
 ///
@@ -274,6 +294,8 @@ public struct RootSwapEngine: Sendable {
     public let owner: RootOwnership
     public let account: uid_t
     public let app: ProcessIdentity
+    /// The tag the app verified; the staged bundle must carry exactly it.
+    public let expectedTag: String
     public let verifier: any BundleVerifier
     public let watcher: any ProcessWatcher
     public let renamer: any Renamer
@@ -281,13 +303,14 @@ public struct RootSwapEngine: Sendable {
     public let timeouts: SwapTimeouts
     let hooks: RootSwapHooks
 
-    public init(layout: RootSwapLayout, owner: RootOwnership, account: uid_t, app: ProcessIdentity, verifier: any BundleVerifier,
-                watcher: any ProcessWatcher, renamer: any Renamer, userSide: any UserSideRunner, timeouts: SwapTimeouts,
-                hooks: RootSwapHooks = .none) {
+    public init(layout: RootSwapLayout, owner: RootOwnership, account: uid_t, app: ProcessIdentity, expectedTag: String,
+                verifier: any BundleVerifier, watcher: any ProcessWatcher, renamer: any Renamer, userSide: any UserSideRunner,
+                timeouts: SwapTimeouts, hooks: RootSwapHooks = .none) {
         self.layout = layout
         self.owner = owner
         self.account = account
         self.app = app
+        self.expectedTag = expectedTag
         self.verifier = verifier
         self.watcher = watcher
         self.renamer = renamer
@@ -306,10 +329,13 @@ public struct RootSwapEngine: Sendable {
         guard let workFD = openWork() else { return refuse(.refusedPath, "the work folder is not root's own") }
         defer { close(workFD) }
         guard let lock = takeLock(workFD) else { return refuse(.busy, "another root swap holds the lock") }
-        sweep(workFD, keepHelper: keepHelper)
-        let result = prepareLocked(workFD)
+        sweepHelpers(workFD, keepHelper: keepHelper)
+        var madeStage = false
+        let result = prepareLocked(workFD, madeStage: &madeStage)
         if case .failure = result {
-            FileOps.removeTree(at: workFD, AppSwapPaths.stageName)
+            // Only a stage this run made, which holds only its own copy, is
+            // removed; a stale one it could not clear is left as it is.
+            if madeStage { FileOps.removeTree(at: workFD, AppSwapPaths.stageName) }
             lock.release()
             return result.map { _ in lock }
         }
@@ -317,19 +343,23 @@ public struct RootSwapEngine: Sendable {
         return .success(lock)
     }
 
-    private func prepareLocked(_ workFD: Int32) -> Result<Void, RootSwapRefusal> {
+    private func prepareLocked(_ workFD: Int32, madeStage: inout Bool) -> Result<Void, RootSwapRefusal> {
         guard let appsFD = openApplications() else { return refuse(.refusedPath, "the Applications folder or the target is unsafe") }
         defer { close(appsFD) }
+        guard sweepStage(workFD, appsFD: appsFD) else { return refuse(.refusedPath, "a stale stage could not be cleared") }
         guard sameVolumeAndSwappable() else { return refuse(.unsupportedVolume, "the work folder is not on the target's volume") }
         guard stagedSourceIsSafe() else { return refuse(.stagedRefused, "the staged bundle's path is unsafe") }
-        guard mkdirat(workFD, AppSwapPaths.stageName, 0o700) == 0, let stageFD = FileOps.openDirectory(at: workFD, AppSwapPaths.stageName)
-        else { return refuse(.refusedPath, "the stage could not be made") }
+        guard mkdirat(workFD, AppSwapPaths.stageName, 0o700) == 0 else { return refuse(.refusedPath, "the stage could not be made") }
+        madeStage = true
+        guard let stageFD = FileOps.openDirectory(at: workFD, AppSwapPaths.stageName) else {
+            return refuse(.refusedPath, "the stage could not be made")
+        }
         defer { close(stageFD) }
         guard fchown(stageFD, owner.uid, owner.gid) == 0, fchmod(stageFD, 0o700) == 0 else {
             return refuse(.refusedPath, "the stage could not be made root's")
         }
         RootSwapLog.logger.notice("root-swap: copying the staged bundle")
-        guard DittoCopier.copy(from: layout.user.userStagedForRoot, to: layout.stagedBundle),
+        guard DittoCopier.copy(from: layout.user.userStagedForRoot, to: layout.stagedBundle, bound: Self.copyBound),
               FileOps.isDirectory(at: stageFD, SwapPaths.bundleName), RootTree.isSafe(at: stageFD, SwapPaths.bundleName),
               RootTree.chown(at: stageFD, SwapPaths.bundleName, owner)
         else { return refuse(.stagedRefused, "the staged bundle's copy is missing or unsafe") }
@@ -353,11 +383,29 @@ public struct RootSwapEngine: Sendable {
         return RootSwapLock(fd: fd)
     }
 
-    /// Removes the stage, for a hand-off that did not start.
+    /// How long root's copy of the staged bundle may take. The root step
+    /// holds the administrator prompt's script, and the app, until the copy
+    /// ends, and the bundle is a local copy of a few hundred megabytes that
+    /// takes seconds; a source that stalls (a network home folder, a dying
+    /// disk) is stopped well before that, rather than at the user path's
+    /// 600 s, which waits in the background.
+    public static let copyBound: Duration = .seconds(120)
+
+    /// Removes the stage, for a hand-off that did not start. The lock is
+    /// held and the stage holds only the copy this run made.
     public func discardStage() {
         guard let workFD = openWork() else { return }
         FileOps.removeTree(at: workFD, AppSwapPaths.stageName)
         close(workFD)
+    }
+
+    /// Clears the stage at the end of a detached run, keeping an older bundle
+    /// in it (see `sweepStage`): a swap back that failed leaves the old
+    /// bundle there. Without the Applications folder it keeps the stage.
+    private func clearStage(_ workFD: Int32) {
+        guard let appsFD = openApplications() else { return }
+        _ = sweepStage(workFD, appsFD: appsFD)
+        close(appsFD)
     }
 
     // MARK: the detached half
@@ -377,8 +425,11 @@ public struct RootSwapEngine: Sendable {
             FileOps.removeTree(at: workFD, AppSwapPaths.stageName)
             return finish(.abandoned, relaunch: false)
         }
-        let exit = swapLocked(workFD)
-        FileOps.removeTree(at: workFD, AppSwapPaths.stageName)
+        guard let exit = swapLocked(workFD) else {
+            // Killed by the test seam: nothing after the swap ran.
+            return .abandoned
+        }
+        clearStage(workFD)
         return exit
     }
 
@@ -390,8 +441,9 @@ public struct RootSwapEngine: Sendable {
         return .busy
     }
 
+    /// One swap under the lock; nil only when the test seam killed it.
     // swiftlint:disable:next function_body_length cyclomatic_complexity
-    private func swapLocked(_ workFD: Int32) -> AppSwapExit {
+    private func swapLocked(_ workFD: Int32) -> AppSwapExit? {
         guard let appsFD = openApplications() else { return finish(.refusedPath, relaunch: true) }
         defer { close(appsFD) }
         guard let stageFD = FileOps.openDirectory(at: workFD, AppSwapPaths.stageName), RootTree.isPrivate(stageFD, owner) else {
@@ -412,11 +464,12 @@ public struct RootSwapEngine: Sendable {
         }
         let rc = renamer.swap(fromDir: stageFD, from: bundle, toDir: appsFD, to: bundle)
         guard rc == 0 else {
-            RootSwapLog.logger.error("root-swap: the rename failed; nothing replaced")
-            return finish(rc == EXDEV || rc == ENOTSUP ? .unsupportedVolume : .abandoned, relaunch: true)
+            RootSwapLog.logger.error("root-swap: the rename failed with errno \(rc, privacy: .public); nothing replaced")
+            return finish(Self.renameRefusal(errno: rc), relaunch: true)
         }
         FileOps.fullSync(appsFD)
         RootSwapLog.logger.notice("root-swap: swapped")
+        if hooks.killAfterSwap?() == true { return nil }
 
         // The swap must have exchanged exactly these two; otherwise undo it.
         guard FileIdentity.of(dirFD: appsFD, name: bundle) == checked.incoming.identity,
@@ -446,18 +499,56 @@ public struct RootSwapEngine: Sendable {
         else { return rollBack(appsFD: appsFD, workFD: workFD, kept: kept) }
 
         RootSwapLog.logger.notice("root-swap: relaunching as the user")
-        guard userSide.run(.relaunch) == 0 else {
-            RootSwapLog.logger.error("root-swap: the new app did not answer")
+        var status = userSide.run(.relaunch)
+        if status == nil {
+            // launchctl or sudo did not run, or the run timed out: no answer
+            // either way about the new app, so it is tried once more.
+            RootSwapLog.logger.error("root-swap: the user-side launch did not run; trying once more")
+            status = userSide.run(.relaunch)
+        }
+        guard let status else {
+            // Still no run: the new bundle is in place and verified, and
+            // rolling it back would rest on a failure that says nothing about
+            // it. It is kept, with its record, and the app's next launch closes
+            // the journal.
+            RootSwapLog.logger.error("root-swap: the user-side launch did not run; the verified update is left in place")
+            return keep(workFD: workFD, previousFD: previousFD, previousName: previousName, checked: checked, confirmed: false)
+        }
+        guard status == 0 else {
+            RootSwapLog.logger.error("root-swap: the new app did not answer (status \(status, privacy: .public))")
             return rollBack(appsFD: appsFD, workFD: workFD, kept: kept)
         }
+        return keep(workFD: workFD, previousFD: previousFD, previousName: previousName, checked: checked, confirmed: true)
+    }
+
+    /// Ends a swap that stands: the root-owned previous record (the floor only
+    /// rises), then the older previous copies pruned. A record that cannot be
+    /// written is reported in the status, not only logged.
+    private func keep(workFD: Int32, previousFD: Int32, previousName: String, checked: Checked, confirmed: Bool) -> AppSwapExit {
         let prior = readRecord()
         let record = PreviousRecord(name: previousName, tag: checked.installed.tag, cdhash: checked.installedCode.cdhash,
                                     installedTag: checked.incoming.tag ?? "", installedCDHash: checked.incoming.cdhash,
                                     floorTag: SwapEngine.floor(after: prior, keeping: checked.installed))
-        if !writeRecord(workFD, record) { RootSwapLog.logger.error("root-swap: the previous record could not be written") }
-        SwapEngine.prunePrevious(previousFD: previousFD, keep: previousName)
+        let recorded = writeRecord(workFD, record)
+        if recorded {
+            SwapEngine.prunePrevious(previousFD: previousFD, keep: previousName)
+        } else {
+            RootSwapLog.logger.error("root-swap: the previous record could not be written")
+        }
+        guard confirmed else { return .leftUnconfirmed }
         RootSwapLog.logger.notice("root-swap: committed")
-        return .committed
+        return recorded ? .committed : .committedWithoutRecord
+    }
+
+    /// What a failed root rename means: `EPERM` or `EACCES` is macOS
+    /// refusing it (App Management, System Integrity Protection), `EXDEV` or
+    /// `ENOTSUP` the volume, anything else a stop with nothing replaced.
+    static func renameRefusal(errno code: Int32) -> AppSwapExit {
+        switch code {
+        case EPERM, EACCES: return .refusedBySystem
+        case EXDEV, ENOTSUP: return .unsupportedVolume
+        default: return .abandoned
+        }
     }
 
     /// Kept is where the old bundle went, and the two identities a swap back
@@ -513,9 +604,11 @@ public struct RootSwapEngine: Sendable {
         let incoming: VerifiedBundle
     }
 
-    /// Verifies the installed bundle and the staged copy: the floor and the
-    /// outgoing tag from the installed bundle's Info.plist, read through the
-    /// Applications directory's descriptor; the copy's tag strictly above.
+    /// Verifies the installed bundle and the staged copy: the outgoing tag
+    /// from the installed bundle's Info.plist, read through the Applications
+    /// directory's descriptor; the copy's tag exactly the one the app
+    /// verified and strictly above the installed one; and the installed
+    /// release not below the floor of the root-owned record.
     func check(appsFD: Int32, stageFD: Int32) -> Checked? {
         let bundle = SwapPaths.bundleName
         guard FileOps.isDirectory(at: appsFD, bundle), let original = FileIdentity.of(dirFD: appsFD, name: bundle),
@@ -523,9 +616,26 @@ public struct RootSwapEngine: Sendable {
               let installedCode = try? verifier.verify(bundleAt: layout.target, requireTag: false), installedCode.identity == original,
               FileOps.isDirectory(at: stageFD, bundle), let staged = FileIdentity.of(dirFD: stageFD, name: bundle),
               let incoming = try? verifier.verify(bundleAt: layout.stagedBundle, requireTag: true), incoming.identity == staged,
-              incoming.tag != nil, let version = incoming.version, version > installed.version
+              incoming.tag == expectedTag, let version = incoming.version, version > installed.version,
+              Self.atOrAboveFloor(installed, record: readRecord())
         else { return nil }
         return Checked(original: original, installed: installed, installedCode: installedCode, incoming: incoming)
+    }
+
+    /// Whether `installed` is at or above the floor of the root-owned
+    /// previous record (or there is no record). An installed release below
+    /// the floor was put in place by something other than this path, which
+    /// keeps the floor rising, so root replaces nothing.
+    ///
+    /// This does not stop a whole older app being planted: anyone who can
+    /// write `/Applications/k3sm.app` can put an older team-signed release
+    /// there and run it without asking root. It stops the root path from
+    /// treating such a bundle as its starting point, and the record's floor,
+    /// which only root writes, from being lowered through it.
+    static func atOrAboveFloor(_ installed: InstalledRelease, record: PreviousRecord?) -> Bool {
+        guard let record else { return true }
+        guard let floor = SemanticVersion(record.floorTag) else { return false }
+        return !(installed.version < floor)
     }
 
     /// The work directory, opened without following a symlink, after
@@ -554,13 +664,39 @@ public struct RootSwapEngine: Sendable {
         return RootSwapLock(fd: fd)
     }
 
-    /// Removes a stale stage and every helper copy but the running one.
-    private func sweep(_ workFD: Int32, keepHelper: String?) {
-        for name in FileOps.entries(workFD) {
-            if name == AppSwapPaths.stageName || (name.hasPrefix(AppSwapPaths.helperPrefix) && name != keepHelper) {
-                FileOps.removeTree(at: workFD, name)
+    /// Removes every helper copy but the running one.
+    private func sweepHelpers(_ workFD: Int32, keepHelper: String?) {
+        for name in FileOps.entries(workFD) where name.hasPrefix(AppSwapPaths.helperPrefix) && name != keepHelper {
+            FileOps.removeTree(at: workFD, name)
+        }
+    }
+
+    /// Clears a stage, without ever deleting the only copy of the old
+    /// bundle. A run killed between its swap and its move to `previous/`
+    /// leaves the old bundle in `stage/k3sm.app`, and nothing else records
+    /// it. The stage's bundle is therefore kept, as the previous copy named
+    /// by its tag, whenever it is not strictly newer than the installed
+    /// bundle; an incoming copy always is (the verification requires it), so
+    /// only an un-swapped copy is deleted. A bundle whose tag cannot be read
+    /// is not a release and is deleted. Returns false when the stage is
+    /// still there.
+    func sweepStage(_ workFD: Int32, appsFD: Int32) -> Bool {
+        let stage = AppSwapPaths.stageName, bundle = SwapPaths.bundleName
+        guard FileIdentity.of(dirFD: workFD, name: stage) != nil else { return true }
+        if let stageFD = FileOps.openDirectory(at: workFD, stage) {
+            defer { close(stageFD) }
+            if FileOps.isDirectory(at: stageFD, bundle), let left = InstalledRelease.read(dirFD: stageFD, name: bundle),
+               let installed = InstalledRelease.read(dirFD: appsFD, name: bundle), !(installed.version < left.version) {
+                guard let previousFD = openPrevious(workFD) else { return false }
+                defer { close(previousFD) }
+                let name = SwapPaths.previousName(tag: left.tag)
+                if FileIdentity.of(dirFD: previousFD, name: name) != nil { FileOps.removeTree(at: previousFD, name) }
+                guard renamer.move(fromDir: stageFD, from: bundle, toDir: previousFD, to: name) == 0 else { return false }
+                FileOps.fullSync(previousFD)
+                RootSwapLog.logger.notice("root-swap: kept the old bundle a stopped run left in the stage")
             }
         }
+        return FileOps.removeTree(at: workFD, stage)
     }
 
     /// The Applications directory, opened without following a symlink,
@@ -600,9 +736,13 @@ public struct RootSwapEngine: Sendable {
 
     /// Whether every directory from the account's home folder down to the
     /// staged bundle is a real directory (no symlink), owned by the account
-    /// and writable by no group and no other user. This keeps other
-    /// accounts out of the path; the account itself could still change it
-    /// before the copy, so the binding checks are the ones on root's copy.
+    /// and writable by no group and no other user. This is check-then-copy,
+    /// not a copy without following: `ditto` then copies by path, and the
+    /// account could change the path between this check and the copy. The
+    /// check keeps other accounts out of the path; the real control is the
+    /// one on root's own copy after it is made, in a folder only root can
+    /// enter: the tree check, then the requirement, the team stamp and the
+    /// exact tag.
     func stagedSourceIsSafe() -> Bool {
         guard var fd = FileOps.openDirectory(layout.user.home) else { return false }
         defer { close(fd) }
@@ -713,7 +853,14 @@ public enum RootSwapSpawner {
         for fd: Int32 in [0, 1, 2] {
             posix_spawn_file_actions_addopen(&actions, fd, "/dev/null", fd == 0 ? O_RDONLY : O_WRONLY, 0)
         }
-        posix_spawn_file_actions_adddup2(&actions, lockFD, lockDescriptor)
+        // The lock is moved to a descriptor of 10 or more first, so the
+        // hand-off never depends on it being 0 to 2 (which the opens above
+        // would replace) or already 3 (a dup2 onto itself, whose clearing of
+        // close-on-exec under POSIX_SPAWN_CLOEXEC_DEFAULT is not documented).
+        let source = fcntl(lockFD, F_DUPFD_CLOEXEC, 10)
+        guard source >= 0 else { return false }
+        defer { close(source) }
+        posix_spawn_file_actions_adddup2(&actions, source, lockDescriptor)
         let argv: [UnsafeMutablePointer<CChar>?] = ([executable] + arguments).map { strdup($0) } + [nil]
         let envp: [UnsafeMutablePointer<CChar>?] = [strdup("PATH=/usr/bin:/bin:/usr/sbin:/sbin"), nil]
         defer { (argv + envp).forEach { free($0) } }

@@ -17,6 +17,7 @@ limitations under the License.
 import Darwin
 import Foundation
 import K3smInstall
+import K3smStatus
 @testable import K3smSwap
 import Synchronization
 import Testing
@@ -27,10 +28,11 @@ import Testing
 final class UserSide: UserSideRunner, @unchecked Sendable {
     let scratch: Scratch
     let timeouts: SwapTimeouts
-    let fixed: Mutex<[HelperMode: Int32]>
+    /// A fixed answer per mode; a nil answer is a run that did not happen.
+    let fixed: Mutex<[HelperMode: Int32?]>
     private let log = Mutex<[HelperMode]>([])
 
-    init(_ scratch: Scratch, timeouts: SwapTimeouts = .test, fixed: [HelperMode: Int32] = [:]) {
+    init(_ scratch: Scratch, timeouts: SwapTimeouts = .test, fixed: [HelperMode: Int32?] = [:]) {
         self.scratch = scratch
         self.timeouts = timeouts
         self.fixed = Mutex(fixed)
@@ -40,7 +42,7 @@ final class UserSide: UserSideRunner, @unchecked Sendable {
 
     func run(_ mode: HelperMode) -> Int32? {
         log.withLock { $0.append(mode) }
-        if let status = fixed.withLock({ $0[mode] }) { return status }
+        if let answer = fixed.withLock({ $0[mode] }) { return answer }
         let engine = scratch.engine(timeouts: timeouts)
         switch mode {
         case .relaunch: return engine.relaunch().rawValue
@@ -80,9 +82,9 @@ extension Scratch {
     }
 
     func rootEngine(app: ProcessIdentity, userSide: any UserSideRunner, renamer: any Renamer = SystemRenamer(),
-                    timeouts: SwapTimeouts = .test, hooks: RootSwapHooks = .none) -> RootSwapEngine {
+                    timeouts: SwapTimeouts = .test, hooks: RootSwapHooks = .none, expectedTag: String = "v1.1.0") -> RootSwapEngine {
         RootSwapEngine(layout: rootLayout, owner: RootOwnership(uid: getuid(), gid: getgid()), account: getuid(), app: app,
-                       verifier: verifier, watcher: KqueueProcessWatcher(), renamer: renamer, userSide: userSide,
+                       expectedTag: expectedTag, verifier: verifier, watcher: KqueueProcessWatcher(), renamer: renamer, userSide: userSide,
                        timeouts: timeouts, hooks: hooks)
     }
 
@@ -201,7 +203,7 @@ struct RootSwapTests {
         let app = s.appProcess(exitingAfter: 0.2)
         let user = UserSide(s)
         let spy = SpyRenamer()
-        let engine = s.rootEngine(app: app, userSide: user, renamer: spy)
+        let engine = s.rootEngine(app: app, userSide: user, renamer: spy, expectedTag: staged)
         #expect(engine.prepare().map { _ in AppSwapExit.committed } == .failure(RootSwapRefusal(.verificationFailed)))
         #expect(spy.count == 0)
         #expect(identity(s.target) == original)
@@ -307,18 +309,24 @@ struct RootSwapTests {
     }
 
     @Test func rootSwapArgumentsTakeOnlyThreeIntegers() {
-        let good = RootSwapArguments(arguments: ["--root-swap", "501", "4242", "1700000000123456"])
-        #expect(good?.mode == .prepare && good?.uid == 501 && good?.app.pid == 4242)
+        let good = RootSwapArguments(arguments: ["--root-swap", "501", "4242", "1700000000123456", "v1.2.3"])
+        #expect(good?.mode == .prepare && good?.uid == 501 && good?.app.pid == 4242 && good?.expectedTag == "v1.2.3")
         #expect(good?.app.start == ProcessStart(seconds: 1_700_000_000, microseconds: 123_456))
-        #expect(good?.words == ["--root-swap", "501", "4242", "1700000000123456"])
-        #expect(RootSwapArguments(arguments: ["--root-swap-detached", "501", "4242", "0"])?.mode == .detached)
-        for bad in [[], ["--root-swap"], ["--root-swap", "501", "4242"], ["--root-swap", "501", "4242", "1", "/tmp"],
-                    ["--root-swap", "0", "4242", "1"], ["--root-swap", "501", "0", "1"], ["--root-swap", "-1", "4242", "1"],
-                    ["--root-swap", "+501", "4242", "1"], ["--root-swap", "0501", "4242", "1"], ["--root-swap", "501", "4242", "1e3"],
-                    ["--root-swap", "501 ", "4242", "1"], ["--root-swap", "501", "2147483648", "1"],
-                    ["--root-swap", "501", "4242", "99999999999999999999999"], ["--swap", "501", "4242", "1"],
-                    ["--root-swap", "/Users/x", "4242", "1"]] {
+        #expect(good?.words == ["--root-swap", "501", "4242", "1700000000123456", "v1.2.3"])
+        #expect(good?.with(mode: .detached)?.words == ["--root-swap-detached", "501", "4242", "1700000000123456", "v1.2.3"])
+        #expect(RootSwapArguments(arguments: ["--root-swap-detached", "501", "4242", "0", "v1.2.3-rc.1"])?.mode == .detached)
+        let t = "v1.2.3"
+        for bad in [[], ["--root-swap"], ["--root-swap", "501", "4242", "1"], ["--root-swap", "501", "4242", "1", t, "/tmp"],
+                    ["--root-swap", "0", "4242", "1", t], ["--root-swap", "501", "0", "1", t], ["--root-swap", "-1", "4242", "1", t],
+                    ["--root-swap", "+501", "4242", "1", t], ["--root-swap", "0501", "4242", "1", t], ["--root-swap", "501", "4242", "1e3", t],
+                    ["--root-swap", "501 ", "4242", "1", t], ["--root-swap", "501", "2147483648", "1", t],
+                    ["--root-swap", "501", "4242", "99999999999999999999999", t], ["--swap", "501", "4242", "1", t],
+                    ["--root-swap", "/Users/x", "4242", "1", t], ["--root-swap", "501", "4242", "1", "/tmp"]] {
             #expect(RootSwapArguments(arguments: bad) == nil, "\(bad)")
+        }
+        // A malformed tag argument is refused.
+        for tag in ["", "1.2.3", "v1.2", "v1.2.3;id", "v01.2.3", "v1.2.3-beta.1", "v1.2.3 ", "v1.2.3\n", "../v1.2.3"] {
+            #expect(RootSwapArguments(arguments: ["--root-swap", "501", "4242", "1", tag]) == nil, "\(tag)")
         }
         let start = ProcessStart(seconds: 1_700_000_000, microseconds: 999_999)
         #expect(start.packedMicroseconds.map(ProcessStart.init(packedMicroseconds:)) == start)
@@ -401,7 +409,9 @@ struct RootSwapTests {
         #expect(((try? FileManager.default.contentsOfDirectory(atPath: s.root + "/realwork")) ?? []).isEmpty)
     }
 
-    /// The floor in the root-owned record only rises.
+    /// The floor in the root-owned record only rises: each swap writes the
+    /// outgoing release, and a floor above the installed release refuses the
+    /// swap (`rootSwapRefusesAnInstalledReleaseBelowTheFloor`).
     @Test func rootRecordFloorOnlyRises() throws {
         let s = Scratch()
         s.makeWork()
@@ -410,23 +420,17 @@ struct RootSwapTests {
             s.stageForRoot(tag: tag)
             let app = s.appProcess(exitingAfter: 0.2)
             s.requestRoot(expectedTag: tag, app: app, outgoing: index == 0 ? "v1.0.0" : "v1.1.0")
-            let engine = s.rootEngine(app: app, userSide: UserSide(s))
+            let engine = s.rootEngine(app: app, userSide: UserSide(s), expectedTag: tag)
             #expect(s.rootSwap(engine) == .committed)
-            #expect(engine.readRecord()?.floorTag == (index == 0 ? "v1.0.0" : "v1.5.0"))
-            if index == 0 {
-                // A higher floor already in force stays.
-                var record = try #require(engine.readRecord())
-                record.floorTag = "v1.5.0"
-                let data = try JSONEncoder().encode(record)
-                let dirFD = try #require(FileOps.openDirectory(s.work))
-                #expect(FileOps.replaceDurably(dirFD: dirFD, name: AppSwapPaths.recordName, data: data, mode: 0o600))
-                close(dirFD)
-            }
+            #expect(engine.readRecord()?.floorTag == (index == 0 ? "v1.0.0" : "v1.1.0"))
         }
         let engine = s.rootEngine(app: s.appProcess(exitingAfter: 0), userSide: UserSide(s))
-        #expect(engine.readRecord()?.floorTag == "v1.5.0")
         #expect(engine.readRecord()?.tag == "v1.1.0")
         #expect(s.rootPrevious() == ["k3sm-v1.1.0.previous"])
+        // The floor never falls back below a floor already in force.
+        let installed = InstalledRelease(tag: "v1.0.0", version: SemanticVersion("v1.0.0")!)
+        let prior = try #require(engine.readRecord())
+        #expect(SwapEngine.floor(after: prior, keeping: installed) == "v1.1.0")
     }
 
     /// Root reads nothing from the user's request file: a request naming
@@ -511,6 +515,171 @@ struct RootSwapTests {
         let other = UserSide(s, fixed: [.relaunchFailed: 0])
         #expect(s.rootEngine(app: s.appProcess(exitingAfter: 0.2), userSide: other).relaunchAfterExit() == .busy)
         #expect(other.calls == [.relaunchFailed])
+    }
+
+    /// Root is bound to the tag the app verified: a different, newer bundle
+    /// signed by the team in the staged place is refused.
+    @Test func rootSwapRefusesAnotherNewerBundle() throws {
+        let s = Scratch()
+        s.makeWork()
+        s.install(tag: "v1.0.0")
+        let original = identity(s.target)
+        s.stageForRoot(tag: "v1.2.0")
+        let spy = SpyRenamer()
+        let user = UserSide(s)
+        let engine = s.rootEngine(app: s.appProcess(exitingAfter: 0.2), userSide: user, renamer: spy, expectedTag: "v1.1.0")
+        #expect(engine.prepare().map { _ in 0 } == .failure(RootSwapRefusal(.verificationFailed)))
+        #expect(spy.count == 0)
+        #expect(identity(s.target) == original)
+        #expect(user.calls.isEmpty)
+    }
+
+    /// An installed release below the floor of the root-owned record was not
+    /// put there by this path, so root replaces nothing.
+    @Test func rootSwapRefusesAnInstalledReleaseBelowTheFloor() throws {
+        let s = Scratch()
+        s.makeWork()
+        s.install(tag: "v1.0.0")
+        let original = identity(s.target)
+        s.stageForRoot(tag: "v1.6.0")
+        let hash = String(repeating: "ab", count: 20)
+        let record = PreviousRecord(name: "k3sm-v1.5.0.previous", tag: "v1.5.0", cdhash: Data(repeating: 0xab, count: 20),
+                                    installedTag: "v1.5.1", installedCDHash: Data(repeating: 0xab, count: 20), floorTag: "v1.5.0")
+        #expect(record.cdhash == hash && record.isValid)
+        let dirFD = try #require(FileOps.openDirectory(s.work))
+        #expect(FileOps.replaceDurably(dirFD: dirFD, name: AppSwapPaths.recordName, data: try JSONEncoder().encode(record), mode: 0o600))
+        close(dirFD)
+        let spy = SpyRenamer()
+        let engine = s.rootEngine(app: s.appProcess(exitingAfter: 0.2), userSide: UserSide(s), renamer: spy, expectedTag: "v1.6.0")
+        #expect(engine.readRecord()?.floorTag == "v1.5.0")
+        #expect(engine.prepare().map { _ in 0 } == .failure(RootSwapRefusal(.verificationFailed)))
+        #expect(spy.count == 0)
+        #expect(identity(s.target) == original)
+        let installed = try #require(InstalledRelease.read(bundleAt: s.target))
+        #expect(!RootSwapEngine.atOrAboveFloor(installed, record: record))
+        #expect(RootSwapEngine.atOrAboveFloor(installed, record: nil))
+    }
+
+    /// A record that cannot be written after a swap that stood is in the
+    /// status, not only in the log.
+    @Test func rootSwapReportsARecordItCouldNotWrite() throws {
+        let s = Scratch()
+        s.makeWork()
+        s.install(tag: "v1.0.0")
+        s.stageForRoot(tag: "v1.1.0")
+        // A folder where the record goes: the durable rename over it fails.
+        try FileManager.default.createDirectory(atPath: s.work + "/" + AppSwapPaths.recordName + "/x", withIntermediateDirectories: true)
+        let app = s.appProcess(exitingAfter: 0.2)
+        s.requestRoot(expectedTag: "v1.1.0", app: app)
+        #expect(s.rootSwap(s.rootEngine(app: app, userSide: UserSide(s))) == .committedWithoutRecord)
+        #expect(s.tag(at: s.target) == "v1.1.0")
+        #expect(s.rootPrevious() == ["k3sm-v1.0.0.previous"])
+    }
+
+    /// A run killed between its swap and its move to the previous folder
+    /// leaves the old bundle only in the stage; the next run keeps it as the
+    /// previous copy instead of sweeping it away.
+    @Test func rootSwapKeepsTheOldBundleAfterAKillBetweenSwapAndMove() throws {
+        let s = Scratch()
+        s.makeWork()
+        s.install(tag: "v1.0.0")
+        let original = identity(s.target)
+        s.stageForRoot(tag: "v1.1.0")
+        let app = s.appProcess(exitingAfter: 0.2)
+        let user = UserSide(s)
+        let killed = s.rootEngine(app: app, userSide: user, hooks: RootSwapHooks(killAfterSwap: { true }))
+        #expect(s.rootSwap(killed) == .abandoned)
+        #expect(s.tag(at: s.target) == "v1.1.0")
+        #expect(identity(s.rootLayout.stagedBundle) == original)
+        #expect(s.rootPrevious().isEmpty)
+        #expect(user.calls.isEmpty)
+
+        // The next update's verifying half.
+        s.stageForRoot(tag: "v1.2.0")
+        let next = s.rootEngine(app: s.appProcess(exitingAfter: 30), userSide: UserSide(s), expectedTag: "v1.2.0")
+        let lock = try next.prepare().get()
+        defer { lock.release() }
+        #expect(s.rootPrevious() == ["k3sm-v1.0.0.previous"])
+        #expect(identity(s.rootLayout.previousDirectory + "/k3sm-v1.0.0.previous") == original)
+        #expect(s.tag(at: s.rootLayout.stagedBundle) == "v1.2.0")
+
+        // An un-swapped incoming copy, newer than the installed bundle, is
+        // what a sweep deletes.
+        let workFD = try #require(FileOps.openDirectory(s.work))
+        defer { close(workFD) }
+        let appsFD = try #require(FileOps.openDirectory(s.applications))
+        defer { close(appsFD) }
+        #expect(next.sweepStage(workFD, appsFD: appsFD))
+        #expect(!FileManager.default.fileExists(atPath: s.rootLayout.stagePath))
+        #expect(s.rootPrevious() == ["k3sm-v1.0.0.previous"])
+    }
+
+    /// A rename macOS refuses as root is its own status, and the errno is
+    /// mapped, not lost; nothing is replaced and the app comes back.
+    @Test func rootRenameRefusedBySystemIsItsOwnStatus() throws {
+        #expect(RootSwapEngine.renameRefusal(errno: EPERM) == .refusedBySystem)
+        #expect(RootSwapEngine.renameRefusal(errno: EACCES) == .refusedBySystem)
+        #expect(RootSwapEngine.renameRefusal(errno: EXDEV) == .unsupportedVolume)
+        #expect(RootSwapEngine.renameRefusal(errno: ENOTSUP) == .unsupportedVolume)
+        #expect(RootSwapEngine.renameRefusal(errno: EIO) == .abandoned)
+        let s = Scratch()
+        s.makeWork()
+        s.install(tag: "v1.0.0")
+        let original = identity(s.target)
+        s.stageForRoot(tag: "v1.1.0")
+        let user = UserSide(s, fixed: [.relaunchFailed: 0])
+        let engine = s.rootEngine(app: s.appProcess(exitingAfter: 0.2), userSide: user, renamer: SpyRenamer(swapErrno: EPERM))
+        #expect(s.rootSwap(engine) == .refusedBySystem)
+        #expect(identity(s.target) == original)
+        #expect(user.calls == [.relaunchFailed])
+        #expect(s.workEntries() == ["lock", "previous"])
+    }
+
+    /// When the user-side launch cannot run at all (launchctl or sudo
+    /// failed, or a timeout), it is tried once more, and then the verified
+    /// update is left in place with its record rather than rolled back.
+    @Test func rootSwapLeavesAVerifiedUpdateWhenTheUserSideCannotRun() throws {
+        let s = Scratch()
+        s.makeWork()
+        s.install(tag: "v1.0.0")
+        s.stageForRoot(tag: "v1.1.0")
+        let app = s.appProcess(exitingAfter: 0.2)
+        let user = UserSide(s, fixed: [.relaunch: Int32?.none])
+        let engine = s.rootEngine(app: app, userSide: user)
+        #expect(s.rootSwap(engine) == .leftUnconfirmed)
+        #expect(user.calls == [.relaunch, .relaunch])
+        #expect(s.tag(at: s.target) == "v1.1.0")
+        #expect(s.rootPrevious() == ["k3sm-v1.0.0.previous"])
+        #expect(engine.readRecord()?.tag == "v1.0.0")
+    }
+
+    /// The lock reaches the detached half as descriptor 3 even when it is
+    /// descriptor 3 already in the parent.
+    @Test func detachedHalfGetsTheLockEvenOnDescriptorThree() throws {
+        let s = Scratch()
+        let marker = s.root + "/marker"
+        let lockFD = open(s.root + "/lockfile", O_RDWR | O_CREAT, 0o600)
+        defer { close(lockFD) }
+        var lock = stat()
+        #expect(fstat(lockFD, &lock) == 0)
+        // Put the lock on descriptor 3 for the spawn, and put back whatever
+        // this process had there.
+        let saved = fcntl(3, F_DUPFD_CLOEXEC, 10)
+        #expect(dup2(lockFD, 3) == 3)
+        let started = RootSwapSpawner.spawnDetached(
+            executable: "/bin/sh",
+            arguments: ["-c", "/usr/bin/stat -L -f %i /dev/fd/3 > '\(marker).tmp'; /bin/mv '\(marker).tmp' '\(marker)'"],
+            lockFD: 3)
+        if saved >= 0 {
+            dup2(saved, 3)
+            close(saved)
+        } else {
+            close(3)
+        }
+        #expect(started)
+        let deadline = Date().addingTimeInterval(10)
+        while !FileManager.default.fileExists(atPath: marker), Date() < deadline { usleep(50_000) }
+        #expect(try String(contentsOfFile: marker, encoding: .utf8) == "\(lock.st_ino)\n")
     }
 
     /// The user side runs through `launchctl asuser` and `sudo -u '#uid'`,

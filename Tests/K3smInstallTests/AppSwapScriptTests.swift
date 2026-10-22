@@ -26,6 +26,13 @@ import Testing
 @Suite("app swap root script", .serialized)
 struct AppSwapScriptTests {
     static let team = TeamID("ABCDE12345")!
+    /// The only way to an authorization: the availability rule.
+    static let authorization: AppSwapAuthorization = {
+        guard case .enabled(let authorization) = PrivilegedAvailability.evaluateAppSwap(teamID: team, signatureValid: true) else {
+            fatalError("the app swap is not available to a signed build")
+        }
+        return authorization
+    }()
 
     /// A scratch layout: an Applications folder holding k3sm.app with a
     /// bundled helper, a work folder path, and a console stand-in owned by
@@ -196,7 +203,8 @@ struct AppSwapScriptTests {
             requirement = #"identifier "io.k3sm.other""#
         }
         let script = try #require(AppSwapScriptBuilder.render(helperRequirement: requirement, uid: uid, appPid: 4242,
-                                                             appStart: 1_700_000_000_123_456, layout: l.scriptLayout))
+                                                             appStart: 1_700_000_000_123_456, expectedTag: "v1.2.3",
+                                                             layout: l.scriptLayout))
         let result = try Self.execute(script)
         #expect(result.status == hostile.status.rawValue, "\(hostile): \(result.error)")
         #expect(result.error.contains("app-swap: refused:"))
@@ -213,11 +221,11 @@ struct AppSwapScriptTests {
         l.installHelper(from: Self.recordingHelper)
         let script = try #require(AppSwapScriptBuilder.render(helperRequirement: #"identifier "io.k3sm.app.update""#,
                                                              uid: UInt32(getuid()), appPid: 4242, appStart: 1_700_000_000_123_456,
-                                                             layout: l.scriptLayout))
+                                                             expectedTag: "v1.2.3-rc.1", layout: l.scriptLayout))
         let result = try Self.execute(script)
         #expect(result.status == 0, "\(result.error)")
         let ran = try String(contentsOfFile: l.work + "/ran", encoding: .utf8)
-        #expect(ran == "--root-swap\n\(getuid())\n4242\n1700000000123456\n")
+        #expect(ran == "--root-swap\n\(getuid())\n4242\n1700000000123456\nv1.2.3-rc.1\n")
         var st = stat()
         #expect(lstat(l.work, &st) == 0 && st.st_mode & 0o777 == 0o700 && st.st_uid == getuid())
         let copies = l.helperCopies()
@@ -233,28 +241,43 @@ struct AppSwapScriptTests {
     /// from the app or the request file. Its only values are three integers
     /// and the requirement; every path in it is a compiled constant.
     @Test func appSwapRootScriptTakesNoPathFromTheApp() throws {
-        let script = try #require(AppSwapScriptBuilder.render(teamID: Self.team, uid: 501, appPid: 4242, appStart: 1_700_000_000_123_456))
+        let script = try #require(AppSwapScriptBuilder.render(Self.authorization, uid: 501, appPid: 4242, appStart: 1_700_000_000_123_456,
+                                                             expectedTag: "v1.2.3"))
         for fragment in ["request", "journal", "Application Support", "/Users", "$HOME", "~", "staged", "io.k3sm.app/update"] {
             #expect(!script.text.contains(fragment), "the root script names \(fragment)")
         }
         #expect(script.text.contains("target='/Applications/k3sm.app'\n"))
         #expect(script.text.contains("work='/Library/k3sm.app-update'\n"))
         #expect(!script.text.contains("k3sm.staging"))
-        #expect(script.text.contains("exec \"$helper\" --root-swap \"$uid\" 4242 1700000000123456\n"))
+        #expect(script.text.contains("exec \"$helper\" --root-swap \"$uid\" 4242 1700000000123456 'v1.2.3'\n"))
         #expect(script.prompt == AppSwapScriptBuilder.prompt)
         #expect(!script.readsInput)
         #expect(!script.usesStagingLock)
         #expect(script.result == .discarded)
         // No uid 0, no pid 0.
-        #expect(AppSwapScriptBuilder.render(teamID: Self.team, uid: 0, appPid: 4242, appStart: 1) == nil)
-        #expect(AppSwapScriptBuilder.render(teamID: Self.team, uid: 501, appPid: 0, appStart: 1) == nil)
+        #expect(AppSwapScriptBuilder.render(Self.authorization, uid: 0, appPid: 4242, appStart: 1, expectedTag: "v1.2.3") == nil)
+        #expect(AppSwapScriptBuilder.render(Self.authorization, uid: 501, appPid: 0, appStart: 1, expectedTag: "v1.2.3") == nil)
         // The work folder is outside the copy-out's swept staging root.
         #expect(!AppSwapPaths.workDirectory.hasPrefix(CopyOutPlan.stagingRoot))
         #expect(!CopyOutPlan.stagingRoot.hasPrefix(AppSwapPaths.workDirectory))
     }
 
+    /// The fourth value is a release tag in the strict grammar, single-quoted;
+    /// anything else renders no script at all.
+    @Test func appSwapRootScriptCarriesOnlyAReleaseTag() {
+        for bad in ["", "v1.2", "1.2.3", "v1.2.3;id", "v1.2.3'", "v01.2.3", "v1.2.3-beta.1", "v1.2.3-rc.01", "v1.2.3\n",
+                    "v1.2.3 ", "$(id)", "v1.2.3-rc.12345"] {
+            #expect(AppSwapScriptBuilder.render(Self.authorization, uid: 501, appPid: 1, appStart: 1, expectedTag: bad) == nil, "\(bad)")
+        }
+        for good in ["v0.1.8", "v1.2.3-rc.1", "v10.20.30"] {
+            let text = AppSwapScriptBuilder.render(Self.authorization, uid: 501, appPid: 1, appStart: 1, expectedTag: good)?.text ?? ""
+            #expect(text.hasSuffix(" '\(good)'\n"), "\(good)")
+        }
+    }
+
     @Test func goldenAppSwapScript() throws {
-        let script = try #require(AppSwapScriptBuilder.render(teamID: Self.team, uid: 501, appPid: 4242, appStart: 1_700_000_000_123_456))
+        let script = try #require(AppSwapScriptBuilder.render(Self.authorization, uid: 501, appPid: 4242, appStart: 1_700_000_000_123_456,
+                                                             expectedTag: "v1.2.3"))
         #expect(script.text == Self.golden)
     }
 
@@ -266,7 +289,7 @@ struct AppSwapScriptTests {
                                   BundledRollExit.recordRefused, BundledRollExit.tagMismatch, BundledRollExit.digestRefused,
                                   BundledRollExit.recordUnreadable]
         let leftovers = Set((LifecycleExit.stopLeftoverBase...95).map { $0 })
-        for exit in AppSwapExit.allCases where exit != .committed {
+        for exit in AppSwapExit.allCases where exit != .handedOff {
             #expect(!others.contains(exit.rawValue) && !leftovers.contains(exit.rawValue), "\(exit) collides")
             #expect(AppSwapOutcome.text(exitStatus: exit.rawValue) != nil)
         }
@@ -277,9 +300,16 @@ struct AppSwapScriptTests {
     /// The app swap needs no admin-group account; every other privileged
     /// action still does.
     @Test func appSwapAvailabilityNeedsNoAdminAccount() {
-        #expect(PrivilegedAvailability.evaluateAppSwap(teamID: Self.team, signatureValid: true) == .enabled)
-        #expect(PrivilegedAvailability.evaluateAppSwap(teamID: nil, signatureValid: true) != .enabled)
-        #expect(PrivilegedAvailability.evaluateAppSwap(teamID: Self.team, signatureValid: false) != .enabled)
+        guard case .enabled(let authorization) = PrivilegedAvailability.evaluateAppSwap(teamID: Self.team, signatureValid: true) else {
+            Issue.record("a signed build with a team is not enabled")
+            return
+        }
+        #expect(authorization.teamID == Self.team)
+        #expect(AppSwapScriptBuilder.render(authorization, uid: 501, appPid: 1, appStart: 1, expectedTag: "v1.2.3") != nil)
+        if case .enabled = PrivilegedAvailability.evaluateAppSwap(teamID: nil, signatureValid: true) { Issue.record("no team is enabled") }
+        if case .enabled = PrivilegedAvailability.evaluateAppSwap(teamID: Self.team, signatureValid: false) {
+            Issue.record("a failed self-check is enabled")
+        }
         #expect(PrivilegedAvailability.evaluate(teamID: Self.team, signatureValid: true, userIsAdmin: false) != .enabled)
     }
 
@@ -326,7 +356,7 @@ struct AppSwapScriptTests {
         ident=$(/usr/bin/codesign --display --verbose=1 "$helper" 2>&1 | /usr/bin/sed -n 's/^Identifier=//p') || ident=
         if [ "$ident" != 'io.k3sm.app.update' ]; then refuse 108 'the helper does not carry its identifier'; fi
         trap - EXIT
-        exec "$helper" --root-swap "$uid" 4242 1700000000123456
+        exec "$helper" --root-swap "$uid" 4242 1700000000123456 'v1.2.3'
 
         """#
 }

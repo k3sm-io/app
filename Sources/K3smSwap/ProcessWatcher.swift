@@ -49,9 +49,12 @@ public struct KqueueProcessWatcher: ProcessWatcher {
         }
         // Registered on the pid: make sure it still names the same process.
         guard process.isRunning else { return true }
-        let parts = timeout.components
-        var wait = timespec(tv_sec: Int(parts.seconds), tv_nsec: Int(parts.attoseconds / 1_000_000_000))
+        // A deadline, not a duration: a wait interrupted by a signal resumes
+        // with what is left of the bound, never the whole bound again.
+        let deadline = ContinuousClock.now.advanced(by: timeout)
         while true {
+            let left = max(deadline - ContinuousClock.now, .zero).components
+            var wait = timespec(tv_sec: Int(left.seconds), tv_nsec: Int(left.attoseconds / 1_000_000_000))
             let n = kevent(kq, nil, 0, &event, 1, &wait)
             if n < 0 && errno == EINTR { continue }
             if n > 0 { return true }
