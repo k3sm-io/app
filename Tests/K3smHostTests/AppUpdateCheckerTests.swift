@@ -278,6 +278,22 @@ struct AppUpdateCheckerTests {
         #expect(dev.fetches == 0)
     }
 
+    /// A signature-valid index below this build's tag comes back with no
+    /// verified index, so it can never reach the download step.
+    @Test func aBelowFloorIndexIsNotReturned() async {
+        let (_, prefs) = Self.fresh()
+        let spy = SpyVerify(Self.facts("v0.1.0"))
+        let result = await Self.checker(SpySource(), spy, prefs, ownTag: "v0.2.0").check(userInitiated: true)
+        #expect(spy.calls == 1)
+        #expect(result.state == .buildIsNewer(own: "v0.2.0", latest: "v0.1.0"))
+        #expect(result.verified == nil)
+
+        // The same check with a newer index does return it.
+        let newer = await Self.checker(SpySource(), SpyVerify(Self.facts("v0.3.0")), prefs, ownTag: "v0.2.0")
+            .check(userInitiated: true)
+        #expect(newer.verified?.tag == "v0.3.0")
+    }
+
     /// The check starts no roll: its sources name no runner, driver or root
     /// step type, and a whole accepted check touches nothing but the three
     /// records it owns.

@@ -328,7 +328,9 @@ final class AppModel: ObservableObject {
     /// Whether an app update check is running now.
     @Published private(set) var appUpdateChecking = false
     /// The last accepted index, verified, for this process only: it is never
-    /// written anywhere. A later step downloads the release it names.
+    /// written anywhere. A later step downloads the release it names. It is
+    /// held only while the last check's state is `.available`
+    /// (`keepsAppUpdateIndex`) and cleared by any other result.
     private(set) var appUpdateIndex: ReleaseIndexVerifier.VerifiedReleaseIndex?
     /// When an app update check last accepted an index (a record).
     @Published private(set) var appUpdateLastCheck: Date?
@@ -1704,10 +1706,18 @@ final class AppModel: ObservableObject {
         if let outcome = result.outcome {
             appUpdateOutcome = outcome
             appUpdateOutcomeManual = userInitiated
-            if let verified = result.verified { appUpdateIndex = verified }
+            appUpdateIndex = Self.keepsAppUpdateIndex(after: result.state) ? result.verified : nil
             appUpdateLastCheck = AppPreferences().appUpdateLastCheck
         }
         publishAppUpdateState()
+    }
+
+    /// Whether a check that ended in `state` keeps its verified index for the
+    /// download step: only an offer (`.available`) does. A below-floor,
+    /// up-to-date, failed or any other result clears it.
+    nonisolated static func keepsAppUpdateIndex(after state: AppUpdateState) -> Bool {
+        if case .available = state { return true }
+        return false
     }
 
     /// Logs a state change once and hands it to the delegate.

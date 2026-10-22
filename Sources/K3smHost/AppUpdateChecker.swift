@@ -30,7 +30,9 @@ import K3smStatus
 /// (`check(userInitiated: true)`, Check Now), and a development build never
 /// makes one. Only the `(tag, issuedAt)` pair and the check's time are
 /// stored; the verified index comes back in `Result.verified`, for this
-/// process to keep in memory.
+/// process to keep in memory, and only when it names a release newer than
+/// this build: a signature-valid index at or below the running tag comes
+/// back as nil, so it can never reach the download step.
 public struct AppUpdateChecker<Verified: Sendable>: Sendable {
     /// The signature check: the index's bytes in, the verified index out,
     /// or a throw that the check reports as "could not check".
@@ -41,7 +43,8 @@ public struct AppUpdateChecker<Verified: Sendable>: Sendable {
         public let state: AppUpdateState
         /// The outcome to decide later states from; nil when no check ran.
         public let outcome: AppUpdateCheckOutcome?
-        /// The verified index, for this process only; nil unless accepted.
+        /// The verified index, for this process only; nil unless accepted
+        /// as newer than this build (nil for an index at or below it).
         public let verified: Verified?
     }
 
@@ -101,11 +104,13 @@ public struct AppUpdateChecker<Verified: Sendable>: Sendable {
             return failed(refusal.description, state)
         case .belowRunning:
             // Verified and current, but not newer than this build: a
-            // successful check whose index is never stored.
+            // successful check whose index is never stored, neither the
+            // high-water pair nor the verified index (nil here), so nothing
+            // later can download a release at or below the running one.
             preferences.appUpdateLastCheck = clock()
             AppUpdateLog.accepted(tag: index.tag)
             let outcome = AppUpdateCheckOutcome.accepted(index)
-            return Result(state: state(outcome), outcome: outcome, verified: verified)
+            return Result(state: state(outcome), outcome: outcome, verified: nil)
         case .accepted(let pair):
             preferences.storeHighWater(pair)
             preferences.appUpdateLastCheck = clock()
