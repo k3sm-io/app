@@ -47,8 +47,11 @@
 #      directory)
 #   6. k3sm.app: bundle id io.k3sm.app (io.k3sm.app.rehearsal for a rehearsal),
 #      CFBundleShortVersionString and CFBundleVersion equal to the version's
-#      core (1.2.3 for 1.2.3-rc.1), no K3smTeamID key in Info.plist, and
-#      codesign --verify --strict --deep passes
+#      core (1.2.3 for 1.2.3-rc.1), no K3smTeamID key in Info.plist,
+#      codesign --verify --strict --deep passes, and no entry is a symlink,
+#      a special file, setuid or setgid, or writable by group or others (the
+#      copy-out and the app update's root step refuse a bundle that holds
+#      one, so a release with one could be neither installed nor updated)
 #   7. a release app is signed by the image's Developer ID team, verifies
 #      against its requirement with --deep, passes stapler validate, and
 #      holds exactly that Team ID as its compiled pin; a rehearsal app is
@@ -63,9 +66,9 @@
 # rehearsal app, for example hack/build-app.sh --rehearsal output) or around a
 # fixture app, and checks that it passes. Each broken image is a copy of that
 # layout with one thing wrong (no Applications link, a link elsewhere, an
-# extra root entry, the wrong volume name, a modified app), built with hdiutil
-# makehybrid, which takes a fraction of a second where hdiutil create takes
-# five; the checksum, name and signature cases reuse the good image. Each must
+# extra root entry, the wrong volume name, a modified app, an app holding a
+# symlink), built with hdiutil makehybrid, which takes a fraction of a second
+# where hdiutil create takes five; the checksum, name and signature cases reuse the good image. Each must
 # fail. The Developer ID branch runs against fake codesign, spctl and stapler.
 set -euo pipefail
 
@@ -172,6 +175,8 @@ app_problems() {
 	fi
 	codesign --verify --strict --deep "$app" >/dev/null 2>&1 ||
 		{ echo "    codesign --verify --strict --deep rejects k3sm.app"; rc=1; }
+	v="$(find "$app" \( ! \( -type f -o -type d \) -o -perm +6022 \) -print 2>/dev/null | head -n 1)"
+	[ -z "$v" ] || { echo "    k3sm.app holds ${v#"$app"/}: a symlink, special file, setuid or setgid file, or group- or other-writable entry"; rc=1; }
 	info="$(codesign -dv "$app" 2>&1 || true)"
 	sig="$(signature_kind <<<"$info")"
 	[ -f "$exe" ] || { echo "    k3sm.app has no Contents/MacOS/k3sm-app"; return 1; }
@@ -476,6 +481,7 @@ EOF
 	mktree extra; ln -s /Applications "$T/src-extra/Applications"; printf 'readme\n' >"$T/src-extra/README.txt"
 	mktree volname; ln -s /Applications "$T/src-volname/Applications"
 	mktree tampered; ln -s /Applications "$T/src-tampered/Applications"; printf 'x\n' >"$T/src-tampered/k3sm.app/Contents/Resources/added.txt"
+	mktree linked; ln -s /Applications "$T/src-linked/Applications"; ln -s Info.plist "$T/src-linked/k3sm.app/Contents/link"
 	mktree release "$T/relapp/k3sm.app"; ln -s /Applications "$T/src-release/Applications"
 	# One at a time: hdiutil create run side by side can leave an image attached.
 	bash "$MAKE_DMG" "$app" "$T/good/$rname" >/dev/null || die "--self-test: make-dmg.sh failed"
@@ -484,6 +490,7 @@ EOF
 		raw_image "$T/src-extra" "$T/extra/$rname" &&
 		raw_image "$T/src-volname" "$T/volname/$rname" k3sm-x &&
 		raw_image "$T/src-tampered" "$T/tampered/$rname" &&
+		raw_image "$T/src-linked" "$T/linked/$rname" &&
 		raw_image "$T/src-release" "$T/release/$rel"; }; then
 		die "--self-test: hdiutil makehybrid could not build the fixture images"
 	fi
@@ -511,6 +518,8 @@ EOF
 		verify_image "$T/volname/$rname" "$(sums_for "$T/volname/$rname")" ""
 	expect "an app modified after signing fails codesign --deep" 1 "codesign --verify --strict --deep rejects k3sm.app" \
 		verify_image "$T/tampered/$rname" "$(sums_for "$T/tampered/$rname")" ""
+	expect "an app holding a symlink fails" 1 "k3sm.app holds Contents/link: a symlink" \
+		verify_image "$T/linked/$rname" "$(sums_for "$T/linked/$rname")" ""
 	mkdir -p "$T/asrel" "$T/misnamed" "$T/notdmg"
 	cp "$good" "$T/asrel/$(image_name "$tag")"
 	expect "a rehearsal image under the release name fails: not Developer ID" 1 "not with a Developer ID" \
