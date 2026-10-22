@@ -1839,6 +1839,8 @@ final class AppModel: ObservableObject {
             }
             running = true
             outcomeMessage = nil
+            lifecycleRun += 1
+            let run = lifecycleRun
             let driver = LifecycleDriver(
                 teamID: teamID,
                 readStatus: { await self.readFullReport() },
@@ -1869,17 +1871,23 @@ final class AppModel: ObservableObject {
             }
             log.notice("lifecycle verb finished")
             await refresh()
-            // The status can trail the verb by a few seconds; read again,
-            // bounded, until it shows the verb's end state (LifecycleSettle).
-            var reads = 0
-            while LifecycleSettle.readsAgain(verb, succeeded: ended.0 == true, report: report, reads: reads) {
-                try? await Task.sleep(for: LifecycleSettle.interval)
-                reads += 1
-                await refresh()
-            }
-            finished?(ended.0, ended.1)
+            // The status can trail the verb by a few seconds; tell the caller
+            // now, then read again, bounded, until it shows the verb's end
+            // state or a newer change starts (LifecycleSettle).
+            await LifecycleSettle.settle(
+                verb,
+                succeeded: ended.0 == true,
+                finished: { finished?(ended.0, ended.1) },
+                report: { self.report },
+                superseded: { self.running || self.lifecycleRun != run },
+                wait: { try? await Task.sleep(for: $0) },
+                read: { await self.refresh() })
         }
     }
+
+    /// Counts lifecycle verbs begun from `perform`, so a verb's settle loop
+    /// stops once a newer one has started.
+    private var lifecycleRun = 0
 
     /// Reads the start's time bound from the installed CLI, through the
     /// trust-checked runner. A fallback is logged with its reason, which is

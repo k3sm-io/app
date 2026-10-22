@@ -58,4 +58,33 @@ public enum LifecycleSettle {
     public static func readsAgain(_ verb: LifecycleVerb, succeeded: Bool, report: StatusReport?, reads: Int) -> Bool {
         succeeded && reads < maxReads && !settled(verb, report: report)
     }
+
+    /// Runs what follows a verb's first read. `finished` is heard first, so a
+    /// guided Start or Restart shows its result and frees the guided panel
+    /// at once instead of after the re-reads; then `read` runs `interval`
+    /// apart (`wait`) while `readsAgain` holds on `report()`. The loop stops
+    /// as soon as `superseded()` is true (a newer verb started, or another
+    /// change is running), so it never looks for a state the user has left.
+    /// Returns the number of re-reads made.
+    @MainActor
+    @discardableResult
+    public static func settle(
+        _ verb: LifecycleVerb,
+        succeeded: Bool,
+        finished: () -> Void,
+        report: () -> StatusReport?,
+        superseded: () -> Bool,
+        wait: (Duration) async -> Void,
+        read: () async -> Void
+    ) async -> Int {
+        finished()
+        var reads = 0
+        while !superseded(), readsAgain(verb, succeeded: succeeded, report: report(), reads: reads) {
+            await wait(interval)
+            if superseded() { break }
+            reads += 1
+            await read()
+        }
+        return reads
+    }
 }

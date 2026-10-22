@@ -83,4 +83,80 @@ struct LifecycleSettleTests {
         #expect(!LifecycleSettle.readsAgain(.start, succeeded: false, report: trailing, reads: 0))
         #expect(!LifecycleSettle.readsAgain(.start, succeeded: true, report: try Self.report(Self.running), reads: 0))
     }
+
+    /// What `settle` did, in order, on virtual time: the reports the reads
+    /// return, and a newer verb that starts after a given read.
+    @MainActor
+    private final class Run {
+        var events: [String] = []
+        var reports: [StatusReport?]
+        var current: StatusReport?
+        var supersededAfterRead: Int?
+        var readsMade = 0
+
+        init(first: StatusReport?, then reports: [StatusReport?]) {
+            current = first
+            self.reports = reports
+        }
+
+        func settle(_ verb: LifecycleVerb, succeeded: Bool = true) async -> Int {
+            await LifecycleSettle.settle(
+                verb,
+                succeeded: succeeded,
+                finished: { self.events.append("finished") },
+                report: { self.current },
+                superseded: { self.supersededAfterRead.map { self.readsMade >= $0 } ?? false },
+                wait: { _ in self.events.append("wait") },
+                read: {
+                    self.readsMade += 1
+                    self.events.append("read")
+                    self.current = self.reports.isEmpty ? self.current : self.reports.removeFirst()
+                })
+        }
+    }
+
+    @Test("a guided Start hears its result before the re-reads, not after them")
+    @MainActor
+    func finishedComesFirst() async throws {
+        let trailing = try Self.report(Self.upButRecorded)
+        let run = Run(first: trailing, then: [trailing, try Self.report(Self.running)])
+        let reads = await run.settle(.start)
+        #expect(reads == 2)
+        #expect(run.events == ["finished", "wait", "read", "wait", "read"])
+    }
+
+    @Test("a Restart that has settled reads nothing more")
+    @MainActor
+    func settledRestartReadsNoMore() async throws {
+        let run = Run(first: try Self.report(Self.running), then: [])
+        #expect(await run.settle(.restart) == 0)
+        #expect(run.events == ["finished"])
+    }
+
+    @Test("a failed verb is still heard, and reads nothing more")
+    @MainActor
+    func failedVerbIsHeard() async throws {
+        let run = Run(first: try Self.report(Self.stopped), then: [])
+        #expect(await run.settle(.start, succeeded: false) == 0)
+        #expect(run.events == ["finished"])
+    }
+
+    @Test("the loop stops once a newer verb starts, well inside the bound")
+    @MainActor
+    func newerVerbStopsTheLoop() async throws {
+        let trailing = try Self.report(Self.upButRecorded)
+        let run = Run(first: trailing, then: Array(repeating: trailing, count: LifecycleSettle.maxReads))
+        run.supersededAfterRead = 1
+        #expect(await run.settle(.start) == 1)
+        #expect(run.events == ["finished", "wait", "read"])
+    }
+
+    @Test("an unsettled status reads at most the bound")
+    @MainActor
+    func boundHolds() async throws {
+        let trailing = try Self.report(Self.upButRecorded)
+        let run = Run(first: trailing, then: Array(repeating: trailing, count: LifecycleSettle.maxReads + 5))
+        #expect(await run.settle(.start) == LifecycleSettle.maxReads)
+        #expect(run.events.first == "finished")
+    }
 }
