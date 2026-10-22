@@ -22,7 +22,8 @@
 #      make-dmg.sh on the result
 #   6. sign-and-notarize.sh refuses to run unattended; sign-and-notarize.sh
 #      --self-test (every Mach-O in a fixture bundle is found, ad-hoc signed and
-#      verified by name, and an unsigned extra executable fails closed);
+#      verified by name, the swap helper carries the hardened runtime and no
+#      entitlements, and an unsigned extra executable fails closed);
 #      release.sh --self-test
 #      (the release driver's refusals, checks and rehearsal, all with fakes);
 #      verify-release.sh --self-test around the rehearsal app of step 5 (real
@@ -48,9 +49,18 @@
 #      stage), and hack/verify-no-inplace-write.sh (its self-test, then the
 #      live tree: the swap code never writes into a file in place). The full
 #      run's stage 2 already ran the K3smSwapTests suite.
+#  14. the shipped helper: Contents/Helpers/k3sm-app-update from a developer
+#      build and from a --team-id build, run as built: no entitlements, the
+#      hardened runtime, io.k3sm.app.update sealed by the bundle, and every
+#      refusal (exit 64) told apart by its message, with a scratch request
+#      layout and the real private directory left unchanged. In ci the
+#      shipped helper's refusal of ad-hoc fixtures is proven only through its
+#      pre-request guards; the refusal by the compiled requirement of an
+#      ad-hoc staged bundle is proven by B836 (attended, Developer ID).
 #
 # hack/ci.sh --acceptance runs only stage 12. hack/ci.sh --swap-engine runs
-# stage 13 with the K3smSwapTests suite itself (swift test --filter). The gates cross-check the k3sm
+# stage 13 with the K3smSwapTests suite itself (swift test --filter).
+# hack/ci.sh --shipped-helper runs only stage 14. The gates cross-check the k3sm
 # CLI source, so stage 12 needs a k3sm checkout (K3SM_DIR, or a sibling
 # ../k3sm): the full run skips it by name on a lone clone, and --acceptance
 # fails there.
@@ -63,12 +73,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-usage() { echo "usage: hack/ci.sh [--acceptance | --swap-engine]" >&2; exit 2; }
+usage() { echo "usage: hack/ci.sh [--acceptance | --swap-engine | --shipped-helper]" >&2; exit 2; }
 mode=all
 case "${1:-}" in
 "") ;;
 --acceptance) mode=acceptance ;;
 --swap-engine) mode=swap-engine ;;
+--shipped-helper) mode=shipped-helper ;;
 *) usage ;;
 esac
 [ "$#" -le 1 ] || usage
@@ -139,6 +150,246 @@ swap_engine_stage() {
 	bash hack/verify-no-inplace-write.sh
 }
 
+# The shipped helper stage (14). It builds the bundle twice with
+# hack/build-app.sh, once as a developer build (no Team ID pin) and once with
+# --team-id ABCDE12345 (a pinned build, still ad-hoc signed), and checks the
+# Contents/Helpers/k3sm-app-update each one ships, as built: no rebuild, no
+# re-sign, no seam, no flag or environment variable the helper reads. The
+# checks: no entitlements; the hardened runtime flag (0x10000); the
+# identifier io.k3sm.app.update, sealed by the bundle's signature; every
+# malformed argument list exits 64 (SwapExit.refusedRequest); a developer
+# build refuses to update itself; a pinned build run from the bundle refuses
+# to run anywhere but its copy in the private directory, and a copy placed in
+# a scratch HOME's private directory refuses the same way, because the helper
+# takes its home from the passwd entry, never from HOME; an inserted library
+# (DYLD_INSERT_LIBRARIES) never loads into it, while the same library does
+# load into a copy signed without the hardened runtime, so the probe is real.
+# Every case runs with a scratch HOME holding a full request layout (ad-hoc
+# fixture bundles at the target and in staging, a request file, a helper
+# copy), and every run leaves that layout and the account's real private
+# directory unchanged: the same device, inode, mode, size, time and bytes.
+# Every refusal exits 64, so each case is told apart by its one stderr line,
+# and the stage prints which guard refused it.
+#
+# Coverage: in ci the shipped helper's refusal of ad-hoc fixtures is proven
+# only through its pre-request guards; the refusal by the compiled
+# requirement of an ad-hoc staged bundle is proven by B836 (attended,
+# Developer ID). A refusal when run as root is a unit test of the swap
+# engine, and this stage refuses to run as root.
+shipped_helper_stage() {
+	echo "==> the shipped helper (k3sm-app-update as hack/build-app.sh builds it)"
+	[ "$(id -u)" != 0 ] || { echo "FAIL: the shipped helper stage runs as a user, never as root"; exit 1; }
+	local d="$1"
+	mkdir -p "$d"
+	local rel=Contents/Helpers/k3sm-app-update
+	local build
+	for build in dev pinned; do
+		local args=()
+		[ "$build" = dev ] || args=(--team-id ABCDE12345)
+		bash hack/build-app.sh ${args[@]+"${args[@]}"} "$d/$build" > "$d/build-$build.log" 2>&1 \
+			|| { echo "FAIL: build-app.sh ${args[*]:-} (the $build build)"; cat "$d/build-$build.log"; exit 1; }
+	done
+	local dev="$d/dev/k3sm.app/$rel" pinned="$d/pinned/k3sm.app/$rel"
+	local dev_sum pinned_sum
+	dev_sum="$(/usr/bin/shasum -a 256 < "$dev")"
+	pinned_sum="$(/usr/bin/shasum -a 256 < "$pinned")"
+
+	# The signature predicates, each proven able to fail on a scratch copy
+	# re-signed the wrong way (the copies are controls, never the subject).
+	sh_flags() { /usr/bin/codesign -dv "$1" 2>&1 | sed -n 's/^CodeDirectory .* flags=\(0x[0-9a-f]*\).*/\1/p'; }
+	sh_runtime() { local f; f="$(sh_flags "$1")"; [ -n "$f" ] && [ $((f & 0x10000)) != 0 ]; }
+	sh_no_entitlements() {
+		local out
+		out="$(/usr/bin/codesign -d --entitlements - --xml "$1" 2>/dev/null)" || return 1
+		[ -z "$out" ]
+	}
+	# A here-string, not a pipe into grep -q: codesign still writing when
+	# grep exits would die of SIGPIPE and fail the check under pipefail.
+	sh_identifier() {
+		local info
+		info="$(/usr/bin/codesign -dv "$1" 2>&1)" || return 1
+		grep -qx 'Identifier=io.k3sm.app.update' <<<"$info" \
+			&& /usr/bin/codesign --verify --strict -R='identifier "io.k3sm.app.update"' "$1" 2>/dev/null
+	}
+	cat > "$d/allow-dyld.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>com.apple.security.cs.allow-dyld-environment-variables</key><true/></dict></plist>
+PLIST
+	cp "$pinned" "$d/control-plain"
+	/usr/bin/codesign --force --sign - --timestamp=none --identifier io.k3sm.app.update "$d/control-plain" 2>/dev/null
+	cp "$pinned" "$d/control-entitled"
+	/usr/bin/codesign --force --sign - --timestamp=none --options runtime --identifier io.k3sm.app.update \
+		--entitlements "$d/allow-dyld.plist" "$d/control-entitled" 2>/dev/null
+	cp "$pinned" "$d/control-other-id"
+	/usr/bin/codesign --force --sign - --timestamp=none --options runtime --identifier io.k3sm.app.other "$d/control-other-id" 2>/dev/null
+	! sh_runtime "$d/control-plain" || { echo "FAIL: the runtime check accepts a helper signed without it"; exit 1; }
+	! sh_no_entitlements "$d/control-entitled" || { echo "FAIL: the entitlement check accepts an entitled helper"; exit 1; }
+	! sh_identifier "$d/control-other-id" || { echo "FAIL: the identifier check accepts another identifier"; exit 1; }
+
+	for build in dev pinned; do
+		local app="$d/$build/k3sm.app" h="$d/$build/k3sm.app/$rel"
+		sh_no_entitlements "$h" || { echo "FAIL: the $build build's helper carries entitlements"; /usr/bin/codesign -d --entitlements - --xml "$h"; exit 1; }
+		sh_runtime "$h" || { echo "FAIL: the $build build's helper lacks the hardened runtime (flags $(sh_flags "$h"))"; exit 1; }
+		sh_identifier "$h" || { echo "FAIL: the $build build's helper is not signed as io.k3sm.app.update"; exit 1; }
+		/usr/bin/codesign --verify --strict --deep "$app" 2>/dev/null || { echo "FAIL: the $build bundle does not verify"; exit 1; }
+		grep -qF '<key>Helpers/k3sm-app-update</key>' "$app/Contents/_CodeSignature/CodeResources" \
+			|| { echo "FAIL: the $build bundle's seal does not list Helpers/k3sm-app-update"; exit 1; }
+		# The seal covers the helper: a copy of the bundle with another
+		# signature on it must not verify.
+		rm -rf "$d/tampered"
+		/usr/bin/ditto "$d/$build" "$d/tampered"
+		cp "$d/control-plain" "$d/tampered/k3sm.app/$rel"
+		! /usr/bin/codesign --verify --strict --deep "$d/tampered/k3sm.app" 2>/dev/null \
+			|| { echo "FAIL: the $build bundle verifies with its helper replaced"; exit 1; }
+		rm -rf "$d/tampered"
+		echo "    $build build: no entitlements, flags $(sh_flags "$h") (runtime), io.k3sm.app.update, sealed"
+	done
+	local team
+	team="$(LC_ALL=C grep -ao 'k3sm-team-id-pin:[A-Z0-9]\{10\}' "$pinned" | sort -u || true)"
+	[ "$team" = k3sm-team-id-pin:ABCDE12345 ] || { echo "FAIL: the pinned helper does not carry the ABCDE12345 pin"; exit 1; }
+	if LC_ALL=C grep -aq 'k3sm-team-id-pin:[A-Z0-9]\{10\}' "$dev"; then
+		echo "FAIL: the developer build's helper carries a Team ID pin"; exit 1
+	fi
+
+	# The scratch request layout: HOME's private directory with a request
+	# file and a helper copy, an installed fixture bundle at
+	# $HOME/Applications/k3sm.app (an allowed target, were HOME used) and a
+	# newer one staged beside it. The fixture bundles are B829's swap
+	# engine fixtures, ad-hoc signed.
+	local home="$d/home"
+	local priv="$home/Library/Application Support/io.k3sm.app/update"
+	local staged=".k3sm.app.update-ci0shipped0h"
+	mkdir -p "$priv" "$home/Applications/$staged"
+	chmod 0700 "$priv"
+	/usr/bin/cc -O0 '-DFIXTURE_TEAM="ABCDE12345"' -o "$d/fixture-app" Tests/K3smSwapTests/Fixtures/fixture-app.c
+	sh_fixture() {
+		mkdir -p "$1/Contents/MacOS" "$1/Contents/Resources"
+		cp "$d/fixture-app" "$1/Contents/MacOS/k3sm-app"
+		cat > "$1/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+	<key>CFBundleExecutable</key><string>k3sm-app</string>
+	<key>CFBundleIdentifier</key><string>io.k3sm.app</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>${2#v}</string>
+	<key>K3smPayloadTag</key><string>$2</string>
+</dict></plist>
+PLIST
+		printf 'handshake\n' > "$1/Contents/Resources/behaviour"
+		/usr/bin/codesign --force --sign - --timestamp=none --identifier io.k3sm.test.fixture "$1" 2>/dev/null
+	}
+	sh_fixture "$home/Applications/k3sm.app" v1.0.0
+	sh_fixture "$home/Applications/$staged/k3sm.app" v1.1.0
+	printf '{"at":"2026-10-22T00:00:00Z","request":{"app":{"pid":%d,"start":{"microseconds":0,"seconds":0}},"expectedTag":"v1.1.0","mode":"update","stagedName":"%s","target":"%s","token":"%s"},"schema":1,"state":"staged"}' \
+		"$$" "$staged" "$home/Applications/k3sm.app" "$(printf '%064d' 0)" > "$priv/request.json"
+	chmod 0600 "$priv/request.json"
+	cp "$pinned" "$priv/k3sm-app-update"
+	chmod 0500 "$priv/k3sm-app-update"
+
+	# The account's real private directory is only read: its listing, before
+	# and after, must match. The home comes from the passwd entry.
+	local user real_priv
+	user="$(id -un)"
+	printf '%s\n' "$user" | grep -Eqx '[A-Za-z0-9._-]+' || { echo "FAIL: an unexpected user name: $user"; exit 1; }
+	real_priv="$(eval "printf '%s' ~$user")/Library/Application Support/io.k3sm.app/update"
+	sh_snapshot() {
+		{
+			echo "-- scratch"
+			/usr/bin/find "$d/home" -print0 | LC_ALL=C sort -z | xargs -0 /usr/bin/stat -f '%d %i %p %u %z %m %N'
+			/usr/bin/find "$d/home" -type f -print0 | LC_ALL=C sort -z | xargs -0 /usr/bin/shasum -a 256
+			echo "-- real"
+			if [ -e "$real_priv" ]; then
+				/usr/bin/find "$real_priv" -print0 2>/dev/null | LC_ALL=C sort -z \
+					| xargs -0 /usr/bin/stat -f '%d %i %p %u %z %m %N' 2>/dev/null || echo "partly unreadable"
+			else
+				echo absent
+			fi
+		} 2>&1
+	}
+	local snap0 target_id0
+	snap0="$(sh_snapshot)"
+	target_id0="$(/usr/bin/stat -f '%d %i' "$home/Applications/k3sm.app")"
+
+	# The inserted library: it creates the file K3SM_PROBE_MARKER names from
+	# a constructor, before the program's main runs.
+	cat > "$d/probe.c" <<'C'
+#include <fcntl.h>
+#include <stdlib.h>
+#include <unistd.h>
+__attribute__((constructor)) static void probe_mark(void) {
+	const char *path = getenv("K3SM_PROBE_MARKER");
+	if (path == NULL) return;
+	int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+	if (fd >= 0) close(fd);
+}
+C
+	/usr/bin/cc -dynamiclib -o "$d/probe.dylib" "$d/probe.c"
+
+	local usage="k3sm-app-update: refused: usage: k3sm-app-update --swap | --go-back | --relaunch"
+	local devmsg="k3sm-app-update: refused: a developer build pins no team and never updates itself"
+	local locmsg="k3sm-app-update: refused: runs only from its copy in the private directory"
+	local cases=0
+	# sh_case <name> <guard> <want stderr line> <binary> [env assignments...] -- [args...]
+	sh_case() {
+		local name="$1" guard="$2" want="$3" bin="$4" rc=0 err out snap
+		shift 4
+		local envs=()
+		while [ "$#" -gt 0 ] && [ "$1" != -- ]; do envs+=("$1"); shift; done
+		shift
+		out="$(env -i PATH=/usr/bin:/bin HOME="$home" ${envs[@]+"${envs[@]}"} "$bin" "$@" 2> "$d/case.err")" || rc=$?
+		err="$(cat "$d/case.err")"
+		[ "$rc" = 64 ] || { echo "FAIL: $name: exit $rc, want 64"; printf '%s\n' "$err"; exit 1; }
+		[ -z "$out" ] || { echo "FAIL: $name: wrote to standard output: $out"; exit 1; }
+		[ "$err" = "$want" ] || { echo "FAIL: $name: the $guard guard did not refuse it"; echo "    want: $want"; echo "    got:  $err"; exit 1; }
+		snap="$(sh_snapshot)"
+		[ "$snap" = "$snap0" ] || { echo "FAIL: $name changed the filesystem:"; diff <(printf '%s\n' "$snap0") <(printf '%s\n' "$snap") | sed 's/^/    /'; exit 1; }
+		printf '    %-44s %-9s exit %s  %s\n' "$name" "$guard" "$rc" "${err#k3sm-app-update: refused: }"
+		cases=$((cases + 1))
+	}
+	echo "    case                                         guard     exit  message (side effects: none in every case)"
+	for build in dev pinned; do
+		local h="$d/$build/k3sm.app/$rel"
+		sh_case "$build: no argument" argv "$usage" "$h" --
+		sh_case "$build: two arguments" argv "$usage" "$h" -- --swap --relaunch
+		sh_case "$build: an unknown flag" argv "$usage" "$h" -- --root-swap
+		sh_case "$build: a path argument" argv "$usage" "$h" -- "$home/Applications/k3sm.app"
+		sh_case "$build: --swap <path>" argv "$usage" "$h" -- --swap "$home/Applications/$staged/k3sm.app"
+	done
+	local mode
+	for mode in --swap --go-back --relaunch; do
+		sh_case "dev: $mode" team-pin "$devmsg" "$dev" -- "$mode"
+	done
+	for mode in --swap --go-back --relaunch; do
+		sh_case "pinned: $mode from the bundle" location "$locmsg" "$pinned" -- "$mode"
+	done
+	sh_case "pinned: --swap from HOME's private copy" location "$locmsg" "$priv/k3sm-app-update" -- --swap
+	for build in dev pinned; do
+		local h="$d/$build/k3sm.app/$rel" want="$locmsg" guard=location
+		[ "$build" = pinned ] || { want="$devmsg"; guard="team-pin"; }
+		rm -f "$d/marker"
+		sh_case "$build: --swap, DYLD_INSERT_LIBRARIES" "$guard" "$want" "$h" \
+			DYLD_INSERT_LIBRARIES="$d/probe.dylib" K3SM_PROBE_MARKER="$d/marker" -- --swap
+		[ ! -e "$d/marker" ] || { echo "FAIL: an inserted library ran in the $build build's helper"; exit 1; }
+	done
+	# The control: the same library does run in a copy signed without the
+	# hardened runtime, so a missing marker above means the runtime refused it.
+	rm -f "$d/marker"
+	env -i PATH=/usr/bin:/bin HOME="$home" DYLD_INSERT_LIBRARIES="$d/probe.dylib" K3SM_PROBE_MARKER="$d/marker" \
+		"$d/control-plain" --swap > /dev/null 2>&1 || true
+	[ -e "$d/marker" ] || { echo "FAIL: the inserted-library probe did not run even without the hardened runtime"; exit 1; }
+	rm -f "$d/marker"
+	echo "    control: the inserted library runs in a copy signed without the hardened runtime"
+
+	[ "$(/usr/bin/stat -f '%d %i' "$home/Applications/k3sm.app")" = "$target_id0" ] \
+		|| { echo "FAIL: the fixture target's (dev, ino) changed"; exit 1; }
+	[ -d "$home/Applications/$staged/k3sm.app" ] || { echo "FAIL: the staged fixture is gone"; exit 1; }
+	[ "$(/usr/bin/shasum -a 256 < "$dev")" = "$dev_sum" ] && [ "$(/usr/bin/shasum -a 256 < "$pinned")" = "$pinned_sum" ] \
+		|| { echo "FAIL: a shipped helper changed during the stage"; exit 1; }
+	echo "    ok ($cases cases, each exit 64 with nothing changed; the refusal by the compiled requirement is B836's, attended)"
+}
+
 if [ "$mode" = acceptance ]; then
 	acceptance_stage
 	echo "app ci --acceptance: green"
@@ -147,6 +398,13 @@ fi
 if [ "$mode" = swap-engine ]; then
 	swap_engine_stage run
 	echo "app ci --swap-engine: green"
+	exit 0
+fi
+if [ "$mode" = shipped-helper ]; then
+	tmp="$(mktemp -d)"
+	trap 'rm -rf "$tmp"' EXIT
+	shipped_helper_stage "$tmp/shipped-helper"
+	echo "app ci --shipped-helper: green"
 	exit 0
 fi
 
@@ -506,5 +764,7 @@ bash hack/verify-help.sh
 acceptance_stage
 
 swap_engine_stage
+
+shipped_helper_stage "$tmp/shipped-helper"
 
 echo "app ci: green"

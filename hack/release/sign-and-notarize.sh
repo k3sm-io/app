@@ -42,8 +42,9 @@
 #
 # runs the enumeration and the per-file sign-and-verify step over a fixture
 # bundle in a temporary directory, ad-hoc signed and checked against a
-# requirement an ad-hoc signature satisfies. It needs no identity, no notary
-# profile and no terminal, and it signs nothing outside its fixture.
+# requirement an ad-hoc signature satisfies, and checks that the swap helper
+# carries the hardened runtime and no entitlements. It needs no identity, no
+# notary profile and no terminal, and it signs nothing outside its fixture.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -211,6 +212,29 @@ PLIST
 	count_lines() { grep -cF -- "$2" <<<"$1" || true; }
 	no_match() { ! grep -Eq -- "$2" <<<"$1"; }
 	ident_is() { has_line "$(/usr/bin/codesign -dv "$1" 2>&1)" "Identifier=$2"; }
+	# has_runtime <file>: the code directory's flags carry the hardened
+	# runtime (0x10000). has_no_entitlements <file>: the signature holds no
+	# entitlements (codesign prints nothing for them).
+	has_runtime() {
+		local flags
+		flags="$(/usr/bin/codesign -dv "$1" 2>&1 | sed -n 's/^CodeDirectory .* flags=\(0x[0-9a-f]*\).*/\1/p')"
+		[ -n "$flags" ] && [ $((flags & 0x10000)) != 0 ]
+	}
+	has_no_entitlements() {
+		local out
+		out="$(/usr/bin/codesign -d --entitlements - --xml "$1" 2>/dev/null)" || return 1
+		[ -z "$out" ]
+	}
+	lacks_runtime() {
+		local flags
+		flags="$(/usr/bin/codesign -dv "$1" 2>&1 | sed -n 's/^CodeDirectory .* flags=\(0x[0-9a-f]*\).*/\1/p')"
+		[ -n "$flags" ] && [ $((flags & 0x10000)) = 0 ]
+	}
+	has_entitlements() {
+		local out
+		out="$(/usr/bin/codesign -d --entitlements - --xml "$1" 2>/dev/null)" || return 1
+		[ -n "$out" ]
+	}
 	# A signer that skips the extra executable: the hand-kept list's failure.
 	sign_all_but_extra() { [ "$(basename "$1")" = extra-tool ] || sign_one "$1"; }
 
@@ -241,6 +265,8 @@ Contents/MacOS/k3sm-app"
 	check "every file is signed by name" [ "$(count_lines "$out" "    sign Contents/")" = 7 ]
 	check "the MCP server keeps its identifier" ident_is "$app/Contents/MacOS/k3sm-mcp" io.k3sm.app.mcp
 	check "the swap helper keeps its identifier" ident_is "$app/Contents/Helpers/k3sm-app-update" io.k3sm.app.update
+	check "the swap helper carries the hardened runtime" has_runtime "$app/Contents/Helpers/k3sm-app-update"
+	check "the swap helper carries no entitlements" has_no_entitlements "$app/Contents/Helpers/k3sm-app-update"
 	check "the extra executable carries a signature that satisfies the requirement" \
 		/usr/bin/codesign --verify --strict -R="$req" "$app/Contents/MacOS/extra-tool"
 	check "the bundle seals over the signed executables" \
@@ -294,6 +320,22 @@ Contents/MacOS/k3sm-app"
 		"sign-and-notarize: refused: Contents/MacOS/extra-tool has 2 hard links; signing it could rewrite a file outside the bundle"
 	check "a hard link refusal signs nothing" [ "$(count_lines "$out" "    sign Contents/")" = 0 ]
 	rm -f "$T/outside-the-bundle"
+
+	# The two helper checks above can fail: a helper signed without the
+	# hardened runtime, and one signed with an entitlement.
+	make_fixture "$app"
+	/usr/bin/codesign --force --sign - --timestamp=none --identifier io.k3sm.app.update "$app/Contents/Helpers/k3sm-app-update" 2>/dev/null
+	check "a helper signed without the hardened runtime fails the runtime check" \
+		lacks_runtime "$app/Contents/Helpers/k3sm-app-update"
+	cat >"$T/entitled.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>com.apple.security.cs.allow-dyld-environment-variables</key><true/></dict></plist>
+PLIST
+	/usr/bin/codesign --force --sign - --timestamp=none --options runtime --entitlements "$T/entitled.plist" \
+		--identifier io.k3sm.app.update "$app/Contents/Helpers/k3sm-app-update" 2>/dev/null
+	check "a helper signed with an entitlement fails the entitlement check" \
+		has_entitlements "$app/Contents/Helpers/k3sm-app-update"
 
 	echo "sign-and-notarize self-test: $pass passed, $fail failed"
 	[ "$fail" = 0 ]

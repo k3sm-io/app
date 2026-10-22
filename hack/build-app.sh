@@ -8,7 +8,8 @@
 # Builds "k3sm.app" for arm64 and ad-hoc signs it. The bundle holds the app
 # (Contents/MacOS/k3sm-app), the read-only MCP server beside it
 # (Contents/MacOS/k3sm-mcp) and the self-update's swap helper
-# (Contents/Helpers/k3sm-app-update, signed as io.k3sm.app.update).
+# (Contents/Helpers/k3sm-app-update, signed as io.k3sm.app.update with the
+# hardened runtime and no entitlements).
 #
 #   --version <x.y.z>        stamps CFBundleShortVersionString and
 #                            CFBundleVersion, a release build. Without it
@@ -313,8 +314,11 @@ echo "==> ad-hoc sign (inside out)"
 # executable, the only code this script signs; payload binaries keep the
 # signatures stage.sh gave them, because re-signing would change the bytes the
 # manifest describes.
+# The swap helper carries the hardened runtime here as in a release
+# (sign-and-notarize.sh), so an inserted library never loads into it, and
+# hack/ci.sh --shipped-helper checks the helper this script ships.
 codesign --force --sign - --timestamp=none --identifier "$MCP_ID" "$APP/Contents/MacOS/$MCP"
-codesign --force --sign - --timestamp=none --identifier "$HELPER_ID" "$APP/Contents/Helpers/$HELPER"
+codesign --force --sign - --timestamp=none --options runtime --identifier "$HELPER_ID" "$APP/Contents/Helpers/$HELPER"
 codesign --force --sign - --timestamp=none "$APP/Contents/MacOS/$EXE"
 codesign --force --sign - --timestamp=none "$APP"
 
