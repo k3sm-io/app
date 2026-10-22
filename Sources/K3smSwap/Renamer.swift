@@ -28,16 +28,19 @@ public protocol Renamer: Sendable {
     func move(fromDir: Int32, from: String, toDir: Int32, to: String) -> Int32
 }
 
-/// SystemRenamer is the real `Renamer`.
+/// SystemRenamer is the real `Renamer`. Every rename also carries
+/// `RENAME_NOFOLLOW_ANY`, so a symlink anywhere in either name is refused
+/// rather than followed; the names are single entries of directories opened
+/// with `O_NOFOLLOW`, so that refusal only ever fires on a planted link.
 public struct SystemRenamer: Renamer {
     public init() {}
 
     public func swap(fromDir: Int32, from: String, toDir: Int32, to: String) -> Int32 {
-        renameatx_np(fromDir, from, toDir, to, UInt32(RENAME_SWAP)) == 0 ? 0 : errno
+        renameatx_np(fromDir, from, toDir, to, UInt32(RENAME_SWAP | RENAME_NOFOLLOW_ANY)) == 0 ? 0 : errno
     }
 
     public func move(fromDir: Int32, from: String, toDir: Int32, to: String) -> Int32 {
-        renameatx_np(fromDir, from, toDir, to, UInt32(RENAME_EXCL)) == 0 ? 0 : errno
+        renameatx_np(fromDir, from, toDir, to, UInt32(RENAME_EXCL | RENAME_NOFOLLOW_ANY)) == 0 ? 0 : errno
     }
 }
 

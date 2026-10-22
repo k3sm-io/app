@@ -21,7 +21,12 @@ import Foundation
 public enum HelperMode: String, Sendable, CaseIterable {
     case swap = "--swap"
     case goBack = "--go-back"
+    /// The root path's user side: launch the swapped-in app and wait for
+    /// its handshake.
     case relaunch = "--relaunch"
+    /// The root path's user side after root swapped back: launch the old
+    /// app with `--update-failed <tag>`.
+    case relaunchFailed = "--relaunch-failed"
 }
 
 /// HelperError is why the helper copy could not be installed or run.
@@ -219,6 +224,59 @@ public struct SwapClient: Sendable {
         let request = SwapRequest(mode: .goBack, target: journal.request.target, stagedName: "", expectedTag: tag,
                                   token: SwapRequest.newToken(), app: app)
         try begin(request, mode: .goBack)
+    }
+
+    /// Whether this account cannot rename in `target`'s directory, so the
+    /// update must take the administrator path (`beginAdministratorUpdate`)
+    /// and be staged at `SwapPaths.userStagedForRoot`. The app decides this
+    /// before it stages anything; a standard user cannot write
+    /// `/Applications`. It is advice for the choice, never a check of
+    /// safety: the root step makes its own.
+    public func requiresAdministrator(target: String) -> Bool {
+        access((target as NSString).deletingLastPathComponent, W_OK) != 0
+    }
+
+    /// AdministratorTicket is what the root step (`AppSwapScriptBuilder`)
+    /// carries: three integers and nothing else.
+    public struct AdministratorTicket: Equatable, Sendable {
+        /// This account's uid, which root requires to be the console user.
+        public let uid: UInt32
+        /// The app's pid, which root waits on.
+        public let appPid: Int32
+        /// The app's start time in microseconds, which binds the pid.
+        public let appStart: UInt64
+    }
+
+    /// Prepares the standard-user root path for the bundle staged at
+    /// `SwapPaths.userStagedForRoot`, which carries `expectedTag`: writes a
+    /// `rootUpdate` request for the first allowed target
+    /// (`/Applications/k3sm.app`) and installs this account's verified
+    /// helper copy, which root later runs as this account for the launch.
+    /// It starts nothing; the app then runs the root step with the ticket
+    /// and quits once that step returns 0.
+    public func beginAdministratorUpdate(expectedTag: String) throws(StartError) -> AdministratorTicket {
+        guard let target = paths.allowedTargets.first else { throw .request }
+        if let refusal = paths.refusal(target: target) { throw .refused(refusal) }
+        guard SwapVolume.supportsRenameSwap(path: (target as NSString).deletingLastPathComponent) == true else {
+            throw .refused(.unsupportedVolume)
+        }
+        var st = stat()
+        guard SwapTag.isReleaseTag(expectedTag), lstat(paths.userStagedForRoot, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR,
+              let app = ProcessIdentity.current(), let start = app.start.packedMicroseconds
+        else { throw .request }
+        var journal = SwapJournal(request: SwapRequest(mode: .rootUpdate, target: target, stagedName: "", expectedTag: expectedTag,
+                                                       token: SwapRequest.newToken(), app: app))
+        journal.outgoingTag = InstalledRelease.read(bundleAt: target)?.tag
+        let store = JournalStore(paths: paths)
+        guard (try? store.prepare()) != nil else { throw .request }
+        guard !store.isLockHeld() else { throw .busy }
+        guard (try? store.write(journal)) != nil else { throw .request }
+        do {
+            try spawner.installHelperCopy(from: bundledHelper)
+        } catch {
+            throw .helper(error)
+        }
+        return AdministratorTicket(uid: UInt32(getuid()), appPid: app.pid, appStart: start)
     }
 
     private func begin(_ request: SwapRequest, mode: HelperMode) throws(StartError) {

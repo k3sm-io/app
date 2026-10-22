@@ -164,28 +164,77 @@ public struct SwapEngine: Sendable {
         finish(mode: .goBack)
     }
 
-    /// Launches the target and waits for its handshake, with no rename and
-    /// no swap back: the user-side half of the administrator path, which
-    /// swapped as root. The journal is read for the token and the tags and
-    /// is not written.
+    /// The root path's user side, run as this account by the root helper
+    /// after its swap (`RootSwapEngine`): launches the target and waits for
+    /// the handshake, with no rename and no swap back, which are root's.
+    /// Only a `rootUpdate` journal at `staged` is taken, and only when the
+    /// target now carries the requested tag. The journal moves to
+    /// `launched`, then `committed` with the handshake, when the staged
+    /// copy root read is removed; without one the new app is terminated,
+    /// the reason is `abandoned`, and the non-zero status tells root to
+    /// swap back.
     public func relaunch() -> SwapExit {
         let store = JournalStore(paths: paths)
         guard let lock = store.lock() else { return store.privateDirectoryIsSafe() ? .busy : .refusedRequest }
         defer { lock.release() }
-        guard let journal = try? store.read(), !journal.state.isTerminal, journal.namesAreValid, validate(journal.request) else {
-            return .refusedRequest
-        }
+        guard var journal = try? store.read(), journal.request.mode == .rootUpdate, journal.state == .staged,
+              journal.namesAreValid, validate(journal.request)
+        else { return .refusedRequest }
         let target = journal.request.target
         guard let post = try? verifier.verify(bundleAt: target, requireTag: true), post.tag == journal.request.expectedTag
-        else { return .verificationFailed }
+        else {
+            journal.reason = .verificationFailed
+            _ = try? store.write(journal)
+            return .verificationFailed
+        }
         let check = HandshakeCheck(paths: paths, requirement: requirement)
         check.clear()
         var arguments = [SwapLaunchArguments.handshake]
         if let old = journal.outgoingTag { arguments = [SwapLaunchArguments.updatedFrom, old] + arguments }
-        guard let launched = try? launcher.launch(bundleAt: target, arguments: arguments) else { return .abandoned }
+        journal.state = .launched
+        _ = try? store.write(journal)
+        guard let launched = try? launcher.launch(bundleAt: target, arguments: arguments) else {
+            journal.reason = .abandoned
+            _ = try? store.write(journal)
+            return .abandoned
+        }
+        journal.launched = launched
+        _ = try? store.write(journal)
         let accepted = awaitHandshake(check: check, token: journal.request.token, launched: launched, cdhash: post.cdhash)
         SwapLog.handshake(accepted: accepted)
-        return accepted ? .committed : .abandoned
+        guard accepted else {
+            terminate(launched)
+            journal.reason = .abandoned
+            _ = try? store.write(journal)
+            return .abandoned
+        }
+        journal.state = .committed
+        journal.reason = nil
+        _ = try? store.write(journal)
+        check.clear()
+        if let privateFD = FileOps.openDirectory(paths.privateDirectory) {
+            FileOps.removeTree(at: privateFD, (paths.userStagedForRootDirectory as NSString).lastPathComponent)
+            close(privateFD)
+        }
+        return .committed
+    }
+
+    /// The root path's user side after root swapped the old bundle back:
+    /// launches the target, which holds the old app again, with
+    /// `--update-failed <tag>`, and closes the journal as `rolledBack`.
+    /// Only a `rootUpdate` journal that is not closed is taken.
+    public func relaunchFailed() -> SwapExit {
+        let store = JournalStore(paths: paths)
+        guard let lock = store.lock() else { return store.privateDirectoryIsSafe() ? .busy : .refusedRequest }
+        defer { lock.release() }
+        guard var journal = try? store.read(), journal.request.mode == .rootUpdate, !journal.state.isTerminal,
+              journal.namesAreValid, validate(journal.request)
+        else { return .refusedRequest }
+        relaunchOriginal(journal.request)
+        journal.state = .rolledBack
+        journal.reason = .rolledBack
+        _ = try? store.write(journal)
+        return .rolledBack
     }
 
     private func finish(mode: SwapMode) -> SwapExit {
@@ -244,6 +293,7 @@ public struct SwapEngine: Sendable {
         switch request.mode {
         case .update: return SwapPaths.isStagingName(request.stagedName)
         case .goBack: return request.stagedName.isEmpty
+        case .rootUpdate: return request.stagedName.isEmpty && request.target == paths.allowedTargets.first
         }
     }
 
@@ -284,6 +334,9 @@ public struct SwapEngine: Sendable {
             incoming = Slot(dirFD: fd, dirPath: parentPath + "/" + request.stagedName, name: SwapPaths.bundleName)
         case .goBack:
             incoming = Slot(dirFD: previousFD, dirPath: paths.previousDirectory, name: SwapPaths.previousName(tag: request.expectedTag))
+        case .rootUpdate:
+            // Root's to run; `run` takes only the mode it was asked for.
+            return .refusedRequest
         }
         guard FileOps.isDirectory(at: incoming.dirFD, incoming.name) else { return .refusedRequest }
         var run = Run(journal: journal, store: store, target: targetSlot, previousFD: previousFD, incoming: incoming,
@@ -510,6 +563,8 @@ public struct SwapEngine: Sendable {
             if outgoing.name != run.incoming.name || outgoing.dirFD != run.incoming.dirFD {
                 _ = renamer.move(fromDir: outgoing.dirFD, from: outgoing.name, toDir: run.incoming.dirFD, to: run.incoming.name)
             }
+        case .rootUpdate:
+            break
         }
         SwapLog.rollback(succeeded: true)
         relaunchOriginal(request)
@@ -553,6 +608,8 @@ public struct SwapEngine: Sendable {
         case .goBack:
             guard JournalStore.ownedPrivateDirectory(paths.previousDirectory), FileOps.isPrivateTree(at: slot.dirFD, slot.name)
             else { return nil }
+        case .rootUpdate:
+            return nil
         }
         guard let verified = try? verifier.verify(bundleAt: slot.path, requireTag: request.mode == .update),
               verified.identity == slot.identity
@@ -569,6 +626,8 @@ public struct SwapEngine: Sendable {
                   record.installedTag == installed.tag, record.installedCDHash == FileOps.hex(installedCode.cdhash),
                   request.expectedTag != installed.tag
             else { return nil }
+        case .rootUpdate:
+            return nil
         }
         return verified
     }

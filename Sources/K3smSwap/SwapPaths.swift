@@ -16,6 +16,7 @@ limitations under the License.
 
 import Darwin
 import Foundation
+import K3smInstall
 import K3smStatus
 
 /// SwapPaths is every location a self-update touches, derived from the
@@ -47,7 +48,7 @@ public struct SwapPaths: Equatable, Sendable {
     public static let lockName = "lock"
     public static let helperName = "k3sm-app-update"
     /// The helper inside the app bundle.
-    public static let bundledHelperPath = "Contents/Helpers/k3sm-app-update"
+    public static let bundledHelperPath = AppSwapPaths.bundledHelper
     /// The previous copy's name pattern: `k3sm-<tag>.previous`.
     public static let previousPrefix = "k3sm-"
     public static let previousSuffix = ".previous"
@@ -66,10 +67,18 @@ public struct SwapPaths: Equatable, Sendable {
     /// Paths for the account running this process, from its passwd entry;
     /// nil when there is none or its home is not an absolute path.
     public static func forCurrentUser() -> SwapPaths? {
-        guard let entry = getpwuid(getuid()), let dir = entry.pointee.pw_dir else { return nil }
+        forAccount(uid: getuid())
+    }
+
+    /// Paths for the account `uid`, from its passwd entry, never from the
+    /// environment; nil when there is none or its home is not an absolute
+    /// path. The helper's root mode derives the console user's paths this
+    /// way from the uid the root step carries.
+    public static func forAccount(uid: uid_t) -> SwapPaths? {
+        guard let entry = getpwuid(uid), let dir = entry.pointee.pw_dir else { return nil }
         let home = String(cString: dir)
-        guard home.hasPrefix("/"), home.count > 1, !home.contains("/../") else { return nil }
-        return SwapPaths(home: home, applicationsRoots: ["/Applications", home + "/Applications"])
+        guard home.hasPrefix("/"), home.count > 1, !home.contains("/../"), !home.hasSuffix("/..") else { return nil }
+        return SwapPaths(home: home, applicationsRoots: [AppSwapPaths.applications, home + "/Applications"])
     }
 
     /// The app's support directory, which holds `update` and `previous`.
@@ -87,6 +96,20 @@ public struct SwapPaths: Equatable, Sendable {
     /// (`PreviousRecord`).
     public var previousRecordPath: String { privateDirectory + "/" + Self.previousRecordName }
     public static let previousRecordName = "previous.json"
+
+    /// Where the app stages the new bundle for the standard-user root path:
+    /// `staged/k3sm.app` in the private directory, the fixed home-relative
+    /// path `AppSwapPaths.userStagedRelative`. Root derives it from the
+    /// console user's passwd entry and takes it from no request.
+    public var userStagedForRoot: String { home + "/" + AppSwapPaths.userStagedRelative }
+    /// The directory holding `userStagedForRoot`.
+    public var userStagedForRootDirectory: String { (userStagedForRoot as NSString).deletingLastPathComponent }
+    /// The root path's work directory (`AppSwapPaths.workDirectory`).
+    public static let rootWorkDirectory = AppSwapPaths.workDirectory
+    /// The root path's previous root, inside its work directory.
+    public static let rootPreviousDirectory = AppSwapPaths.workDirectory + "/" + AppSwapPaths.previousName
+    /// The root path's stage name inside its work directory.
+    public static let rootStagingName = AppSwapPaths.stageName
 
     /// The targets a request may name, exactly.
     public var allowedTargets: [String] { applicationsRoots.map { $0 + "/" + Self.bundleName } }

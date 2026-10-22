@@ -23,6 +23,13 @@ public enum SwapMode: String, Codable, Sendable {
     case update
     /// Put the kept previous copy back in place of the installed bundle.
     case goBack
+    /// The standard-user root path: root replaces `/Applications/k3sm.app`
+    /// with the bundle staged at `SwapPaths.userStagedForRoot`, then runs
+    /// this account's helper copy as this account for the launch
+    /// (`--relaunch`) or, after a swap back, for the old app's launch
+    /// (`--relaunch-failed`). The request names no staging directory; root
+    /// reads nothing from it.
+    case rootUpdate
 }
 
 /// ProcessStart is a process's start time, which, with its pid, names one
@@ -34,6 +41,22 @@ public struct ProcessStart: Codable, Hashable, Sendable {
     public init(seconds: UInt64, microseconds: UInt64) {
         self.seconds = seconds
         self.microseconds = microseconds
+    }
+
+    /// The start time as one integer of microseconds, the form the root
+    /// step carries it in; nil when it does not fit.
+    public var packedMicroseconds: UInt64? {
+        guard microseconds < 1_000_000 else { return nil }
+        let (scaled, overflow) = seconds.multipliedReportingOverflow(by: 1_000_000)
+        guard !overflow else { return nil }
+        let (sum, carry) = scaled.addingReportingOverflow(microseconds)
+        return carry ? nil : sum
+    }
+
+    /// The start time from `packedMicroseconds`.
+    public init(packedMicroseconds value: UInt64) {
+        seconds = value / 1_000_000
+        microseconds = value % 1_000_000
     }
 }
 
@@ -182,7 +205,7 @@ public struct SwapJournal: Codable, Equatable, Sendable {
         else { return false }
         switch request.mode {
         case .update: return SwapPaths.isStagingName(request.stagedName)
-        case .goBack: return request.stagedName.isEmpty
+        case .goBack, .rootUpdate: return request.stagedName.isEmpty
         }
     }
 }
@@ -203,15 +226,16 @@ public struct SwapJournal: Codable, Equatable, Sendable {
 /// record itself names, which is what a floor lowered after the fact looks
 /// like.
 ///
-/// The record lives in the private directory, and it stays writable by a
-/// process running as this account. The floor therefore stops a stray or
-/// partial rewrite, and a rewrite that changes only the target or only the
-/// floor; it does not stop a process that rewrites both consistently to an
-/// older Developer ID signed release of this team, which an administrator
-/// account's process can also copy into /Applications directly. Two
-/// follow-ups close that: a root-owned record on the standard-user root
-/// path (B831), and a minimum-supported tag carried in the signed release
-/// index (B827), so a forged record cannot lower the floor.
+/// On the user path the record lives in the private directory, and it
+/// stays writable by a process running as this account. The floor therefore
+/// stops a stray or partial rewrite, and a rewrite that changes only the
+/// target or only the floor; it does not stop a process that rewrites both
+/// consistently to an older Developer ID signed release of this team, which
+/// an administrator account's process can also copy into /Applications
+/// directly. A minimum-supported tag carried in the signed release index
+/// closes that, so a forged record cannot lower the floor. The standard-user
+/// root path (`RootSwapEngine`) writes the same record root-owned, 0600, in
+/// root's work directory, where this account cannot rewrite it.
 public struct PreviousRecord: Codable, Equatable, Sendable {
     public var name: String
     public var tag: String

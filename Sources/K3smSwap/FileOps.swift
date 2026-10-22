@@ -159,6 +159,11 @@ enum FileOps {
     static func read(_ path: String, check: ReadCheck) -> Data? {
         let fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { return nil }
+        return read(fd: fd, check: check)
+    }
+
+    /// Reads the open file `fd` after the checks, and closes it.
+    private static func read(fd: Int32, check: ReadCheck) -> Data? {
         defer { close(fd) }
         var st = stat()
         guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, Int(st.st_size) <= check.limit else { return nil }
@@ -177,6 +182,26 @@ enum FileOps {
             return true
         }
         return ok ? data : nil
+    }
+
+    /// Reads a regular file at `components` below `dirFD`: every directory
+    /// opened with `O_NOFOLLOW | O_DIRECTORY`, the file with `O_NOFOLLOW`,
+    /// then checked as `read(_:check:)` checks. Nil on any failure.
+    static func read(at dirFD: Int32, components: [String], check: ReadCheck) -> Data? {
+        guard let file = components.last, !components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." || $0.contains("/") })
+        else { return nil }
+        var current = dup(dirFD)
+        guard current >= 0 else { return nil }
+        for name in components.dropLast() {
+            let next = openDirectory(at: current, name)
+            close(current)
+            guard let next else { return nil }
+            current = next
+        }
+        defer { close(current) }
+        let fd = openat(current, file, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        return read(fd: fd, check: check)
     }
 
     /// Writes `data` to `name` in `dirFD` the durable way: a new temporary

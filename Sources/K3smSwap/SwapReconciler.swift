@@ -101,6 +101,14 @@ public struct SwapReconciler: Sendable {
         let holdsOriginal = facts.atTarget != nil && facts.atTarget == journal.original
         let runningIsIncoming = facts.runningSelfCheck && facts.runningTag == journal.request.expectedTag
         let unconfirmed: ReconcileAction = runningIsIncoming ? .commit : (facts.outgoingVerifies ? .swapBack : .leave)
+        if journal.request.mode == .rootUpdate {
+            // Root renamed the bundles and kept the old one where this
+            // account cannot reach it: an open journal is only closed, as
+            // committed when this app is the requested release, else as
+            // rolled back. Nothing is renamed or removed.
+            if journal.state.isTerminal { return .nothing }
+            return runningIsIncoming ? .commit : .discard
+        }
         switch journal.state {
         case .committed:
             return .nothing
@@ -193,7 +201,7 @@ public struct SwapReconciler: Sendable {
                 // A crash between the record and the swap leaves a record
                 // that names a copy which was never kept: the record in
                 // force before the swap comes back, or none.
-                if journal.state == .swapped || journal.state == .launched {
+                if journal.request.mode != .rootUpdate, journal.state == .swapped || journal.state == .launched {
                     store.writeRecord(journal.priorRecord)
                 }
             }
@@ -260,6 +268,8 @@ public struct SwapReconciler: Sendable {
             FileOps.removeTree(at: previousFD, name)
         case .goBack:
             _ = renamer.move(fromDir: previousFD, from: name, toDir: previousFD, to: SwapPaths.previousName(tag: journal.request.expectedTag))
+        case .rootUpdate:
+            break
         }
     }
 }

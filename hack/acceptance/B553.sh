@@ -129,11 +129,11 @@ lc="Sources/K3smInstall/Lifecycle.swift"
 grep -qF 'case .lanOn: return ["network", "lan", "on"]' "$lc" || { echo "FAIL: $lc lost the constant lan-on argv"; exit 1; }
 grep -qF 'case .lanOff: return ["network", "lan", "off"]' "$lc" || { echo "FAIL: $lc lost the constant lan-off argv"; exit 1; }
 # The root scripts are the copy-out, the lifecycle script (which the LAN verbs
-# use) and the join token mint, each built in one place; the LAN feature adds
-# none of its own.
+# use), the join token mint and the app swap's root step, each built in one
+# place; the LAN feature adds none of its own.
 got="$(grep -rc 'RootScript(text:' Sources | grep -v ':0$' | sort | tr '\n' ' ')"
-want="Sources/K3smInstall/JoinTokenMint.swift:1 Sources/K3smInstall/Lifecycle.swift:1 Sources/K3smInstall/RootScript.swift:1 "
-[ "$got" = "$want" ] || { echo "FAIL: RootScript constructions in Sources are '$got'; want '$want' (the copy-out, the lifecycle script and the join token mint)"; exit 1; }
+want="Sources/K3smInstall/AppSwapScript.swift:1 Sources/K3smInstall/JoinTokenMint.swift:1 Sources/K3smInstall/Lifecycle.swift:1 Sources/K3smInstall/RootScript.swift:1 "
+[ "$got" = "$want" ] || { echo "FAIL: RootScript constructions in Sources are '$got'; want '$want' (the copy-out, the lifecycle script, the join token mint and the app swap)"; exit 1; }
 grep -qE 'LifecycleScriptBuilder\.render\([A-Za-z]+, teamID: teamID\)' Sources/K3smInstall/LANAccess.swift \
 	|| { echo "FAIL: the LAN driver does not run the lifecycle script"; exit 1; }
 echo "    ok"
