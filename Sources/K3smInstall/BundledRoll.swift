@@ -377,9 +377,16 @@ public enum BundledRollOutcome {
 /// credentials, which need not name the cluster the root step updated. So
 /// every claim the driver makes rests on what it read of the Update the
 /// root step created (`UpdateIdentity`): "bound" only on a `ResolvedPinned`
-/// reading of it, "cancelled" only on a Cancelled or finished reading of it
-/// after a cancel. Anything else is reported as unconfirmed, with the
-/// Terminal command that checks the server itself.
+/// reading of it, "cancelled" only on a Cancelled reading of it after a
+/// cancel. An Update that finished as Succeeded or Failed first has its own
+/// sentence, because nodes may have started. Anything else is reported as
+/// unconfirmed, with the Terminal command that checks the server itself.
+///
+/// Residual: name plus release tag can match an Update on a different
+/// cluster that the user's kubeconfig reaches, so "bound" and "cancelled"
+/// are status messages about whichever cluster was read, not a trust claim.
+/// The control is the server-side `k3sm.io/release-pin-required` annotation
+/// (k3sm#806), whose removal needs cluster-admin.
 public struct BundledRollDriver: Sendable {
     /// The Resolved condition, and the reasons the controller gives it
     /// (`pkg/updatectl` `ConditionResolved`, `ReasonResolvedPinned`,
@@ -394,7 +401,11 @@ public struct BundledRollDriver: Sendable {
     /// The Update the root step created. `k3sm update apply` keeps one
     /// Update, named `current` (`updatesv1alpha1.UpdateName`), and
     /// `k3sm update status -o json` gives its name and version but no uid, so
-    /// these two, with the pre-run reading set aside, are the identity.
+    /// these two, with the pre-run reading set aside, are the identity. They
+    /// can match an Update on another cluster the user's kubeconfig reaches,
+    /// so a match is a status message, not a trust claim; the control is the
+    /// server's `k3sm.io/release-pin-required` annotation (k3sm#806), whose
+    /// removal needs cluster-admin.
     public struct UpdateIdentity: Equatable, Sendable {
         /// `updatesv1alpha1.UpdateName`.
         public static let createdName = "current"
@@ -554,20 +565,52 @@ public struct BundledRollDriver: Sendable {
     /// take effect. "Cancelled" is said only after a reading of the same
     /// Update shows it Cancelled or finished.
     func cancelUnbound(identity: UpdateIdentity, before: UpdateStatus?) async -> String {
-        if await cancelUnprivileged(), await cancelSeen(identity: identity, before: before) { return Self.unboundCancelled }
+        if await cancelUnprivileged() {
+            let seen = await cancelSeen(identity: identity, before: before)
+            if let sentence = seen.sentence { return sentence }
+        }
         let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(.updateCancel, teamID: teamID), input: nil)
         guard run.outcome == .succeeded else { return Self.unboundNotCancelled }
-        return await cancelSeen(identity: identity, before: before) ? Self.unboundCancelled : Self.unboundCancelUnconfirmed
+        return await cancelSeen(identity: identity, before: before).sentence ?? Self.unboundCancelUnconfirmed
     }
 
-    /// Whether a reading of the created Update shows it Cancelled or
-    /// finished, within `cancelConfirmReads` reads.
-    func cancelSeen(identity: UpdateIdentity, before: UpdateStatus?) async -> Bool {
+    /// What a re-read of the created Update showed after a cancel.
+    enum CancelSeen: Equatable {
+        /// Phase Cancelled: nothing more ran.
+        case cancelled
+        /// It finished some other way (Succeeded, Failed) before the cancel
+        /// landed, so nodes may have started. Never reported as cancelled.
+        case endedBeforeCancel(UpdatePhase)
+        /// No reading of it showed an end.
+        case unseen
+
+        /// The sentence for this reading; nil when nothing was confirmed.
+        var sentence: String? {
+            switch self {
+            case .cancelled: return BundledRollDriver.unboundCancelled
+            case .endedBeforeCancel(let phase): return BundledRollDriver.endedBeforeCancel(phase)
+            case .unseen: return nil
+            }
+        }
+    }
+
+    /// The sentence for an Update that finished as `phase` before the cancel
+    /// landed. The phase word is the CLI's own and is shown cleaned.
+    static func endedBeforeCancel(_ phase: UpdatePhase) -> String {
+        let how = phase == .succeeded ? "succeeded" : (phase == .failed ? "failed" : "ended as \(StatusDisplay.clip(phase.word))")
+        return "The update was not bound to this app's release, and it \(how) before k3sm's cancel took effect, so nodes may have been updated. "
+            + "Run `sudo k3sm update status` in Terminal to see what it did."
+    }
+
+    /// Whether a reading of the created Update shows it Cancelled, or
+    /// finished another way, within `cancelConfirmReads` reads.
+    func cancelSeen(identity: UpdateIdentity, before: UpdateStatus?) async -> CancelSeen {
         for read in 0..<Self.cancelConfirmReads {
             if read > 0 { await sleep(Self.watchInterval) }
             guard let status = await readUpdate(), Self.created(status, identity: identity, before: before) else { continue }
-            if status.phase == .cancelled || status.finished { return true }
+            if status.phase == .cancelled { return .cancelled }
+            if status.finished { return .endedBeforeCancel(status.phase) }
         }
-        return false
+        return .unseen
     }
 }

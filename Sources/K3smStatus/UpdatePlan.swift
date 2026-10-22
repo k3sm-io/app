@@ -611,6 +611,8 @@ public enum BundledRollSupport {
     /// pre-release outside `-rc.N`, a git-describe, modified or developer
     /// build's version, or text that does not parse. Such a build may lack
     /// the pin whatever number it carries, so it is never trusted to have it.
+    /// The installed tag is the CLI's self-report, bounded by the strict
+    /// grammar: a hint that decides what the app offers, not a trust anchor.
     public static func hasPin(tag: String?) -> Bool {
         guard let tag, isReleaseTag(tag), let version = SemanticVersion(tag) else { return false }
         return version > lastReleaseWithoutPin

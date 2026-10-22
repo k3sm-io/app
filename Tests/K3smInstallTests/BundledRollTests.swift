@@ -560,6 +560,20 @@ struct BundledRollTests {
             == .ran(.started, .succeeded, BundledRollDriver.unboundCancelUnconfirmed))
     }
 
+    @Test("an Update that finished Succeeded or Failed before the cancel landed is never said cancelled")
+    func finishedBeforeCancel() async throws {
+        for phase in [UpdatePhase.succeeded, .failed] {
+            let ended = UpdateStatus(phase: phase, version: "v0.1.9", finished: true)
+            let reads = Reads([Self.report(), Self.report()], nodes: [Self.nodes(), Self.nodes()],
+                              updates: [nil, Self.resolved("Resolved"), ended])
+            let result = await Self.driver(reads, runner: LANRunner()).apply(tag: "v0.1.9")
+            #expect(result == .ran(.started, .succeeded, BundledRollDriver.endedBeforeCancel(phase)))
+            #expect(BundledRollDriver.endedBeforeCancel(phase) != BundledRollDriver.unboundCancelled)
+            #expect(BundledRollDriver.endedBeforeCancel(phase).contains(phase == .succeeded ? "succeeded" : "failed"))
+            #expect(BundledRollDriver.endedBeforeCancel(phase).contains("nodes may have been updated"))
+        }
+    }
+
     @Test("an unpinned resolve the user cannot cancel is cancelled as root")
     func unpinnedCancelledAsRoot() async throws {
         let reads = Reads([Self.report(), Self.report()], nodes: [Self.nodes(), Self.nodes()],
