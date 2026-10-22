@@ -91,8 +91,10 @@ public enum StoredHighWater: Equatable, Sendable {
 /// AppUpdateAcceptance is the check a verified release index passes before
 /// the app believes it, beyond its signature: the index's `issuedAt` is no
 /// later than the attested signing time plus `maxIssuedAfterSigning`, and the
-/// index is not older than the highest one already accepted. The signing
-/// time is the timestamp authority's, never this Mac's clock.
+/// index is not older than the highest one already accepted. An index below
+/// the running bundle's own sealed tag is not newer and is never stored, so
+/// the stored mark never falls behind the running bundle. The signing time
+/// is the timestamp authority's, never this Mac's clock.
 public enum AppUpdateAcceptance {
     /// How far the index's own `issuedAt` may run past the attested signing
     /// time: ten minutes, room for a release host's clock drift between
@@ -126,27 +128,33 @@ public enum AppUpdateAcceptance {
         /// Accepted; the pair is the new high-water mark (the stored one,
         /// unchanged, when the index is the same one fetched again).
         case accepted(AppIndexHighWater)
+        /// Verified and not a replay of the stored mark, but below the
+        /// running bundle's own tag: not newer, so it is shown as "this build
+        /// is newer" and never stored.
+        case belowRunning
         case refused(Refusal)
     }
 
     /// The acceptance check, in order: the `issuedAt` bound, then the
-    /// monotonic `(tag, issuedAt)` floor against `stored`. A lower tag is
-    /// refused; the same tag with an older `issuedAt` is refused; the same
-    /// pair is accepted (a fetch of the same index); anything above it is
-    /// accepted and becomes the new mark.
-    public static func accept(tag: String, issuedAt: Date, signedAt: Date, stored: AppIndexHighWater?) -> Verdict {
+    /// monotonic `(tag, issuedAt)` floor against `stored`, then the running
+    /// bundle's sealed `ownTag`. A lower tag than the stored one is refused;
+    /// the same tag with an older `issuedAt` is refused; a tag below `ownTag`
+    /// is `belowRunning`; the same pair is accepted (a fetch of the same
+    /// index); anything above it is accepted and becomes the new mark.
+    public static func accept(tag: String, issuedAt: Date, signedAt: Date, stored: AppIndexHighWater?,
+                              ownTag: String?) -> Verdict {
         let limit = signedAt.addingTimeInterval(maxIssuedAfterSigning)
         guard issuedAt <= limit else {
             let ahead = issuedAt.timeIntervalSince(signedAt)
             return .refused(.issuedAfterSigning(seconds: ahead.isFinite ? Int(min(ahead, 1e12).rounded(.up)) : Int.max))
         }
         guard let pair = AppIndexHighWater(tag: tag, issuedAt: issuedAt) else { return .refused(.tag) }
-        guard let stored else { return .accepted(pair) }
-        if pair.version < stored.version { return .refused(.olderRelease(accepted: stored.tag)) }
-        if pair.version == stored.version {
-            if issuedAt < stored.issuedAt { return .refused(.olderIndex) }
-            if issuedAt == stored.issuedAt { return .accepted(stored) }
+        if let stored {
+            if pair.version < stored.version { return .refused(.olderRelease(accepted: stored.tag)) }
+            if pair.version == stored.version, issuedAt < stored.issuedAt { return .refused(.olderIndex) }
         }
+        if let own = ownTag.flatMap(AppVersion.releaseTagVersion), pair.version < own { return .belowRunning }
+        if let stored, pair.version == stored.version, issuedAt == stored.issuedAt { return .accepted(stored) }
         return .accepted(pair)
     }
 }
@@ -210,6 +218,32 @@ public enum AppUpdateState: Equatable, Sendable {
         case .couldNotCheck(let reason): "Could not check for updates: " + StatusDisplay.errorText(reason)
         case .checksOff: "Automatic update checks are off."
         case .notCheckedYet: "Not checked yet."
+        }
+    }
+
+    /// The case's name, for the log: never the line, which can carry a
+    /// failure's text.
+    public var caseName: String {
+        switch self {
+        case .upToDate: "upToDate"
+        case .available: "available"
+        case .downloading: "downloading"
+        case .verifying: "verifying"
+        case .buildIsNewer: "buildIsNewer"
+        case .development: "development"
+        case .requiresNewerMacOS: "requiresNewerMacOS"
+        case .couldNotCheck: "couldNotCheck"
+        case .checksOff: "checksOff"
+        case .notCheckedYet: "notCheckedYet"
+        }
+    }
+
+    /// The index tag the state names, for the log; nil when it names none.
+    public var logTag: String? {
+        switch self {
+        case .upToDate(let tag), .available(let tag): tag
+        case .buildIsNewer(_, let latest): latest
+        default: nil
         }
     }
 

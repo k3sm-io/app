@@ -111,37 +111,52 @@ struct AppUpdateStateTests {
         let skew = AppUpdateAcceptance.maxIssuedAfterSigning
         #expect(skew == 600)
         // issuedAt exactly at signedAt + skew is accepted; one second past is refused.
-        #expect(AppUpdateAcceptance.accept(tag: "v0.2.0", issuedAt: t0.addingTimeInterval(skew), signedAt: t0, stored: nil)
+        #expect(AppUpdateAcceptance.accept(tag: "v0.2.0", issuedAt: t0.addingTimeInterval(skew), signedAt: t0, stored: nil, ownTag: nil)
             == .accepted(Self.pair("v0.2.0", t0.addingTimeInterval(skew))))
-        #expect(AppUpdateAcceptance.accept(tag: "v0.2.0", issuedAt: t0.addingTimeInterval(skew + 1), signedAt: t0, stored: nil)
+        #expect(AppUpdateAcceptance.accept(tag: "v0.2.0", issuedAt: t0.addingTimeInterval(skew + 1), signedAt: t0, stored: nil, ownTag: nil)
             == .refused(.issuedAfterSigning(seconds: 601)))
         // An index dated far before its signature is fine (re-signed later).
-        #expect(AppUpdateAcceptance.accept(tag: "v0.2.0", issuedAt: t0.addingTimeInterval(-86_400 * 30), signedAt: t0, stored: nil)
+        #expect(AppUpdateAcceptance.accept(tag: "v0.2.0", issuedAt: t0.addingTimeInterval(-86_400 * 30), signedAt: t0, stored: nil, ownTag: nil)
             == .accepted(Self.pair("v0.2.0", t0.addingTimeInterval(-86_400 * 30))))
         // The bound is checked before the floor.
-        #expect(AppUpdateAcceptance.accept(tag: "v0.1.0", issuedAt: .distantFuture, signedAt: t0, stored: Self.pair("v0.3.0"))
+        #expect(AppUpdateAcceptance.accept(tag: "v0.1.0", issuedAt: .distantFuture, signedAt: t0, stored: Self.pair("v0.3.0"), ownTag: nil)
             .isRefusedForSkew)
 
         let stored = Self.pair("v0.3.0")
         // A lower tag is refused, whatever its issuedAt.
-        #expect(AppUpdateAcceptance.accept(tag: "v0.2.9", issuedAt: t0.addingTimeInterval(500), signedAt: t0.addingTimeInterval(500), stored: stored)
+        #expect(AppUpdateAcceptance.accept(tag: "v0.2.9", issuedAt: t0.addingTimeInterval(500), signedAt: t0.addingTimeInterval(500), stored: stored, ownTag: nil)
             == .refused(.olderRelease(accepted: "v0.3.0")))
         // The same tag with an older issuedAt is refused.
-        #expect(AppUpdateAcceptance.accept(tag: "v0.3.0", issuedAt: t0.addingTimeInterval(-1), signedAt: t0, stored: stored)
+        #expect(AppUpdateAcceptance.accept(tag: "v0.3.0", issuedAt: t0.addingTimeInterval(-1), signedAt: t0, stored: stored, ownTag: nil)
             == .refused(.olderIndex))
         // The same pair is accepted and leaves the mark as it is (a re-fetch).
-        #expect(AppUpdateAcceptance.accept(tag: "v0.3.0", issuedAt: t0, signedAt: t0, stored: stored) == .accepted(stored))
+        #expect(AppUpdateAcceptance.accept(tag: "v0.3.0", issuedAt: t0, signedAt: t0, stored: stored, ownTag: nil) == .accepted(stored))
         // The same tag, re-issued later, raises the mark.
-        #expect(AppUpdateAcceptance.accept(tag: "v0.3.0", issuedAt: t0.addingTimeInterval(60), signedAt: t0.addingTimeInterval(60), stored: stored)
+        #expect(AppUpdateAcceptance.accept(tag: "v0.3.0", issuedAt: t0.addingTimeInterval(60), signedAt: t0.addingTimeInterval(60), stored: stored, ownTag: nil)
             == .accepted(Self.pair("v0.3.0", t0.addingTimeInterval(60))))
         // A higher tag with an older issuedAt is still higher: the pair is lexicographic.
-        #expect(AppUpdateAcceptance.accept(tag: "v0.3.1", issuedAt: t0.addingTimeInterval(-60), signedAt: t0, stored: stored)
+        #expect(AppUpdateAcceptance.accept(tag: "v0.3.1", issuedAt: t0.addingTimeInterval(-60), signedAt: t0, stored: stored, ownTag: nil)
             == .accepted(Self.pair("v0.3.1", t0.addingTimeInterval(-60))))
         // Semver, not text: v0.10.0 is above v0.9.0.
-        #expect(AppUpdateAcceptance.accept(tag: "v0.10.0", issuedAt: t0, signedAt: t0, stored: Self.pair("v0.9.0"))
+        #expect(AppUpdateAcceptance.accept(tag: "v0.10.0", issuedAt: t0, signedAt: t0, stored: Self.pair("v0.9.0"), ownTag: nil)
             == .accepted(Self.pair("v0.10.0")))
+        // An index below the running bundle's own tag is not newer and is
+        // never stored, so the mark cannot fall behind the running bundle;
+        // a replay below the stored mark is still refused first.
+        #expect(AppUpdateAcceptance.accept(tag: "v0.2.0", issuedAt: t0, signedAt: t0, stored: nil, ownTag: "v0.3.0")
+            == .belowRunning)
+        #expect(AppUpdateAcceptance.accept(tag: "v0.2.9", issuedAt: t0, signedAt: t0, stored: nil, ownTag: "v0.3.0-rc.1")
+            == .belowRunning)
+        #expect(AppUpdateAcceptance.accept(tag: "v0.3.0", issuedAt: t0, signedAt: t0, stored: nil, ownTag: "v0.3.0-rc.1")
+            == .accepted(Self.pair("v0.3.0")))
+        #expect(AppUpdateAcceptance.accept(tag: "v0.3.0", issuedAt: t0, signedAt: t0, stored: nil, ownTag: "v0.3.0")
+            == .accepted(Self.pair("v0.3.0")))
+        #expect(AppUpdateAcceptance.accept(tag: "v0.2.0", issuedAt: t0, signedAt: t0, stored: stored, ownTag: "v0.4.0")
+            == .refused(.olderRelease(accepted: "v0.3.0")))
+        #expect(AppUpdateAcceptance.accept(tag: "v0.3.1", issuedAt: t0, signedAt: t0, stored: stored, ownTag: "v0.4.0")
+            == .belowRunning)
         // A tag that is not a final release is refused.
-        #expect(AppUpdateAcceptance.accept(tag: "v0.3.1-rc.1", issuedAt: t0, signedAt: t0, stored: nil) == .refused(.tag))
+        #expect(AppUpdateAcceptance.accept(tag: "v0.3.1-rc.1", issuedAt: t0, signedAt: t0, stored: nil, ownTag: nil) == .refused(.tag))
     }
 
     @Test("the high-water pair and the check's time are records that survive Reset to Defaults; a garbage pair reads as absent")

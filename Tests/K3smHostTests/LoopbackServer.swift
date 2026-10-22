@@ -64,6 +64,11 @@ final class LoopbackServer: Sendable {
         URL(string: "http://127.0.0.1:\(port)\(path)")!
     }
 
+    /// Replaces the scripted responses (for a chain that needs the port).
+    func setResponses(_ responses: [Data]) {
+        state.withLock { $0.responses = responses }
+    }
+
     /// Every request received so far, as raw bytes.
     var requests: [Data] { state.withLock { $0.requests } }
 

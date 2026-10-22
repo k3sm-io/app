@@ -103,8 +103,8 @@ struct AppUpdateCheckerTests {
     /// Every hop is held to https on the allowed hosts.
     @Test func hopPolicy() {
         let hosts = ReleaseIndex.allowedHosts
-        func ok(_ s: String, loopback: Bool = false, hosts: [String] = hosts) -> Bool {
-            URLSessionIndexSource.permits(URL(string: s), allowedHosts: hosts, loopbackHTTP: loopback)
+        func ok(_ s: String, hop: URLSessionIndexSource.Hop = .first, loopback: Bool = false, hosts: [String] = hosts) -> Bool {
+            URLSessionIndexSource.permits(URL(string: s), hop: hop, allowedHosts: hosts, loopbackHTTP: loopback)
         }
         #expect(ok("https://github.com/k3sm-io/k3sm/releases/latest/download/k3sm_release-index.p7m"))
         #expect(ok("https://objects.githubusercontent.com/github-production-release-asset/1/2"))
@@ -119,6 +119,17 @@ struct AppUpdateCheckerTests {
         #expect(!ok("https://github.com/x?mac=1"))
         #expect(!ok("https://github.com/x#f"))
         #expect(!ok("ftp://github.com/x"))
+        // A redirect hop may carry the server's signed query, on an allowed
+        // host over https on the default port only; the first request never.
+        let signed = "https://release-assets.githubusercontent.com/github-production-release-asset/1/u"
+            + "?sp=r&sv=2018-11-09&sr=b&spr=https&se=2026-10-22T14%3A00%3A00Z&rscd=attachment&sig=abc%2B%3D"
+        #expect(ok(signed, hop: .redirect))
+        #expect(!ok(signed, hop: .first))
+        #expect(!ok("https://evil.example/x?sp=r&sig=abc", hop: .redirect))
+        #expect(!ok("http://release-assets.githubusercontent.com/x?sp=r", hop: .redirect))
+        #expect(!ok("https://release-assets.githubusercontent.com:8443/x?sp=r", hop: .redirect))
+        #expect(!ok("https://user@release-assets.githubusercontent.com/x?sp=r", hop: .redirect))
+        #expect(!ok("https://release-assets.githubusercontent.com/x?sp=r#f", hop: .redirect))
         // The test source's loopback http is for 127.0.0.1 only, and never in the shipped source.
         #expect(ok("http://127.0.0.1:8080/x", loopback: true, hosts: ["127.0.0.1"]))
         #expect(!ok("http://127.0.0.1:8080/x", loopback: false, hosts: ["127.0.0.1"]))
@@ -165,13 +176,44 @@ struct AppUpdateCheckerTests {
 
     /// A redirect to a foreign host, or to http, is refused before it is
     /// followed: one request reaches the server, none goes anywhere else.
-    @Test(arguments: ["https://evil.example/index.p7m", "http://github.com/index.p7m", "https://github.com.evil.example/x"])
+    @Test(arguments: ["https://evil.example/index.p7m", "http://github.com/index.p7m", "https://github.com.evil.example/x",
+                      "https://evil.example/asset?sp=r&sig=abc"])
     func redirectToAForeignHostOrHTTPIsRefused(_ location: String) async throws {
         let server = try LoopbackServer(responses: [LoopbackServer.response("302 Found", headers: ["Location: \(location)"])])
         defer { server.stop() }
         let source = URLSessionIndexSource(loopbackTestURL: server.url("/k3sm_release-index.p7m"))
         await #expect(throws: IndexFetchError.redirectRefused) { _ = try await source.fetch() }
         #expect(server.requests.count == 1)
+    }
+
+    /// GitHub's shape: two redirects, the last to a signed URL with a query
+    /// the server chose, then a 200. It is followed; each hop sends only the
+    /// fixed headers. A query on the app's own first request is refused
+    /// before anything is sent.
+    @Test func aTwoHopChainToASignedQueryIsAccepted() async throws {
+        let server = try LoopbackServer(responses: [])
+        defer { server.stop() }
+        let signed = "/asset/1/u?sp=r&sv=2018-11-09&sr=b&spr=https&se=2026-10-22T14%3A00%3A00Z&sig=abc%2B%3D"
+        server.setResponses([
+            LoopbackServer.response("302 Found", headers: ["Location: \(server.url("/download/v0.3.0/index.p7m").absoluteString)"]),
+            LoopbackServer.response("302 Found", headers: ["Location: \(server.url(signed).absoluteString)"]),
+            LoopbackServer.response("200 OK", body: Data("signed-index".utf8)),
+        ])
+        let source = URLSessionIndexSource(loopbackTestURL: server.url("/latest/download/index.p7m"))
+        #expect(try await source.fetch() == Data("signed-index".utf8))
+        let lines = server.requests.map { String(decoding: $0, as: UTF8.self).components(separatedBy: "\r\n") }
+        #expect(lines.map(\.first) == ["GET /latest/download/index.p7m HTTP/1.1", "GET /download/v0.3.0/index.p7m HTTP/1.1",
+                                        "GET \(signed) HTTP/1.1"])
+        for request in lines {
+            let names = Set(request.dropFirst().filter { !$0.isEmpty }.compactMap { $0.split(separator: ":").first?.lowercased() })
+            #expect(names == ["host", "user-agent", "accept", "accept-language", "accept-encoding", "cache-control", "connection"])
+        }
+
+        let queried = try LoopbackServer(responses: [LoopbackServer.response("200 OK")])
+        defer { queried.stop() }
+        let first = URLSessionIndexSource(loopbackTestURL: queried.url("/index.p7m?mac=1"))
+        await #expect(throws: IndexFetchError.urlRefused) { _ = try await first.fetch() }
+        #expect(queried.requests.isEmpty)
     }
 
     /// A non-200 answer is refused.
@@ -266,6 +308,26 @@ struct AppUpdateCheckerTests {
         let written = Set(defaults.dictionaryRepresentation().keys).subtracting(before)
         #expect(written == [AppPreferences.appIndexHighWaterTagKey, AppPreferences.appIndexHighWaterIssuedAtKey,
                             AppPreferences.appUpdateLastCheckKey])
+    }
+
+    /// An index below the running bundle's own tag is shown as "this build is
+    /// newer" and never stored, so the mark never falls behind the bundle.
+    @Test func anIndexBelowTheRunningTagIsNeverStored() async {
+        let (_, prefs) = Self.fresh()
+        let result = await Self.checker(SpySource(), SpyVerify(Self.facts("v0.2.1")), prefs, ownTag: "v0.3.0-rc.1")
+            .check(userInitiated: false)
+        #expect(result.state == .buildIsNewer(own: "v0.3.0-rc.1", latest: "v0.2.1"))
+        #expect(prefs.appIndexHighWater == .absent)
+        #expect(prefs.appUpdateLastCheck == Self.t0)
+    }
+
+    /// The log names a state by its case and tag, never by its line.
+    @Test func stateLogsNameTheCaseOnly() {
+        let state = AppUpdateState.couldNotCheck(reason: "\u{202E}injected\nline")
+        #expect(state.caseName == "couldNotCheck")
+        #expect(state.logTag == nil)
+        #expect(AppUpdateState.available(tag: "v0.3.0").logTag == "v0.3.0")
+        #expect(AppUpdateState.buildIsNewer(own: "v0.4.0", latest: "v0.3.0").logTag == "v0.3.0")
     }
 
     /// Fetch, verify, accept, store: the pair and the time are stored only

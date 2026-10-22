@@ -22,9 +22,10 @@ import Synchronization
 
 /// AppUpdateLog is the unified-log home of the app's self-update: one event
 /// per check, refusal and state change, under the subsystem
-/// `io.k3sm.app.update`, category `check`. Each message is a fixed sentence;
-/// the only values in it are the app's own refusal descriptions and tags
-/// from a verified index or the sealed bundle.
+/// `io.k3sm.app.update`, category `check`. Each message is a fixed sentence.
+/// A state change logs only the state's case name and its tag; a refusal's
+/// reason (which can carry text from a refused document) and every tag pass
+/// `StatusDisplay.clip` before they are logged at public privacy.
 public enum AppUpdateLog {
     public static let subsystem = "io.k3sm.app.update"
     public static let category = "check"
@@ -32,7 +33,18 @@ public enum AppUpdateLog {
 
     /// A state change, logged by whoever publishes the state.
     public static func stateChanged(_ state: AppUpdateState) {
-        logger.notice("app update: state \(state.line, privacy: .public)")
+        let tag = StatusDisplay.clip(state.logTag ?? "-")
+        logger.notice("app update: state \(state.caseName, privacy: .public) \(tag, privacy: .public)")
+    }
+
+    /// A refusal, its reason clipped to one bounded line.
+    public static func refused(_ reason: String) {
+        logger.notice("app update: refused: \(StatusDisplay.clip(reason), privacy: .public)")
+    }
+
+    /// An accepted index, by its tag, clipped.
+    public static func accepted(tag: String) {
+        logger.notice("app update: accepted the index for \(StatusDisplay.clip(tag), privacy: .public)")
     }
 }
 
@@ -46,8 +58,8 @@ public protocol IndexSource: Sendable {
 /// Why a fetch of the release index failed. Every case reaches the user as
 /// "Could not check for updates", never as an offer.
 public enum IndexFetchError: Error, Equatable, Sendable, CustomStringConvertible {
-    /// A URL, on the first request or a redirect, that is not https on an
-    /// allowed host with no query, credentials or other port.
+    /// The first request's URL is not https on an allowed host with no
+    /// query, credentials or other port.
     case urlRefused
     /// A redirect to a URL that is not allowed.
     case redirectRefused
@@ -78,9 +90,12 @@ public enum IndexFetchError: Error, Equatable, Sendable, CustomStringConvertible
 ///
 /// - An ephemeral session with no cookie store, URL cache or credential
 ///   storage, cookies off, and the cache bypassed on every request.
-/// - https only, on `ReleaseIndex.allowedHosts` only, on the first request
-///   and every redirect hop (the delegate refuses a hop that is not); the
-///   final response must be a 200 from an allowed host.
+/// - https only, on `ReleaseIndex.allowedHosts` only, on the default port,
+///   on the first request and every redirect hop (the delegate refuses a hop
+///   that is not); the final response must be a 200 from an allowed host.
+///   The first request is the fixed URL and carries no query. A redirect hop
+///   may carry the query the server chose (GitHub's release asset host signs
+///   its URLs in one); the app adds nothing to it.
 /// - Fixed headers (`headers`): the user agent `k3sm-app` with no version,
 ///   and the language and encoding pinned so CFNetwork does not send the
 ///   user's own. No query string, no credentials.
@@ -119,15 +134,17 @@ public struct URLSessionIndexSource: IndexSource {
         self.loopbackHTTP = false
     }
 
+    #if DEBUG
     /// The test initializer: a loopback server on 127.0.0.1 over plain http,
-    /// so a test can capture the bytes on the wire. It is internal and no
-    /// shipped path reaches it.
+    /// so a test can capture the bytes on the wire. It is internal and
+    /// compiled only into debug builds, so no release build carries it.
     init(loopbackTestURL url: URL, maxBytes: Int = ReleaseIndexVerifier.maxSignedBytes) {
         self.url = url
         self.allowedHosts = ["127.0.0.1"]
         self.maxBytes = maxBytes
         self.loopbackHTTP = true
     }
+    #endif
 
     /// The session configuration: ephemeral, with no store of any kind.
     public static func configuration() -> URLSessionConfiguration {
@@ -157,20 +174,31 @@ public struct URLSessionIndexSource: IndexSource {
         return request
     }
 
-    /// Whether `url` may be requested: https (or, for the test source only,
-    /// http to 127.0.0.1), a host in `allowedHosts` exactly, no user,
-    /// password, query or fragment, and the default port.
-    static func permits(_ url: URL?, allowedHosts: [String], loopbackHTTP: Bool) -> Bool {
+    /// Where a URL sits in the fetch.
+    enum Hop: Sendable {
+        /// The app's own first request: the fixed URL, with no query.
+        case first
+        /// A redirect the server chose, or the final response's URL: it may
+        /// carry the server's query.
+        case redirect
+    }
+
+    /// Whether `url` may be requested at `hop`: https (or, for the test
+    /// source only, http to 127.0.0.1), a host in `allowedHosts` exactly, no
+    /// user, password or fragment, the default port, and on the first
+    /// request no query.
+    static func permits(_ url: URL?, hop: Hop, allowedHosts: [String], loopbackHTTP: Bool) -> Bool {
         guard let url, let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let host = parts.host?.lowercased(), allowedHosts.contains(host),
-              parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil
+              parts.user == nil, parts.password == nil, parts.fragment == nil
         else { return false }
+        if hop == .first, parts.query != nil { return false }
         if loopbackHTTP, host == "127.0.0.1", parts.scheme == "http" { return true }
         return parts.scheme == "https" && (parts.port == nil || parts.port == 443)
     }
 
     public func fetch() async throws(IndexFetchError) -> Data {
-        guard Self.permits(url, allowedHosts: allowedHosts, loopbackHTTP: loopbackHTTP) else { throw .urlRefused }
+        guard Self.permits(url, hop: .first, allowedHosts: allowedHosts, loopbackHTTP: loopbackHTTP) else { throw .urlRefused }
         let guardian = HopGuard(allowedHosts: allowedHosts, loopbackHTTP: loopbackHTTP)
         let session = URLSession(configuration: Self.configuration(), delegate: guardian, delegateQueue: nil)
         defer { session.invalidateAndCancel() }
@@ -184,7 +212,9 @@ public struct URLSessionIndexSource: IndexSource {
         if guardian.refused { throw .redirectRefused }
         guard let http = response as? HTTPURLResponse else { throw .status(0) }
         guard http.statusCode == 200 else { throw .status(http.statusCode) }
-        guard Self.permits(http.url, allowedHosts: allowedHosts, loopbackHTTP: loopbackHTTP) else { throw .redirectRefused }
+        guard Self.permits(http.url, hop: http.url == url ? .first : .redirect, allowedHosts: allowedHosts,
+                           loopbackHTTP: loopbackHTTP)
+        else { throw .redirectRefused }
         if http.expectedContentLength > Int64(maxBytes) {
             bytes.task.cancel()
             throw .tooLarge
@@ -233,7 +263,7 @@ final class HopGuard: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest) async -> URLRequest? {
         guard let next = request.url,
-              URLSessionIndexSource.permits(next, allowedHosts: allowedHosts, loopbackHTTP: loopbackHTTP)
+              URLSessionIndexSource.permits(next, hop: .redirect, allowedHosts: allowedHosts, loopbackHTTP: loopbackHTTP)
         else {
             refusedHop.withLock { $0 = true }
             AppUpdateLog.logger.notice("app update: refused a redirect to a host that is not allowed")

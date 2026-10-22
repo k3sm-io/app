@@ -96,20 +96,27 @@ public struct AppUpdateChecker<Verified: Sendable>: Sendable {
             AppUpdateLog.logger.notice("app update: the stored high-water mark is unreadable; treated as absent")
         }
         switch AppUpdateAcceptance.accept(tag: index.tag, issuedAt: index.issuedAt, signedAt: index.signedAt,
-                                          stored: stored.pair) {
+                                          stored: stored.pair, ownTag: ownTag) {
         case .refused(let refusal):
             return failed(refusal.description, state)
+        case .belowRunning:
+            // Verified and current, but not newer than this build: a
+            // successful check whose index is never stored.
+            preferences.appUpdateLastCheck = clock()
+            AppUpdateLog.accepted(tag: index.tag)
+            let outcome = AppUpdateCheckOutcome.accepted(index)
+            return Result(state: state(outcome), outcome: outcome, verified: verified)
         case .accepted(let pair):
             preferences.storeHighWater(pair)
             preferences.appUpdateLastCheck = clock()
-            AppUpdateLog.logger.notice("app update: accepted the index for \(index.tag, privacy: .public)")
+            AppUpdateLog.accepted(tag: index.tag)
             let outcome = AppUpdateCheckOutcome.accepted(index)
             return Result(state: state(outcome), outcome: outcome, verified: verified)
         }
     }
 
     private func failed(_ reason: String, _ state: (AppUpdateCheckOutcome?) -> AppUpdateState) -> Result {
-        AppUpdateLog.logger.notice("app update: refused: \(reason, privacy: .public)")
+        AppUpdateLog.refused(reason)
         let outcome = AppUpdateCheckOutcome.failed(reason)
         return Result(state: state(outcome), outcome: outcome, verified: nil)
     }
