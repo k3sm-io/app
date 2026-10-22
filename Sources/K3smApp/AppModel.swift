@@ -1869,6 +1869,14 @@ final class AppModel: ObservableObject {
             }
             log.notice("lifecycle verb finished")
             await refresh()
+            // The status can trail the verb by a few seconds; read again,
+            // bounded, until it shows the verb's end state (LifecycleSettle).
+            var reads = 0
+            while LifecycleSettle.readsAgain(verb, succeeded: ended.0 == true, report: report, reads: reads) {
+                try? await Task.sleep(for: LifecycleSettle.interval)
+                reads += 1
+                await refresh()
+            }
             finished?(ended.0, ended.1)
         }
     }
