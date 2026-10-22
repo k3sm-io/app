@@ -44,6 +44,26 @@ enum Palette {
     /// the selected row. It replaces the design's #8a8fa3, which is 3.21:1 on white.
     static let dimText = adaptive(light: 0x5f6478, dark: 0x9a9fb3)
 
+    // The Stats tab's cards: light by day, the site's dark palette by night.
+    // Text ratios are against the card (white / #101216) and the page
+    // (#f7f7f8 / #0a0b0d), light / dark; marks (bars, lines, the empty
+    // state's symbol) are graphics, held to 3:1 where they carry meaning.
+    static let statsPage = adaptive(light: 0xf7f7f8, dark: 0x0a0b0d)       // the tab behind the cards
+    static let statsCard = adaptive(light: 0xffffff, dark: 0x101216)       // a card
+    static let statsLine = adaptive(light: 0xe4e6ea, dark: 0x23262c)       // a card's border and the axes' grid; 1.25:1 / 1.24:1, a hairline
+    static let statsAccent = adaptive(light: 0x1633e0, dark: 0x7d97ff)     // the symbol beside the title; 8.13:1 on the card, 7.59:1 on the page / 6.91:1, 7.26:1
+    static let statsNumber = adaptive(light: 0x011389, dark: 0xb9c5ff)     // the headline figure; 14.43:1, 13.47:1 / 11.15:1, 11.71:1
+    static let statsMuted = adaptive(light: 0x6b7177, dark: 0x9aa1a9)      // units, captions, axis labels, a bar for a phase the lists do not name; 4.94:1, 4.61:1 / 7.18:1, 7.54:1
+    static let statsBar = adaptive(light: 0x022ffb, dark: 0x6f88fe)        // a bar, the first series; 7.49:1, 7.0:1 / 5.92:1, 6.21:1
+    static let statsBarSoft = adaptive(light: 0x5f7bff, dark: 0x3d5bff)    // the second bar (free space, Succeeded); 3.64:1, 3.4:1 / 3.69:1, 3.88:1
+    static let statsOk = adaptive(light: 0x216e45, dark: 0x4cc287)         // Running, the second series; 6.21:1, 5.8:1 / 8.37:1, 8.79:1
+    static let statsWarn = adaptive(light: 0x875810, dark: 0xe0a33e)       // Pending, restarts, the third series; 6.12:1, 5.71:1 / 8.46:1, 8.89:1
+    static let statsEmpty = adaptive(light: 0xb9bec6, dark: 0x454a53)      // the empty state's large symbol, decorative beside its line; 1.87:1 / 2.1:1
+    /// The usage lines and the update bands, one per node or state in
+    /// turn: the cards' bar, green, amber, the VM orange (3.46:1 / 5.42:1),
+    /// the headline navy and the system red (5.33:1 / 3.52:1).
+    static let statsSeries: [Color] = [statsBar, statsOk, statsWarn, vm, statsNumber, bad]
+
     static let vm = Color(red: 0.780, green: 0.467, blue: 0.0)          // #c77700, the Linux VM mark
     static let fill = Color(red: 0.373, green: 0.482, blue: 1.0)        // #5f7bff, meters on the panel
     static let fillSoft = Color(red: 0.725, green: 0.773, blue: 1.0)    // #b9c5ff, efficiency cores

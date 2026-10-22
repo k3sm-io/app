@@ -293,9 +293,11 @@ login** in the app's Settings turns it off or on again (see
     and endpoint. On a cluster that does not serve the MLX API the tab says
     "Unavailable (the MLX API is not served on this cluster)", which is not a
     failure.
-  - **Stats**: charts of what the console already reads, on navy tiles:
-    CPU and memory per node over the last hour (as shares of what each
-    node offers, one point per metrics sample, about 240 per node), pods by
+  - **Stats**: charts of what the console already reads, as cards (light by
+    day, dark by night) with a headline figure where the data has one (pods
+    running, nodes with pods, restarts in the last hour, free space on the
+    data volume): CPU and memory per node over the last hour (as shares of
+    what each node offers, one point per metrics sample, about 240 per node), pods by
     phase and by node, container restarts in the last hour (the rise in
     each pod's restart count between pod-list reads, in five-minute bars),
     image count and size by node, the bound claims' capacity against the
