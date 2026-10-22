@@ -48,7 +48,8 @@ struct SetUpPane: View {
     }
 }
 
-/// StatusPopoverPanel is the console's info popover, 420 pt wide: the
+/// StatusPopoverPanel is the console's info popover, 420 pt wide, as tall as
+/// its measured content up to `maxHeight` and scrolling past that: the
 /// status (`StatusView`), then the last root step's log only while a step
 /// runs or after one failed (`StatusPopover.showsLog`), then the outcome.
 /// It carries the k3sm look: a 3 pt bar in the accent along the top and
@@ -59,23 +60,34 @@ struct StatusPopoverPanel: View {
 
     /// The popover's width: 420 pt seats the two version cards side by side.
     static let width: CGFloat = 420
+    /// The margin kept between the panel and the screen's visible edges.
+    static let screenMargin: CGFloat = 120
+    /// The least the panel is allowed to be, whatever the screen says.
+    static let floor: CGFloat = 200
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            LoginApprovalLine(model: model)
-            StatusView(model: model, preferences: PreferencesStore.shared)
-            if StatusPopover.showsLog(logTail: model.logTail, running: model.running,
-                                      lastStepSucceeded: CopyOutOutcome(log: model.logTail) == .succeeded) {
-                RootStepLog(text: model.logTail)
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 14) {
+                LoginApprovalLine(model: model)
+                StatusView(model: model, preferences: PreferencesStore.shared)
+                if StatusPopover.showsLog(logTail: model.logTail, running: model.running,
+                                          lastStepSucceeded: CopyOutOutcome(log: model.logTail) == .succeeded) {
+                    RootStepLog(text: model.logTail)
+                }
+                if let message = model.outcomeMessage {
+                    Text(verbatim: message).font(.callout).fixedSize(horizontal: false, vertical: true)
+                }
             }
-            if let message = model.outcomeMessage {
-                Text(verbatim: message).font(.callout).fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 18)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
+            .frame(width: Self.width, alignment: .topLeading)
+            .onGeometryChange(for: Double.self, of: { Double($0.size.height) }) { height in
+                model.statusPopoverMeasured(height)
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 20)
-        .padding(.bottom, 16)
-        .frame(width: Self.width, alignment: .topLeading)
+        .frame(width: Self.width, height: Self.height(content: model.statusPopoverMeasured,
+                                                     screen: NSScreen.main?.visibleFrame.height))
         .background(alignment: .bottomTrailing) {
             Butterfly().fill(Palette.navy.opacity(0.06))
                 .frame(width: 150, height: 143)
@@ -86,6 +98,20 @@ struct StatusPopoverPanel: View {
             Rectangle().fill(Palette.accent).frame(height: 3).accessibilityHidden(true)
         }
         .clipped()
+    }
+
+    /// The tallest the panel may be: the screen's visible height less the
+    /// margin, never under `floor`; with no screen to ask, 800 pt stands in.
+    nonisolated static func maxHeight(screen: CGFloat?) -> CGFloat {
+        max((screen ?? 800) - screenMargin, floor)
+    }
+
+    /// The panel's height: its measured content up to `maxHeight`, past
+    /// which the content scrolls, so an open All checks list on a short
+    /// screen stays reachable and a closed one takes only its own room. Nil
+    /// before the first measurement leaves the height to the popover.
+    nonisolated static func height(content: Double?, screen: CGFloat?) -> CGFloat? {
+        content.map { min(CGFloat($0), maxHeight(screen: screen)) }
     }
 }
 

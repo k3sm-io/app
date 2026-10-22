@@ -265,6 +265,17 @@ final class AppModel: ObservableObject {
         if let current = consolePanelMeasured, abs(current - width) < 1 { return }
         consolePanelMeasured = width
     }
+    /// The info popover's content height as last measured, nil before the
+    /// first measurement; the popover sizes to it up to its cap.
+    @Published private(set) var statusPopoverMeasured: Double?
+    /// Records the info popover's measured content height, only when it
+    /// moved by a point or more, so a re-render that measures the same does
+    /// not publish again.
+    func statusPopoverMeasured(_ height: Double) {
+        guard height.isFinite, height > 0 else { return }
+        if let current = statusPopoverMeasured, abs(current - height) < 1 { return }
+        statusPopoverMeasured = height
+    }
     /// Whether the console panel is collapsed: a double-click on the divider
     /// and View > Hide Panel (Command-Option-L) toggle it. Kept across launches.
     @Published var consolePanelCollapsed: Bool = PanelLayout.restoreCollapsed(
