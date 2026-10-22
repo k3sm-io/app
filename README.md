@@ -1079,7 +1079,7 @@ the release it carries over this Mac's k3sm (the app-carried update), or the
 server rolls every node to the latest release (the managed update, above).
 The app decides which applies in one place, the update plan, and every
 Update control reads it: the menu, the console's Update button, the
-popover's version line, Settings > Updates, this Mac's node in the Nodes tab,
+popover's version cards, Settings > Updates, this Mac's node in the Nodes tab,
 a behind node's Update on the server and the guided panel. No two of them offer different updates. The plan is
 one of:
 
@@ -1277,12 +1277,12 @@ after the latest `vX.Y.Z` tag (or `v0.0.0`), the commit time in UTC and the
 commit's first 12 hex digits, plus `+dirty` for a modified tree, for example
 `v0.0.0-0.20261016221530-2eda966a1b2c`. A copy of the source outside a git
 checkout gets `v0.0.0-unknown`. The About panel, Settings > General, the
-status popover's version line and `k3sm-mcp` show that version; a release
+status popover's version cards and `k3sm-mcp` show that version; a release
 build (`--version x.y.z`) shows `x.y.z`. A short version of `0.0.0` is no
 release, so a development build carries no payload release: it offers no
 install, update or repair from its payload, its guided steps give the
-install script to run in Terminal, and the popover's version line reads
-`Installed: <release> · k3sm.app <pseudo-version>` instead of comparing the
+install script to run in Terminal, and the popover's second version card
+shows the pseudo-version marked "development build" instead of comparing the
 installed release with the app's.
 
 `hack/release/README.md` describes the release signing order. The bundle id

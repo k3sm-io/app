@@ -113,12 +113,22 @@ over the update plan's line while there is one. With no note the lifecycle contr
 alone, as today. "All checks" keeps its title and takes 14 pt medium in `Palette.navy`, the
 disclosure chevron tinted the same.
 
+**The height cap.** The content sits in a vertical `ScrollView`, and the panel is as tall as
+its measured content (`AppModel.statusPopoverMeasured`, published only when it moves by a point
+or more) up to `StatusPopoverPanel.maxHeight(screen:)`: the main screen's visible height less a
+120 pt margin (`screenMargin`), never under a 200 pt floor (`floor`), with 800 pt standing in
+when there is no screen to ask. Past the cap the content scrolls, so an open All checks list on
+a short screen stays reachable, and a closed one takes only its own room. Before the first
+measurement `height(content:screen:)` is nil and the popover sizes itself.
+`Tests/K3smAppTests/StatusPopoverPanelTests.swift` pins the cap, the margin, the floor and the
+stand-in.
+
 **Not changed.** What the popover reports, its controls and their help tags, the root step's
 log and the outcome message.
 
 **Docs.** `docs/ARCHITECTURE.md`: the `AppVersion` row names `versionCards` beside
 `versionLine`; the `StatusPopover` row names the two section titles; the `Views` row says the
-popover is 420 pt with the cards. `README.md`: the info button's paragraph says the versions
+popover is 420 pt with the cards and scrolls past its height cap. `README.md`: the info button's paragraph says the versions
 are two cards with the Update button under them.
 
 ### Part 2: Settings
