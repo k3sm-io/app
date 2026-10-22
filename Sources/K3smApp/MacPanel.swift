@@ -18,13 +18,14 @@ import K3smStatus
 import SwiftUI
 
 /// MacPanel is the left column: the wordmark pinned at the top, the rest
-/// scrolled. With more than one node a switch at the top picks the view: Cluster (the state, a grid of tiles with the
-/// cluster's figures, one compact row per node with what its pods request)
-/// or This Mac (the machine, the state, tiles with what it uses and the
-/// data root, the nodes block, the core grid and the memory meter).
-/// Both end with the daemons from the status report. It is the left pane
-/// of the console's split view: wider than its minimum, the tiles take more
-/// columns and a node row puts its meters on its own line.
+/// scrolled. With more than one node a switch at the top picks the view:
+/// Cluster (the state, a grid of tiles with the cluster's figures, one
+/// compact row per node with what its pods request) or This Mac (the machine,
+/// the state, tiles with what it uses and the data root, the nodes block, the
+/// core grid and the memory meter). Both end with the daemons from the status
+/// report. It is the left pane of the console's split view: wider than its
+/// minimum, the tiles take more columns and a node row puts its meters on its
+/// own line.
 struct MacPanel: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
