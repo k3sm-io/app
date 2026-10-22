@@ -137,11 +137,11 @@ public enum AppSwapAvailability: Equatable, Sendable {
 }
 
 /// AppSwapScriptBuilder renders the root step of the standard-user app
-/// swap. The script takes no path from the app: its only values are three
-/// integers (the account's uid, the app's pid and its start time in
-/// microseconds), the release tag the app verified (strict grammar,
-/// checked here and again by the helper), and the requirement built from
-/// the compiled Team ID. It renders only with an `AppSwapAuthorization`. It:
+/// swap. The script takes no path from the app: its only values are the
+/// four arguments it passes to the helper, three integers (the account's
+/// uid, the app's pid and its start time in microseconds) and the release
+/// tag the app verified (strict grammar, checked here and again by the
+/// helper), and the requirement built from the compiled Team ID. It renders only with an `AppSwapAuthorization`. It:
 ///
 /// 1. refuses a symlinked or missing `/Applications` or target;
 /// 2. refuses unless the console user is the uid;
@@ -151,7 +151,9 @@ public enum AppSwapAvailability: Equatable, Sendable {
 ///    by root, mode 0500;
 /// 5. verifies the copy against `AppUpdateTrust.helperRequirement` and its
 ///    exact identifier;
-/// 6. execs the copy with `--root-swap <uid> <pid> <start> <tag>`; the
+/// 6. execs the copy with `--root-swap <uid> <pid> <start> <tag>` under
+///    `/usr/bin/env -i` with only a fixed `PATH`, so root's helper inherits
+///    nothing from the environment `do shell script` hands the script; the
 ///    helper refuses any staged bundle whose `K3smPayloadTag` is not exactly
 ///    that tag.
 ///
@@ -234,7 +236,7 @@ public enum AppSwapScriptBuilder {
             ident=$(/usr/bin/codesign --display --verbose=1 "$helper" 2>&1 | /usr/bin/sed -n 's/^Identifier=//p') || ident=
             if [ "$ident" != \#(q(AppUpdateTrust.helperIdentifier)) ]; then refuse \#(AppSwapExit.helperRejected.rawValue) 'the helper does not carry its identifier'; fi
             trap - EXIT
-            exec "$helper" \#(rootSwapArgument) "$uid" \#(appPid) \#(appStart) \#(q(expectedTag))
+            exec /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin "$helper" \#(rootSwapArgument) "$uid" \#(appPid) \#(appStart) \#(q(expectedTag))
 
             """#
         return RootScript(text: text, prompt: prompt, readsInput: false, usesStagingLock: false, result: .discarded)

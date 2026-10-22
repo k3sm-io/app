@@ -28,9 +28,10 @@ public enum RootSwapMode: String, Sendable, CaseIterable {
     case detached = "--root-swap-detached"
 }
 
-/// RootSwapArguments is the root mode's whole argument list: the mode,
-/// three integers (the console user's uid, the app's pid and its start time
-/// in microseconds) and the release tag the app verified. No path, no name.
+/// RootSwapArguments is the root mode's whole argument list, four words
+/// after the mode: three integers (the console user's uid, the app's pid and
+/// its start time in microseconds) and the release tag the app verified. No
+/// path, no name.
 /// Each integer is decimal digits only, with no sign and no leading zero;
 /// uid 0 and pid 0 are refused. The tag must be a release tag in the strict
 /// grammar (`BundledRollSupport.isReleaseTag`), the same rule the root
@@ -51,7 +52,7 @@ public struct RootSwapArguments: Equatable, Sendable {
     }
 
     /// Parses the arguments after the executable; nil unless they are
-    /// exactly a root mode, its three integers and a release tag.
+    /// exactly five words: a root mode, its three integers and a release tag.
     public init?(arguments: [String]) {
         guard arguments.count == 5, let mode = RootSwapMode(rawValue: arguments[0]),
               let uid = Self.integer(arguments[1], max: UInt64(UInt32.max - 1)), uid > 0,
@@ -265,8 +266,9 @@ public struct RootSwapRefusal: Error, Equatable, Sendable {
 ///    symlink, a special file, a setuid or setgid file or a group- or
 ///    other-writable entry in the copy, and chown it all to root;
 /// 5. the stage on the target's file system (`statfs` `f_fsid`);
-/// 6. verify the installed bundle (its tag read through the Applications
-///    directory's descriptor, not below the root-owned record's floor) and
+/// 6. verify the installed bundle (its tag and version taken from that
+///    verification's sealed Info.plist, not below the root-owned record's
+///    floor) and
 ///    the copy (the requirement, the bundle id, the team stamp, a
 ///    `K3smPayloadTag` exactly the tag the app verified and strictly above
 ///    the installed one);
@@ -605,21 +607,30 @@ public struct RootSwapEngine: Sendable {
     }
 
     /// Verifies the installed bundle and the staged copy: the outgoing tag
-    /// from the installed bundle's Info.plist, read through the Applications
-    /// directory's descriptor; the copy's tag exactly the one the app
-    /// verified and strictly above the installed one; and the installed
-    /// release not below the floor of the root-owned record.
+    /// and version from the installed bundle's verification (its sealed
+    /// Info.plist, which must carry a `K3smPayloadTag`), never from a
+    /// separate read of the file, which the target's owner could change
+    /// between that read and the signature check; the copy's tag exactly the
+    /// one the app verified and strictly above the installed one; and the
+    /// installed release not below the floor of the root-owned record.
     func check(appsFD: Int32, stageFD: Int32) -> Checked? {
         let bundle = SwapPaths.bundleName
         guard FileOps.isDirectory(at: appsFD, bundle), let original = FileIdentity.of(dirFD: appsFD, name: bundle),
-              let installed = InstalledRelease.read(dirFD: appsFD, name: bundle),
-              let installedCode = try? verifier.verify(bundleAt: layout.target, requireTag: false), installedCode.identity == original,
+              let installedCode = try? verifier.verify(bundleAt: layout.target, requireTag: true), installedCode.identity == original,
+              let installed = Self.installedRelease(installedCode),
               FileOps.isDirectory(at: stageFD, bundle), let staged = FileIdentity.of(dirFD: stageFD, name: bundle),
               let incoming = try? verifier.verify(bundleAt: layout.stagedBundle, requireTag: true), incoming.identity == staged,
               incoming.tag == expectedTag, let version = incoming.version, version > installed.version,
               Self.atOrAboveFloor(installed, record: readRecord())
         else { return nil }
         return Checked(original: original, installed: installed, installedCode: installedCode, incoming: incoming)
+    }
+
+    /// The installed release as its verification established it: the tag
+    /// and version the signature covered, or nil when it carries none.
+    static func installedRelease(_ verified: VerifiedBundle) -> InstalledRelease? {
+        guard let tag = verified.tag, let version = verified.version, SwapTag.isReleaseTag(tag) else { return nil }
+        return InstalledRelease(tag: tag, version: version)
     }
 
     /// Whether `installed` is at or above the floor of the root-owned

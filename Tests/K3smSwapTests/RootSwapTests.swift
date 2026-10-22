@@ -211,6 +211,41 @@ struct RootSwapTests {
         #expect(user.calls.isEmpty)
     }
 
+    /// The installed release the downgrade and floor checks use is the one
+    /// the signature covered. Here the target's owner shows a lower version
+    /// in the Info.plist and puts the sealed one back just before the
+    /// signature check: a separate read of the file would see v0.9.0 and let
+    /// v1.0.0 replace the installed v1.1.0, but the decision follows the
+    /// verified v1.1.0 and refuses.
+    @Test func rootSwapDecidesFromTheVerifiedInstalledRelease() throws {
+        let s = Scratch()
+        s.makeWork()
+        s.install(tag: "v1.1.0")
+        let plist = s.target + "/Contents/Info.plist"
+        let sealed = try Data(contentsOf: URL(fileURLWithPath: plist))
+        let lower: [String: Any] = [
+            "CFBundleExecutable": "k3sm-app", "CFBundleIdentifier": "io.k3sm.app", "CFBundlePackageType": "APPL",
+            "K3smPayloadTag": "v0.9.0", "CFBundleShortVersionString": "0.9.0",
+        ]
+        try overwriteInPlace(plist, PropertyListSerialization.data(fromPropertyList: lower, format: .xml, options: 0))
+        try #require(s.tag(at: s.target) == "v0.9.0")
+        let original = identity(s.target)
+        s.stageForRoot(tag: "v1.0.0")
+        let app = s.appProcess(exitingAfter: 0.2)
+        let user = UserSide(s)
+        let spy = SpyRenamer()
+        let verifier = RestoringVerifier(inner: s.verifier, target: s.target, plist: plist, sealed: sealed)
+        let engine = RootSwapEngine(layout: s.rootLayout, owner: RootOwnership(uid: getuid(), gid: getgid()), account: getuid(),
+                                    app: app, expectedTag: "v1.0.0", verifier: verifier, watcher: KqueueProcessWatcher(),
+                                    renamer: spy, userSide: user, timeouts: .test, hooks: .none)
+        #expect(engine.prepare().map { _ in AppSwapExit.committed } == .failure(RootSwapRefusal(.verificationFailed)))
+        #expect(verifier.restored.withLock { $0 } > 0)
+        #expect(spy.count == 0)
+        #expect(identity(s.target) == original)
+        #expect(s.tag(at: s.target) == "v1.1.0")
+        #expect(user.calls.isEmpty)
+    }
+
     @Test func rootSwapRestoresOwnerGroupAndMode() throws {
         let s = Scratch()
         s.makeWork()
@@ -752,7 +787,8 @@ struct RootSwapTests {
 
     /// The app's side of the root path writes a `rootUpdate` request for
     /// the first allowed target with no staging name, installs the user's
-    /// helper copy, starts nothing, and hands back only three integers.
+    /// helper copy, starts nothing, and hands back only three integers; the
+    /// release tag, the root step's fourth argument, is the caller's own.
     @Test func beginAdministratorUpdateWritesARootRequest() throws {
         let s = Scratch()
         s.install(tag: "v1.0.0")
@@ -817,5 +853,37 @@ struct RootSwapTests {
         #expect(s.journal?.state == .rolledBack)
         #expect(JournalStore(paths: s.paths).readRecord() == record)
         #expect(s.tag(at: s.target) == "v1.1.0")
+    }
+}
+
+/// Writes `data` over the file at `path` without replacing it, so the file
+/// and its bundle keep their identities.
+private func overwriteInPlace(_ path: String, _ data: Data) throws {
+    let handle = try #require(FileHandle(forWritingAtPath: path))
+    defer { try? handle.close() }
+    try handle.truncate(atOffset: 0)
+    try handle.write(contentsOf: data)
+}
+
+/// RestoringVerifier puts the sealed Info.plist back at the target just
+/// before each verification of it, as a target owner racing a separate read
+/// of the file would, then verifies with the real verifier.
+final class RestoringVerifier: BundleVerifier, @unchecked Sendable {
+    let inner: StaticCodeVerifier
+    let target: String
+    let plist: String
+    let sealed: Data
+    let restored = Mutex(0)
+
+    init(inner: StaticCodeVerifier, target: String, plist: String, sealed: Data) {
+        self.inner = inner
+        self.target = target
+        self.plist = plist
+        self.sealed = sealed
+    }
+
+    func verify(bundleAt path: String, requireTag: Bool) throws(BundleVerifyError) -> VerifiedBundle {
+        if path == target, (try? overwriteInPlace(plist, sealed)) != nil { restored.withLock { $0 += 1 } }
+        return try inner.verify(bundleAt: path, requireTag: requireTag)
     }
 }

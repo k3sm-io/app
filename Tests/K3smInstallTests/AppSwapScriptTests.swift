@@ -215,7 +215,8 @@ struct AppSwapScriptTests {
     }
 
     /// The safe shape: the work folder is made private, the helper is
-    /// copied there 0500 and run with exactly the three integers.
+    /// copied there 0500 and run with exactly its four arguments (three
+    /// integers and the release tag).
     @Test func appSwapRootScriptRunsOnlyTheVerifiedCopy() throws {
         let l = Layout()
         l.installHelper(from: Self.recordingHelper)
@@ -238,8 +239,8 @@ struct AppSwapScriptTests {
     }
 
     /// "A request file naming another path": the script carries no path
-    /// from the app or the request file. Its only values are three integers
-    /// and the requirement; every path in it is a compiled constant.
+    /// from the app or the request file. Its only values are the four helper
+    /// arguments (three integers and the release tag) and the requirement; every path in it is a compiled constant.
     @Test func appSwapRootScriptTakesNoPathFromTheApp() throws {
         let script = try #require(AppSwapScriptBuilder.render(Self.authorization, uid: 501, appPid: 4242, appStart: 1_700_000_000_123_456,
                                                              expectedTag: "v1.2.3"))
@@ -249,7 +250,7 @@ struct AppSwapScriptTests {
         #expect(script.text.contains("target='/Applications/k3sm.app'\n"))
         #expect(script.text.contains("work='/Library/k3sm.app-update'\n"))
         #expect(!script.text.contains("k3sm.staging"))
-        #expect(script.text.contains("exec \"$helper\" --root-swap \"$uid\" 4242 1700000000123456 'v1.2.3'\n"))
+        #expect(script.text.contains("exec /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin \"$helper\" --root-swap \"$uid\" 4242 1700000000123456 'v1.2.3'\n"))
         #expect(script.prompt == AppSwapScriptBuilder.prompt)
         #expect(!script.readsInput)
         #expect(!script.usesStagingLock)
@@ -356,7 +357,7 @@ struct AppSwapScriptTests {
         ident=$(/usr/bin/codesign --display --verbose=1 "$helper" 2>&1 | /usr/bin/sed -n 's/^Identifier=//p') || ident=
         if [ "$ident" != 'io.k3sm.app.update' ]; then refuse 108 'the helper does not carry its identifier'; fi
         trap - EXIT
-        exec "$helper" --root-swap "$uid" 4242 1700000000123456 'v1.2.3'
+        exec /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin "$helper" --root-swap "$uid" 4242 1700000000123456 'v1.2.3'
 
         """#
 }
