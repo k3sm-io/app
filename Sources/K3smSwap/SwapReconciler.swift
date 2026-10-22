@@ -188,7 +188,15 @@ public struct SwapReconciler: Sendable {
             if let keep = journal.previousName { SwapEngine.prunePrevious(previousFD: previousFD, keep: keep) }
             updated.state = .committed
         case .discard, .forget:
-            if action == .discard { returnIncoming(journal, parentFD: parentFD, previousFD: previousFD) }
+            if action == .discard {
+                returnIncoming(journal, parentFD: parentFD, previousFD: previousFD)
+                // A crash between the record and the swap leaves a record
+                // that names a copy which was never kept: the record in
+                // force before the swap comes back, or none.
+                if journal.state == .swapped || journal.state == .launched {
+                    store.writeRecord(journal.priorRecord)
+                }
+            }
             removeStaging(journal, parentFD: parentFD)
             updated.state = .rolledBack
             updated.incoming = nil

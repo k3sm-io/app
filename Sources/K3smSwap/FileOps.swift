@@ -222,6 +222,13 @@ enum FileOps {
     /// Whether `name` in `dirFD`, and everything under it when it is a
     /// directory, is owned by this account and writable by no group and no
     /// other user. Nothing is followed; a symlink counts as itself.
+    ///
+    /// This guards against other users. It does not stop the same user: a
+    /// process running as this account can change the tree between this
+    /// check and the swap. The binding control against the same user is the
+    /// post-swap verification and the cdhash-bound handshake, which judge
+    /// the bundle that is actually in place and the app that actually
+    /// launched, never this check.
     static func isPrivateTree(at dirFD: Int32, _ name: String) -> Bool {
         var st = stat()
         guard fstatat(dirFD, name, &st, AT_SYMLINK_NOFOLLOW) == 0, st.st_uid == getuid(), st.st_mode & 0o022 == 0 else {

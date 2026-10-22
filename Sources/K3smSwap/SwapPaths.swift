@@ -141,10 +141,13 @@ public struct SwapPaths: Equatable, Sendable {
         /// directory.
         case notADirectory
         /// The target's volume cannot exchange two names in one step
-        /// (`VOL_CAP_INT_RENAME_SWAP`), or the previous root is on another
-        /// volume, so the old bundle could not leave the Applications
-        /// directory by a rename.
+        /// (`VOL_CAP_INT_RENAME_SWAP`).
         case unsupportedVolume
+        /// The previous root (under the home folder) is on another volume
+        /// than the target, so the old bundle could not leave the
+        /// Applications directory by a rename. The volume itself is fine;
+        /// the fix is not a different file system.
+        case previousOnOtherVolume
 
         /// The sentence the app shows for this refusal.
         public var message: String {
@@ -153,6 +156,8 @@ public struct SwapPaths: Equatable, Sendable {
                 return "Move k3sm.app to Applications to get updates"
             case .unsupportedVolume:
                 return "Move k3sm.app to Applications on the startup disk"
+            case .previousOnOtherVolume:
+                return "k3sm.app and your home folder are on different disks, so updates cannot keep the old copy"
             }
         }
     }
@@ -176,7 +181,7 @@ public struct SwapPaths: Equatable, Sendable {
         let previousSide = FileManager.default.fileExists(atPath: supportDirectory) ? supportDirectory : home + "/Library"
         guard let targetVolume = SwapVolume.uuid(path: parent), let previousVolume = SwapVolume.uuid(path: previousSide),
               targetVolume == previousVolume
-        else { return .unsupportedVolume }
+        else { return .previousOnOtherVolume }
         return nil
     }
 

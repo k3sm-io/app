@@ -320,10 +320,12 @@ public struct SwapEngine: Sendable {
         try fault(.verified, .acted)
 
         run.journal.state = .swapped
+        run.journal.priorRecord = run.priorRecord
         guard save(run) else { return stop(&run, .abandoned, relaunch: .now) }
         let previousName = SwapPaths.previousName(tag: installed.tag)
         let record = PreviousRecord(name: previousName, tag: installed.tag, cdhash: installedCode.cdhash,
-                                    installedTag: request.expectedTag, installedCDHash: first.cdhash)
+                                    installedTag: request.expectedTag, installedCDHash: first.cdhash,
+                                    floorTag: Self.floor(after: run.priorRecord, keeping: installed))
         guard store.writeRecord(record) else { return stop(&run, .abandoned, relaunch: .now) }
         try fault(.swapped, .written)
         var outcome = RenameOutcome(errno: renamer.swap(fromDir: run.incoming.dirFD, from: run.incoming.name, toDir: parentFD, to: targetSlot.name))
@@ -561,13 +563,21 @@ public struct SwapEngine: Sendable {
         case .goBack:
             guard let record = run.store.readRecord(), record.name == slot.name,
                   let recorded = SemanticVersion(record.tag), let requested = SemanticVersion(request.expectedTag),
-                  !(requested < recorded), record.tag == request.expectedTag,
+                  record.tag == request.expectedTag,
+                  let floor = SemanticVersion(record.floorTag), !(requested < floor), !(floor < recorded),
                   tagMatches(verified, path: slot.path, tag: record.tag), record.cdhash == FileOps.hex(verified.cdhash),
                   record.installedTag == installed.tag, record.installedCDHash == FileOps.hex(installedCode.cdhash),
                   request.expectedTag != installed.tag
             else { return nil }
         }
         return verified
+    }
+
+    /// The floor a new record carries: the old floor or the outgoing tag,
+    /// whichever is higher, so it only rises.
+    static func floor(after prior: PreviousRecord?, keeping installed: InstalledRelease) -> String {
+        if let prior, let old = SemanticVersion(prior.floorTag), !(old < installed.version) { return prior.floorTag }
+        return installed.tag
     }
 
     /// Whether a verified bundle carries `tag`: its `K3smPayloadTag`, or, for

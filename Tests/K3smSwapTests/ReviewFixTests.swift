@@ -200,9 +200,15 @@ struct ReviewFixTests {
         let s = Scratch(home: home)
         try? JournalStore(paths: s.paths).prepare()
         s.install(tag: "v1.0.0")
-        #expect(s.paths.volumeRefusal(target: s.target) == .unsupportedVolume)
+        #expect(s.paths.volumeRefusal(target: s.target) == .previousOnOtherVolume)
+        // Its own sentence: the volume is capable, so the message must not
+        // suggest fixing the volume's file system.
+        let sentence = SwapPaths.TargetRefusal.previousOnOtherVolume.message
+        #expect(sentence != SwapPaths.TargetRefusal.unsupportedVolume.message)
+        #expect(sentence.contains("different disks"))
+        #expect(!sentence.contains("startup disk"))
         let client = SwapClient(paths: s.paths, helperRequirement: fixtureRequirement, bundledHelper: "/nonexistent")
-        #expect(throws: SwapClient.StartError.refused(.unsupportedVolume)) {
+        #expect(throws: SwapClient.StartError.refused(.previousOnOtherVolume)) {
             try client.beginUpdate(target: s.target, stagedName: SwapPaths.newStagingName(), expectedTag: "v1.1.0")
         }
         let original = identity(s.target)
@@ -241,5 +247,86 @@ struct ReviewFixTests {
         #expect(s.journal?.state == .committed)
         #expect(identity(s.paths.previousDirectory + "/k3sm-v1.0.0.previous/Contents/MacOS/k3sm-app") == originalExe)
         #expect(s.tag(at: s.target) == "v1.1.0")
+    }
+
+    @Test func floorOnlyRises() throws {
+        let s = Scratch()
+        s.updateOnce()
+        let first = try #require(JournalStore(paths: s.paths).readRecord())
+        #expect(first.floorTag == "v1.0.0")
+        // A second update keeps the floor at the highest tag kept so far.
+        let name = s.stage(tag: "v1.2.0")
+        s.request(stagedName: name, expectedTag: "v1.2.0", app: s.appProcess(exitingAfter: 0.2))
+        #expect(s.engine().swap() == .committed)
+        let second = try #require(JournalStore(paths: s.paths).readRecord())
+        #expect(second.floorTag == "v1.1.0")
+        // A go-back never lowers it, and an undone swap puts the old one back.
+        s.requestGoBack(tag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
+        #expect(s.engine().goBack() == .committed)
+        let third = try #require(JournalStore(paths: s.paths).readRecord())
+        #expect(third.floorTag == "v1.2.0")
+        #expect(third.floorTag > second.floorTag)
+    }
+
+    @Test func goBackBelowTheFloorIsRefused() throws {
+        let s = Scratch()
+        s.updateOnce()
+        let installed = identity(s.target)
+        let store = JournalStore(paths: s.paths)
+        var record = try #require(store.readRecord())
+        record.floorTag = "v1.0.5"
+        #expect(store.writeRecord(record))
+        s.requestGoBack(tag: "v1.0.0", app: s.appProcess(exitingAfter: 0.2))
+        let spy = SpyRenamer()
+        #expect(s.engine(renamer: spy).goBack() == .verificationFailed)
+        #expect(spy.count == 0)
+        #expect(identity(s.target) == installed)
+    }
+
+    @Test func aFloorLoweredAfterTheFactIsRefused() throws {
+        let s = Scratch()
+        s.updateOnce()
+        let installed = identity(s.target)
+        let store = JournalStore(paths: s.paths)
+        var record = try #require(store.readRecord())
+        // The floor sits below the tag the record names, and below the
+        // installed bundle's tag: a lowered floor.
+        record.floorTag = "v0.9.0"
+        #expect(store.writeRecord(record))
+        s.requestGoBack(tag: "v1.0.0", app: s.appProcess(exitingAfter: 0.2))
+        let spy = SpyRenamer()
+        #expect(s.engine(renamer: spy).goBack() == .verificationFailed)
+        #expect(spy.count == 0)
+        #expect(identity(s.target) == installed)
+    }
+
+    @Test func crashBeforeTheSwapClearsTheStaleRecord() throws {
+        // First update: no record before it. A crash after the record was
+        // written and before the swap leaves a record naming a copy that
+        // was never kept; the reconciler clears it.
+        let s = Scratch()
+        s.install(tag: "v1.0.0")
+        let name = s.stage(tag: "v1.1.0")
+        s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
+        let faults = SwapFaults { state, phase in state == .swapped && phase == .written }
+        _ = s.engine(faults: faults).swap()
+        let store = JournalStore(paths: s.paths)
+        #expect(store.readRecord() != nil)
+        #expect(s.tag(at: s.target) == "v1.0.0")
+        let reconciler = SwapReconciler(paths: s.paths, verifier: s.verifier, currentApp: nil, spawnGoBack: { false })
+        _ = reconciler.reconcile(runningTag: "v1.0.0", runningSelfCheck: { true })
+        #expect(store.readRecord() == nil)
+
+        // With an earlier record, that one comes back.
+        let t = Scratch()
+        t.updateOnce()
+        let prior = try #require(JournalStore(paths: t.paths).readRecord())
+        let next = t.stage(tag: "v1.2.0")
+        t.request(stagedName: next, expectedTag: "v1.2.0", app: t.appProcess(exitingAfter: 0.2))
+        _ = t.engine(faults: faults).swap()
+        #expect(JournalStore(paths: t.paths).readRecord() != prior)
+        let again = SwapReconciler(paths: t.paths, verifier: t.verifier, currentApp: nil, spawnGoBack: { false })
+        _ = again.reconcile(runningTag: "v1.1.0", runningSelfCheck: { true })
+        #expect(JournalStore(paths: t.paths).readRecord() == prior)
     }
 }

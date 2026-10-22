@@ -157,6 +157,10 @@ public struct SwapJournal: Codable, Equatable, Sendable {
     /// helper's exit status reaches nobody), and the administrator path
     /// takes over a `verified` journal whose reason is `needsAdministrator`.
     public var reason: SwapExit?
+    /// The previous-copy record in force before this swap wrote its own, so
+    /// an undone swap (the helper's rollback, or the reconciler after a
+    /// crash between the record and the swap) puts it back.
+    public var priorRecord: PreviousRecord?
 
     public init(request: SwapRequest, state: JournalState = .staged, at: Date = Date()) {
         schema = Self.currentSchema
@@ -191,12 +195,23 @@ public struct SwapJournal: Codable, Equatable, Sendable {
 /// it names, and only with both cdhashes and tags checked again on the
 /// bundles themselves.
 ///
-/// The record lives in the private directory, so a process running as this
-/// account can rewrite it. It narrows a go-back to a Developer ID signed
-/// bundle of this team whose cdhash is written here; it does not stop such a
-/// process from choosing an older signed release, which an administrator
-/// account's process can also copy into /Applications directly. The
-/// administrator path keeps its own root-owned record.
+/// `floorTag` is the monotonic floor: the highest tag this engine has kept
+/// as a previous copy. Each swap writes max(the old floor, the outgoing
+/// tag) and nothing lowers it (an undone swap puts back the older record,
+/// whose floor is the one in force before it). A go-back refuses a target
+/// below the floor, and refuses a record whose floor sits below the tag the
+/// record itself names, which is what a floor lowered after the fact looks
+/// like.
+///
+/// The record lives in the private directory, and it stays writable by a
+/// process running as this account. The floor therefore stops a stray or
+/// partial rewrite, and a rewrite that changes only the target or only the
+/// floor; it does not stop a process that rewrites both consistently to an
+/// older Developer ID signed release of this team, which an administrator
+/// account's process can also copy into /Applications directly. Two
+/// follow-ups close that: a root-owned record on the standard-user root
+/// path (B831), and a minimum-supported tag carried in the signed release
+/// index (B827), so a forged record cannot lower the floor.
 public struct PreviousRecord: Codable, Equatable, Sendable {
     public var name: String
     public var tag: String
@@ -204,8 +219,11 @@ public struct PreviousRecord: Codable, Equatable, Sendable {
     public var cdhash: String
     public var installedTag: String
     public var installedCDHash: String
+    /// The monotonic floor tag (see above).
+    public var floorTag: String
 
-    public init(name: String, tag: String, cdhash: Data, installedTag: String, installedCDHash: Data) {
+    public init(name: String, tag: String, cdhash: Data, installedTag: String, installedCDHash: Data, floorTag: String) {
+        self.floorTag = floorTag
         self.name = name
         self.tag = tag
         self.cdhash = FileOps.hex(cdhash)
@@ -215,7 +233,7 @@ public struct PreviousRecord: Codable, Equatable, Sendable {
 
     /// Whether the names, tags and hashes have their grammar.
     public var isValid: Bool {
-        SwapPaths.tag(ofPreviousName: name) == tag && SwapTag.isReleaseTag(installedTag)
+        SwapPaths.tag(ofPreviousName: name) == tag && SwapTag.isReleaseTag(installedTag) && SwapTag.isReleaseTag(floorTag)
             && Self.isHash(cdhash) && Self.isHash(installedCDHash)
     }
 
