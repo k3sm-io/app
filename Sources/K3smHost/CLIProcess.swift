@@ -100,7 +100,14 @@ public enum CLIProcess {
         let drained = DispatchSemaphore(value: 0)
         let reader = pipe.fileHandleForReading
         Thread.detachNewThread {
-            while let chunk = try? reader.read(upToCount: 64 * 1024), !chunk.isEmpty {
+            // What the pipe holds as it arrives (`PipeRead`), so a followed
+            // log's line reaches `onOutput` without waiting for 64 KiB more.
+            // The handle is held to the last read: it closes its descriptor
+            // when it goes, and the run may return before this thread ends.
+            let fd = reader.fileDescriptor
+            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+            defer { withExtendedLifetime(reader) {} }
+            while let chunk = PipeRead.available(fd, into: &buffer) {
                 let kept = output.append(chunk)
                 if let onOutput { onOutput(kept.data) }
                 guard kept.within else {

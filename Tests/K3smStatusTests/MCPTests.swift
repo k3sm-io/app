@@ -19,6 +19,7 @@ import Testing
 
 @testable import K3smMCP
 import K3smStatus
+import Synchronization
 
 /// FakeCluster answers each `ReadRequest` from a table and records every
 /// read a tool made, so a test can pin both what came back and what ran.
@@ -641,6 +642,34 @@ struct MCPTests {
         #expect(words == ["abc", "de", "<overlong>", "ok"])
     }
 
+    @Test("a request reaches the server while the client keeps its input open", .timeLimit(.minutes(1)))
+    func mcpLineBeforeEndOfInput() async throws {
+        // One short request and no end of input, as a client waiting for
+        // the reply sends it: the line must not wait for more input.
+        let input = Pipe()
+        let lines = StdioTransport.lines(from: input.fileHandleForReading, maxLineBytes: StdioTransport.maxLineBytes)
+        let got = FirstLine()
+        let reader = Task {
+            for await line in lines where got.value == nil {
+                switch line {
+                case .message(let data): got.set(String(decoding: data, as: UTF8.self))
+                case .overlong: got.set("<overlong>")
+                }
+            }
+        }
+        try input.fileHandleForWriting.write(contentsOf: Data("{\"id\":1}\n".utf8))
+        let deadline = ContinuousClock.now + .seconds(10)
+        while got.value == nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        // Read before the input closes: a line seen only at the end of input
+        // would prove nothing.
+        let early = got.value
+        try input.fileHandleForWriting.close()
+        await reader.value
+        #expect(early == "{\"id\":1}")
+    }
+
     // MARK: - during an update
 
     @Test("while k3sm updates, a tool says so with what launchd and the roll report")
@@ -816,4 +845,13 @@ struct MCPTests {
         #expect(CallLog.forHome("relative") == nil)
         #expect(CallLog.forHome("/Users/someone")?.path == "/Users/someone/Library/Logs/k3sm-mcp.log")
     }
+}
+
+/// FirstLine holds the first line a reader saw, across threads.
+private final class FirstLine: Sendable {
+    private let line = Mutex<String?>(nil)
+
+    var value: String? { line.withLock { $0 } }
+
+    func set(_ text: String) { line.withLock { $0 = $0 ?? text } }
 }

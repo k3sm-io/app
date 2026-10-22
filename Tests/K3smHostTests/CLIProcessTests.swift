@@ -170,4 +170,29 @@ struct CLIProcessTests {
         #expect(stdout.count == 1024)
         #expect(total.withLock { $0 } == 1024)
     }
+
+    @Test("onOutput sees a line while the run still goes, not at its exit", .timeLimit(.minutes(1)))
+    func onOutputBeforeExit() async {
+        // One short line, then the child holds, as a followed log does
+        // between lines: the line must not wait for more output.
+        let seen = Mutex(Data())
+        let task = Task {
+            await run("printf 'one\\n'; exec /bin/sleep 120", deadline: Self.pastTimeLimit, onOutput: { chunk in
+                seen.withLock { $0.append(chunk) }
+            })
+        }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while seen.withLock({ $0.isEmpty }), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        // Read before the cancel: only a line the child has not been
+        // killed for yet proves the reader did not wait for the exit.
+        let early = seen.withLock { $0 }
+        task.cancel()
+        guard case .killed = await task.value else {
+            Issue.record("the run ended before it was cancelled")
+            return
+        }
+        #expect(early == Data("one\n".utf8))
+    }
 }

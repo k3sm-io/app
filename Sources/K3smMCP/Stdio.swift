@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 import Foundation
+import K3smStatus
 
 /// StdioTransport is the MCP stdio transport: newline-delimited JSON-RPC on
 /// standard input and output. Standard output carries only replies, one per
@@ -57,7 +58,14 @@ public enum StdioTransport {
         AsyncStream { continuation in
             let thread = Thread {
                 var splitter = LineSplitter(maxLineBytes: maxLineBytes)
-                while let chunk = try? input.read(upToCount: 64 * 1024), !chunk.isEmpty {
+                // What the pipe holds as it arrives (`PipeRead`): a client
+                // waits for each reply, so a request must not wait for more
+                // input. The handle is held to the last read: it closes its
+                // descriptor when it goes.
+                let fd = input.fileDescriptor
+                var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+                defer { withExtendedLifetime(input) {} }
+                while let chunk = PipeRead.available(fd, into: &buffer) {
                     for line in splitter.feed(chunk) { continuation.yield(line) }
                 }
                 if let last = splitter.finish() { continuation.yield(last) }

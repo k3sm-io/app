@@ -160,7 +160,7 @@ public final class CLIStream: WatchLauncher {
             let fd = output.fileHandleForReading.fileDescriptor
             var framer = WatchLineFramer()
             var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-            while let chunk = readAvailable(fd, into: &buffer) {
+            while let chunk = PipeRead.available(fd, into: &buffer) {
                 let lines = framer.append(chunk)
                 deliver(lines, events: events, slots: slots)
                 if framer.overflowed {
@@ -175,7 +175,7 @@ public final class CLIStream: WatchLauncher {
         Thread.detachNewThread {
             let fd = errors.fileHandleForReading.fileDescriptor
             var buffer = [UInt8](repeating: 0, count: 4096)
-            while let chunk = readAvailable(fd, into: &buffer) {
+            while let chunk = PipeRead.available(fd, into: &buffer) {
                 let text = tail.withLock { kept in
                     kept.append(chunk)
                     if kept.count > WatchPolicy.errorTail { kept = Data(kept.suffix(WatchPolicy.errorTail)) }
@@ -197,20 +197,6 @@ public final class CLIStream: WatchLauncher {
             exit = .exited(status: process.terminationStatus, errors: text)
         }
         onMain { events.exit(exit) }
-    }
-
-    /// One read of what the pipe holds now, up to the buffer's size: nil at
-    /// the end of the stream or on an error. `FileHandle.read(upToCount:)`
-    /// is not used here: it waits until it has the whole count or the end of
-    /// the stream, so a watch's newest frames would stay in the pipe until
-    /// 64 KiB more arrived, and the stream would settle on a replay cut short.
-    nonisolated static func readAvailable(_ fd: Int32, into buffer: inout [UInt8]) -> Data? {
-        while true {
-            let count = buffer.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
-            if count > 0 { return Data(buffer[0..<count]) }
-            if count < 0, errno == EINTR { continue }
-            return nil
-        }
     }
 
     /// Queues one batch to the main actor, waiting for a slot first: the
