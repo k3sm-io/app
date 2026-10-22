@@ -186,9 +186,11 @@ extension View {
 }
 
 /// RowActions is the inspector's actions block for one row, on every tab:
-/// a row of its local actions (copies, open in browser), which ask
-/// nothing, then a button per `ActionMenu` item (the row's context menu's list), the
-/// running note, and the last action's line when it ran on this row.
+/// one Actions menu holding the row's context menu's list (its local
+/// actions, which ask nothing, then an `ActionMenu` item each), the
+/// running note, and the last action's line when it ran on this row. One
+/// control instead of a button per item: the inspector is narrow, and a
+/// row of eight buttons truncated every title.
 /// Nothing for a row that offers no action and has no line.
 struct RowActions: View {
     let menu: ActionMenu
@@ -207,20 +209,25 @@ struct RowActions: View {
         if !menu.isEmpty || report != nil {
             VStack(alignment: .leading, spacing: 6) {
                 if !menu.isEmpty {
-                    if !menu.local.isEmpty {
-                        HStack(spacing: 8) {
+                    HStack(spacing: 10) {
+                        Menu {
                             ForEach(menu.local) { item in
-                                Button(item.title) { LocalActions.perform(item.action) }
-                                    .help(Help.Actions.tag(for: item))
+                                Button(item.title) {
+                                    LocalActions.perform(item.action)
+                                }
                             }
-                        }
-                    }
-                    HStack(spacing: 8) {
-                        ForEach(menu.items) { item in
-                            Button(item.title) { runner.ask(item.request) }
+                            if !menu.local.isEmpty, !menu.items.isEmpty { Divider() }
+                            ForEach(menu.items) { item in
+                                Button(item.title, role: item.destructive ? .destructive : nil) {
+                                    runner.ask(item.request)
+                                }
                                 .disabled(runner.busy || runner.pending != nil)
-                                .help(Help.Actions.tag(for: item))
+                            }
+                        } label: {
+                            Label("Actions", systemImage: "ellipsis.circle")
                         }
+                        .fixedSize()
+                        .help(Help.Inspector.actions)
                         if runner.busy {
                             Text("running…").font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
                         }

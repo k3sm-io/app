@@ -445,6 +445,9 @@ public enum Help {
         public static let healthDot = HelpTag("Green is fine, amber needs a look, red has failed",
                                               control: "lists: health dot")
 
+        /// The inspector's Actions menu, the row's context menu as a button.
+        public static let actions = HelpTag("Open the same list as the row's right-click menu",
+                                            control: "inspector: Actions menu", label: "Actions")
         /// The Scale stepper on the pod's Deployment or StatefulSet.
         public static let scaleStepper = HelpTag("Choose the replica count to scale to, from 1 to 50",
                                                  control: "inspector: Scale stepper")
@@ -461,7 +464,7 @@ public enum Help {
         }
 
         public static var all: [HelpTag] {
-            [logs, events, manifest, summaryCancel, summaryCopy, summaryClose, healthDot, scaleStepper]
+            [logs, events, manifest, summaryCancel, summaryCopy, summaryClose, healthDot, actions, scaleStepper]
         }
     }
 
