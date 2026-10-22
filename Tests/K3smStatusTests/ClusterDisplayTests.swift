@@ -188,6 +188,52 @@ struct ClusterDisplayTests {
         #expect(got.line == "2 Macs · 1/2 nodes ready · 4 running · 1 vm")
     }
 
+    @MainActor
+    @Test("a node list caught short of the report keeps the two views")
+    func nodeListShortOfReport() throws {
+        // The node watch's replay as the panel saw it: the first node's
+        // frame arrived and the replay settled before the second's did.
+        let clock = VirtualClock()
+        let launcher = FakeLauncher(clock: clock) { _, _ in
+            FakeScript(lines: [watchLine("ADDED", uid: "u-a", name: "mac-a", kind: "Node", namespace: nil)])
+        }
+        let stream = WatchStream(kind: .nodes, launcher: launcher, clock: clock, jitter: { 0.5 })
+        stream.start()
+        clock.advance(by: .milliseconds(300))
+        #expect(stream.state == .live)
+        guard case .value(let read) = NodeListRead.tabResult(exitCode: 0, stdout: try #require(stream.liveList)) else {
+            Issue.record("the streamed list did not decode")
+            return
+        }
+        #expect(read.nodes.map(\.name) == ["mac-a"])
+
+        let (report, _, pods) = try Self.twoNodes()
+        let got = ClusterDisplay.summary(of: report, nodes: read.nodes, pods: pods)
+        #expect(got.title == "Cluster")
+        #expect(got.nodeCount == 2)
+        #expect(PanelMode.showsSwitch(nodeCount: got.nodeCount))
+        #expect(PanelMode.effective(chosen: .cluster, nodeCount: got.nodeCount) == .cluster)
+        #expect(got.note == ClusterDisplay.othersUnknown)
+        #expect(got.nodes.map(\.name) == ["mac-a"])
+    }
+
+    @Test("the node count: the most any source names, never under one", arguments: [
+        ("no report, no list", nil as [StatusWorker]?, nil as Int?, 1),
+        ("workers unknown, list of two", nil, 2, 2),
+        ("one worker, list unknown", [StatusWorker(name: "b", role: "agent")], nil, 2),
+        ("one worker, list of one", [StatusWorker(name: "b", role: "agent")], 1, 2),
+        ("one worker, empty list", [StatusWorker(name: "b", role: "agent")], 0, 2),
+        ("one worker, list of three", [StatusWorker(name: "b", role: "agent")], 3, 3),
+        ("no workers, list of one", [], 1, 1),
+        ("no workers, empty list", [], 0, 1),
+    ])
+    func nodeCount(_ name: String, _ workers: [StatusWorker]?, _ listed: Int?, _ want: Int) {
+        let report = Self.report(workers: workers, node: nil, workloads: nil)
+        let nodes = listed.map { n in (0..<n).map { ClusterNode(name: "n\($0)", ready: true) } }
+        #expect(ClusterDisplay.nodeCount(report: report, nodes: nodes) == want, "\(name)")
+        #expect(ClusterDisplay.summary(of: report, nodes: nodes, pods: nil).nodeCount == want, "\(name)")
+    }
+
     @Test("an unknown allocatable leaves the cluster meter out")
     func allocatableUnknown() throws {
         let (report, nodes, pods) = try Self.twoNodes()

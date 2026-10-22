@@ -115,8 +115,8 @@ public struct ClusterSummary: Equatable, Sendable {
     public let stats: [ClusterStat]
     /// Why the title is vague, or nil.
     public let note: String?
-    /// How many nodes the cluster has, as far as the app can tell (1 when
-    /// it cannot).
+    /// How many nodes the cluster has, as far as the app can tell
+    /// (`ClusterDisplay.nodeCount`; 1 when it cannot).
     public let nodeCount: Int
     /// This Mac's node first, then by name; empty when the node list is unknown.
     public let nodes: [ClusterNodeRow]
@@ -204,7 +204,9 @@ public enum ClusterShape: Equatable, Sendable {
 /// With the node list known the stats end with its `VersionAgreement`, and
 /// the node rows show a version only when the releases do not all agree. A
 /// nil node or pod list is unknown, and the stats then come from the
-/// report's `node` and `workloads` rows as printed. Every string is clipped.
+/// report's `node` and `workloads` rows as printed. The node count, which
+/// decides the panel's two views, is `nodeCount`; a node list short of it
+/// adds the `othersUnknown` note. Every string is clipped.
 public enum ClusterDisplay {
     public static let singleTitle = "This Mac is the cluster"
     public static let unknownTitle = "This Mac"
@@ -213,8 +215,10 @@ public enum ClusterDisplay {
     public static let othersUnknown = "other nodes unknown"
 
     public static func summary(of report: StatusReport?, nodes: [ClusterNode]?, pods: [Pod]?) -> ClusterSummary {
-        let (title, note, macs) = title(report)
-        let nodeCount = nodes?.count ?? report?.workers.map { $0.count + 1 } ?? 1
+        let (title, titleNote, macs) = title(report)
+        let nodeCount = nodeCount(report: report, nodes: nodes)
+        // A node list short of the report's count does not name every node.
+        let note = titleNote ?? (nodes.map { $0.count < nodeCount } == true ? othersUnknown : nil)
         let ownNode = report.flatMap(ownNodeName)
         let ownRole = report.map { NodeRole.detect(in: $0)?.rawValue ?? StatusDisplay.clip($0.role) } ?? ""
         let active = (pods ?? []).filter { $0.phase != "Succeeded" && $0.phase != "Failed" }
@@ -262,6 +266,16 @@ public enum ClusterDisplay {
         return ClusterSummary(
             title: title, stats: stats, note: note, nodeCount: nodeCount, nodes: rows,
             cores: cores, memory: memory, versions: versions)
+    }
+
+    /// How many nodes the panel lays out for: the most that the node list
+    /// or the report's `workers` (and this Mac) name, and one when neither
+    /// is known. Each is a whole read when it succeeds, so a node list with
+    /// fewer nodes than the report names was caught short (a watch replay
+    /// not yet whole) rather than showing a cluster that shrank, and the
+    /// panel keeps its two views; a node that leaves drops out of both.
+    public static func nodeCount(report: StatusReport?, nodes: [ClusterNode]?) -> Int {
+        max(nodes?.count ?? 0, report?.workers.map { $0.count + 1 } ?? 0, 1)
     }
 
     /// The Cluster view's tiles, in order: the Mac count (or the nodes
