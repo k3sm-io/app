@@ -108,7 +108,7 @@ appearances, marks at least 3:1 where they carry meaning.
 | `statsLine` | #e4e6ea | #23262c | card | 1.25:1 | 1.24:1 | the border and the axes' grid, a hairline |
 | `statsAccent` | #1633e0 | #7d97ff | card | 8.13:1, 7.59:1 | 6.91:1, 7.26:1 | the symbol beside the title |
 | `statsNumber` | #011389 | #b9c5ff | card | 14.43:1, 13.47:1 | 11.15:1, 11.71:1 | the headline figure |
-| `statsMuted` | #6b7177 | #9aa1a9 | card | 4.94:1, 4.61:1 | 7.18:1, 7.54:1 | units, captions, axis labels, the empty line |
+| `statsMuted` | #6b7177 | #9aa1a9 | card | 4.94:1, 4.61:1 | 7.18:1, 7.54:1 | units, captions, axis labels, the empty line, a bar for a phase the lists do not name |
 | `statsBar` | #022ffb | #6f88fe | card | 7.49:1, 7.0:1 | 5.92:1, 6.21:1 | a bar; the first series |
 | `statsBarSoft` | #5f7bff | #3d5bff | card | 3.64:1, 3.4:1 | 3.69:1, 3.88:1 | the second bar: free space, Succeeded pods |
 | `statsOk` | #216e45 | #4cc287 | card | 6.21:1, 5.8:1 | 8.37:1, 8.79:1 | Running pods; the second series |
@@ -118,7 +118,8 @@ appearances, marks at least 3:1 where they carry meaning.
 `Palette.statsSeries` colours the usage lines and the update bands, one per node or state in
 turn: `statsBar`, `statsOk`, `statsWarn`, then the existing `vm` orange (#c77700: 3.46:1 light,
 5.42:1 dark), `statsNumber` and the system red `bad` (#c9302c: 5.33:1 light, 3.52:1 dark).
-Failed pods keep `bad`; a phase the lists do not name takes `statsEmpty`.
+Failed pods keep `bad`; a phase the lists do not name takes `statsMuted`, which clears the 3:1
+bar for a mark (`statsEmpty`, at 1.87:1, is for the decorative symbol only).
 
 **The charts inside a card.** The usage lines (CPU, memory) and the update bands keep their
 plots at 150 pt with the legend when there is more than one line; the axes draw their grid in

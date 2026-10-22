@@ -58,7 +58,7 @@ enum Palette {
     static let statsLine = adaptive(light: 0xe4e6ea, dark: 0x23262c)       // a card's border and the axes' grid; 1.25:1 / 1.24:1, a hairline
     static let statsAccent = adaptive(light: 0x1633e0, dark: 0x7d97ff)     // the symbol beside the title; 8.13:1 on the card, 7.59:1 on the page / 6.91:1, 7.26:1
     static let statsNumber = adaptive(light: 0x011389, dark: 0xb9c5ff)     // the headline figure; 14.43:1, 13.47:1 / 11.15:1, 11.71:1
-    static let statsMuted = adaptive(light: 0x6b7177, dark: 0x9aa1a9)      // units, captions, axis labels; 4.94:1, 4.61:1 / 7.18:1, 7.54:1
+    static let statsMuted = adaptive(light: 0x6b7177, dark: 0x9aa1a9)      // units, captions, axis labels, a bar for a phase the lists do not name; 4.94:1, 4.61:1 / 7.18:1, 7.54:1
     static let statsBar = adaptive(light: 0x022ffb, dark: 0x6f88fe)        // a bar, the first series; 7.49:1, 7.0:1 / 5.92:1, 6.21:1
     static let statsBarSoft = adaptive(light: 0x5f7bff, dark: 0x3d5bff)    // the second bar (free space, Succeeded); 3.64:1, 3.4:1 / 3.69:1, 3.88:1
     static let statsOk = adaptive(light: 0x216e45, dark: 0x4cc287)         // Running, the second series; 6.21:1, 5.8:1 / 8.37:1, 8.79:1

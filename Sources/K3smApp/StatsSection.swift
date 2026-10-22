@@ -263,7 +263,9 @@ struct StatsUsageChart: View {
 }
 
 /// StatsBucketChart is a count per label as horizontal bars, the count at
-/// each bar's end; by phase it colours each phase as the lists do.
+/// each bar's end; by phase it colours each phase as the lists do, and a
+/// phase the lists do not name in `statsMuted`, a mark colour, not the
+/// decorative `statsEmpty`.
 struct StatsBucketChart: View {
     let state: StatsChartState<[StatsBucket]>
     let byLabel: Bool
@@ -293,7 +295,7 @@ struct StatsBucketChart: View {
         case "Pending": return Palette.statsWarn
         case "Succeeded": return Palette.statsBarSoft
         case "Failed": return Palette.bad
-        default: return Palette.statsEmpty
+        default: return Palette.statsMuted
         }
     }
 }
