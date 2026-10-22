@@ -192,6 +192,14 @@ struct SplitWindow {
     /// without a login session cannot.
     nonisolated static var windowServer: Bool { CGSessionCopyCurrentDictionary() != nil }
 
+    /// The persistent domain the standard defaults write in this process.
+    private static var runnerDomain: String {
+        Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+    }
+
+    /// Marks the mouse events a drag posts, to tell them from any other.
+    private static let eventTag = 0x6B33
+
     let app: AppModel
     let window: NSWindow
     let outer: NSSplitView
@@ -199,17 +207,31 @@ struct SplitWindow {
 
     /// Opens the split with `stored` in the user defaults (a layout key to
     /// its value), as a launch after an earlier drag finds them.
+    ///
+    /// The model reads the layout from the standard defaults, whose
+    /// persistent domain every test process of this package shares (one
+    /// name, the test runner's), so a gate running beside this one can
+    /// change it between a write here and the model's read. The layout is
+    /// therefore put in the argument domain, which belongs to this process
+    /// alone and is read before the persistent one: every layout key is set,
+    /// a key `stored` does not name to an empty string, which every
+    /// layout `restore` reads as nothing stored.
     static func with(logOpen: Bool = false, extraWidth: CGFloat = 400, stored: [String: Any] = [:],
                      _ body: (SplitWindow) throws -> Void) throws {
         let defaults = UserDefaults.standard
-        let kept = AppPreferences.layoutKeys.map { ($0, defaults.object(forKey: $0)) }
+        let arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        // A drag stores what it left through the model, into the persistent
+        // domain; put back what was there, so a run leaves it as it found it.
+        let kept = AppPreferences.layoutKeys.map { ($0, defaults.persistentDomain(forName: runnerDomain)?[$0]) }
         defer {
+            defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
             for (key, value) in kept {
                 if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
             }
         }
-        for (key, _) in kept { defaults.removeObject(forKey: key) }
-        for (key, value) in stored { defaults.set(value, forKey: key) }
+        var layout = arguments
+        for key in AppPreferences.layoutKeys { layout[key] = stored[key] ?? "" }
+        defaults.setVolatileDomain(layout, forName: UserDefaults.argumentDomain)
 
         _ = NSApplication.shared
         let app = AppModel(runner: AppleScriptPrivilegedRunner(), environment: [:])
@@ -250,19 +272,34 @@ struct SplitWindow {
     }
 
     /// Drags `split`'s divider `divider` by `delta` points along the split's
-    /// axis (rightward or downward is positive), as a user's mouse does.
-    func drag(_ split: NSSplitView, divider: Int, by delta: CGFloat) {
+    /// axis (rightward or downward is positive), as a user's mouse does. The
+    /// pointer stays on the split: a delta past its edge stops there, as a
+    /// user's pointer stops at the screen's edge, and the edge is already past
+    /// every divider's limit.
+    ///
+    /// The drag's events go through the app's event queue, which AppKit's
+    /// divider tracking reads and nothing else in a test does (the runner
+    /// never runs `NSApp`). So the queue is emptied before the drag, and
+    /// after it the drag must have used every event it posted: an event left
+    /// behind, ours or one the window server delivered, would otherwise be
+    /// read by the next drag in the run as its own and move a divider there.
+    func drag(_ split: NSSplitView, divider: Int, by delta: CGFloat,
+              sourceLocation: SourceLocation = #_sourceLocation) {
         let before = split.arrangedSubviews[divider].frame
         let half = split.dividerThickness / 2
         let start = split.isVertical
             ? NSPoint(x: before.maxX + half, y: split.bounds.midY)
             : NSPoint(x: split.bounds.midX, y: before.maxY + half)
+        let along = split.isVertical ? start.x : start.y
+        let length = split.isVertical ? split.bounds.width : split.bounds.height
+        let reach = min(max(along + delta, 0), length) - along
         func event(_ type: NSEvent.EventType, _ offset: CGFloat) -> NSEvent {
             let point = split.isVertical ? NSPoint(x: start.x + offset, y: start.y) : NSPoint(x: start.x, y: start.y + offset)
             return NSEvent.mouseEvent(with: type, location: split.convert(point, to: nil), modifierFlags: [],
                                       timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                                      context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+                                      context: nil, eventNumber: Self.eventTag, clickCount: 1, pressure: 1)!
         }
+        Self.takeEvents()
         // Posting an event stops the innermost running run loop, to wake a
         // reader. Run directly, that is the test runner's own loop, which
         // then returns and ends the process; so the posts and the drag run
@@ -270,13 +307,27 @@ struct SplitWindow {
         var dragged = false
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
             for step in 1...10 {
-                NSApp.postEvent(event(.leftMouseDragged, delta * CGFloat(step) / 10), atStart: false)
+                NSApp.postEvent(event(.leftMouseDragged, reach * CGFloat(step) / 10), atStart: false)
             }
-            NSApp.postEvent(event(.leftMouseUp, delta), atStart: false)
+            NSApp.postEvent(event(.leftMouseUp, reach), atStart: false)
             split.mouseDown(with: event(.leftMouseDown, 0))
             dragged = true
         }
         while !dragged { _ = CFRunLoopRunInMode(.defaultMode, 1, false) }
+        let left = Self.takeEvents().filter { $0.type == .leftMouseDragged || $0.type == .leftMouseUp }
+        let ours = left.filter { $0.eventNumber == Self.eventTag }.count
+        #expect(left.isEmpty, "the divider's tracking ended before the drag's own mouse-up: \(ours) of its events and \(left.count - ours) others were left in the queue",
+                sourceLocation: sourceLocation)
         settle()
+    }
+
+    /// Takes every event waiting in the app's queue and returns them.
+    @discardableResult
+    private static func takeEvents() -> [NSEvent] {
+        var taken: [NSEvent] = []
+        while let next = NSApp.nextEvent(matching: .any, until: .distantPast, inMode: .default, dequeue: true) {
+            taken.append(next)
+        }
+        return taken
     }
 }
