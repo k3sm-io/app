@@ -99,6 +99,9 @@ public struct ReleaseIndex: Equatable, Sendable {
     public let version: SemanticVersion
     /// The lowest macOS release the set runs on, `MAJOR[.MINOR[.PATCH]]`.
     public let minimumMacOS: String
+    /// The oldest final release the project still supports,
+    /// `vMAJOR.MINOR.PATCH`, at or below `tag`. A later index can raise it.
+    public let minimumSupportedTag: String
     /// The app half of the set.
     public let app: App
     /// The k3sm half of the set.
@@ -161,6 +164,10 @@ public enum ReleaseIndexError: Error, Equatable, Sendable, CustomStringConvertib
     case context
     case tag
     case minimumMacOS
+    case minimumSupportedTag
+    /// The minimum supported tag, then the tag: both final tags, the first
+    /// above the second.
+    case minimumSupportedTagAboveTag(String, String)
     case issuedAt
     case bundleID
     case shortVersion(String)
@@ -185,6 +192,8 @@ public enum ReleaseIndexError: Error, Equatable, Sendable, CustomStringConvertib
         case .context: "context is not \(ReleaseIndex.context)"
         case .tag: "tag is not a final release tag vMAJOR.MINOR.PATCH"
         case .minimumMacOS: "minimumMacOS is not MAJOR[.MINOR[.PATCH]]"
+        case .minimumSupportedTag: "minimumSupportedTag is not a final release tag vMAJOR.MINOR.PATCH"
+        case .minimumSupportedTagAboveTag(let minimum, let tag): "minimumSupportedTag \(minimum) is above tag \(tag)"
         case .issuedAt: "issuedAt is not a UTC time YYYY-MM-DDTHH:MM:SSZ"
         case .bundleID: "app: bundleID is not \(ReleaseIndex.bundleID)"
         case .shortVersion(let core): "app: shortVersion is not \(core)"
@@ -225,6 +234,7 @@ extension ReleaseIndex {
     /// that key holds (empty for a scalar, so any key inside one is unknown).
     static let schemaKeys = KeyTree([
         "schema": .scalar, "context": .scalar, "issuedAt": .scalar, "tag": .scalar, "minimumMacOS": .scalar,
+        "minimumSupportedTag": .scalar,
         "app": KeyTree([
             "bundleID": .scalar, "shortVersion": .scalar,
             "image": KeyTree(["name": .scalar, "url": .scalar, "sha256": .scalar, "size": .scalar]),
@@ -249,6 +259,7 @@ extension ReleaseIndex {
             tag: tag,
             version: placeholder,
             minimumMacOS: try string(root, "minimumMacOS"),
+            minimumSupportedTag: try string(root, "minimumSupportedTag"),
             app: App(
                 bundleID: try string(app, "bundleID"),
                 shortVersion: try string(app, "shortVersion"),
@@ -296,7 +307,7 @@ extension ReleaseIndex {
     private func with(version: SemanticVersion) -> ReleaseIndex {
         ReleaseIndex(
             schema: schema, context: context, issuedAt: issuedAt, tag: tag, version: version,
-            minimumMacOS: minimumMacOS, app: app, k3sm: k3sm)
+            minimumMacOS: minimumMacOS, minimumSupportedTag: minimumSupportedTag, app: app, k3sm: k3sm)
     }
 
     /// The grammar check, in k3sm's order; it returns the tag as a version.
@@ -305,6 +316,11 @@ extension ReleaseIndex {
         guard Self.same(context, Self.context) else { throw .context }
         guard Self.isFinalTag(tag), let parsed = SemanticVersion(tag), parsed.prerelease.isEmpty else { throw .tag }
         guard Self.isMacOSVersion(minimumMacOS) else { throw .minimumMacOS }
+        guard Self.isFinalTag(minimumSupportedTag), let minimum = SemanticVersion(minimumSupportedTag),
+              minimum.prerelease.isEmpty
+        else { throw .minimumSupportedTag }
+        // Both are final tags, so this compares the three numbers in order.
+        guard !(parsed < minimum) else { throw .minimumSupportedTagAboveTag(minimumSupportedTag, tag) }
         guard Self.isIssuedAt(issuedAt) else { throw .issuedAt }
         let core = String(tag.dropFirst())
         guard Self.same(app.bundleID, Self.bundleID) else { throw .bundleID }

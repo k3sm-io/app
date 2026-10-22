@@ -81,6 +81,7 @@ enum ReleaseIndexMutator {
     static func verdict(_ raw: [UInt8]) -> String {
         guard let ix = try? ReleaseIndex.parse(Data(raw)) else { return "refuse" }
         return ["accept", ix.schema, ix.context, ix.issuedAt, ix.tag, ix.minimumMacOS,
+                ix.minimumSupportedTag,
                 ix.app.bundleID, ix.app.shortVersion, ix.app.image.name, ix.app.image.url,
                 ix.app.image.sha256, String(ix.app.image.size),
                 ix.k3sm.archive, ix.k3sm.archiveSHA256, ix.k3sm.payloadManifestSHA256].joined(separator: "\t")

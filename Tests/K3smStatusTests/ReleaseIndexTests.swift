@@ -85,6 +85,9 @@ struct ReleaseIndexTests {
         "red-issued-at-impossible-date.json": "issuedAt is not",
         "red-minimum-macos-word.json": "minimumMacOS is not",
         "red-minimum-macos-four-parts.json": "minimumMacOS is not",
+        "red-minimum-supported-tag-above-tag.json": "minimumSupportedTag v0.3.0 is above tag v0.2.0",
+        "red-minimum-supported-tag-rc.json": "minimumSupportedTag is not a final release tag",
+        "red-minimum-supported-tag-missing.json": "minimumSupportedTag is not a final release tag",
         "red-other-bundle-id.json": "bundleID is not",
         "red-short-version-mismatch.json": "shortVersion is not",
         "red-image-name-mismatch.json": "image name is not",
@@ -125,6 +128,7 @@ struct ReleaseIndexTests {
         #expect(ix.version == SemanticVersion("0.2.0"))
         #expect(ix.version.prerelease.isEmpty)
         #expect(ix.minimumMacOS == "26.0")
+        #expect(ix.minimumSupportedTag == "v0.1.0")
         #expect(ix.app.bundleID == "io.k3sm.app")
         #expect(ix.app.shortVersion == "0.2.0")
         #expect(ix.app.image.name == "k3sm_0.2.0_darwin_arm64.dmg")
@@ -138,7 +142,7 @@ struct ReleaseIndexTests {
 
         let files = try FileManager.default.contentsOfDirectory(atPath: releaseIndexDirectory().path)
         let reds = Set(files.filter { $0.hasPrefix("red-") && $0.hasSuffix(".json") })
-        #expect(reds.count == 49)
+        #expect(reds.count == 52)
         #expect(reds == Set(Self.redReasons.keys), "the reason table and the vendored reds differ")
         for name in reds.sorted() {
             let raw = try releaseIndexFixture(name)
@@ -324,6 +328,41 @@ struct ReleaseIndexTests {
                 Issue.record("\(c.name): refused: \(error)")
             }
         }
+    }
+
+    /// k3sm's TestReleaseIndexMinimumSupportedTag cases: a final tag at or
+    /// below the tag, compared numerically, is accepted; anything else is
+    /// refused for k3sm's reason.
+    static let minimumSupportedTagCases: [(value: String, want: ReleaseIndexError?)] = [
+        ("v0.1.0", nil),
+        ("v0.2.0", nil),
+        ("v0.0.0", nil),
+        ("v0.1.10", nil),
+        ("v0.2.1", .minimumSupportedTagAboveTag("v0.2.1", "v0.2.0")),
+        ("v1.0.0", .minimumSupportedTagAboveTag("v1.0.0", "v0.2.0")),
+        ("v0.10.0", .minimumSupportedTagAboveTag("v0.10.0", "v0.2.0")),
+        ("v0.2.0-rc.1", .minimumSupportedTag),
+        ("v0.1.0+x", .minimumSupportedTag),
+        ("0.1.0", .minimumSupportedTag),
+        ("v0.01.0", .minimumSupportedTag),
+        ("v0.1", .minimumSupportedTag),
+        ("", .minimumSupportedTag),
+    ]
+
+    @Test func minimumSupportedTag() throws {
+        let field = #""minimumSupportedTag": "v0.1.0""#
+        for c in Self.minimumSupportedTagCases {
+            let raw = try replacing(field, "\"minimumSupportedTag\": \"\(c.value)\"", in: try golden())
+            do {
+                let ix = try ReleaseIndex.parse(Data(raw.utf8))
+                #expect(c.want == nil, "\(c.value): accepted, want \(String(describing: c.want))")
+                #expect(ix.minimumSupportedTag == c.value)
+            } catch {
+                #expect(error == c.want, "\(c.value)")
+            }
+        }
+        #expect(ReleaseIndexError.minimumSupportedTagAboveTag("v0.3.0", "v0.2.0").description
+            == "minimumSupportedTag v0.3.0 is above tag v0.2.0")
     }
 
     struct MacOSCase {

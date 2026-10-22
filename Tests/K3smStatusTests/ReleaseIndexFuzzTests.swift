@@ -92,7 +92,7 @@ struct ReleaseIndexFuzzTests {
     static func reencode(_ ix: ReleaseIndex) throws -> Data {
         let doc: [String: Any] = [
             "schema": ix.schema, "context": ix.context, "issuedAt": ix.issuedAt, "tag": ix.tag,
-            "minimumMacOS": ix.minimumMacOS,
+            "minimumMacOS": ix.minimumMacOS, "minimumSupportedTag": ix.minimumSupportedTag,
             "app": [
                 "bundleID": ix.app.bundleID, "shortVersion": ix.app.shortVersion,
                 "image": ["name": ix.app.image.name, "url": ix.app.image.url,

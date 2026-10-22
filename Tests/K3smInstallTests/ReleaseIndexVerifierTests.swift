@@ -278,6 +278,7 @@ struct ReleaseIndexVerifierTests {
         try verifier.checkSigner(signed.trust, at: Date())
         let index = try verifier.index(from: signed.content)
         #expect(index.tag == "v0.2.0")
+        #expect(index.minimumSupportedTag == "v0.1.0")
         #expect(index.context == IndexSignerPolicy.contextString)
         #expect(index.app.image.size == 123_456_789)
     }

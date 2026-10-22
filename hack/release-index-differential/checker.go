@@ -51,6 +51,7 @@ func main() {
 		verdict := "refuse"
 		if ix, err := update.ParseReleaseIndex(raw); err == nil {
 			verdict = strings.Join([]string{"accept", ix.Schema, ix.Context, ix.IssuedAt, ix.Tag, ix.MinimumMacOS,
+				ix.MinimumSupportedTag,
 				ix.App.BundleID, ix.App.ShortVersion, ix.App.Image.Name, ix.App.Image.URL,
 				ix.App.Image.SHA256, fmt.Sprint(ix.App.Image.Size),
 				ix.K3sm.Archive, ix.K3sm.ArchiveSHA256, ix.K3sm.PayloadManifestSHA256}, "\t")
