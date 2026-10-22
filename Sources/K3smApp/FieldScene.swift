@@ -20,8 +20,8 @@ import SwiftUI
 
 /// FieldScene is where the Alerts tab rests when nothing is wrong: a low
 /// hill line with a few flowers on it in Palette colours, and the k3sm
-/// butterfly (`FlappingButterfly`, the mark's own art) flying the slow loop
-/// `FieldFlight.pose` samples on a display-rate timeline. Under Reduce
+/// butterfly (`FieldButterfly`, the mark's own art) flying the fluttering
+/// flight `FieldFlight.pose` samples on a display-rate timeline. Under Reduce
 /// Motion the timeline is paused and the butterfly perches side-on
 /// (`FoldedButterfly`) on the tallest flower. The scene is decoration: the
 /// line above it says the same thing, so it is hidden from accessibility.
@@ -47,7 +47,7 @@ struct FieldScene: View {
                         if pose.perched {
                             FoldedButterfly(scale: 1, color: Palette.navy)
                         } else {
-                            FlappingButterfly(angle: pose.beat, color: Palette.navy)
+                            FieldButterfly(beat: pose.beat, hindBeat: pose.hindBeat, pitch: pose.pitch, color: Palette.navy)
                         }
                     }
                     .frame(width: Self.markSize, height: Self.markSize)

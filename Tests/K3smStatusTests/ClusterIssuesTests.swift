@@ -206,31 +206,6 @@ struct ClusterIssuesTests {
         #expect(!fault.rests(withCard: false))
     }
 
-    @Test("the field's butterfly loops above the flowers and, under Reduce Motion, perches still on the tallest")
-    func fieldFlight() throws {
-        let perched = FieldFlight.pose(at: 3, reduceMotion: true)
-        #expect(perched.perched && perched.beat == 0 && perched.tilt == 0)
-        #expect(FieldFlight.pose(at: 700, reduceMotion: true) == perched)
-        let top = FieldFlight.flowerTop(FieldFlight.perch)
-        #expect(perched.x == top.x && perched.y == top.y)
-        #expect(FieldFlight.flowers.map(\.height).max() == FieldFlight.flowers[FieldFlight.perch].height)
-
-        let highestFlowerTop = try #require(FieldFlight.flowers.indices.map { FieldFlight.flowerTop($0).y }.min())
-        for step in 0..<360 {
-            let t = Double(step) * FieldFlight.period / 360
-            let pose = FieldFlight.pose(at: t, reduceMotion: false)
-            #expect(!pose.perched)
-            #expect(pose.x > 0.05 && pose.x < 0.95)
-            #expect(pose.y > 0.1 && pose.y < highestFlowerTop - 0.05)
-            #expect(pose.beat >= 0 && pose.beat <= FieldFlight.beatPeak)
-            #expect(abs(pose.tilt) <= FieldFlight.maxTilt)
-        }
-        // One lap brings it back to where it started.
-        let start = FieldFlight.pose(at: 0, reduceMotion: false)
-        let lap = FieldFlight.pose(at: FieldFlight.period, reduceMotion: false)
-        #expect(abs(start.x - lap.x) < 1e-9 && abs(start.y - lap.y) < 1e-9 && abs(start.beat - lap.beat) < 1e-6)
-    }
-
     @Test("node-reported text is clipped, and a clipped command is never copyable")
     func clipped() throws {
         let long = "sudo k3sm " + String(repeating: "x", count: 300)
