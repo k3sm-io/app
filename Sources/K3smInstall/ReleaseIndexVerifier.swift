@@ -209,7 +209,10 @@ public struct ReleaseIndexVerifier: Sendable {
 
     /// Refuses an attested time more than `maxTimestampLead` past the clock.
     func checkNotAhead(_ date: Date) throws(ReleaseIndexVerifierError) {
-        guard date <= clock().addingTimeInterval(Self.maxTimestampLead) else { throw .timestampInFuture }
+        let now = clock()
+        guard date <= now.addingTimeInterval(Self.maxTimestampLead) else {
+            throw .timestampInFuture(minutesAhead: Int((date.timeIntervalSince(now) / 60).rounded()))
+        }
     }
 
     /// The timestamp authority: exactly one distinct certificate with the
@@ -245,10 +248,14 @@ public struct ReleaseIndexVerifier: Sendable {
     ///
     /// Revocation: `kSecRevocationUseAnyAvailableMethod` without
     /// `kSecRevocationRequirePositiveResponse` soft-fails, so an unreachable
-    /// OCSP responder does not refuse the index. That is a ruled residual
-    /// risk; the compensating control is the (tag, issuedAt) monotonic floor
-    /// the update flow enforces (B827), which a replayed older index cannot
-    /// pass.
+    /// OCSP responder does not refuse the index. This is an accepted
+    /// residual risk. It matches the platform's own Developer ID posture,
+    /// where Gatekeeper and notarization revocation are best-effort online
+    /// checks, and it is accepted because a hard fail would make updates
+    /// impossible on Macs that are offline or behind a filtering proxy. The
+    /// (tag, issuedAt) monotonic floor (B827) stops replay of an old index;
+    /// it does not cover this: a stolen, revoked key could sign a new index
+    /// while the responder is blocked.
     func checkSigner(_ trust: SecTrust, at date: Date) throws(ReleaseIndexVerifierError) {
         let roots = Self.roots(anchors)
         guard let codeSigning = SecPolicyCreateWithProperties(kSecPolicyAppleCodeSigning, nil),
@@ -410,8 +417,9 @@ public enum ReleaseIndexVerifierError: Error, Equatable, Sendable, CustomStringC
     case timestamp(OSStatus)
     /// The timestamp authority's chain is not one of the trusted roots'.
     case timestampAuthority(OSStatus)
-    /// The attested signing time is later than this Mac's clock allows.
-    case timestampInFuture
+    /// The attested signing time is later than this Mac's clock allows (how
+    /// many minutes ahead, rounded): the Mac's date and time look wrong.
+    case timestampInFuture(minutesAhead: Int)
     /// The signer chain failed evaluation at the signing time.
     case chainUntrusted(OSStatus)
     /// The chain's root is not a trusted root.
@@ -441,7 +449,8 @@ public enum ReleaseIndexVerifierError: Error, Equatable, Sendable, CustomStringC
         case .signerStatus(let s): "the signature is not valid (signer status \(s))"
         case .timestamp(let s): "no trusted timestamp (\(s))"
         case .timestampAuthority(let s): "the timestamp authority is not trusted (\(s))"
-        case .timestampInFuture: "the timestamp is later than this Mac's clock"
+        case .timestampInFuture(let m):
+            "this Mac's date and time look wrong: the signed update is dated \(m) minutes ahead of it; check Date & Time in System Settings"
         case .chainUntrusted(let s): "the signing certificate is not trusted at the signing time (\(s))"
         case .anchor: "the signing certificate is not anchored at an Apple root"
         case .intermediateMarker: "the intermediate is not a Developer ID certification authority"

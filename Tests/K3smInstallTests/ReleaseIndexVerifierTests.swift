@@ -383,9 +383,17 @@ struct ReleaseIndexVerifierTests {
         let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
         let verifier = try Self.verifier(clock: { now })
         try verifier.checkNotAhead(now.addingTimeInterval(ReleaseIndexVerifier.maxTimestampLead))
-        #expect(throws: ReleaseIndexVerifierError.timestampInFuture) {
+        #expect(throws: ReleaseIndexVerifierError.timestampInFuture(minutesAhead: 60)) {
             try verifier.checkNotAhead(now.addingTimeInterval(ReleaseIndexVerifier.maxTimestampLead + 1))
         }
+        #expect(throws: ReleaseIndexVerifierError.timestampInFuture(minutesAhead: 180)) {
+            try verifier.checkNotAhead(now.addingTimeInterval(3 * 3_600 + 10))
+        }
+    }
+
+    @Test func theFutureRefusalTellsTheUserToCheckTheClock() {
+        let text = ReleaseIndexVerifierError.timestampInFuture(minutesAhead: 180).description
+        #expect(text == "this Mac's date and time look wrong: the signed update is dated 180 minutes ahead of it; check Date & Time in System Settings")
     }
 
     // MARK: the shipped verifier
