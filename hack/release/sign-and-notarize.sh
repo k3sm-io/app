@@ -211,6 +211,8 @@ PLIST
 	# count_lines <text> <fixed string>: how many lines of <text> hold it.
 	count_lines() { grep -cF -- "$2" <<<"$1" || true; }
 	no_match() { ! grep -Eq -- "$2" <<<"$1"; }
+	# not <command...>: the command fails (so check can assert a negation).
+	not() { ! "$@"; }
 	ident_is() { has_line "$(/usr/bin/codesign -dv "$1" 2>&1)" "Identifier=$2"; }
 	# has_runtime <file>: the code directory's flags carry the hardened
 	# runtime (0x10000). has_no_entitlements <file>: the signature holds no
@@ -327,6 +329,7 @@ Contents/MacOS/k3sm-app"
 	/usr/bin/codesign --force --sign - --timestamp=none --identifier io.k3sm.app.update "$app/Contents/Helpers/k3sm-app-update" 2>/dev/null
 	check "a helper signed without the hardened runtime fails the runtime check" \
 		lacks_runtime "$app/Contents/Helpers/k3sm-app-update"
+	check "has_runtime is false on that helper" not has_runtime "$app/Contents/Helpers/k3sm-app-update"
 	cat >"$T/entitled.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -336,6 +339,7 @@ PLIST
 		--identifier io.k3sm.app.update "$app/Contents/Helpers/k3sm-app-update" 2>/dev/null
 	check "a helper signed with an entitlement fails the entitlement check" \
 		has_entitlements "$app/Contents/Helpers/k3sm-app-update"
+	check "has_no_entitlements is false on that helper" not has_no_entitlements "$app/Contents/Helpers/k3sm-app-update"
 
 	echo "sign-and-notarize self-test: $pass passed, $fail failed"
 	[ "$fail" = 0 ]

@@ -52,8 +52,11 @@
 #  14. the shipped helper: Contents/Helpers/k3sm-app-update from a developer
 #      build and from a --team-id build, run as built: no entitlements, the
 #      hardened runtime, io.k3sm.app.update sealed by the bundle, and every
-#      refusal (exit 64) told apart by its message, with a scratch request
-#      layout and the real private directory left unchanged. In ci the
+#      refusal (exit 64) told apart by its message. The helper's guard order
+#      (argv, root, team pin, location, then its own requirement) is what
+#      keeps it off the real private directory; a scratch request layout,
+#      which every case must leave unchanged, is a tripwire for a reordering
+#      of those guards, not an isolation. In ci the
 #      shipped helper's refusal of ad-hoc fixtures is proven only through its
 #      pre-request guards; the refusal by the compiled requirement of an
 #      ad-hoc staged bundle is proven by B836 (attended, Developer ID).
@@ -164,12 +167,22 @@ swap_engine_stage() {
 # takes its home from the passwd entry, never from HOME; an inserted library
 # (DYLD_INSERT_LIBRARIES) never loads into it, while the same library does
 # load into a copy signed without the hardened runtime, so the probe is real.
-# Every case runs with a scratch HOME holding a full request layout (ad-hoc
-# fixture bundles at the target and in staging, a request file, a helper
-# copy), and every run leaves that layout and the account's real private
-# directory unchanged: the same device, inode, mode, size, time and bytes.
 # Every refusal exits 64, so each case is told apart by its one stderr line,
 # and the stage prints which guard refused it.
+#
+# What keeps these runs off the account's real private directory is the
+# helper's own guard order, nothing in this stage: the argument list, then
+# root, then the team pin, then the location check (its own path, from
+# proc_pidpath, must be the helper copy in the private directory derived from
+# the passwd entry), and only then its own code against the helper
+# requirement (selfSatisfies); no guard reads a request before all of them
+# pass. env -i and the scratch HOME isolate nothing, because the helper takes
+# its home from getpwuid, never from HOME. The scratch request layout under
+# that HOME (ad-hoc fixture bundles at the target and in staging, a request
+# file, a helper copy) is a tripwire for a future reordering of those guards:
+# every case must leave it unchanged (device, inode, mode, size, mtime and
+# bytes), and must leave the names and modes in the real private directory
+# unchanged too (not times: a running app may touch its own files).
 #
 # Coverage: in ci the shipped helper's refusal of ad-hoc fixtures is proven
 # only through its pre-request guards; the refusal by the compiled
@@ -252,11 +265,12 @@ PLIST
 		echo "FAIL: the developer build's helper carries a Team ID pin"; exit 1
 	fi
 
-	# The scratch request layout: HOME's private directory with a request
-	# file and a helper copy, an installed fixture bundle at
-	# $HOME/Applications/k3sm.app (an allowed target, were HOME used) and a
-	# newer one staged beside it. The fixture bundles are B829's swap
-	# engine fixtures, ad-hoc signed.
+	# The tripwire: a scratch request layout under the HOME every case runs
+	# with, a private directory with a request file and a helper copy, an
+	# installed fixture bundle at $HOME/Applications/k3sm.app (an allowed
+	# target, were HOME ever used) and a newer one staged beside it. The
+	# fixture bundles are B829's swap engine fixtures, ad-hoc signed. It
+	# isolates nothing; it changes only if a guard stops refusing first.
 	local home="$d/home"
 	local priv="$home/Library/Application Support/io.k3sm.app/update"
 	local staged=".k3sm.app.update-ci0shipped0h"
@@ -288,12 +302,21 @@ PLIST
 	cp "$pinned" "$priv/k3sm-app-update"
 	chmod 0500 "$priv/k3sm-app-update"
 
-	# The account's real private directory is only read: its listing, before
-	# and after, must match. The home comes from the passwd entry.
-	local user real_priv
+	# The account's real private directory is only read: the names and modes
+	# under it, before and after, must match. Its home is the directory
+	# record's, the one the helper's passwd lookup returns.
+	local user real_home real_priv
 	user="$(id -un)"
 	printf '%s\n' "$user" | grep -Eqx '[A-Za-z0-9._-]+' || { echo "FAIL: an unexpected user name: $user"; exit 1; }
-	real_priv="$(eval "printf '%s' ~$user")/Library/Application Support/io.k3sm.app/update"
+	# dscl prints "NFSHomeDirectory: <path>", or the path on the next line
+	# when it holds a space.
+	real_home="$(/usr/bin/dscl . -read "/Users/$user" NFSHomeDirectory 2>/dev/null \
+		| sed -n -e '1s/^NFSHomeDirectory: //p' -e '2s/^ //p' | head -n 1)"
+	case "$real_home" in
+	/?*) ;;
+	*) echo "FAIL: no home directory for $user in the directory service"; exit 1 ;;
+	esac
+	real_priv="$real_home/Library/Application Support/io.k3sm.app/update"
 	sh_snapshot() {
 		{
 			echo "-- scratch"
@@ -302,7 +325,7 @@ PLIST
 			echo "-- real"
 			if [ -e "$real_priv" ]; then
 				/usr/bin/find "$real_priv" -print0 2>/dev/null | LC_ALL=C sort -z \
-					| xargs -0 /usr/bin/stat -f '%d %i %p %u %z %m %N' 2>/dev/null || echo "partly unreadable"
+					| xargs -0 /usr/bin/stat -f '%p %N' 2>/dev/null || echo "partly unreadable"
 			else
 				echo absent
 			fi
