@@ -23,6 +23,8 @@ import Testing
 struct FieldFlightTests {
     /// Times across one lap, every 10 ms.
     private static let lap = (0..<Int(FieldFlight.period * 100)).map { Double($0) / 100 }
+    /// Times across the whole cycle of laps, every 10 ms.
+    private static let cycle = (0..<Int(FieldFlight.cycle * 100)).map { Double($0) / 100 }
 
     @Test("under Reduce Motion it perches still on the tallest flower")
     func perched() {
@@ -34,35 +36,43 @@ struct FieldFlightTests {
         #expect(FieldFlight.flowers.map(\.height).max() == FieldFlight.flowers[FieldFlight.perch].height)
     }
 
-    @Test("in flight it stays above the flowers, its wings within the stroke, and it leans no further than the limit")
+    @Test("in flight it stays above the flowers, on a visit it comes down to the flower's head, its wings within the stroke")
     func bounds() throws {
         let highestFlowerTop = try #require(FieldFlight.flowers.indices.map { FieldFlight.flowerTop($0).y }.min())
-        for t in Self.lap {
+        for t in Self.cycle {
             let pose = FieldFlight.pose(at: t, reduceMotion: false)
-            #expect(!pose.perched)
             #expect(pose.x > 0.05 && pose.x < 0.95)
-            #expect(pose.y > 0.1 && pose.y < highestFlowerTop - 0.05)
-            for angle in [pose.beat, pose.hindBeat] {
-                #expect(angle >= FieldWings.bottom - 1e-9 && angle <= FieldWings.top + 1e-9)
+            if let visit = FieldFlight.landing(at: t) {
+                #expect(pose.y > 0.1 && pose.y <= FieldFlight.flowerTop(visit.landing.flower).y + 1e-9)
+            } else {
+                #expect(!pose.perched && !pose.folded)
+                #expect(pose.y > 0.1 && pose.y < highestFlowerTop - 0.05)
+                #expect(pose.beat >= FieldWings.bottom - 1e-9 && pose.beat <= FieldWings.top + 1e-9)
+                #expect(pose.hindBeat >= FieldWings.bottom - 1e-9 && pose.hindBeat <= FieldWings.top + 1e-9)
             }
+            #expect(pose.beat >= FieldWings.bottom - 1e-9 && pose.beat <= FieldWings.closed + 1e-9)
             #expect(abs(pose.tilt) <= FieldFlight.maxTilt + 1e-9)
-            #expect(abs(pose.pitch) <= FieldFlight.maxPitch + 1e-9)
+            #expect(abs(pose.pitch) <= max(FieldFlight.maxPitch, FieldFlight.flare) + 1e-9)
+            #expect(abs(pose.turn) <= 1 + 1e-12)
         }
     }
 
-    @Test("a time always gives the same pose, and a lap ends where it began")
+    @Test("a time always gives the same pose, and the cycle of laps ends where it began")
     func deterministic() {
-        for t in [0, 0.37, 4.6, 11.2, 17.99, 123.456] {
+        for t in [0, 0.37, 4.6, 7.0, 11.2, 17.99, 40.5, 123.456] {
             #expect(FieldFlight.pose(at: t, reduceMotion: false) == FieldFlight.pose(at: t, reduceMotion: false))
             let a = FieldFlight.pose(at: t, reduceMotion: false)
-            let b = FieldFlight.pose(at: t + FieldFlight.period, reduceMotion: false)
-            #expect(abs(a.x - b.x) < 1e-9 && abs(a.y - b.y) < 1e-9 && abs(a.tilt - b.tilt) < 1e-6)
+            let b = FieldFlight.pose(at: t + FieldFlight.cycle, reduceMotion: false)
+            #expect(abs(a.x - b.x) < 1e-9 && abs(a.y - b.y) < 1e-9 && abs(a.tilt - b.tilt) < 1e-6 && abs(a.turn - b.turn) < 1e-9)
             #expect(abs(a.beat - b.beat) < 1e-6 && abs(a.hindBeat - b.hindBeat) < 1e-6 && abs(a.pitch - b.pitch) < 1e-6)
+            #expect(a.perched == b.perched && a.folded == b.folded)
         }
         // Pinned values, so a change to the flight is a visible change here.
         let pose = FieldFlight.pose(at: 1, reduceMotion: false)
-        #expect(abs(FieldFlight.beatPhase(at: 1) - 3.50407) < 1e-4)
-        #expect(abs(pose.beat - FieldWings.angle(phase: FieldFlight.beatPhase(at: 1))) < 1e-9)
+        #expect(abs(FieldFlight.beatPhase(at: 1) - 3.34835) < 1e-4)
+        #expect(abs(pose.beat - FieldWings.glide) < 1e-9)
+        #expect(FieldFlight.landing(at: 6.5)?.landing == FieldLanding(start: 6, flower: 3, facing: -1))
+        #expect(FieldFlight.landing(at: 5.9) == nil)
     }
 
     @Test("the downstroke is quicker than the upstroke, from the top of the stroke to below the body and back")
@@ -92,13 +102,15 @@ struct FieldFlightTests {
     }
 
     @Test("the hindwings trail the forewings by a small part of a beat")
-    func hindwingLag() throws {
+    func hindwingLag() {
         #expect(FieldWings.hindLag > 0 && FieldWings.hindLag < 0.15)
         // In flapping flight the hindwing angle is the forewing angle a lag earlier.
-        let flapping = try #require(Self.lap.first { FieldFlight.flapping(at: $0) == 1 && FieldFlight.flapping(at: $0 + 1) == 1 })
+        // A second of plain flapping flight: no glide, visit or turn.
+        let flapping = 3.0
         for step in 0..<30 {
             let t = flapping + Double(step) / 30
             let pose = FieldFlight.pose(at: t, reduceMotion: false)
+            #expect(FieldFlight.flapping(at: t) == 1 && FieldFlight.landing(at: t) == nil && pose.turn == 0)
             let phase = FieldFlight.beatPhase(at: t)
             #expect(abs(pose.beat - FieldWings.angle(phase: phase)) < 1e-9)
             #expect(abs(pose.hindBeat - FieldWings.angle(phase: phase - FieldWings.hindLag)) < 1e-9)
@@ -139,6 +151,7 @@ struct FieldFlightTests {
         // Every glide holds the wings at the glide angle, with no bob or pitch.
         for glide in FieldFlight.glides {
             let mid = glide.start + glide.length / 2
+            #expect(FieldFlight.landing(at: mid) == nil)
             let pose = FieldFlight.pose(at: mid, reduceMotion: false)
             #expect(FieldFlight.flapping(at: mid) == 0)
             #expect(pose.beat == FieldWings.glide && pose.hindBeat == FieldWings.glide && pose.pitch == 0)
@@ -147,11 +160,13 @@ struct FieldFlightTests {
         let gliding = Self.lap.filter { FieldFlight.flapping(at: $0) < 1 }.count
         #expect(gliding > 0 && Double(gliding) < 0.25 * Double(Self.lap.count))
 
-        // It moves across the field more slowly near the flowers at x 0.27 and 0.78.
+        // Away from the loop's ends, where it always stops to come back, it moves
+        // across the field most slowly near the flowers at x 0.27 and 0.78.
         func speed(_ t: Double) -> Double {
-            abs(FieldFlight.pose(at: t + 0.01, reduceMotion: false).x - FieldFlight.pose(at: t, reduceMotion: false).x)
+            let a = FieldFlight.pose(at: t, reduceMotion: false), b = FieldFlight.pose(at: t + 0.01, reduceMotion: false)
+            return abs(a.x - 0.5) < 0.3 ? abs(b.x - a.x) : .infinity
         }
-        let speeds = Self.lap.map { (t: $0, v: speed($0)) }
+        let speeds = Self.lap.filter { FieldFlight.landing(at: $0) == nil && FieldFlight.landing(at: $0 + 0.01) == nil }.map { (t: $0, v: speed($0)) }
         let slowest = try #require(speeds.min { $0.v < $1.v })
         let x = FieldFlight.pose(at: slowest.t, reduceMotion: false).x
         #expect(min(abs(x - 0.27), abs(x - 0.78)) < 0.08)
@@ -182,5 +197,136 @@ struct FieldFlightTests {
         let l = WingProjection.of(angle: 40, left: true, size: size).apply(x: 4, y: 7)
         let r = WingProjection.of(angle: 40, left: false, size: size).apply(x: size - 4, y: 7)
         #expect(abs(l.x - (size - r.x)) < 1e-9 && abs(l.y - r.y) < 1e-9)
+    }
+
+    /// Every visit in the cycle: its absolute start time and the landing.
+    private static var visits: [(at: Double, landing: FieldLanding)] {
+        (0..<FieldFlight.laps).flatMap { lap in
+            FieldFlight.visits[lap].map { visit -> (at: Double, landing: FieldLanding) in
+                let at = Double(lap) * FieldFlight.period + visit.start
+                return (at, FieldFlight.landing(at: at)!.landing)
+            }
+        }
+    }
+
+    @Test("once or twice a lap it lands on a flower's head, a different flower each time over the cycle")
+    func landsOnFlowerHeads() throws {
+        #expect(FieldFlight.visits.allSatisfy { (1...2).contains($0.count) })
+        #expect(Set(Self.visits.map(\.landing.flower)).count == Self.visits.count)
+        for visit in Self.visits {
+            let top = FieldFlight.flowerTop(visit.landing.flower)
+            let touchdown = visit.at + FieldFlight.approach
+            for t in stride(from: touchdown + 0.001, to: touchdown + FieldFlight.fold + FieldFlight.rest - 0.001, by: 0.01) {
+                let pose = FieldFlight.pose(at: t, reduceMotion: false)
+                #expect(pose.perched)
+                // Its feet are on the flower's head, the Reduce Motion perch's placement.
+                #expect(abs(pose.x - top.x) < 1e-12 && abs(pose.y - top.y) < 1e-12)
+                #expect(pose.tilt == 0 && pose.turn == visit.landing.facing)
+            }
+            // It brakes with quick beats and its nose up just before touching down.
+            let braking = FieldFlight.pose(at: touchdown - FieldFlight.brake / 2, reduceMotion: false)
+            #expect(braking.pitch > FieldFlight.maxPitch)
+            #expect(!braking.perched)
+        }
+    }
+
+    @Test("it rests folded for the intended time, opening and closing its wings slowly once")
+    func restsFolded() {
+        for visit in Self.visits {
+            let touchdown = visit.at + FieldFlight.approach
+            let takeOff = touchdown + FieldFlight.fold + FieldFlight.rest
+            var perched = 0.0, folded = 0.0, widest = FieldWings.closed
+            for t in stride(from: visit.at, to: visit.at + FieldFlight.visit, by: 0.001) {
+                let pose = FieldFlight.pose(at: t, reduceMotion: false)
+                if pose.perched { perched += 0.001 }
+                if pose.folded { folded += 0.001 }
+                if pose.perched && t >= touchdown + FieldFlight.fold + 0.001 { widest = min(widest, pose.beat) }
+            }
+            #expect(abs(perched - (FieldFlight.fold + FieldFlight.rest)) < 0.005)
+            #expect(abs(folded - (FieldFlight.rest - FieldFlight.openClose)) < 0.005)
+            #expect(abs(widest - FieldFlight.openAngle) < 0.01)
+            // Closed side-on once the wings have folded, and open at the middle of the open-and-close.
+            #expect(FieldFlight.pose(at: touchdown + FieldFlight.fold + 0.1, reduceMotion: false).folded)
+            let open = FieldFlight.pose(at: touchdown + FieldFlight.fold + FieldFlight.openAt + FieldFlight.openClose / 2, reduceMotion: false)
+            #expect(open.perched && !open.folded && abs(open.beat - FieldFlight.openAngle) < 1e-9)
+            #expect(!FieldFlight.pose(at: takeOff + 0.001, reduceMotion: false).perched)
+        }
+    }
+
+    @Test("it takes off with quick beats and rejoins the loop where the loop has got to")
+    func takesOff() {
+        for visit in Self.visits {
+            let takeOff = visit.at + FieldFlight.approach + FieldFlight.fold + FieldFlight.rest
+            // Quick beats: the wings sweep from the top past level within the first quick beat.
+            let beats = stride(from: takeOff + 1e-9, to: takeOff + FieldFlight.quickBeat, by: 0.005).map { FieldFlight.pose(at: $0, reduceMotion: false).beat }
+            #expect(abs((beats.first ?? 0) - FieldWings.closed) < 1e-3)
+            #expect((beats.min() ?? 90) < 0)
+            // Off the flower, then back in the loop.
+            #expect(FieldFlight.pose(at: takeOff + 0.3, reduceMotion: false).y < FieldFlight.flowerTop(visit.landing.flower).y)
+            let back = visit.at + FieldFlight.visit
+            #expect(FieldFlight.landing(at: back + 0.001) == nil)
+            let end = FieldFlight.pose(at: back - 1e-6, reduceMotion: false)
+            let loop = FieldFlight.pose(at: back + 1e-6, reduceMotion: false)
+            #expect(abs(end.x - loop.x) < 1e-4 && abs(end.y - loop.y) < 1e-4 && abs(end.turn - loop.turn) < 1e-4)
+            #expect(!loop.perched)
+        }
+    }
+
+    @Test("turning side-on and back, and every visit, is continuous: no jump in turn, place, wings or pitch")
+    func continuous() {
+        var turned = Set<Double>()
+        var previous = FieldFlight.pose(at: 0, reduceMotion: false)
+        for step in 1...Int(FieldFlight.cycle * 1000) {
+            let t = Double(step) / 1000
+            let pose = FieldFlight.pose(at: t, reduceMotion: false)
+            #expect(abs(pose.turn - previous.turn) < 0.01)
+            #expect(abs(pose.x - previous.x) < 0.002 && abs(pose.y - previous.y) < 0.002)
+            #expect(abs(pose.beat - previous.beat) < 3 && abs(pose.hindBeat - previous.hindBeat) < 3)
+            #expect(abs(pose.pitch - previous.pitch) < 0.5 && abs(pose.tilt - previous.tilt) < 0.5)
+            if abs(pose.turn) > 0.6 && FieldFlight.landing(at: t) == nil { turned.insert((t / FieldFlight.period).rounded(.down)) }
+            previous = pose
+        }
+        // It turns to show its side in flight in every lap.
+        #expect(turned.count == FieldFlight.laps)
+        // The drawn wings move continuously through a turn.
+        for angle in [FieldWings.bottom, 20, FieldWings.top] {
+            for turn in stride(from: -1.0, to: 1.0, by: 0.01) {
+                let a = WingProjection.of(angle: angle, left: true, size: 26, turn: turn, pitch: 3, hind: false).apply(x: 2, y: 4)
+                let b = WingProjection.of(angle: angle, left: true, size: 26, turn: turn + 0.01, pitch: 3, hind: false).apply(x: 2, y: 4)
+                #expect(hypot(a.x - b.x, a.y - b.y) < 1)
+            }
+        }
+    }
+
+    @Test("side-on with its wings closed it draws exactly the perched mark, so the change to it does not show")
+    func closedSideOnIsTheFoldedMark() {
+        let size = 26.0, c = size / 2
+        for facing in [1.0, -1.0] {
+            for left in [true, false] {
+                for hind in [false, true] {
+                    let projection = WingProjection.of(angle: FieldWings.closed, left: left, size: size, turn: facing, pitch: 0, hind: hind)
+                    for (x, y) in [(2.0, 3.0), (11.0, 20.0), (left ? 6.0 : 20.0, 14.0)] {
+                        let point = (left == (x < c)) ? (x, y) : (size - x, y)
+                        let drawn = projection.apply(x: point.0, y: point.1)
+                        // FoldedButterfly: the mark turned so its head points right, both
+                        // halves above the body, stretched by Perch.sideFill about the
+                        // centre; mirrored for a head to the left.
+                        let foldedX = c + facing * Perch.sideFill.x * (c - point.1)
+                        let foldedY = c - Perch.sideFill.y * abs(point.0 - c)
+                        #expect(abs(drawn.x - foldedX) < 1e-9 && abs(drawn.y - foldedY) < 1e-9)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test("at the top of the stroke the hindwings tuck up toward the forewings; level, they stay where the mark has them")
+    func hindwingsTuckUp() {
+        let size = 26.0
+        let level = WingProjection.of(angle: 0, left: true, size: size, turn: 0, pitch: 0, hind: true).apply(x: 6, y: 22)
+        #expect(abs(level.x - 6) < 1e-9 && abs(level.y - 22) < 1e-9)
+        let fore = WingProjection.of(angle: FieldWings.top, left: true, size: size, turn: 0, pitch: 0, hind: false).apply(x: 6, y: 22)
+        let hind = WingProjection.of(angle: FieldWings.top, left: true, size: size, turn: 0, pitch: 0, hind: true).apply(x: 6, y: 22)
+        #expect(hind.y < fore.y - 1.5)
     }
 }

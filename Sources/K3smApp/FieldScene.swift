@@ -21,10 +21,12 @@ import SwiftUI
 /// FieldScene is where the Alerts tab rests when nothing is wrong: a low
 /// hill line with a few flowers on it in Palette colours, and the k3sm
 /// butterfly (`FieldButterfly`, the mark's own art) flying the fluttering
-/// flight `FieldFlight.pose` samples on a display-rate timeline. Under Reduce
-/// Motion the timeline is paused and the butterfly perches side-on
-/// (`FoldedButterfly`) on the tallest flower. The scene is decoration: the
-/// line above it says the same thing, so it is hidden from accessibility.
+/// flight `FieldFlight.pose` samples on a display-rate timeline, now and
+/// then landing on a flower and resting there side-on with its wings
+/// closed (`FoldedButterfly`). Under Reduce Motion the timeline is paused
+/// and the butterfly perches side-on on the tallest flower. The scene is
+/// decoration: the line above it says the same thing, so it is hidden from
+/// accessibility.
 struct FieldScene: View {
     /// The butterfly's size, in points.
     static let markSize: CGFloat = 26
@@ -44,17 +46,20 @@ struct FieldScene: View {
                 TimelineView(.animation(paused: reduceMotion)) { context in
                     let pose = FieldFlight.pose(at: context.date.timeIntervalSinceReferenceDate, reduceMotion: reduceMotion)
                     Group {
-                        if pose.perched {
+                        if pose.folded {
+                            // Side-on with the wings closed, facing the way it turned.
                             FoldedButterfly(scale: 1, color: Palette.navy)
+                                .scaleEffect(x: pose.turn < 0 ? -1 : 1, y: 1)
                         } else {
-                            FieldButterfly(beat: pose.beat, hindBeat: pose.hindBeat, pitch: pose.pitch, color: Palette.navy)
+                            FieldButterfly(beat: pose.beat, hindBeat: pose.hindBeat, pitch: pose.pitch, turn: pose.turn, color: Palette.navy)
                         }
                     }
                     .frame(width: Self.markSize, height: Self.markSize)
                     .rotationEffect(.degrees(pose.tilt))
-                    // A perched mark's feet sit on the flower; a flying one is centred on its pose.
+                    // The pose is the body's place: a folded mark's body is at its
+                    // feet line, a flying one's at its centre.
                     .position(x: w * CGFloat(pose.x),
-                              y: h * CGFloat(pose.y) - (pose.perched ? Self.markSize * CGFloat(TabStripLayout.markFoot - 0.5) : 0))
+                              y: h * CGFloat(pose.y) - (pose.folded ? Self.markSize * CGFloat(TabStripLayout.markFoot - 0.5) : 0))
                 }
             }
         }

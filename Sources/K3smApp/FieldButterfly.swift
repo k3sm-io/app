@@ -17,48 +17,67 @@ limitations under the License.
 import K3smStatus
 import SwiftUI
 
-/// FieldButterfly is the Alerts field's butterfly in flight, made only from
-/// the mark itself: the mark cut into four wings, the forewings above the
-/// waist (`seam`) and the hindwings below it on each side of the centre
-/// line, each drawn through `WingProjection` at its hinge angle, so the
-/// wings rise over the back and fall below the body as seen from above and
-/// a little behind. The hindwings take `hindBeat`, which trails `beat`. A
-/// raised wing is drawn a shade lighter, as a wing turned toward the light
-/// is, so the stroke reads in depth. The whole mark then pitches about its
-/// horizontal centre line by `pitch`. At a 0 beat and pitch it draws
-/// exactly the flat mark.
+/// FieldButterfly is the Alerts field's butterfly in flight or opening its
+/// wings on a flower, made only from the mark itself: the mark cut into
+/// four wings, the forewings above the waist (`seam`) and the hindwings
+/// below it on each side of the centre line, each drawn through
+/// `WingProjection` at its hinge angle with the body at `pitch` and turned
+/// `turn` toward its side, so the wings rise over the back and fall below
+/// the body as seen from above and a little behind, or, side-on, sweep up
+/// over the back and down in profile. The hindwings take `hindBeat`, which
+/// trails `beat`. A raised wing is drawn a shade lighter, as a wing turned
+/// toward the light is, so the stroke reads in depth. Its body is on the
+/// frame's centre; at a 0 beat, pitch and turn it draws exactly the flat
+/// mark, and with its wings closed side-on exactly `FoldedButterfly`
+/// (whose body is at the frame's feet line, so the scene places the two
+/// apart by that much).
 struct FieldButterfly: View {
     let beat: Double
     let hindBeat: Double
     let pitch: Double
+    let turn: Double
     let color: Color
 
     /// Where the mark's forewings meet its hindwings, as a fraction of its
     /// height from the top: the waist, where both wing outlines come in to
     /// the body.
-    static let seam: CGFloat = 0.58
+    nonisolated static let seam: CGFloat = 0.58
 
     var body: some View {
         GeometryReader { geo in
             let size = Double(geo.size.width)
             ZStack {
-                Self.wing(left: true, fore: false, angle: hindBeat, size: size, color: color)
-                Self.wing(left: false, fore: false, angle: hindBeat, size: size, color: color)
-                Self.wing(left: true, fore: true, angle: beat, size: size, color: color)
-                Self.wing(left: false, fore: true, angle: beat, size: size, color: color)
+                ForEach(Self.order(turn: turn), id: \.self) { wing in
+                    Self.wing(wing, angle: wing.fore ? beat : hindBeat, pitch: pitch, turn: turn, size: size, color: color)
+                }
             }
         }
-        .rotation3DEffect(.degrees(pitch), axis: (x: 1, y: 0, z: 0), anchor: .center, perspective: 0.4)
         .accessibilityHidden(true)
+    }
+
+    /// Wing names one of the four wings.
+    struct Wing: Hashable {
+        let left: Bool
+        let fore: Bool
+    }
+
+    /// order is the four wings back to front: hindwings behind forewings,
+    /// and turned side-on, the far side's pair behind the near side's
+    /// (head right shows the right side, head left the left).
+    static func order(turn: Double) -> [Wing] {
+        let farLeft = turn >= 0
+        return [Wing(left: farLeft, fore: false), Wing(left: farLeft, fore: true),
+                Wing(left: !farLeft, fore: false), Wing(left: !farLeft, fore: true)]
     }
 
     /// wing is one wing of the mark, left or right of the centre line and
     /// above (`fore`) or below the seam, drawn at `angle`.
-    static func wing(left: Bool, fore: Bool, angle: Double, size: Double, color: Color) -> some View {
+    static func wing(_ wing: Wing, angle: Double, pitch: Double, turn: Double, size: Double, color: Color) -> some View {
         Butterfly().fill(color)
-            .mask { WingArea(left: left, fore: fore) }
-            .brightness(0.12 * max(0, sin(angle * .pi / 180)))
-            .projectionEffect(projection(WingProjection.of(angle: angle, left: left, size: size)))
+            .mask { WingArea(left: wing.left, fore: wing.fore) }
+            .brightness(0.12 * max(0, sin(angle * .pi / 180)) * (1 - abs(turn)))
+            .projectionEffect(projection(WingProjection.of(angle: angle, left: wing.left, size: size,
+                                                           turn: turn, pitch: pitch, hind: !wing.fore)))
     }
 
     /// projection is `w` as SwiftUI's transform.
