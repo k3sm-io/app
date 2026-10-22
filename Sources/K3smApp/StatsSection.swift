@@ -205,20 +205,20 @@ private struct StatsAxes: ViewModifier {
 
 /// StatsBars lays out a horizontal bar chart: thin rounded bars, a row
 /// height per bar instead of one bar filling the plot, the row labels on
-/// the left and the value axis below.
+/// the left and no value axis. Every bar is named, a lone bar included:
+/// the headline gives one figure (the Running count, the node count), not
+/// the phase or the node a single bar stands for.
 struct StatsBars: ViewModifier {
     static let thickness: CGFloat = 12
     static let row: CGFloat = 30
     let rows: Int
-    /// Whether each bar is named; one bar needs no name, the headline says it.
-    var labels = true
 
     func body(content: Content) -> some View {
         content
             .chartXAxis(.hidden)
             .chartYAxis {
                 AxisMarks(position: .leading) { _ in
-                    if labels { AxisValueLabel().foregroundStyle(Palette.statsMuted) }
+                    AxisValueLabel().foregroundStyle(Palette.statsMuted)
                 }
             }
             .frame(height: CGFloat(max(1, rows)) * Self.row)
@@ -278,14 +278,12 @@ struct StatsBucketChart: View {
                         .foregroundStyle(byLabel ? Self.phaseColor(bucket.label) : Palette.statsBar)
                         .clipShape(Capsule())
                         .annotation(position: .trailing) {
-                            if buckets.count > 1 {
-                                Text(verbatim: "\(bucket.count)").font(.system(size: 11)).monospacedDigit()
-                                    .foregroundStyle(Palette.statsMuted)
-                            }
+                            Text(verbatim: "\(bucket.count)").font(.system(size: 11)).monospacedDigit()
+                                .foregroundStyle(Palette.statsMuted)
                         }
                 }
             }
-            .modifier(StatsBars(rows: buckets.count, labels: buckets.count > 1))
+            .modifier(StatsBars(rows: buckets.count))
         }
     }
 

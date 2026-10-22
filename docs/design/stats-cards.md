@@ -125,9 +125,10 @@ plots at 150 pt with the legend when there is more than one line; the axes draw 
 `statsLine` and their labels in `statsMuted` in place of the white-on-navy marks. The count
 charts (pods by phase, pods by node, images, storage) draw thin rounded bars: 12 pt capsules,
 one 30 pt row per bar, the row labels on the left and no value axis (`StatsBars`), the count
-or size at each bar's end in `statsMuted`; a chart with one bar shows neither the row label
-nor the count, since the headline says both. The restart bars take `statsWarn` over the hour's
-time axis.
+or size at each bar's end in `statsMuted`. A chart with one bar still names it and shows its
+count: the headline gives one figure, the Running count or the node count, so a lone Pending,
+Succeeded or Failed bar, or the one node that carries every pod, is named only by its row
+label. The restart bars take `statsWarn` over the hour's time axis.
 
 **Out of scope, as decided.** No "All clear" card. `StatsHistory`, `StatsSeries` and the
 loaders are untouched; the cards render the series the tab already has.
