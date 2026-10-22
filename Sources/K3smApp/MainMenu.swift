@@ -18,7 +18,7 @@ import AppKit
 import K3smStatus
 
 /// MainMenu is the menu bar while a window is open: the app menu with
-/// Settings (the Settings window), Edit for the search field, View for
+/// Check for Updates… (the app's own release) and Settings (the Settings window), Edit for the search field, View for
 /// refresh, the status panel (Show Status), hiding or showing the
 /// console's left panel and Reset Column Widths, Window, and Help with the tour. The status item keeps its own menu. The delegate owns one and
 /// the items target it.
@@ -53,6 +53,7 @@ final class MainMenu: NSObject, NSMenuItemValidation {
         let about = NSMenuItem(title: "About k3sm", action: #selector(showAbout(_:)), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
+        menu.addItem(item("Check for Updates…", #selector(checkForUpdates(_:)), "", help: Help.Menus.checkForUpdates))
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(openSettings(_:)), ",", help: Help.Menus.settings))
         menu.addItem(.separator())
@@ -118,6 +119,13 @@ final class MainMenu: NSObject, NSMenuItemValidation {
             .applicationVersion: panel.applicationVersion,
             .version: panel.version,
         ])
+    }
+
+    /// Checks for a new release of the app now and opens Settings > Updates,
+    /// where the result shows.
+    @objc private func checkForUpdates(_ sender: Any?) {
+        model.checkAppUpdateNow()
+        SettingsWindowController.shared?.show(pane: .updates)
     }
 
     @objc private func startTour(_ sender: Any?) {

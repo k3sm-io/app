@@ -26,7 +26,10 @@ import SwiftUI
 /// options passed to `k3sm update apply` (drain and the signature policy,
 /// `UpdateOptions`, in `PreferencesStore`); allowing a downgrade is asked in
 /// the confirmation, for one apply only. The notification preference
-/// (`UpdateNotice`) sits under the releases.
+/// (`UpdateNotice`) sits under the releases. The app's own line
+/// (`AppUpdateState`, with the last check's age, Check Now, the two app
+/// update preferences and the persistent "app ahead of cluster" line,
+/// `AppAheadOfCluster`) sits between them.
 /// Opening the pane reads the status again, so the offer is never judged on
 /// a stale read.
 struct UpdatesPane: View {
@@ -56,6 +59,24 @@ struct UpdatesPane: View {
                     .disabled(!control.enabled)
                     .help(Help.Updates.updateNow(control, plan: plan))
                 if let line = plan.line ?? control.reason { note(line) }
+            }
+            group("This app") {
+                let appState = app.appUpdateState
+                Text(verbatim: appState.line).font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(Help.Updates.appState)
+                if let ahead = app.appAheadOfCluster { note(ahead.line) }
+                HStack(spacing: 10) {
+                    Button("Check Now") { app.checkAppUpdateNow() }
+                        .disabled(appState == .development || app.appUpdateChecking)
+                        .help(Help.Updates.checkNow)
+                    Text(verbatim: AppUpdateAge.line(lastCheck: app.appUpdateLastCheck, now: Date()))
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                Toggle("Check for app updates automatically", isOn: $preferences.checkAppUpdates)
+                    .help(Help.Updates.checkAppUpdates)
+                Toggle("Download app updates in the background", isOn: $preferences.downloadAppUpdates)
+                    .help(Help.Updates.downloadAppUpdates)
             }
             group("Notifications") {
                 Toggle("Notify me when an update is available", isOn: $preferences.notifyUpdate)

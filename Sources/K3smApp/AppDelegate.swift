@@ -40,6 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var sessionObservers: [NSObjectProtocol] = []
     /// Applies the appearance preference to the app, now and on every change.
     private var appearanceObserver: AnyCancellable?
+    /// Follows `pref.checkAppUpdates` into the app update state.
+    private var appUpdatePreferenceObserver: AnyCancellable?
     /// The scripted demo tour, when `--demo-tour` named one.
     private var demo: DemoTourRunner?
 
@@ -89,6 +91,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Self.noteUpdate(model.updatePlan, preferences: preferences.preferences, notifier: notifier)
             }
         }
+        // The app's own update check reads the preference live; a change
+        // decides its state again. A demo tour posts no app notice either.
+        model.appUpdateChecksOn = { preferences.checkAppUpdates }
+        appUpdatePreferenceObserver = preferences.$checkAppUpdates.dropFirst().sink { [weak model] _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { model?.appUpdatePreferenceChanged() } }
+        }
+        if demoTour == nil {
+            model.onAppUpdateState = { [weak notifier] state in
+                guard let notifier else { return }
+                Self.noteAppUpdate(state, preferences: preferences.preferences, notifier: notifier)
+            }
+        }
         noticePending = preferences.preferences.checksStoppedNotice(loginLaunch: loginLaunch)
         let poller = StatusPoller(environment: environment) { [weak statusItem, weak self] reading, report in
             statusItem?.observe(reading, report: report)
@@ -120,6 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.startStatusStream()
         if demoTour == nil {
             model.startUpdateCheck(wanted: { preferences.notifyUpdate })
+            model.startAppUpdateCheck()
         }
         log.notice("k3sm app started")
         // A login-item launch, or one with --background, shows only the status
@@ -224,6 +239,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                notified: preferences.updateNotifiedRelease) else { return }
         preferences.updateNotifiedRelease = notice.release
         notifier.postUpdate(notice)
+    }
+
+    /// Posts the app-release notice when `AppUpdateNotice` says one is due,
+    /// after recording its release, so each release is announced once.
+    private static func noteAppUpdate(_ state: AppUpdateState, preferences: AppPreferences, notifier: StoppedNotifier) {
+        guard let notice = AppUpdateNotice.decide(state: state, enabled: preferences.notifyUpdate,
+                                                  notified: preferences.appUpdateNotifiedRelease) else { return }
+        preferences.appUpdateNotifiedRelease = notice.release
+        notifier.postUpdate(notice, identifier: AppUpdateNotice.identifier)
     }
 
     /// Pauses polling while this user's session is not the active console

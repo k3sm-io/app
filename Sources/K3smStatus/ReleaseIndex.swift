@@ -49,6 +49,11 @@ public struct ReleaseIndex: Equatable, Sendable {
         "release-assets.githubusercontent.com",
     ]
 
+    /// The one URL the app's update check fetches: the signed index of the
+    /// latest k3sm-io/k3sm release, on github.com, with no query string.
+    /// GitHub redirects it to the release's asset on one of `allowedHosts`.
+    public static let latestIndexURL = "https://github.com/k3sm-io/k3sm/releases/latest/download/k3sm_release-index.p7m"
+
     /// The one URL an index may name for a release asset: the k3sm-io/k3sm
     /// release download of `name` under `tag`, on github.com with no port.
     public static func downloadURL(tag: String, name: String) -> String {
@@ -119,6 +124,29 @@ public struct ReleaseIndex: Equatable, Sendable {
         let draft = try decode(root)
         try scanner.end()
         return draft.with(version: try draft.check())
+    }
+
+    /// `issuedAt` as a date. The grammar check has already accepted the
+    /// text (`isIssuedAt`: a real Gregorian date and time in UTC), so this
+    /// reads its digits and counts days from 1970-01-01 (Hinnant's
+    /// days-from-civil); no formatter, locale or calendar setting takes part.
+    /// Text outside the grammar, which `parse` never returns, reads as the
+    /// distant future, which the update check's `issuedAt` bound refuses.
+    public var issuedDate: Date {
+        guard Self.isIssuedAt(issuedAt) else { return .distantFuture }
+        let b = Array(issuedAt.utf8)
+        func num(_ from: Int, _ count: Int) -> Int {
+            b[from..<from + count].reduce(0) { $0 * 10 + Int($1) - Int(UInt8(ascii: "0")) }
+        }
+        let month = num(5, 2), day = num(8, 2)
+        let year = num(0, 4) - (month <= 2 ? 1 : 0)
+        let era = (year >= 0 ? year : year - 399) / 400
+        let yearOfEra = year - era * 400
+        let dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1
+        let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+        let days = era * 146_097 + dayOfEra - 719_468
+        let seconds = days * 86_400 + num(11, 2) * 3_600 + num(14, 2) * 60 + num(17, 2)
+        return Date(timeIntervalSince1970: TimeInterval(seconds))
     }
 
     /// The macOS check made before any download.

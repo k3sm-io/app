@@ -312,6 +312,30 @@ final class AppModel: ObservableObject {
     var onUpdateRead: (@MainActor () -> Void)?
     /// The background update check's loop (`startUpdateCheck`).
     private var updateCheckTask: Task<Void, Never>?
+    /// The app's own update check (`AppUpdateChecker`); nil for a
+    /// development build, which never makes a request.
+    private let appUpdateChecker: AppUpdateChecker<ReleaseIndexVerifier.VerifiedReleaseIndex>?
+    /// The app update check's loop (`startAppUpdateCheck`).
+    private var appUpdateTask: Task<Void, Never>?
+    /// Whether automatic app update checks are on (`pref.checkAppUpdates`);
+    /// the delegate sets it from the preference.
+    var appUpdateChecksOn: @MainActor () -> Bool = { true }
+    /// The last app update check's outcome this launch, and whether the user
+    /// asked for it: an automatic check's outcome is not shown once
+    /// automatic checks are off.
+    @Published private(set) var appUpdateOutcome: AppUpdateCheckOutcome?
+    private var appUpdateOutcomeManual = false
+    /// Whether an app update check is running now.
+    @Published private(set) var appUpdateChecking = false
+    /// The last accepted index, verified, for this process only: it is never
+    /// written anywhere. A later step downloads the release it names.
+    private(set) var appUpdateIndex: ReleaseIndexVerifier.VerifiedReleaseIndex?
+    /// When an app update check last accepted an index (a record).
+    @Published private(set) var appUpdateLastCheck: Date?
+    /// The last state logged, so each change logs once.
+    private var appUpdateLoggedState: AppUpdateState?
+    /// Called with each new app update state; the delegate posts the notice.
+    var onAppUpdateState: (@MainActor (AppUpdateState) -> Void)?
     @Published private(set) var availability: PrivilegedAvailability
     @Published var loginItemNeedsApproval = false
     @Published private(set) var running = false
@@ -449,6 +473,9 @@ final class AppModel: ObservableObject {
         self.user = SelfCheck.consoleUser()
         self.payloadVersion = SelfCheck.payloadVersion()
         self.payloadTag = AppVersion.payloadTag(info: Bundle.main.infoDictionary)
+        let preferences = AppPreferences()
+        self.appUpdateChecker = AppUpdateChecker.shipped(preferences: preferences, ownTag: payloadTag)
+        self.appUpdateLastCheck = preferences.appUpdateLastCheck
         self.payloadRecord = Self.hasPayloadRecord(bundlePath: Bundle.main.bundlePath)
         self.appVersion = SelfCheck.appVersion()
         self.payloadCLI = SelfCheck.payloadCLI()
@@ -1616,6 +1643,80 @@ final class AppModel: ObservableObject {
                 try? await Task.sleep(for: PollJitter.spread(PollSchedule.updateCheckInterval, unit: PollJitter.draw()))
             }
         }
+    }
+
+    /// The app's own update state (`AppUpdateState.decide`), from the last
+    /// check's outcome, the stored high-water pair and the preference.
+    var appUpdateState: AppUpdateState {
+        let checksOn = appUpdateChecksOn()
+        return AppUpdateState.decide(
+            ownTag: payloadTag, pinned: appUpdateChecker != nil, checksOn: checksOn,
+            outcome: checksOn || appUpdateOutcomeManual ? appUpdateOutcome : nil,
+            stored: AppPreferences().appIndexHighWater.pair)
+    }
+
+    /// The persistent "app ahead of cluster" fact (`AppAheadOfCluster`).
+    var appAheadOfCluster: AppAheadOfCluster? {
+        AppAheadOfCluster.decide(facts: updatePlanFacts)
+    }
+
+    /// Starts the app update check's schedule (`AppUpdateSchedule`): the
+    /// first turn `firstDelay` after launch, then every
+    /// `PollIntervals.appUpdateCheck` spread by `PollJitter`; a turn during
+    /// the first run or a root step is held back. A development build has no
+    /// checker and starts nothing. A second start is a no-op.
+    func startAppUpdateCheck() {
+        guard appUpdateTask == nil, appUpdateChecker != nil else { return }
+        appUpdateTask = Task { [weak self] in
+            try? await Task.sleep(for: AppUpdateSchedule.firstDelay)
+            while !Task.isCancelled {
+                guard let self else { return }
+                let turn = AppUpdateSchedule.turn(checksOn: self.appUpdateChecksOn(), firstRun: self.screen == .firstRun,
+                                                  rootStepRunning: self.running)
+                if turn == .check { await self.runAppUpdateCheck(userInitiated: false) }
+                try? await Task.sleep(for: AppUpdateSchedule.nextWait(after: turn, intervals: PollSchedule.intervals,
+                                                                      unit: PollJitter.draw()))
+            }
+        }
+    }
+
+    /// Check Now and Check for Updates…: one check at once, with automatic
+    /// checks off too. A development build makes no request.
+    func checkAppUpdateNow() {
+        Task { await runAppUpdateCheck(userInitiated: true) }
+    }
+
+    /// Notes a change of the automatic-check preference: the state is
+    /// decided again (and logged when it changed).
+    func appUpdatePreferenceChanged() {
+        objectWillChange.send()
+        publishAppUpdateState()
+    }
+
+    private func runAppUpdateCheck(userInitiated: Bool) async {
+        guard let checker = appUpdateChecker, !appUpdateChecking else {
+            publishAppUpdateState()
+            return
+        }
+        appUpdateChecking = true
+        defer { appUpdateChecking = false }
+        let result = await checker.check(userInitiated: userInitiated)
+        if let outcome = result.outcome {
+            appUpdateOutcome = outcome
+            appUpdateOutcomeManual = userInitiated
+            if let verified = result.verified { appUpdateIndex = verified }
+            appUpdateLastCheck = AppPreferences().appUpdateLastCheck
+        }
+        publishAppUpdateState()
+    }
+
+    /// Logs a state change once and hands it to the delegate.
+    private func publishAppUpdateState() {
+        let state = appUpdateState
+        guard state != appUpdateLoggedState else { return }
+        appUpdateLoggedState = state
+        AppUpdateLog.stateChanged(state)
+        onAppUpdateState?(state)
     }
 
     /// Stops the console's report loop when the console leaves the screen.

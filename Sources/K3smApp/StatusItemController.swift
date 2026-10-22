@@ -51,6 +51,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let clusterItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let thisMacItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var updateItem = NSMenuItem()
+    /// The persistent "app ahead of cluster" line (`AppAheadOfCluster`),
+    /// shown for as long as it holds.
+    private let appAheadItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     /// The separator after the update item, shown only when Stop and
     /// Restart are hidden, so the update item never runs into Live Status.
     private let updateEnd = NSMenuItem.separator()
@@ -101,6 +104,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         showStatusLine(clusterItem, MenuStatus.clusterLabel, .unknown)
         showStatusLine(thisMacItem, MenuStatus.thisMacLabel, .unknown)
         updateItem = add("", #selector(updateAction))
+        appAheadItem.isEnabled = false
+        appAheadItem.toolTip = Help.Menus.appAhead.text
+        menu.addItem(appAheadItem)
         menu.addItem(updateEnd)
         stopItem = add(LifecycleVerb.stop.title + "…", #selector(stopAction), help: Help.Menus.stop)
         restartItem = add(LifecycleVerb.restart.title + "…", #selector(restartAction), help: Help.Menus.restart)
@@ -245,7 +251,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         updateItem.title = title ?? ""
         updateItem.isEnabled = plan.isEnabled
         updateItem.toolTip = title == nil ? nil : Help.Strip.update(plan)
-        updateEnd.isHidden = title == nil || !stopItem.isHidden
+        let ahead = model.appAheadOfCluster
+        appAheadItem.isHidden = ahead == nil
+        appAheadItem.title = ahead?.line ?? ""
+        updateEnd.isHidden = (title == nil && ahead == nil) || !stopItem.isHidden
     }
 
     // MARK: NSMenuDelegate

@@ -56,11 +56,14 @@ public struct PollIntervals: Equatable, Sendable {
     /// The full status read that looks for a new release while the console
     /// is closed, only with the update notification on.
     public let updateCheck: Duration
+    /// The app's own update check (`AppUpdateSchedule`): the signed release
+    /// index, fetched only with `pref.checkAppUpdates` on.
+    public let appUpdateCheck: Duration
 
     public init(visible: Duration, hidden: Duration, fast: Duration, consoleReport: Duration, consoleHeartbeat: Duration,
                 images: Duration, objects: Duration, events: Duration, buildsReady: Duration, updateStatus: Duration,
                 background: Duration, metrics: Duration, metricsSlow: Duration, metricsAbsent: Duration,
-                updateCheck: Duration) {
+                updateCheck: Duration, appUpdateCheck: Duration) {
         self.visible = visible
         self.hidden = hidden
         self.fast = fast
@@ -76,6 +79,7 @@ public struct PollIntervals: Equatable, Sendable {
         self.metricsSlow = metricsSlow
         self.metricsAbsent = metricsAbsent
         self.updateCheck = updateCheck
+        self.appUpdateCheck = appUpdateCheck
     }
 
     /// Every interval by name, in a fixed order, so two profiles compare
@@ -85,7 +89,7 @@ public struct PollIntervals: Equatable, Sendable {
          ("consoleHeartbeat", consoleHeartbeat), ("images", images),
          ("objects", objects), ("events", events), ("buildsReady", buildsReady), ("updateStatus", updateStatus),
          ("background", background), ("metrics", metrics), ("metricsSlow", metricsSlow),
-         ("metricsAbsent", metricsAbsent), ("updateCheck", updateCheck)]
+         ("metricsAbsent", metricsAbsent), ("updateCheck", updateCheck), ("appUpdateCheck", appUpdateCheck)]
     }
 }
 
@@ -118,13 +122,13 @@ public enum PollProfile: String, CaseIterable, Sendable {
                           consoleHeartbeat: .seconds(5 * 60), images: .seconds(15),
                           objects: .seconds(15), events: .seconds(5), buildsReady: .seconds(15), updateStatus: .seconds(5),
                           background: .seconds(30), metrics: .seconds(15), metricsSlow: .seconds(60), metricsAbsent: .seconds(60),
-                          updateCheck: .seconds(30 * 60))
+                          updateCheck: .seconds(30 * 60), appUpdateCheck: .seconds(24 * 60 * 60))
         case .lowPower:
             PollIntervals(visible: .seconds(30), hidden: .seconds(120), fast: .seconds(10), consoleReport: .seconds(60),
                           consoleHeartbeat: .seconds(10 * 60), images: .seconds(30),
                           objects: .seconds(30), events: .seconds(10), buildsReady: .seconds(30), updateStatus: .seconds(10),
                           background: .seconds(60), metrics: .seconds(30), metricsSlow: .seconds(120), metricsAbsent: .seconds(120),
-                          updateCheck: .seconds(60 * 60))
+                          updateCheck: .seconds(60 * 60), appUpdateCheck: .seconds(48 * 60 * 60))
         }
     }
 

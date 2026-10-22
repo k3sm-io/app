@@ -939,7 +939,25 @@ public enum Help {
         public static let notify = HelpTag("Post a notification once for each new release the app can install",
                                            control: "updates: notify checkbox", label: "Notify me when an update is available")
 
-        public static var all: [HelpTag] { [installed, available, state, updateNow, drain, allowDowngrade, signature, notify] }
+        /// The app's own update line.
+        public static let appState = HelpTag("Where this app stands against the latest signed release",
+                                             control: "updates: app line")
+        /// Check Now, for the app's own release.
+        public static let checkNow = HelpTag("Fetch the signed release index and compare it with this app",
+                                             control: "updates: Check Now", label: "Check Now")
+        /// Check for app updates automatically.
+        public static let checkAppUpdates = HelpTag("Look for a new release of the app about once a day",
+                                                    control: "updates: check checkbox",
+                                                    label: "Check for app updates automatically")
+        /// Download app updates in the background.
+        public static let downloadAppUpdates = HelpTag("Fetch and verify a newer release as soon as one is found",
+                                                       control: "updates: download checkbox",
+                                                       label: "Download app updates in the background")
+
+        public static var all: [HelpTag] {
+            [installed, available, state, updateNow, drain, allowDowngrade, signature, notify, appState, checkNow,
+             checkAppUpdates, downloadAppUpdates]
+        }
     }
 
     // MARK: Settings: Advanced
@@ -1044,12 +1062,18 @@ public enum Help {
         /// View > Reset Column Widths.
         public static let resetColumns = HelpTag("Put every table's columns back to their first widths",
                                                  control: "view menu: Reset Column Widths", label: "Reset Column Widths")
+        /// k3sm > Check for Updates…
+        public static let checkForUpdates = HelpTag("Look for a new release of this app now",
+                                                    control: "app menu: Check for Updates", label: "Check for Updates…")
+        /// The status menu's line saying this app is ahead of the cluster.
+        public static let appAhead = HelpTag("This app's release against the one the cluster's server runs",
+                                             control: "status menu: app ahead line")
         /// Help > Take the Tour.
         public static let tour = HelpTag(Strip.tour.text, control: "help menu: Take the Tour", label: "Take the Tour")
 
         public static var all: [HelpTag] {
             [stop, restart, liveStatus, liveTop, openLogs, bugReport, settings, dashboard, refresh, showStatus, panel,
-             resetColumns, tour]
+             resetColumns, tour, checkForUpdates, appAhead]
         }
     }
 }

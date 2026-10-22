@@ -460,8 +460,26 @@ struct StatusView: View {
         }
     }
 
-    /// The version line, and the update plan's button while it has one.
+    /// The version line, and the update plan's button while it has one;
+    /// under it the app's own update line and, while it holds, the "app
+    /// ahead of cluster" line.
     private var versionRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            clusterVersionRow
+            Text(verbatim: model.appUpdateState.line)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let ahead = model.appAheadOfCluster {
+                Text(verbatim: ahead.line)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var clusterVersionRow: some View {
         let plan = model.updatePlan
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(verbatim: versionLine)

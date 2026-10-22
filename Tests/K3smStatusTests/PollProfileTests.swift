@@ -51,10 +51,11 @@ struct PollProfileTests {
         #expect(normal.metricsSlow == .seconds(60))
         #expect(normal.metricsAbsent == .seconds(60))
         #expect(normal.updateCheck == .seconds(30 * 60))
+        #expect(normal.appUpdateCheck == .seconds(24 * 60 * 60))
 
         let low = PollProfile.lowPower.intervals
         #expect(low.all.map(\.name) == normal.all.map(\.name))
-        #expect(normal.all.count == 15)
+        #expect(normal.all.count == 16)
         for (n, l) in zip(normal.all, low.all) {
             #expect(l.value >= n.value * 2, "\(n.name): \(l.value) is not twice \(n.value)")
         }
@@ -66,6 +67,7 @@ struct PollProfileTests {
         #expect(PollSchedule.interval(for: .builds, engineReady: true, in: low) == .seconds(30))
         #expect(PollSchedule.interval(visible: false, in: low) == .seconds(120))
         #expect(PollSchedule.podsInterval(selected: false, in: low) == .seconds(60))
+        #expect(low.appUpdateCheck == .seconds(48 * 60 * 60))
         // Deadlines are not cadences: a profile never moves them.
         #expect(PollSchedule.killDeadline < low.visible)
         #expect(PollSchedule.listDeadline < low.consoleReport)

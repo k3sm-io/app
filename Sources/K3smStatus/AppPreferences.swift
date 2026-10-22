@@ -40,6 +40,12 @@ public struct AppPreferences: @unchecked Sendable {
         case updateDrain = "pref.updateDrain"
         /// Post a notification when an update becomes available (`UpdateNotice`).
         case notifyUpdate = "pref.notifyUpdate"
+        /// Check for a new release of the app on its own schedule
+        /// (`AppUpdateSchedule`). Off, the app makes no request except the
+        /// user's Check Now.
+        case checkAppUpdates = "pref.checkAppUpdates"
+        /// Download a new release of the app in the background once found.
+        case downloadAppUpdates = "pref.downloadAppUpdates"
 
         /// The value when nothing usable is stored.
         public var defaultValue: Bool {
@@ -50,6 +56,8 @@ public struct AppPreferences: @unchecked Sendable {
             case .allChecksOpen: false
             case .updateDrain: false
             case .notifyUpdate: true
+            case .checkAppUpdates: true
+            case .downloadAppUpdates: true
             }
         }
     }
@@ -69,6 +77,18 @@ public struct AppPreferences: @unchecked Sendable {
     /// preference: Reset to Defaults keeps it, so the question is not asked
     /// again for the same release.
     public static let versionSetAnsweredKey = "versionSetAnsweredTag"
+    /// The highest release index the app's update check has accepted: its
+    /// tag and its `issuedAt` (`AppIndexHighWater`). Records, not
+    /// preferences: Reset to Defaults keeps them, so a reset never lowers the
+    /// floor an older, replayed index is refused below. Only this pair is
+    /// kept; no index, signed or decoded, is ever stored.
+    public static let appIndexHighWaterTagKey = "appIndexHighWaterTag"
+    public static let appIndexHighWaterIssuedAtKey = "appIndexHighWaterIssuedAt"
+    /// When the app's update check last accepted an index. A record.
+    public static let appUpdateLastCheckKey = "appUpdateLastCheck"
+    /// The app release the app-update notification last named
+    /// (`AppUpdateNotice`). A record, so each release is announced once.
+    public static let appUpdateNotifiedKey = "appUpdateNotifiedRelease"
     /// The Settings window's last pane.
     public static let settingsPaneKey = "settingsPane"
     /// The Settings window's frame and screen, a `WindowFrame.Saved` value.
@@ -162,6 +182,49 @@ public struct AppPreferences: @unchecked Sendable {
     public var versionSetAnsweredTag: String? {
         get { defaults.object(forKey: Self.versionSetAnsweredKey) as? String }
         nonmutating set { defaults.set(newValue, forKey: Self.versionSetAnsweredKey) }
+    }
+
+    public var checkAppUpdates: Bool {
+        get { bool(.checkAppUpdates) }
+        nonmutating set { set(newValue, for: .checkAppUpdates) }
+    }
+
+    public var downloadAppUpdates: Bool {
+        get { bool(.downloadAppUpdates) }
+        nonmutating set { set(newValue, for: .downloadAppUpdates) }
+    }
+
+    /// The stored high-water pair. Both keys absent is `.absent`; anything
+    /// else that is not a final release tag and a finite date is `.garbage`,
+    /// which the update check treats as absent (the running bundle's own tag
+    /// stays the floor) and logs.
+    public var appIndexHighWater: StoredHighWater {
+        let tag = defaults.object(forKey: Self.appIndexHighWaterTagKey)
+        let issued = defaults.object(forKey: Self.appIndexHighWaterIssuedAtKey)
+        if tag == nil, issued == nil { return .absent }
+        guard let tag = tag as? String, let issued = issued as? Date,
+              let pair = AppIndexHighWater(tag: tag, issuedAt: issued)
+        else { return .garbage }
+        return .stored(pair)
+    }
+
+    /// Records `pair` as the high-water mark. Called only with the pair an
+    /// `AppUpdateAcceptance` verdict returned.
+    public func storeHighWater(_ pair: AppIndexHighWater) {
+        defaults.set(pair.tag, forKey: Self.appIndexHighWaterTagKey)
+        defaults.set(pair.issuedAt, forKey: Self.appIndexHighWaterIssuedAtKey)
+    }
+
+    /// When the update check last accepted an index; nil before the first.
+    public var appUpdateLastCheck: Date? {
+        get { (defaults.object(forKey: Self.appUpdateLastCheckKey) as? Date).flatMap { $0.timeIntervalSince1970.isFinite ? $0 : nil } }
+        nonmutating set { defaults.set(newValue, forKey: Self.appUpdateLastCheckKey) }
+    }
+
+    /// The app release the app-update notification last named; nil before the first.
+    public var appUpdateNotifiedRelease: String? {
+        get { defaults.object(forKey: Self.appUpdateNotifiedKey) as? String }
+        nonmutating set { defaults.set(newValue, forKey: Self.appUpdateNotifiedKey) }
     }
 
     /// The stored signature policy; a missing value, another type or a word

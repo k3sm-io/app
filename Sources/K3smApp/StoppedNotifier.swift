@@ -77,15 +77,17 @@ final class StoppedNotifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// Posts an update notice. The caller has already recorded its release,
-    /// so a notice macOS refuses is not tried again for that release.
-    func postUpdate(_ notice: UpdateNotice) {
+    /// Posts an update notice: the cluster's, or with `identifier` the app's
+    /// own (`AppUpdateNotice`), so neither replaces the other. The caller has
+    /// already recorded its release, so a notice macOS refuses is not tried
+    /// again for that release.
+    func postUpdate(_ notice: UpdateNotice, identifier: String = "io.k3sm.app.update-available") {
         guard let center = Self.center else { return }
         let content = UNMutableNotificationContent()
         content.title = notice.title
         content.body = notice.body
         content.categoryIdentifier = UpdateNotice.category
-        let request = UNNotificationRequest(identifier: "io.k3sm.app.update-available", content: content, trigger: nil)
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         Task {
             let permission: UpdateNotice.Permission
             switch await center.notificationSettings().authorizationStatus {

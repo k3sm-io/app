@@ -53,6 +53,14 @@ final class PreferencesStore: ObservableObject {
     @Published var notifyUpdate: Bool {
         didSet { if !reloading { preferences.notifyUpdate = notifyUpdate } }
     }
+    /// Check for a new release of the app on its schedule (`AppUpdateSchedule`).
+    @Published var checkAppUpdates: Bool {
+        didSet { if !reloading { preferences.checkAppUpdates = checkAppUpdates } }
+    }
+    /// Download a new release of the app in the background once found.
+    @Published var downloadAppUpdates: Bool {
+        didSet { if !reloading { preferences.downloadAppUpdates = downloadAppUpdates } }
+    }
     /// How often the app reads k3sm; every poll reads it through
     /// `PollSchedule.profile`, from its next wait.
     @Published var pollProfile: PollProfile {
@@ -80,6 +88,8 @@ final class PreferencesStore: ObservableObject {
         updateDrain = preferences.updateDrain
         updateSignature = preferences.updateSignature
         notifyUpdate = preferences.notifyUpdate
+        checkAppUpdates = preferences.checkAppUpdates
+        downloadAppUpdates = preferences.downloadAppUpdates
         pollProfile = preferences.pollProfile
         appearance = preferences.appearance
         PollSchedule.profile = pollProfile
@@ -98,6 +108,8 @@ final class PreferencesStore: ObservableObject {
         updateDrain = preferences.updateDrain
         updateSignature = preferences.updateSignature
         notifyUpdate = preferences.notifyUpdate
+        checkAppUpdates = preferences.checkAppUpdates
+        downloadAppUpdates = preferences.downloadAppUpdates
         pollProfile = preferences.pollProfile
         appearance = preferences.appearance
     }
