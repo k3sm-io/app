@@ -195,13 +195,27 @@ public struct WingProjection: Equatable, Sendable {
     }
 }
 
-/// FieldLanding is one visit to a flower: when it starts in the lap, which
-/// flower, and which way the butterfly faces on it (1 head right, -1 head
-/// left), the way it was flying when it set off for it.
+/// FieldLanding is one visit to a flower: when it starts, which
+/// flower, which way the butterfly faces on it (1 head right, -1 head
+/// left), the way it was flying when it set off for it, and how long its
+/// approach and its departure take, each set by its distance at a gentle
+/// pace (`FieldFlight.pace`), so a far flower takes longer, never faster.
 public struct FieldLanding: Equatable, Sendable {
+    /// When the visit starts on the loop's clock, into its lap.
     public let start: TimeInterval
+    /// When the visit starts on the wall clock, into the cycle.
+    public let at: TimeInterval
     public let flower: Int
     public let facing: Double
+    public let approach: TimeInterval
+    public let depart: TimeInterval
+
+    /// The whole visit, from leaving the loop to rejoining it.
+    public var length: TimeInterval { approach + FieldFlight.fold + FieldFlight.rest + depart }
+    /// When it touches down, into the visit.
+    public var touchdown: TimeInterval { approach }
+    /// When it takes off, into the visit.
+    public var takeOff: TimeInterval { approach + FieldFlight.fold + FieldFlight.rest }
 }
 
 /// FieldFlight is the field the Alerts tab rests in when nothing is wrong
@@ -212,22 +226,34 @@ public struct FieldLanding: Equatable, Sendable {
 /// dips and turns near two of them; on it the butterfly flutters, after
 /// recordings of real flight: the wingbeat rate drifts, every downstroke
 /// lifts the body and pitches it, small irregular hops ride on the path,
-/// now and then it glides with the wings held partly open, sinking a
-/// little, and once a lap it turns to show its side for a moment. Once or
-/// twice a lap it visits a flower (`landings`, a different flower each
-/// time over a `cycle` of laps): it flies to the flower's head, brakes with
-/// quick shallow beats and its nose up, turns side-on, lands with its feet
-/// on the flower, closes its wings over its back, rests, slowly opens and
-/// closes them once, and takes off with a burst of quick beats back into
-/// the loop. Every term repeats over the cycle. Under Reduce Motion the
-/// butterfly perches on the tallest flower instead and does not move.
+/// and now and then it glides with the wings held partly open, sinking a
+/// little. It is turned the way it travels: in side profile, facing ahead,
+/// when it moves across the field, and seen from above when it hovers or
+/// moves mostly up or down (`flightTurn(at:)`). Once or twice a lap it
+/// visits a flower (`visits`, a different flower each time
+/// over a `cycle` of laps, set off where the loop passes nearest it): it
+/// flies to the flower's head at a gentle pace, slowing to a stop, brakes
+/// with quick shallow beats and its nose up, turns side-on, lands with its
+/// feet on the flower, closes its wings over its back, rests, slowly opens
+/// and closes them once, and takes off with a burst of quick beats,
+/// gathering speed back into the loop. Its body's path is smooth at every
+/// change: the flight to and from the flower is a curve that leaves and
+/// rejoins the loop's own path with the same velocity and acceleration,
+/// and starts and ends on the flower at rest, so it is never faster than
+/// ordinary flight. The loop keeps its own clock (`loopTime(at:)`), which
+/// waits while the butterfly is away: it leaves the loop where the loop
+/// passes nearest the flower and rejoins it at that same point, carrying
+/// on along it, so it never has to chase the loop. Every term repeats over
+/// the cycle, the loop's laps and the visits together. Under Reduce Motion
+/// the butterfly perches on the tallest flower instead and does not move.
 public enum FieldFlight {
     /// One lap of the loop, in seconds.
     public static let period: TimeInterval = 24
     /// How many laps the flower visits take to repeat.
     public static let laps = 3
-    /// The whole flight repeats every `cycle` seconds.
-    public static var cycle: TimeInterval { period * Double(laps) }
+    /// The whole flight repeats every `cycle` seconds: the laps of the loop
+    /// and every visit, during which the loop waits.
+    public static let cycle: TimeInterval = period * Double(laps) + schedule.reduce(0) { $0 + $1.landing.length }
     /// The mean wingbeat, in seconds; the rate drifts about 25 % either way.
     /// `period` holds a whole number of mean beats, so a lap ends on the
     /// beat it started on.
@@ -250,38 +276,78 @@ public enum FieldFlight {
     /// How long the wings take to settle into a glide and to start beating
     /// again, in seconds.
     public static let glideEase: TimeInterval = 0.2
-    /// The side-on turns in flight, one a lap: when each starts in its lap
-    /// and how far it turns (1 fully side-on, less a three-quarter view).
-    /// It turns the way it is flying.
-    public static let turns: [(start: TimeInterval, depth: Double)] = [(16.5, 1), (11.0, 0.7), (2.0, 0.85)]
-    /// A turn's ease in and out, and how long it holds between, in seconds.
-    public static let turnEase: TimeInterval = 0.6
-    public static let turnHold: TimeInterval = 1.0
+    /// How the butterfly is turned follows the way its body travels: in
+    /// side profile, facing ahead, when it moves mostly across the field,
+    /// and seen from above when it hovers or moves mostly up or down. The
+    /// share of its speed that is across the field turns it: none of the
+    /// way at `sideShare.from` or less, all the way at `sideShare.to` or
+    /// more. Below `stillSpeed` (field heights a second) it counts as
+    /// hovering. The turn is smoothed over `turnSmoothing` seconds, so a
+    /// hop or a brief change of direction never flips it.
+    public static let sideShare = (from: 0.4, to: 0.85)
+    public static let stillSpeed: Double = 0.1
+    public static let turnSmoothing: TimeInterval = 0.5
+    /// How long before touchdown it settles fully side-on to land, and how
+    /// long after take-off it is free to turn with its flight again.
+    public static let settleSide: TimeInterval = 0.8
     /// The flower visits of each lap of the cycle: when each starts in its
-    /// lap and the flower.
+    /// lap and the flower. Each starts where the loop passes nearest its
+    /// flower, so the flight to it is short, and every flower is visited
+    /// once a cycle.
     public static let visits: [[(start: TimeInterval, flower: Int)]] = [
-        [(6.0, 3)], [(3.0, 1), (15.0, 4)], [(9.0, 2), (17.0, 5)],
+        [(0.2, 3), (15.67, 0)], [(4.07, 4), (13.68, 1)], [(4.51, 5), (11.44, 2)],
     ]
-    /// A visit's parts, in seconds: the approach to the flower (`approach`,
-    /// the last `brake` of it in quick shallow beats with the nose up), the
-    /// wings closing after touchdown (`fold`), the rest on the flower
-    /// (`rest`, with one slow open-and-close of `openClose` starting
-    /// `openAt` into it, the wings opening down to `openAngle`), and the
-    /// departure back to the loop (`depart`, the first `burst` of it in
-    /// quick beats).
-    public static let approach: TimeInterval = 1.4
+    /// Scheduled is one planned visit: the visit, when it leaves the loop
+    /// on the loop's clock (from the start of the cycle), and the loop's
+    /// path there with its velocity and acceleration, where it leaves the
+    /// loop and where it rejoins it.
+    struct Scheduled {
+        let landing: FieldLanding
+        let leave: TimeInterval
+        let handoff: Motion
+    }
+
+    /// Every visit, planned once, in order through the cycle.
+    static let schedule: [Scheduled] = {
+        var out: [Scheduled] = []
+        var away = 0.0
+        for (lap, list) in visits.enumerated() {
+            for visit in list {
+                let leave = Double(lap) * period + visit.start
+                let landing = plan(leave: leave, inLap: visit.start, at: leave + away, flower: visit.flower)
+                out.append(Scheduled(landing: landing, leave: leave, handoff: Motion(of: track, at: leave)))
+                away += landing.length
+            }
+        }
+        return out
+    }()
+
+    /// The scene's usual width over its height: how far one unit across the
+    /// field is against one unit down it, for distances and speeds.
+    public static let aspect: Double = 3.3
+    /// The mean speed of the flight to a flower and back to the loop, in
+    /// field heights a second: about a third of the loop's fastest, so with
+    /// the slow start and stop of the curve its peak stays below ordinary
+    /// flight.
+    public static let pace: Double = 0.22
+    /// A visit's parts, in seconds: the approach to the flower (at least
+    /// `shortestApproach`, longer for a farther flower; the last `brake` of
+    /// it in quick shallow beats with the nose up), the wings closing after
+    /// touchdown (`fold`), the rest on the flower (`rest`, with one slow
+    /// open-and-close of `openClose` starting `openAt` into it, the wings
+    /// opening down to `openAngle`), and the departure back to the loop (at
+    /// least `shortestDepart`; the first `burst` of it in quick beats).
+    public static let shortestApproach: TimeInterval = 1.4
     public static let brake: TimeInterval = 0.5
     public static let fold: TimeInterval = 0.3
     public static let rest: TimeInterval = 3.0
     public static let openAt: TimeInterval = 0.8
     public static let openClose: TimeInterval = 1.6
     public static let openAngle: Double = 35
-    public static let depart: TimeInterval = 1.2
+    public static let shortestDepart: TimeInterval = 1.2
     public static let burst: TimeInterval = 0.6
     /// The quick beat of braking and take-off, in seconds.
     public static let quickBeat: TimeInterval = 0.16
-    /// A whole visit, from leaving the loop to rejoining it.
-    public static var visit: TimeInterval { approach + fold + rest + depart }
     /// Where the ground lies, as a fraction of the field's height from the top.
     public static let ground: Double = 0.82
     /// The flowers: each one's x and its height above the ground, both as
@@ -304,7 +370,7 @@ public enum FieldFlight {
         return (flower.x, ground - hill(at: flower.x) - flower.height)
     }
 
-    /// How many beats the wings have made `now` seconds into the flight:
+    /// How many beats the wings have made at `now` on the loop's clock:
     /// the mean rate with two slow drifts on it, integrated, so the rate
     /// changes smoothly and never stops.
     public static func beatPhase(at now: TimeInterval) -> Double {
@@ -312,7 +378,7 @@ public enum FieldFlight {
         return (now - 0.16 / w1 * cos(w1 * now) - 0.09 / w2 * cos(w2 * now + 1.3)) / beatPeriod
     }
 
-    /// How much the wings are beating `now` in the loop: 1 in flapping
+    /// How much the wings are beating at `now` on the loop's clock: 1 in flapping
     /// flight, 0 held in a glide, easing between the two.
     public static func flapping(at now: TimeInterval) -> Double {
         let t = lapTime(now)
@@ -326,15 +392,46 @@ public enum FieldFlight {
     /// The flower visit under way `now`, with the time into it, or nil in
     /// the loop.
     public static func landing(at now: TimeInterval) -> (landing: FieldLanding, into: TimeInterval)? {
-        let lap = Int((now / period).rounded(.down)) % laps
-        let index = lap < 0 ? lap + laps : lap
-        let t = lapTime(now)
-        for visit in visits[index] where t >= visit.start && t < visit.start + self.visit {
-            let leaving = cruise(at: now - (t - visit.start))
-            let facing: Double = flowers[visit.flower].x >= leaving.x ? 1 : -1
-            return (FieldLanding(start: visit.start, flower: visit.flower, facing: facing), t - visit.start)
+        clock(now).visit.map { ($0.visit.landing, $0.into) }
+    }
+
+    /// The loop's clock `now`: the time the loop has flown, which waits
+    /// while the butterfly is away on a visit.
+    public static func loopTime(at now: TimeInterval) -> TimeInterval {
+        clock(now).loop
+    }
+
+    /// clock is where `now` falls in the cycle: the loop's clock, and the
+    /// visit under way with the time into it, if any.
+    static func clock(_ now: TimeInterval) -> (loop: TimeInterval, visit: (visit: Scheduled, into: TimeInterval)?) {
+        let wall = now - (now / cycle).rounded(.down) * cycle
+        var away = 0.0
+        for visit in schedule {
+            if wall < visit.landing.at { break }
+            if wall < visit.landing.at + visit.landing.length {
+                return (visit.leave, (visit, wall - visit.landing.at))
+            }
+            away += visit.landing.length
         }
-        return nil
+        return (wall - away, nil)
+    }
+
+    /// plan is the visit to `flower` that leaves the loop at `leave` on the
+    /// loop's clock (`inLap` into its lap) and at `at` on the wall clock:
+    /// which way it faces, and how long the flight there and the flight
+    /// back take at `pace`, each at least its shortest. It rejoins the loop
+    /// where it left it, so both flights cover the same distance.
+    static func plan(leave: TimeInterval, inLap: TimeInterval, at: TimeInterval, flower: Int) -> FieldLanding {
+        let top = flowerTop(flower)
+        let leaving = track(at: leave)
+        let far = distance(leaving, top) / pace
+        return FieldLanding(start: inLap, at: at, flower: flower, facing: top.x >= leaving.x ? 1 : -1,
+                            approach: max(shortestApproach, far), depart: max(shortestDepart, far))
+    }
+
+    /// The distance between two field points, in field heights.
+    static func distance(_ a: (x: Double, y: Double), _ b: (x: Double, y: Double)) -> Double {
+        hypot((a.x - b.x) * aspect, a.y - b.y)
     }
 
     /// The pose `now` seconds into the flight; perched and still under
@@ -344,20 +441,29 @@ public enum FieldFlight {
             let top = flowerTop(perch)
             return FieldPose(x: top.x, y: top.y, beat: 0, hindBeat: 0, pitch: 0, tilt: 0, turn: 0, perched: true, folded: true)
         }
-        let loop = cruise(at: now)
-        guard let (landing, into) = landing(at: now) else {
+        let (loopTime, visit) = clock(now)
+        guard let (scheduled, into) = visit else {
+            let loop = cruise(at: loopTime)
+            let turn = flightTurn(at: now)
             return FieldPose(x: loop.x, y: loop.y, beat: loop.beat, hindBeat: loop.hind, pitch: loop.pitch,
-                             tilt: loop.tilt, turn: loop.turn, perched: false, folded: false)
+                             tilt: loop.tilt * (1 - 0.6 * abs(turn)), turn: turn, perched: false, folded: false)
         }
-        let flower = flowerTop(landing.flower)
-        let touchdown = approach, takeOff = approach + fold + rest
-        // How far it has left the loop for the flower.
-        let there = into < touchdown ? FieldWings.ease(into / approach)
-            : into < takeOff ? 1 : 1 - FieldWings.ease((into - takeOff) / depart)
-        // How far it has turned side-on, facing the flower's way.
-        let side = into < touchdown ? FieldWings.ease((into - 0.2) / (approach - 0.4))
-            : into < takeOff ? 1 : 1 - FieldWings.ease((into - takeOff) / depart)
-        let turn = loop.turn + (landing.facing - loop.turn) * side
+        let landing = scheduled.landing
+        let touchdown = landing.touchdown, takeOff = landing.takeOff
+        // The loop's clock as the wings and the bob see it: running on from
+        // where it left the loop on the way to the flower, and running up to
+        // where it rejoins on the way back, so both carry on without a break.
+        let flown = into < takeOff ? scheduled.leave + into : scheduled.leave - (landing.length - into)
+        let loop = cruise(at: flown)
+        let (path, there) = body(at: now)
+        // The loop's bob fades out on the way to the flower and back in on the way back.
+        let place = (x: path.x, y: path.y + bobbing(at: flown) * (1 - there))
+        // It turns with its flight, settling side-on, facing the flower's way,
+        // just before touchdown, and holds that until it has taken off.
+        let free = flightTurn(at: now)
+        let held = into < touchdown ? smooth((into - (touchdown - settleSide)) / settleSide)
+            : into < takeOff ? 1 : 1 - smooth((into - takeOff) / settleSide)
+        let turn = into >= touchdown && into < takeOff ? landing.facing : free + (landing.facing - free) * held
 
         func wings(lag: Double) -> Double {
             if into < takeOff {
@@ -380,22 +486,24 @@ public enum FieldFlight {
         }
         let beat = wings(lag: 0), hind = wings(lag: FieldWings.hindLag)
         let perched = into >= touchdown && into < takeOff
-        let flaring = into < touchdown ? FieldWings.ease((into - (touchdown - brake)) / brake) * (1 - FieldWings.ease((into - touchdown + 0.1) / 0.1))
+        let flaring = into < touchdown
+            ? FieldWings.ease((into - (touchdown - brake)) / (brake / 2)) * (1 - FieldWings.ease((into - touchdown + 0.1) / 0.1))
             : 0
         let settled = into < touchdown ? 0 : into < takeOff ? 1 : 1 - FieldWings.ease((into - takeOff) / 0.4)
-        let pitch = loop.pitch * (1 - settled) * (1 - there) + flare * flaring
-        return FieldPose(x: loop.x + (flower.x - loop.x) * there, y: loop.y + (flower.y - loop.y) * there,
-                         beat: beat, hindBeat: hind, pitch: pitch, tilt: loop.tilt * (1 - there), turn: turn,
+        let pitch = loop.pitch * (1 - settled) * (1 - there) * (1 - flaring) + flare * flaring
+        return FieldPose(x: place.x, y: place.y,
+                         beat: beat, hindBeat: hind, pitch: pitch,
+                         tilt: loop.tilt * (1 - there) * (1 - 0.6 * abs(turn)), turn: turn,
                          perched: perched, folded: perched && beat >= FieldWings.closed && hind >= FieldWings.closed)
     }
 
     /// Cruise is the butterfly in the loop: its body's place, its wings,
-    /// pitch, lean and turn.
+    /// pitch, and its lean before any turn eases it.
     struct Cruise {
-        let x: Double, y: Double, beat: Double, hind: Double, pitch: Double, tilt: Double, turn: Double
+        let x: Double, y: Double, beat: Double, hind: Double, pitch: Double, tilt: Double
     }
 
-    /// The butterfly in the loop `now` seconds into the flight.
+    /// The butterfly in the loop at `now` on the loop's clock.
     static func cruise(at now: TimeInterval) -> Cruise {
         let tau = 2 * .pi * now / period
         // The loop's own time runs slow twice a lap, near the flowers at x
@@ -404,29 +512,135 @@ public enum FieldFlight {
         let psi = tau + 0.32 * sin(warp)
         let speed = 1 + 0.64 * cos(warp)
         let lingering = max(0, -cos(warp))
-        let x = 0.5 + 0.36 * sin(psi)
-        let loop = 0.31 + 0.1 * sin(2 * psi)
-        let dip = 0.035 * lingering * lingering
-        let hops = 0.016 * sin(11 * tau + 0.7) + 0.01 * sin(23 * tau + 2.1) + 0.006 * sin(37 * tau + 0.4)
+        let place = track(at: now)
 
         let flap = flapping(at: now)
         let phase = beatPhase(at: now)
         let beat = flap * FieldWings.angle(phase: phase) + (1 - flap) * FieldWings.glide
         let hind = flap * FieldWings.angle(phase: phase - FieldWings.hindLag) + (1 - flap) * FieldWings.glide
-        let y = loop + dip + hops + sink * (1 - flap) - bob * flap * FieldWings.lift(phase: phase)
-
-        // Once a lap it turns to show its side, the way it is flying.
-        let lap = Int((now / period).rounded(.down)) % laps
-        let sideways = turns[lap < 0 ? lap + laps : lap]
-        let middle = now - lapTime(now) + sideways.start + turnEase + turnHold / 2
-        let heading: Double = cos(2 * .pi * middle / period + 0.32 * sin(4 * .pi * middle / period + 1.6)) >= 0 ? 1 : -1
-        let turn = heading * sideways.depth * window(lapTime(now), start: sideways.start + turnEase, hold: turnHold, ease: turnEase)
 
         let lean = 0.75 * cos(psi) * speed / 1.64
         let wobble = 0.4 * lingering * sin(2 * .pi * now / 1.5)
-        let tilt = maxTilt * min(max(lean + wobble, -1), 1) * (1 - 0.6 * abs(turn))
-        return Cruise(x: x, y: y, beat: beat, hind: hind, pitch: maxPitch * flap * FieldWings.pitch(phase: phase),
-                      tilt: tilt, turn: turn)
+        let tilt = maxTilt * min(max(lean + wobble, -1), 1)
+        return Cruise(x: place.x, y: place.y + bobbing(at: now), beat: beat, hind: hind,
+                      pitch: maxPitch * flap * FieldWings.pitch(phase: phase), tilt: tilt)
+    }
+
+    /// The body's path `now`, without the bob of each wingbeat: the loop's
+    /// path, or on a visit the curve to the flower, the flower, and the
+    /// curve back; with how far it is from the loop toward the flower
+    /// (`there`, 0 in the loop, 1 on the flower).
+    static func body(at now: TimeInterval) -> (path: (x: Double, y: Double), there: Double) {
+        let (loopTime, visit) = clock(now)
+        guard let (scheduled, into) = visit else { return (track(at: loopTime), 0) }
+        let landing = scheduled.landing, leave = scheduled.handoff, rejoin = scheduled.handoff
+        let flower = flowerTop(landing.flower)
+        if into < landing.touchdown {
+            let u = into / landing.touchdown
+            return (Motion.hermite(from: leave, to: Motion(resting: flower), over: landing.touchdown, u), smooth(u))
+        }
+        if into < landing.takeOff { return (flower, 1) }
+        let u = (into - landing.takeOff) / landing.depart
+        return (Motion.hermite(from: Motion(resting: flower), to: rejoin, over: landing.depart, u), 1 - smooth(u))
+    }
+
+    /// How the body's travel `now` turns it, before smoothing: toward side
+    /// profile facing the way it moves, by the share of its speed that is
+    /// across the field, and seen from above when it hovers or moves mostly
+    /// up or down.
+    static func headingTurn(at now: TimeInterval) -> Double {
+        // Its travel over the 0.24 s around `now`, so neither the bob nor a
+        // hop turns it.
+        let h = 0.12
+        let before = body(at: now - h).path, after = body(at: now + h).path
+        let vx = (after.x - before.x) * aspect / (2 * h), vy = (after.y - before.y) / (2 * h)
+        let share = abs(vx) / max(hypot(vx, vy), stillSpeed)
+        let side = smooth((share - sideShare.from) / (sideShare.to - sideShare.from))
+        return vx >= 0 ? side : -side
+    }
+
+    /// The turn `now`: `headingTurn` averaged over `turnSmoothing` seconds
+    /// centred on `now`, weighted by a raised cosine, so it changes smoothly
+    /// and never faster than the window allows.
+    static func flightTurn(at now: TimeInterval) -> Double {
+        let taps = 9
+        var sum = 0.0, weights = 0.0
+        for k in 0..<taps {
+            let w = pow(sin(.pi * Double(k + 1) / Double(taps + 1)), 2)
+            sum += w * headingTurn(at: now + turnSmoothing * (Double(k) / Double(taps - 1) - 0.5))
+            weights += w
+        }
+        return sum / weights
+    }
+
+    /// The loop's path at `now` on the loop's clock, without the bob of
+    /// each wingbeat: the figure of eight, the dips near flowers, the hops
+    /// and the sink of a glide.
+    static func track(at now: TimeInterval) -> (x: Double, y: Double) {
+        let tau = 2 * .pi * now / period
+        let warp = 2 * tau + 1.6
+        let psi = tau + 0.32 * sin(warp)
+        let lingering = max(0, -cos(warp))
+        let dip = 0.035 * lingering * lingering
+        let hops = 0.016 * sin(11 * tau + 0.7) + 0.01 * sin(23 * tau + 2.1) + 0.006 * sin(37 * tau + 0.4)
+        return (0.5 + 0.36 * sin(psi), 0.31 + 0.1 * sin(2 * psi) + dip + hops + sink * (1 - flapping(at: now)))
+    }
+
+    /// How far the body is lifted by the wingbeat at `now` on the loop's clock, as a fraction of
+    /// the field's height (negative is up): it rises as the wings come down.
+    static func bobbing(at now: TimeInterval) -> Double {
+        -bob * flapping(at: now) * FieldWings.lift(phase: beatPhase(at: now))
+    }
+
+    /// Motion is a point of a path with its velocity and acceleration, in
+    /// field units and seconds.
+    struct Motion {
+        let p: (x: Double, y: Double), v: (x: Double, y: Double), a: (x: Double, y: Double)
+
+        /// At rest at `point`.
+        init(resting point: (x: Double, y: Double)) {
+            p = point; v = (0, 0); a = (0, 0)
+        }
+
+        /// The path `f` at `time`, its derivatives by central differences.
+        init(of f: (TimeInterval) -> (x: Double, y: Double), at time: TimeInterval) {
+            let h = 1e-3
+            let before = f(time - h), here = f(time), after = f(time + h)
+            p = here
+            v = ((after.x - before.x) / (2 * h), (after.y - before.y) / (2 * h))
+            a = ((after.x - 2 * here.x + before.x) / (h * h), (after.y - 2 * here.y + before.y) / (h * h))
+        }
+
+        /// The quintic Hermite curve from `start` to `end` over `duration`
+        /// seconds, at `u` of the way (0 to 1): it leaves and arrives with
+        /// each end's velocity and acceleration, so a hand-off between the
+        /// loop, the curve and the flower never jumps in place, speed or
+        /// acceleration.
+        static func hermite(from start: Motion, to end: Motion, over duration: TimeInterval, _ u: Double) -> (x: Double, y: Double) {
+            let u2 = u * u, u3 = u2 * u, u4 = u3 * u, u5 = u4 * u
+            let h0 = 1 - 10 * u3 + 15 * u4 - 6 * u5, h5 = 10 * u3 - 15 * u4 + 6 * u5
+            let h1 = u - 6 * u3 + 8 * u4 - 3 * u5, h4 = -4 * u3 + 7 * u4 - 3 * u5
+            let h2 = 0.5 * u2 - 1.5 * u3 + 1.5 * u4 - 0.5 * u5, h3 = 0.5 * u3 - u4 + 0.5 * u5
+            let d = duration, d2 = duration * duration
+            func mix(_ p0: Double, _ v0: Double, _ a0: Double, _ p1: Double, _ v1: Double, _ a1: Double) -> Double {
+                h0 * p0 + h1 * d * v0 + h2 * d2 * a0 + h3 * d2 * a1 + h4 * d * v1 + h5 * p1
+            }
+            return (mix(start.p.x, start.v.x, start.a.x, end.p.x, end.v.x, end.a.x),
+                    mix(start.p.y, start.v.y, start.a.y, end.p.y, end.v.y, end.a.y))
+        }
+    }
+
+    /// smooth is a step from 0 to 1 over 0...1 with no velocity or
+    /// acceleration at either end.
+    static func smooth(_ s: Double) -> Double {
+        let c = min(max(s, 0), 1)
+        return c * c * c * (c * (6 * c - 15) + 10)
+    }
+
+    /// The lap of the cycle `now` falls in.
+    static func lapIndex(_ now: TimeInterval) -> Int {
+        let lap = Int((now / period).rounded(.down)) % laps
+        return lap < 0 ? lap + laps : lap
     }
 
     /// The time into the current lap.
@@ -435,9 +649,9 @@ public enum FieldFlight {
     }
 
     /// window is 1 from `start` for `hold` seconds, easing up over the
-    /// `ease` seconds before and down over the `ease` seconds after, and 0
-    /// elsewhere.
+    /// `ease` seconds before and down over the `ease` seconds after with no
+    /// jolt at either end (`smooth`), and 0 elsewhere.
     static func window(_ t: TimeInterval, start: TimeInterval, hold: TimeInterval, ease: TimeInterval) -> Double {
-        min(FieldWings.ease((t - start + ease) / ease), FieldWings.ease((start + hold + ease - t) / ease))
+        min(smooth((t - start + ease) / ease), smooth((start + hold + ease - t) / ease))
     }
 }
