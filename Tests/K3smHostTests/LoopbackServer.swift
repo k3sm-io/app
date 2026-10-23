@@ -30,28 +30,51 @@ final class LoopbackServer: Sendable {
     /// Starts listening; `responses` are sent in order, one per connection,
     /// the last repeated.
     init(responses: [Data]) throws {
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw POSIXError(.EIO) }
         var addr = sockaddr_in()
-        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = 0
-        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
         var size = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let bound = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, size) }
+        var opened: Int32 = -1
+        var failure: any Error = POSIXError(.EIO)
+        for attempt in 0..<5 {
+            if attempt > 0 { Thread.sleep(forTimeInterval: 0.05) }
+            let fd = socket(AF_INET, SOCK_STREAM, 0)
+            guard fd >= 0 else {
+                failure = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                continue
+            }
+            var reuse: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+            addr = sockaddr_in()
+            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = 0
+            addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+            size = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let bound = withUnsafePointer(to: &addr) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, size) }
+            }
+            if bound != 0 {
+                failure = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                close(fd)
+                continue
+            }
+            if listen(fd, 8) != 0 {
+                failure = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                close(fd)
+                continue
+            }
+            let named = withUnsafeMutablePointer(to: &addr) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &size) }
+            }
+            if named != 0 {
+                failure = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                close(fd)
+                continue
+            }
+            opened = fd
+            break
         }
-        guard bound == 0, listen(fd, 8) == 0 else {
-            close(fd)
-            throw POSIXError(.EADDRINUSE)
-        }
-        let named = withUnsafeMutablePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &size) }
-        }
-        guard named == 0 else {
-            close(fd)
-            throw POSIXError(.EIO)
-        }
+        guard opened >= 0 else { throw failure }
+        let fd = opened
         port = UInt16(bigEndian: addr.sin_port)
         listener = fd
         state = Mutex((requests: [], responses: responses))
