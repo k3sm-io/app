@@ -13,7 +13,7 @@ and is free to use.
 
 | channel | for | what you get |
 |---|---|---|
-| curl | headless Macs, scripted installs, SSH sessions | `curl -fsSL https://k3sm.io/install.sh \| sh` fetches a release tarball of signed, notarized binaries and runs `k3sm install` |
+| curl | headless Macs, scripted installs, SSH sessions | `curl -fsSL https://k3sm.io/install.sh \| sh` fetches a release tarball of ad-hoc signed binaries (only the app's disk image is Developer ID signed and notarized) and runs `k3sm install` |
 | app | desktop users | a notarized disk image holding `k3sm.app`, dragged to `/Applications`; Developer ID signed, downloaded from the GitHub release page; it does not update itself, so a new version is a new disk image |
 
 Both channels carry the same k3sm build at the same version and end in the
@@ -94,7 +94,7 @@ short guided first run, one step at a time, with the steps listed across its top
    Terminal); a pasted `--server <address> --token <token>` line is read too.
    The app reads the address and token out of it: extra spaces, line
    breaks, quotes, `\` line continuations and a URL such as
-   `https://studio.local:9345/` are fine, and anything a shell would act on
+   `https://server.example.com:9345/` are fine, and anything a shell would act on
    (`;`, `|`, `&`, `$`, backquotes, redirections) is refused. Nothing in the
    paste is ever run. The field is a secure field, the token is never shown or
    logged, and the window shows only the server and "Token: received".
@@ -174,7 +174,7 @@ login** in the app's Settings turns it off or on again (see
   a growing, randomized wait of at most a minute; if the cluster refuses
   the admin kubeconfig in the watch, the tab says so, and the watch waits
   until the window opens again. The selected tab's list is re-read every 5 seconds (every 15
-  seconds on Images, Services, Storage, Models and Stats (whose storage chart
+  seconds on Images, Services, Storage, Models, Alerts and Stats (whose storage chart
   uses the Storage tab's reads), and on Builds once the
   build engine is ready). The
   status report is re-read when k3sm changes one of its status records
@@ -763,7 +763,17 @@ window. Then come the actions:
   opens that file for you to read. Nothing is uploaded, and it reads no
   kubeconfig, token, Secret, environment or pod manifest. Share the file
   yourself if you want to.
+- **Copy Join Command…** appears on a server only. It mints a fresh worker
+  join token (valid for 15 minutes) and copies the join as one line, as a
+  concealed clipboard item that stays on this Mac and is cleared after 60
+  seconds; paste it into Terminal on the Mac that should join. It shows
+  disabled, with the reason as its help text, while k3sm is not running on this
+  Mac, another change is running, or the Mac has more than one join address.
 - **Settings…** (Command-comma), **Dashboard** and **Quit k3sm**.
+
+The menu bar at the top of the screen has **View > Refresh** (Command-R),
+which re-reads the status and the open tab, and **Help > Take the Tour**, which
+starts the guided tour of the window.
 
 After a stop the status item disappears, because k3sm is no longer running.
 At your next login the app posts a notification, "k3sm is stopped (by you)",
