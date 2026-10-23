@@ -426,7 +426,7 @@ struct StartRetryTests {
     }
 }
 
-/// The B571 acceptance leg: the Start flow end to end against a fake `k3sm`
+/// The Start acceptance leg: the Start flow end to end against a fake `k3sm`
 /// that the gate script writes and names in K3SM_B571_FAKE_K3SM. The fake
 /// stands in for what the root step runs after its checks (the start argv,
 /// exactly), so this runs as the user; the gate asserts the state file this

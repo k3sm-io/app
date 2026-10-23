@@ -210,8 +210,8 @@ public struct SwapJournal: Codable, Equatable, Sendable {
 /// older Developer ID signed release of this team, which an administrator
 /// account's process can also copy into /Applications directly. Two
 /// follow-ups close that: a root-owned record on the standard-user root
-/// path (B831), and a minimum-supported tag carried in the signed release
-/// index (B827), so a forged record cannot lower the floor.
+/// path, and a minimum-supported tag carried in the signed release
+/// index, so a forged record cannot lower the floor.
 public struct PreviousRecord: Codable, Equatable, Sendable {
     public var name: String
     public var tag: String

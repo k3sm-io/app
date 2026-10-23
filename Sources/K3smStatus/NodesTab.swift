@@ -109,7 +109,7 @@ public enum NodesList {
     }
 }
 
-/// NodeLiveLoad is the node inspector's live block: B639's CPU and memory
+/// NodeLiveLoad is the node inspector's live block: the CPU and memory
 /// bars with the CPU sparkline and the sample's age, or the line saying why
 /// there are none ("no metrics yet", or why the metrics API is absent).
 public enum NodeLiveLoad: Equatable, Sendable {

@@ -253,7 +253,7 @@ public struct ReleaseIndexVerifier: Sendable {
     /// where Gatekeeper and notarization revocation are best-effort online
     /// checks, and it is accepted because a hard fail would make updates
     /// impossible on Macs that are offline or behind a filtering proxy. The
-    /// (tag, issuedAt) monotonic floor (B827) stops replay of an old index;
+    /// (tag, issuedAt) monotonic floor stops replay of an old index;
     /// it does not cover this: a stolen, revoked key could sign a new index
     /// while the responder is blocked.
     func checkSigner(_ trust: SecTrust, at date: Date) throws(ReleaseIndexVerifierError) {
@@ -309,7 +309,7 @@ public struct ReleaseIndexVerifier: Sendable {
     /// Threat model: the system anchor store is root- and SIP-protected, and
     /// an attacker who can write it can replace the app itself, so trusting
     /// it adds no exposure. That a root added by a user or an administrator
-    /// is not returned here is verified on a real install in B834: add a
+    /// is not returned here is checked by hand on a real install: add a
     /// self-issued "Apple Inc." root to the System keychain and to the admin
     /// trust domain, then assert it is absent from `appleRoots()`.
     static func appleRoots() -> [Data] {
