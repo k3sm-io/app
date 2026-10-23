@@ -35,7 +35,11 @@ struct ConsoleInspector: View {
         case .nodes:
             NodeInspector(app: app, workloads: app.workloads)
         case .images:
-            ImageInspector(app: app, workloads: app.workloads)
+            if let images = app.registryImages {
+                ImageInspector(app: app, images: images)
+            } else {
+                RowInspector(content: nil, empty: InspectorDetails.emptyText(.images))
+            }
         case .builds:
             if let builds = app.builds, let history = app.buildHistory {
                 BuildsInspector(app: app, engine: builds, history: history)
@@ -70,21 +74,20 @@ struct ConsoleInspector: View {
     }
 }
 
-/// ImageInspector is the Images tab's inspector: the selected image from the
-/// shared node list, its Untag buttons for this Mac's node or the line
-/// saying where it is managed (`ImageUntagBlock`), and the pods using it
-/// once the pod list has been read.
+/// ImageInspector is the Images tab's inspector: the selected image from
+/// the registry's read, and its Untag button, disabled because a registry
+/// image carries no node-store name to untag (`ImageUntagBlock`).
 struct ImageInspector: View {
     @ObservedObject var app: AppModel
-    @ObservedObject var workloads: WorkloadsModel
+    @ObservedObject var images: TabLoader<RegistryImageList>
 
     var body: some View {
         if let image = selected {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    RowInspector(content: InspectorDetails.image(image, pods: workloads.workloads?.pods),
+                    RowInspector(content: InspectorDetails.registryImage(image),
                                  empty: "", actions: RowActions.selected(.images, app: app), fillsHeight: false)
-                    ImageUntagBlock(app: app, store: app.imageStore, image: image)
+                    ImageUntagBlock()
                 }
             }
             .background(Palette.surface)
@@ -93,10 +96,9 @@ struct ImageInspector: View {
         }
     }
 
-    private var selected: NodeImage? {
-        guard let key = app.selection.selection(in: .images)?.key,
-              case .listed(let images)? = workloads.nodeList.value?.images else { return nil }
-        return images.first { $0.key == key }
+    private var selected: RegistryImage? {
+        guard let key = app.selection.selection(in: .images)?.key else { return nil }
+        return images.value?.images.first { $0.key == key }
     }
 }
 

@@ -273,10 +273,14 @@ login** in the app's Settings turns it off or on again (see
     that is behind offers **Update…** in its context menu and its details,
     and the summary line carries one **Update…** for every node behind
     (see [A node behind the server](#a-node-behind-the-server)).
-  - **Images**: the images the nodes report holding, one row per digest,
-    with its size, the number of listed pods running it and the nodes that
-    hold it; until a node reports them the tab says so. Its header row names
-    this Mac's node and offers **Pull…** and **Prune…** (see below).
+  - **Images**: the images in the cluster's one registry, from
+    `k3sm image ls -o json` (no administrator needed): each image's
+    reference over its short digest, its size, the number of pods using it
+    and the nodes holding a cached copy. A registry that cannot be reached is
+    one line with its error; a note names any node whose cache list was cut
+    short, and a banner says when images stayed in a node's own store when
+    they moved into the registry. Its header row names this Mac's node and
+    offers **Pull…** and **Prune…** (see below).
   - **Builds**: the build engine's state, then your build history, newest
     first (from `k3sm build ls -o json`, the builds your account ran on this
     Mac): each build's image, status, start time and duration.
@@ -602,16 +606,9 @@ login** in the app's Settings turns it off or on again (see
   root and not writable by others, and the k3sm Developer ID signature, are
   checked first). The administrator prompt and the tab's header row name
   this Mac and its node.
-  - **Untag…**, in an image's details and its Control-click menu, offers each
-    tag the image has on this Mac's node. It asks first, naming the image and
-    the node, then runs `k3sm image untag <reference>`. It removes the name,
-    not the content: pods using it keep running, other nodes keep their
-    copies, and a prune reclaims the bytes later. The name is not pinned to
-    the content you saw: if a pull moves it to other content before the
-    administrator step runs, that content loses the name instead, and the
-    question says so. An image held only by
-    another Mac's node offers nothing and says that images are managed on
-    that Mac.
+  - **Untag…**, in an image's details and its Control-click menu, is shown
+    disabled: the tab lists the registry, which `k3sm image untag` does not
+    act on, so its reason says the image is managed in the registry.
   - **Pull…** opens a field for an image reference and pulls it with
     `k3sm image pull <reference>`, through the daemon's own puller, which
     checks every blob's digest. The field accepts only a reference in the

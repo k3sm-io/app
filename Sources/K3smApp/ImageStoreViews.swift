@@ -23,7 +23,8 @@ import SwiftUI
 /// one at a time through `ImageStoreDriver` and the checked root step, on
 /// this Mac's node only. It holds the sheet on screen (the Pull field or the
 /// prune's preview), the Pull field's text, and the last write's line, and
-/// asks for the node list again after each write that ran.
+/// asks for the registry's list and the node list again after each write
+/// that ran.
 @MainActor
 final class ImageStoreModel: ObservableObject {
     /// The sheet the Images tab shows.
@@ -42,7 +43,7 @@ final class ImageStoreModel: ObservableObject {
     @Published var pullText = ""
     @Published private(set) var running = false
     @Published private(set) var line: Line?
-    /// Reads the node list again after a write.
+    /// Reads the Images tab's lists again after a write.
     var refresh: (@MainActor () async -> Void)?
 
     private let teamID: TeamID?
@@ -179,29 +180,18 @@ struct ImagesHeaderRow: View {
     }
 }
 
-/// ImageUntagBlock is the image inspector's Untag buttons, one per tag the
-/// image has on this Mac's node (`ImageStoreOffer`), and the line naming the
-/// node, or saying the image is managed on another Mac.
+/// ImageUntagBlock is the image inspector's Untag button, disabled with
+/// its reason: the registry holds the image, and its row carries no name in
+/// this Mac's node store that `k3sm image untag` could remove.
 struct ImageUntagBlock: View {
-    @ObservedObject var app: AppModel
-    @ObservedObject var store: ImageStoreModel
-    let image: NodeImage
-
     var body: some View {
-        let scope = ImageStoreScope.decide(report: app.report)
-        let offer = ImageStoreOffer.decide(image, scope: scope)
-        let reason = ImageStoreDriver.disabledReason(scope: scope, availability: app.availability, busy: app.running || store.running)
+        let reason = ImageStoreText.untagManagedInRegistry
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(offer.untag, id: \.self) { reference in
-                Button(StatusDisplay.clip("Untag \(reference.value)…")) { store.untag(reference, of: image, scope: scope) }
-                    .lineLimit(1).truncationMode(.middle)
-                    .disabled(reason != nil)
-                    .help(Help.Images.write(Help.Images.untag, disabled: reason))
-            }
-            if let note = offer.note {
-                Text(verbatim: StatusDisplay.clip(note)).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Button("Untag…") {}
+                .disabled(true)
+                .help(Help.Images.write(Help.Images.untag, disabled: reason))
+            Text(verbatim: reason).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 18).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)

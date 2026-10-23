@@ -18,19 +18,19 @@ import K3smInstall
 import K3smStatus
 import SwiftUI
 
-/// ImagesSection is the Images tab: the images the cluster's nodes report,
-/// one row per digest, from the shared node list (no read of its own), each
-/// with the number of listed pods using it. When no node reports its images
-/// the tab says so in one line; nothing is invented in their place. Its
-/// header row names this Mac's node and offers Pull and Prune, and its
-/// sheets are the Pull field and the prune's preview (`ImageStoreModel`).
+/// ImagesSection is the Images tab: the images of the cluster's one
+/// registry, from its own read (`k3sm image ls -o json`, `RegistryImages`),
+/// each with its short digest, size, the pods using it and the nodes caching
+/// it. An unreachable registry is one line with its error; a banner says when
+/// images stayed held in a node store, and a note names the nodes whose cache
+/// list was cut short. Its header row names this Mac's node and offers Pull
+/// and Prune, and its sheets are the Pull field and the prune's preview
+/// (`ImageStoreModel`).
 struct ImagesSection: View {
     @ObservedObject var app: AppModel
-    @ObservedObject var workloads: WorkloadsModel
+    @ObservedObject var images: TabLoader<RegistryImageList>
     @ObservedObject var columns: ColumnsModel
     @ObservedObject var store: ImageStoreModel
-
-    private var nodeList: TabLoader<NodeListRead> { workloads.nodeList }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,7 +43,7 @@ struct ImagesSection: View {
                 }
                 .padding(.horizontal, 10).padding(.vertical, 8)
             }
-            TabFooter(load: nodeList.load)
+            TabFooter(load: images.load)
         }
         .sheet(isPresented: Binding(get: { store.sheet != nil }, set: { if !$0 { store.closeSheet() } })) {
             switch store.sheet {
@@ -55,22 +55,41 @@ struct ImagesSection: View {
     }
 
     @ViewBuilder private var content: some View {
-        switch nodeList.load {
+        switch images.load {
         case .failed(let text): note(text)
         case .unavailable(let reason): note(reason)
         default:
-            switch nodeList.value?.images {
-            case nil: note("Reading the node list…")
-            case .notReported?: note(ImagesList.notReportedText)
-            case .listed(let images)? where images.isEmpty: note(ImagesList.emptyText)
-            case .listed(let images)?:
-                let counts = workloads.workloads.map { ImagesList.podCounts(images, pods: $0.pods) }
-                ForEach(ImagesList.visible(images, query: app.imagesQuery), id: \.key) { image in
-                    ImageRow(image: image, pods: counts.map { $0[image.key] ?? 0 }, selected: app.isSelected(.image(image.key)),
-                             widths: columns.widths(.images))
-                        .selects(.image(image.key), in: app, extra: untagItems(image))
-                }
+            if let list = images.value {
+                listed(list)
+            } else {
+                note("Reading the registry…")
             }
+        }
+    }
+
+    @ViewBuilder private func listed(_ list: RegistryImageList) -> some View {
+        if let migration = RegistryImages.migrationText(list) {
+            Text(verbatim: migration).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.ink2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Palette.wash))
+                .padding(.bottom, 6)
+        }
+        if let unreachable = RegistryImages.unreachableText(list) {
+            note(unreachable)
+        } else if list.images.isEmpty {
+            note(RegistryImages.emptyText)
+        } else {
+            ForEach(RegistryImages.visible(list.images, query: app.imagesQuery), id: \.key) { image in
+                RegistryImageRow(image: image, selected: app.isSelected(.image(image.key)), widths: columns.widths(.images))
+                    .selects(.image(image.key), in: app, extra: untagItems(image))
+            }
+        }
+        if let incomplete = RegistryImages.incompleteText(list) {
+            Text(verbatim: incomplete).font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 10).padding(.top, 8)
         }
     }
 
@@ -78,43 +97,35 @@ struct ImagesSection: View {
         Text(verbatim: text).foregroundStyle(Palette.ink2).padding(20)
     }
 
-    /// The row's context-menu Untag items: the inspector's buttons, through
-    /// the same model and question.
-    private func untagItems(_ image: NodeImage) -> [RowMenuExtra] {
-        let scope = ImageStoreScope.decide(report: app.report)
-        let enabled = ImageStoreDriver.disabledReason(scope: scope, availability: app.availability,
-                                                      busy: app.running || store.running) == nil
-        return ImageStoreOffer.decide(image, scope: scope).untag.map { reference in
-            RowMenuExtra(id: "untag " + reference.value, title: StatusDisplay.clip("Untag \(reference.value)…"), enabled: enabled) {
-                store.untag(reference, of: image, scope: scope)
-            }
-        }
+    /// The row's context-menu Untag item, disabled: a registry row carries
+    /// no node-store name to untag (`ImageStoreText.untagManagedInRegistry`).
+    private func untagItems(_ image: RegistryImage) -> [RowMenuExtra] {
+        [RowMenuExtra(id: "untag " + image.key, title: "Untag…", enabled: false) {}]
     }
 }
 
-/// ImageRow is one image: its name over its digest, its size, the listed
-/// pods using it (blank before the pod list is read), its nodes.
-struct ImageRow: View {
-    let image: NodeImage
-    let pods: Int?
+/// RegistryImageRow is one registry image: its reference over its short
+/// digest, its size, the pods using it, and, quietly, the nodes caching it.
+struct RegistryImageRow: View {
+    let image: RegistryImage
     let selected: Bool
     let widths: ColumnWidths
 
     var body: some View {
         HStack(spacing: CGFloat(TableColumns.images.spacing)) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(verbatim: image.title).font(.system(size: 13, weight: .medium)).lineLimit(1).truncationMode(.middle)
-                if let digest = image.digest {
+                Text(verbatim: image.reference).font(.system(size: 13, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                if let digest = image.shortDigest {
                     Text(verbatim: digest).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.dimText)
-                        .lineLimit(1).truncationMode(.middle)
+                        .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Text(verbatim: WorkloadsDisplay.bytes(image.sizeBytes)).font(.system(size: 12)).monospacedDigit()
                 .foregroundStyle(Palette.ink2).frame(width: widths.cg(.size), alignment: .trailing)
-            Text(verbatim: ImagesList.podsText(pods)).font(.system(size: 12)).monospacedDigit()
+            Text(verbatim: image.pods.map(String.init) ?? "").font(.system(size: 12)).monospacedDigit()
                 .foregroundStyle(Palette.ink2).frame(width: widths.cg(.pods), alignment: .trailing)
-            Text(verbatim: image.nodesText).font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
+            Text(verbatim: image.cachedOnText).font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
                 .lineLimit(1).truncationMode(.middle).frame(width: widths.cg(.nodes), alignment: .leading)
         }
         .padding(.horizontal, 10).frame(height: 44)

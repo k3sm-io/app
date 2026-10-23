@@ -100,7 +100,7 @@ public enum Help {
             case .cluster: text = "Show what the status found wrong and how to fix it"
             case .workloads: text = "Show the pods and the cluster's events"
             case .nodes: text = "Show the nodes, their load and their conditions"
-            case .images: text = "Show the images the nodes hold"
+            case .images: text = "Show the images in the cluster's registry"
             case .builds: text = "Show the build engine and the build history"
             case .services: text = "Show the services and the hosts routed to them"
             case .storage: text = "Show the data volume and the volume claims"
@@ -256,14 +256,14 @@ public enum Help {
     /// The Images tab's columns.
     public enum Images {
         /// The Size column header.
-        public static let size = HelpTag("Size of the image, as its nodes report it",
+        public static let size = HelpTag("Size of the image, as the registry reports it",
                                          control: "images: Size column", label: "Size")
         /// The Nodes column header.
-        public static let nodes = HelpTag("Nodes that hold a copy of the image",
-                                          control: "images: Nodes column", label: "Nodes")
+        public static let nodes = HelpTag("Nodes that hold a cached copy of the image",
+                                          control: "images: Cached on column", label: "Cached on")
 
         /// The Pods column header.
-        public static let pods = HelpTag("Listed pods that run this image",
+        public static let pods = HelpTag("Pods that run this image, as k3sm counts them",
                                          control: "images: Pods column", label: "Pods")
         /// The header row's Pull button, which opens the Pull sheet.
         public static let pull = HelpTag("Fetch an image into this Mac's image store",

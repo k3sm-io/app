@@ -149,6 +149,9 @@ final class AppModel: ObservableObject {
     /// each nil until the tab is first selected.
     @Published private(set) var builds: TabLoader<BuildEngine>?
     @Published private(set) var buildHistory: TabLoader<[BuildRecord]>?
+    /// The Images tab's read of the cluster's registry (`k3sm image ls -o
+    /// json`); nil until the tab is first selected.
+    @Published private(set) var registryImages: TabLoader<RegistryImageList>?
     /// The build log the log pane shows; nil when it shows none.
     @Published private(set) var buildLog: BuildLogModel?
     /// The one build log's read: opening a log or closing the pane stops the last.
@@ -480,7 +483,8 @@ final class AppModel: ObservableObject {
             switch section {
             case .workloads:
                 return self.workloadsView == .events ? self.events?.load : self.workloads.pods?.load
-            case .nodes, .images: return self.workloads.nodeList.load
+            case .nodes: return self.workloads.nodeList.load
+            case .images: return self.registryImages?.load
             case .builds: return self.builds?.load
             case .services: return self.services?.load
             case .storage: return self.storage?.load
@@ -492,18 +496,14 @@ final class AppModel: ObservableObject {
         waitingObservations.append(workloads.objectWillChange.sink { [weak self] _ in
             MainActor.assumeIsolated { self?.waiting.changed() }
         })
-        // A decoded node list keeps the Nodes and Images selections only
-        // while the node or image each names is still listed, as each
-        // pod-list read does for the Workloads selection.
+        // A decoded node list keeps the Nodes selection only while the
+        // node it names is still listed, as each pod-list read does for the
+        // Workloads selection; the Images tab's own read keeps its selection.
         workloads.onNodesRead = { [weak self] in
             guard let self else { return }
             let failed = self.workloads.nodeList.load.failedOrUnavailable
             self.retainSelection(.nodes)
             self.actions.tabRead(.nodes, succeeded: !failed)
-            self.actions.tabRead(.images, succeeded: !failed)
-            guard let read = self.workloads.nodeList.value,
-                  let selected = self.selection.selection(in: .images) else { return }
-            if ImagesList.selection(after: selected.key, in: read.images) == nil { self.selection.clear(.images) }
         }
         // The Workloads tab's row is the pod `WorkloadsModel` selects.
         podSelection = workloads.$selected.sink { [weak self] key in
@@ -523,12 +523,15 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             if let loader = self.loader(for: section) {
                 await loader.refresh()
-            } else if section == .images || section == .nodes {
+            } else if section == .nodes {
                 await self.workloads.nodeList.refresh()
             }
         }
-        // An image write reads the node list, and so the Images tab, again.
-        imageStore.refresh = { [weak self] in await self?.workloads.nodeList.refresh() }
+        // An image write reads the registry's list and the node list again.
+        imageStore.refresh = { [weak self] in
+            await self?.registryImages?.refresh()
+            await self?.workloads.nodeList.refresh()
+        }
         // The Builds tab's Show Log opens the log sheet.
         LocalActions.showBuildLog = { [weak self] target in self?.showBuildLog(target) }
         // An unfinished or failed earlier run is the first thing the window
@@ -986,7 +989,7 @@ final class AppModel: ObservableObject {
         switch section {
         case .workloads: return nil
         case .nodes: return NodesList.keys(workloads.nodes)
-        case .images: return workloads.nodeList.value.flatMap { InspectorDetails.keys(images: $0.images) }
+        case .images: return RegistryImages.keys(registryImages?.value)
         case .builds:
             guard let history = buildHistory?.value else { return nil }
             return InspectorDetails.keys(engine: builds?.value, history: history)
@@ -1007,7 +1010,7 @@ final class AppModel: ObservableObject {
     private var engineReady: Bool { builds?.value?.state == .ready }
 
     /// The loader behind a tab, created on its first selection; nil for
-    /// Nodes and Images, which render the shared node list, and for
+    /// Nodes, which renders the shared node list, and for
     /// Alerts, which renders the status report. Stats has the
     /// Storage tab's loader (its claims and data volume reads); its other
     /// charts render what the other reads fetched.
@@ -1019,9 +1022,16 @@ final class AppModel: ObservableObject {
             let pods = workloads.podsLoader()
             pods.interval = { [weak self] _ in PollSchedule.podsInterval(selected: self?.section == .workloads) }
             made = pods
-        case .nodes, .images, .cluster:
+        case .nodes, .cluster:
             // Alerts renders the status report the app already polls.
             made = nil
+        case .images:
+            let list = observed(TabLoader(
+                arguments: K3smCLI.imageListArguments, what: "registry image list", environment: environment,
+                decode: RegistryImages.tabResult(exitCode:stdout:),
+                interval: { _ in PollSchedule.interval(for: .images, engineReady: false) }))
+            registryImages = reported(list, .images)
+            made = list
         case .stats:
             // The Storage tab's own loader, the same reads at the same
             // cadence, so the storage chart fills while Stats is shown; it

@@ -137,7 +137,7 @@ public struct TableColumns: Sendable {
         (.status, "Status", 130, false), (.version, "Version", 130, false), (.load, "Load", 160, false),
     ])
     public static let images = TableColumns(.images, flexible: "Image", trailing: [
-        (.size, "Size", 66, true), (.pods, "Pods", 44, true), (.nodes, "Nodes", 140, false),
+        (.size, "Size", 66, true), (.pods, "Pods", 44, true), (.nodes, "Cached on", 140, false),
     ])
     public static let builds = TableColumns(.builds, flexible: "Image", trailing: [
         (.status, "Status", 96, false), (.started, "Started", 132, false), (.duration, "Duration", 70, true),
