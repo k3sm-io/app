@@ -154,7 +154,9 @@ echo "==> no third-party dependencies"
 # The package depends on nothing outside the toolchain, which is also why there
 # is no Package.resolved to commit: SwiftPM writes one only when it has pins.
 deps="$(swift package ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} show-dependencies 2>&1)"
-printf '%s\n' "$deps" | grep -q '^No external dependencies found' \
+# A here-string, not a pipe: grep -q exits at its first match, and a printf
+# still writing would die of SIGPIPE and fail the check under pipefail.
+grep -q '^No external dependencies found' <<<"$deps" \
 	|| { echo "FAIL: the package must not declare dependencies:"; printf '%s\n' "$deps"; exit 1; }
 [ ! -e Package.resolved ] || grep -q '"pins" : \[\s*\]' Package.resolved \
 	|| { echo "FAIL: Package.resolved carries pins"; exit 1; }
@@ -216,7 +218,11 @@ helper="$tmp/out/k3sm.app/Contents/Helpers/k3sm-app-update"
 [ -x "$helper" ] || { echo "FAIL: the bundle has no Contents/Helpers/k3sm-app-update"; exit 1; }
 codesign --verify --strict -R='identifier "io.k3sm.app.update"' "$helper" \
 	|| { echo "FAIL: k3sm-app-update does not verify as io.k3sm.app.update"; exit 1; }
-codesign -dv "$helper" 2>&1 | grep -qx 'Identifier=io.k3sm.app.update' \
+# Captured first, then matched: piped into grep -q, codesign could still be
+# writing after the match and die of SIGPIPE, failing the check under pipefail.
+helper_info="$(codesign -dv "$helper" 2>&1)" \
+	|| { echo "FAIL: codesign -dv could not read k3sm-app-update"; printf '%s\n' "$helper_info"; exit 1; }
+grep -qx 'Identifier=io.k3sm.app.update' <<<"$helper_info" \
 	|| { echo "FAIL: k3sm-app-update's identifier is not io.k3sm.app.update"; exit 1; }
 echo "    ok (k3sm-app-update: in Contents/Helpers, signed as io.k3sm.app.update)"
 # A development build: both bundle versions stay 0.0.0 (the app's

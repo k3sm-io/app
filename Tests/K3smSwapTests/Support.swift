@@ -146,10 +146,14 @@ final class Scratch: @unchecked Sendable {
     }
 
     /// A process standing in for the app that asked for the swap: it exits
-    /// after `seconds`.
+    /// after `seconds`. Its identity is read while it is held suspended, so
+    /// a short (or zero) sleep cannot exit, and be reaped, before the read.
     func appProcess(exitingAfter seconds: Double) -> ProcessIdentity {
-        let pid = spawn("/bin/sleep", [String(seconds)])
-        let identity = ProcessIdentity.of(pid: pid)!
+        let (pid, identity) = spawnIdentified("/bin/sleep", [String(seconds)])
+        guard let identity else {
+            Issue.record("the /bin/sleep stand-in (pid \(pid)) had no readable identity")
+            return ProcessIdentity(pid: pid, start: ProcessStart(seconds: 0, microseconds: 0))
+        }
         helpers.append(identity)
         return identity
     }
@@ -215,9 +219,43 @@ extension SwapTimeouts {
     static let silent = SwapTimeouts(appExit: .seconds(5), handshake: .milliseconds(1500), terminate: .seconds(2), poll: .milliseconds(50))
 }
 
+/// Starts `path` suspended, reads its identity, then lets it run. A child
+/// that exits at once (`sleep 0`) is otherwise often gone, exited and reaped
+/// by `spawn`'s reaper thread, before `ProcessIdentity.of` reads it, most of
+/// all on a loaded machine. The read is a short bounded poll that also
+/// checks the pid runs the image asked for. On failure the child is killed
+/// and the identity is nil.
+func spawnIdentified(_ path: String, _ arguments: [String], environment: [String] = []) -> (pid_t, ProcessIdentity?) {
+    let pid = spawn(path, arguments, environment: environment, suspended: true)
+    var identity: ProcessIdentity?
+    let deadline = ContinuousClock.now + .seconds(2)
+    while identity == nil {
+        if let read = ProcessIdentity.of(pid: pid), executablePath(of: pid) == path {
+            identity = read
+        } else if ContinuousClock.now >= deadline {
+            break
+        } else {
+            usleep(10_000)
+        }
+    }
+    if identity == nil {
+        kill(pid, SIGKILL)
+    }
+    kill(pid, SIGCONT)
+    return (pid, identity)
+}
+
+/// The executable path of a live process, from `proc_pidpath`.
+func executablePath(of pid: pid_t) -> String? {
+    var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+    guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+    return String(cString: buffer)
+}
+
 /// Starts `path` with `arguments` and the given environment; a thread reaps
-/// it, so an exited child never lingers as a zombie.
-func spawn(_ path: String, _ arguments: [String], environment: [String] = []) -> pid_t {
+/// it, so an exited child never lingers as a zombie. `suspended` starts it
+/// stopped (`POSIX_SPAWN_START_SUSPENDED`) until a `SIGCONT`.
+func spawn(_ path: String, _ arguments: [String], environment: [String] = [], suspended: Bool = false) -> pid_t {
     let argv: [UnsafeMutablePointer<CChar>?] = ([path] + arguments).map { strdup($0) } + [nil]
     let envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup($0) } + [nil]
     defer { (argv + envp).forEach { free($0) } }
@@ -227,8 +265,14 @@ func spawn(_ path: String, _ arguments: [String], environment: [String] = []) ->
     for fd: Int32 in [0, 1, 2] {
         posix_spawn_file_actions_addopen(&actions, fd, "/dev/null", fd == 0 ? O_RDONLY : O_WRONLY, 0)
     }
+    var attributes: posix_spawnattr_t?
+    posix_spawnattr_init(&attributes)
+    defer { posix_spawnattr_destroy(&attributes) }
+    if suspended {
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_START_SUSPENDED))
+    }
     var pid: pid_t = 0
-    precondition(posix_spawn(&pid, path, &actions, nil, argv, envp) == 0, "posix_spawn failed")
+    precondition(posix_spawn(&pid, path, &actions, &attributes, argv, envp) == 0, "posix_spawn failed")
     let child = pid
     Thread.detachNewThread {
         var status: Int32 = 0
@@ -261,19 +305,21 @@ final class FixtureLauncher: AppLauncher, @unchecked Sendable {
 
     func launch(bundleAt path: String, arguments: [String]) throws(LaunchError) -> ProcessIdentity {
         let bundle = substitute.withLock { $0 } ?? path
-        let pid = start(executable: bundle + "/Contents/MacOS/k3sm-app", arguments: arguments)
+        let identity = start(executable: bundle + "/Contents/MacOS/k3sm-app", arguments: arguments)
         state.withLock { $0.launches.append(Launch(path: path, arguments: arguments)) }
-        guard let identity = ProcessIdentity.of(pid: pid) else { throw .failed }
+        guard let identity else { throw .failed }
         if let hook = afterLaunch.withLock({ $0 }) { hook() }
         return identity
     }
 
     /// Starts a fixture executable with the private directory in its
-    /// environment, and tracks it.
-    func start(executable: String, arguments: [String]) -> pid_t {
-        let pid = spawn(executable, arguments, environment: ["FIXTURE_PRIVATE_DIR=" + privateDirectory])
-        if let identity = ProcessIdentity.of(pid: pid) { state.withLock { $0.started.append(identity) } }
-        return pid
+    /// environment, and tracks it. The identity is read before the fixture
+    /// runs (see `spawnIdentified`), so one that exits at once still has it.
+    @discardableResult
+    func start(executable: String, arguments: [String]) -> ProcessIdentity? {
+        let (_, identity) = spawnIdentified(executable, arguments, environment: ["FIXTURE_PRIVATE_DIR=" + privateDirectory])
+        if let identity { state.withLock { $0.started.append(identity) } }
+        return identity
     }
 
     /// Kills every started process still running under its own identity, so
