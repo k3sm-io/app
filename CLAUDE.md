@@ -3,8 +3,8 @@
 The k3sm macOS app (SwiftPM package `K3smApp`): the menu bar status item, the window, and the
 installer that puts k3sm on a Mac. It is a leaf. Its state comes only from `k3sm status -o json`
 (and the `k3sm status daemons -o json` probe), the machine interface the k3sm CLI documents. Its
-edges are that JSON, the `k3sm kubectl` read path, and the Swift SDK (`k3sm-sdk-swift`). It imports
-no code from any other k3sm repository.
+edges are that JSON and the `k3sm kubectl` read path. It imports no code from any other k3sm
+repository and takes no package dependency (`hack/deps.allow` lists none).
 
 > User-facing behavior: `README.md`. Source map: `docs/ARCHITECTURE.md`. Release signing: `hack/release/README.md`.
 
@@ -14,7 +14,15 @@ no code from any other k3sm repository.
 - **`K3smInstall`** (library, Foundation and Security): the root step as data and text (the copy-out
   and lifecycle scripts, their argv, quoting, the Team ID pin, update policy) and the release index
   verifier (CMS and `SecTrust`, no network code). Tested without a GUI.
-- **`K3smApp`** (executable, AppKit and SwiftUI): wires both libraries to the screen and to root.
+- **`K3smHost`** (library, Foundation and Security): runs the installed CLI after its trust check;
+  shared by the app and the MCP server.
+- **`K3smMCP`** (library, Foundation only): the read-only MCP server: JSON-RPC, tools, call log.
+- **`K3smSwap`** (library, Foundation and Security): the swap engine for replacing the installed app
+  bundle with a verified one (journal, verified rename, handshake, reconcile). No screen starts it
+  in v0.2.
+- **`K3smApp`** (executable, AppKit and SwiftUI): wires the libraries to the screen and to root.
+- **`K3smMCPServer`** (executable `k3sm-mcp`): the MCP server on stdio, inside the bundle.
+- **`K3smAppUpdate`** (executable `k3sm-app-update`): the swap helper, at `Contents/Helpers`.
 
 ## Build / test
 ```sh
