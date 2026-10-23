@@ -1542,7 +1542,7 @@ final class AppModel: ObservableObject {
     /// Starts re-reading the full report while the console is on screen
     /// (`ReportTrigger`): on a change in the status records or
     /// /Library/LaunchDaemons, debounced, and on a timer that is a 5 min
-    /// heartbeat while those watches are held and `PollSchedule.consoleReportInterval`
+    /// heartbeat (doubled under Low Power) while those watches are held and `PollSchedule.consoleReportInterval`
     /// otherwise, spread by `PollJitter`, one read at a time. The first timed
     /// read waits one interval, since showing the window already refreshes.
     /// A second start is a no-op.

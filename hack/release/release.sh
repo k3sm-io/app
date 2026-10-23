@@ -67,7 +67,7 @@
 # applies. publish.sh and sign-and-notarize.sh repeat their own checks. It is a
 # guard against accident, not a security boundary.
 #
-# THE REHEARSAL (--rehearsal) is the unsigned mode the autonomous loop and the
+# THE REHEARSAL (--rehearsal) is the unsigned mode automated sessions and the
 # lab use. It runs the k3sm checkout's hack/release/stage.sh (ad-hoc, no
 # Developer ID), builds the app ad-hoc with the bundle id
 # io.k3sm.app.rehearsal, no Team ID and the exact tag as K3smPayloadTag
@@ -81,7 +81,7 @@
 # The output is
 #   <out-dir>/k3sm_<version>_darwin_arm64-unsigned.dmg
 # where <out-dir> defaults to a fresh rehearsal-<version>-<UTC time> directory
-# in the nearest k3sm-io.scratch directory beside an ancestor of this repo.
+# in the nearest scratch directory beside an ancestor of this repo.
 # The rehearsal has no code path to publish.sh, gh, sign-and-notarize.sh or a
 # Developer ID codesign, and the self-test asserts that from its fakes' logs.
 # Its app carries a bundle id and no Team ID that the root copy-out refuses.
@@ -139,7 +139,7 @@ sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 # run; prints nothing when it may.
 attended_problems() {
 	[ "$1" = 0 ] || echo "automation-env: CLAUDECODE is set (an agent session)"
-	[ "$2" = 0 ] || echo "automation-env: K3SM_AUTO is set (the autonomous loop)"
+	[ "$2" = 0 ] || echo "automation-env: K3SM_AUTO is set (an automated session)"
 	[ "$3" = 1 ] || echo "no-tty: stdin is not a terminal"
 	[ "$4" = 1 ] || echo "no-tty: /dev/tty cannot be opened"
 }
@@ -152,7 +152,7 @@ check_attended() {
 	if (exec 3<>/dev/tty) 2>/dev/null; then tty=1; fi
 	problems="$(attended_problems "$cc" "$auto" "$stdin" "$tty")"
 	[ -z "$problems" ] || refuse "$problems" \
-		"A release signs and uploads with the operator's credentials; run it yourself in a terminal." \
+		"A release signs and uploads with the maintainer's credentials; run it yourself in a terminal." \
 		"The unsigned rehearsal is: hack/release/release.sh --rehearsal --version <tag>"
 }
 
@@ -515,7 +515,7 @@ resolve_k3sm() {
 
 # ---- the rehearsal ------------------------------------------------------------------
 
-# default_out_dir <tag>: a fresh directory in the nearest k3sm-io.scratch
+# default_out_dir <tag>: a fresh directory in the nearest scratch directory
 # beside an ancestor of this repo.
 default_out_dir() {
 	local d="$APP_ROOT"
@@ -618,7 +618,7 @@ parse_rehearsal() {
 	[ -n "$LDFLAGS" ] || LDFLAGS="-X k3sm.io/k3sm/pkg/version.Version=${VERSION#v}"
 	resolve_k3sm
 	if [ -z "$OUT_DIR" ]; then
-		OUT_DIR="$(default_out_dir "$VERSION")" || die "no k3sm-io.scratch directory beside an ancestor of $APP_ROOT; pass --out-dir"
+		OUT_DIR="$(default_out_dir "$VERSION")" || die "no scratch directory beside an ancestor of $APP_ROOT; pass --out-dir"
 	fi
 	OUT_DIR="${OUT_DIR%/}"
 }
@@ -922,7 +922,7 @@ EOF
 	check "decision: stdin alone not a terminal refuses" eval '[ "$(attended_problems 0 0 0 1)" = "no-tty: stdin is not a terminal" ]'
 	check "decision: /dev/tty alone unopenable refuses" eval '[ "$(attended_problems 0 0 1 0)" = "no-tty: /dev/tty cannot be opened" ]'
 	check "decision: CLAUDECODE alone refuses" eval '[ "$(attended_problems 1 0 1 1)" = "automation-env: CLAUDECODE is set (an agent session)" ]'
-	check "decision: K3SM_AUTO alone refuses" eval '[ "$(attended_problems 0 1 1 1)" = "automation-env: K3SM_AUTO is set (the autonomous loop)" ]'
+	check "decision: K3SM_AUTO alone refuses" eval '[ "$(attended_problems 0 1 1 1)" = "automation-env: K3SM_AUTO is set (an automated session)" ]'
 	check "decision: every reason is named" eval '[ "$(attended_problems 1 1 0 0 | wc -l | tr -d " ")" = 4 ]'
 	rc=0; env CLAUDECODE=1 PATH="$FPATH" bash "$0" --rehearsal </dev/null >"$T/out" 2>&1 || rc=$?
 	check "the rehearsal is not refused under automation (it fails on its missing --version instead)" \

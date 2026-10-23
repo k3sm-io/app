@@ -21,14 +21,12 @@ import Foundation
 /// optional note under it ("INSTALLED" over "0.1.8"; "THIS APP" over
 /// "1.2.3" with "a newer release").
 ///
-/// A proposal: this is the contract sketch for the popover's two version
-/// cards, and the design PR may change it. Which cards show, their
-/// eyebrows, values and notes are decisions made in `K3smStatus` beside
-/// `AppVersion.versionLine(installed:payload:)`, which they replace in the
-/// popover, and are unit-tested for the same cases that line covers: a
-/// payload release that is newer, the same or older than the installed
-/// one, no installed release, and no payload release. The view only
-/// renders the cards it is given.
+/// The cards carry the same facts as `AppVersion.versionLine(installed:payload:)`
+/// and are unit-tested for the same cases: a payload release that is newer,
+/// the same or older than the installed one, no installed release, and no
+/// payload release. Which cards show, their eyebrows, values and notes are
+/// decided here in `K3smStatus`; a view only renders the cards it is given.
+/// No view uses them yet: the popover still shows `versionLine`.
 public struct VersionCard: Equatable, Sendable {
     /// The small-caps label over the version ("INSTALLED", "THIS APP").
     public let eyebrow: String

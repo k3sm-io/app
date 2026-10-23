@@ -53,7 +53,7 @@ what users download with `verify-release.sh <tag>` (below).
 
 ## The rehearsal: `release.sh --rehearsal`
 
-The unsigned mode the autonomous loop and the lab use:
+The unsigned mode automated sessions and test machines use:
 
 ```sh
 hack/release/release.sh --rehearsal --version vX.Y.Z \
@@ -73,7 +73,7 @@ starts runs under `env -i` with only `PATH`, `HOME`, `TMPDIR`,
 `DEVELOPER_DIR` and the Go toolchain locations, so no identity, Team ID,
 notary or keychain setting reaches them. The output is
 `k3sm_<version>_darwin_arm64-unsigned.dmg` and its checksums file in a fresh
-directory under the workspace's `k3sm-io.scratch` (or `--out-dir`).
+scratch directory outside the repository (or `--out-dir`).
 
 Two rehearsals of the same tree give the same layout, the same app and the
 same payload, but not the same image bytes: `hdiutil create` writes fresh
@@ -169,7 +169,7 @@ app. The script signs, notarizes and uploads nothing.
 ## Credentials
 
 - The Developer ID Application identity is non-exportable and set to prompt
-  on use, in a keychain the unattended loop does not unlock. `release.sh`
+  on use, in a keychain an automated session does not unlock. `release.sh`
   takes its name as an argument and never reads it.
 - The notary credential is an App Store Connect API key stored under the
   keychain profile `k3sm-notary`. Scripts name the profile; they never read

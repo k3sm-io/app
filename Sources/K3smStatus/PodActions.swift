@@ -120,8 +120,9 @@ public enum PodActions {
 
     /// The kind in `Pod.owner`'s "Kind name" display string: the text before
     /// the first space, or nil when there is none. A Kubernetes kind and an
-    /// object name carry no space, so the split is exact; app#53's decode of
-    /// the controller reference replaces this parse.
+    /// object name carry no space, so the split is exact. The pod list's
+    /// decode of the controller reference builds that display string
+    /// (`Workloads.swift`), and this parse reads the kind back from it.
     public static func ownerKind(_ owner: String?) -> String? {
         guard let owner, let space = owner.firstIndex(of: " "), space != owner.startIndex else { return nil }
         return String(owner[..<space])

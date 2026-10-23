@@ -35,8 +35,8 @@
 # references the identity and the notary profile by name only; it never
 # reads, prints or stores a secret.
 #
-# It refuses to run unattended: from an agent session (CLAUDECODE), from the
-# autonomous loop (K3SM_AUTO), or without a terminal on stdin.
+# It refuses to run unattended: from an agent session (CLAUDECODE), from an
+# automated session (K3SM_AUTO), or without a terminal on stdin.
 #
 # hack/release/sign-and-notarize.sh --self-test
 #
@@ -309,7 +309,7 @@ refuse() {
 	exit 3
 }
 [ -z "${CLAUDECODE:-}" ] || refuse "CLAUDECODE is set (an agent session)"
-[ -z "${K3SM_AUTO:-}" ] || refuse "K3SM_AUTO is set (the autonomous loop)"
+[ -z "${K3SM_AUTO:-}" ] || refuse "K3SM_AUTO is set (an automated session)"
 [ -t 0 ] || refuse "stdin is not a terminal"
 
 if [ "$#" -ne 4 ]; then

@@ -28,7 +28,7 @@ public enum TabStripLayout {
     /// The gap between two tabs: 14 pt, the least that still holds the
     /// waiting butterfly's landing (`Perch.landingStart` is 12 pt before the
     /// label). It was 16 before the Stats tab; with `itemSpacing` and
-    /// `searchMinimum` it keeps the eight labels, at the estimate's wide
+    /// `searchMinimum` it keeps the nine labels, at the estimate's wide
     /// advance, inside a 1440 pt window with the panel and inspector shown.
     public static let tabSpacing: Double = 14
     /// The gap between the strip's items: the tabs, the spacer, the update

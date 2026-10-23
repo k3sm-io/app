@@ -42,8 +42,8 @@ public struct UpdateDecision: Equatable, Sendable {
 /// `UpdatePlan`'s decision; this check only refuses a payload that is not
 /// newer than the install without an explicit downgrade.
 public enum UpdatePolicy {
-    /// The datastore checks the window shows before a server update (A9,
-    /// from the k3sm upgrade guide). The CLI enforces them; a refused start
+    /// The datastore checks the window shows before a server update (from
+    /// `docs/user/upgrade.md` in the k3sm repository). The CLI enforces them; a refused start
     /// is shown verbatim in the log.
     public static let serverChecks: [String] = [
         "Take a snapshot first, off this Mac: sudo k3sm snapshot save --out <file>.",

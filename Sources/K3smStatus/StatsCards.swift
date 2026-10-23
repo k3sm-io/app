@@ -19,12 +19,9 @@ import Foundation
 /// StatsCardLabel is what a Stats card shows above its chart: an SF Symbol,
 /// the chart's title and its units line.
 ///
-/// A proposal: this is the contract sketch for the light and night Stats
-/// cards, and the design PR may change it (for example by making the symbol
-/// a property of `StatsChart` beside its `title` and `unit`). The title and
-/// units today come from `StatsChart.title` and `StatsChart.unit`; the
-/// symbol is new and, like every other choice the card makes, is decided
-/// here in `K3smStatus` and pinned by a test, never written in a view.
+/// The title and units come from `StatsChart.title` and `StatsChart.unit`;
+/// the symbol is chosen here in `K3smStatus` and pinned by a test, never
+/// written in a view. No view uses this type yet.
 public struct StatsCardLabel: Equatable, Sendable {
     /// The chart the card draws.
     public let chart: StatsChart
@@ -47,12 +44,11 @@ public struct StatsCardLabel: Equatable, Sendable {
 /// type and the caption that says what it counts, for a chart whose data
 /// has one ("42" over "pods running").
 ///
-/// A proposal: this is the contract sketch for the headline figures, and
-/// the design PR may change it. Which charts carry a headline, the figure
-/// each shows and its caption are decisions made in `K3smStatus` (beside
-/// `StatsDisplay`) and unit-tested; a chart without data for one shows no
-/// headline, never a zero. Both strings reach the screen as built here,
-/// every cluster-supplied part already clipped by `StatusDisplay.clip`.
+/// Which charts carry a headline, the figure each shows and its caption are
+/// decided in `K3smStatus` (beside `StatsDisplay`) and unit-tested; a chart
+/// without data for one has no headline, never a zero. Both strings are
+/// meant to reach the screen as built here, every cluster-supplied part
+/// already clipped by `StatusDisplay.clip`. No view uses this type yet.
 public struct StatsHeadline: Equatable, Sendable {
     /// The figure, formatted for display ("42", "3", "118 GB").
     public let figure: String

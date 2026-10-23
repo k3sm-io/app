@@ -23,7 +23,8 @@ import K3smStatus
 /// console is on screen: one loop makes every read and awaits each, so no two
 /// are ever in flight, and `MetricsSchedule.step` decides each move from the
 /// view's `MetricsDemand` (15 s between reads while it is fast, 60 s while it
-/// is slow or the API is absent, nothing while it is off), each wait spread
+/// is slow or the API is absent, both doubled under Low Power, nothing while
+/// it is off), each wait spread
 /// by `PollJitter` with one draw per read. A wait ends early on `wake()`, so
 /// a rise in demand reads at once when the last read is older than the new
 /// interval. One read brings nodes and pods together; the APIService read

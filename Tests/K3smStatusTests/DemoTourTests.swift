@@ -18,9 +18,10 @@ import Foundation
 import Testing
 @testable import K3smStatus
 
-/// The B686 gate: the demo tour's closed step set, its refusals, its closed
-/// condition set and its ordering. Every test name starts with
-/// `demoTourSteps`, so the gate's filter runs them all.
+/// The demo tour's closed step set, its refusals, its closed condition set
+/// and its ordering. Every test name but `demoTourFromBundle` starts with
+/// `demoTourSteps`, so `swift test --filter demoTourSteps` selects those;
+/// `hack/ci.sh` runs the whole suite, `demoTourFromBundle` included.
 @Suite("the scripted demo tour")
 struct DemoTourTests {
     static func tour(_ steps: [String]) throws -> [DemoTour.Entry] {

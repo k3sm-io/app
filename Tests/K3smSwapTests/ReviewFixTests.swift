@@ -25,7 +25,7 @@ private func hdiutil(_ arguments: [String]) -> Int32 {
     run("/usr/bin/hdiutil", arguments)
 }
 
-/// The cases the security and Darwin reviews asked for: the go-back bound
+/// Regression cases for the swap engine's trust boundaries: the go-back bound
 /// to the engine's own record, the journal's names never used outside their
 /// grammar, the staged tree private to this account, the volume refused
 /// before the app quits, and the identity that survives a renumbered device.

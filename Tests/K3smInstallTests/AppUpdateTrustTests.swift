@@ -24,7 +24,7 @@ import Testing
 struct AppUpdateTrustTests {
     static let team = TeamID("ABCDE12345")!
 
-    /// The ruled app-update requirement, byte for byte.
+    /// The pinned app-update requirement, byte for byte.
     static let appGolden =
         #"anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = "ABCDE12345" and identifier "io.k3sm.app" and notarized"#
 
@@ -60,7 +60,7 @@ struct AppUpdateTrustTests {
             && requirement != nil
     }
 
-    @Test("the app update requirement and index signer are the ruled text")
+    @Test("the app update requirement and index signer are the pinned text")
     func appUpdateRequirementGolden() throws {
         // The Team ID reaches the requirement only through the compiled pin:
         // a developer build has none, so it authorizes nothing.
@@ -112,7 +112,7 @@ struct AppUpdateTrustTests {
     }
 
     /// Every clause is load-bearing: dropping or changing any one of them
-    /// gives a text that is not the ruled one.
+    /// gives a text that is not the pinned one.
     @Test("each clause of the golden is present exactly once", arguments: [
         "anchor apple generic",
         " and certificate 1[field.1.2.840.113635.100.6.2.6]",
