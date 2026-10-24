@@ -277,8 +277,9 @@ public enum Help {
         /// The Pull sheet's Pull button.
         public static let pullConfirm = HelpTag("Fetch the reference on this Mac, as an administrator",
                                                 control: "pull sheet: Pull button", label: "Pull")
-        /// The prune preview sheet's Prune button.
-        public static let pruneConfirm = HelpTag("Delete the listed content from this Mac, as an administrator",
+        /// The prune preview sheet's Prune button: it deletes the node cache
+        /// blobs and, on a server, the cluster registry's untagged manifests.
+        public static let pruneConfirm = HelpTag("Delete the listed blobs and untagged registry manifests, as an administrator",
                                                  control: "prune sheet: Prune button", label: "Prune")
         /// The Pull and prune sheets' Cancel button.
         public static let cancel = HelpTag("Close the sheet without changing anything",
