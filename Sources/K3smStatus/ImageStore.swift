@@ -34,7 +34,8 @@ extension K3smCLI {
     public static let imagePruneArguments = ["image", "prune", "--force"]
 
     /// `k3sm image untag <tag> --digest <digest>`: deletes one tag from the
-    /// cluster registry, only while it still names the digest the list read.
+    /// cluster registry; the CLI refuses it when the tag already names
+    /// content other than the digest the list read.
     public static func imageUntagArguments(_ tag: RegistryTag) -> [String] {
         ["image", "untag", tag.reference.value, "--digest", tag.digest]
     }
@@ -52,14 +53,18 @@ extension K3smCLI {
 public struct ImageStoreScope: Equatable, Sendable {
     /// This Mac's node, a `ResourceName`; nil when the report names none.
     public let node: String?
+    /// This Mac's role, nil when the report does not say: Mirror's copy into
+    /// the cluster registry runs only on the server.
+    public let role: NodeRole?
 
-    public init(node: String?) {
+    public init(node: String?, role: NodeRole? = nil) {
         self.node = node.flatMap(ResourceName.init)?.value
+        self.role = role
     }
 
     /// The scope from this Mac's last status report.
     public static func decide(report: StatusReport?) -> ImageStoreScope {
-        ImageStoreScope(node: report.flatMap(ClusterDisplay.ownNodeName))
+        ImageStoreScope(node: report.flatMap(ClusterDisplay.ownNodeName), role: report.flatMap(NodeRole.detect))
     }
 
     /// Why nothing can be changed here, when the report names no node.
@@ -359,7 +364,7 @@ public enum ImageStoreText {
     }
 
     /// The line under an enabled Untag button.
-    public static let untagNote = "Untag deletes this tag from the cluster registry, only while it names the digest above."
+    public static let untagNote = "Untag deletes this tag from the cluster registry, refused if the tag already names content other than the digest above."
 
     /// Why Untag is disabled off the server.
     public static let untagOnServer = "Untag runs on the server, which holds the cluster registry's credential."
@@ -370,7 +375,7 @@ public enum ImageStoreText {
     /// The Untag question: the tag, the digest it is pinned to, and what stays.
     public static func untagQuestion(_ tag: RegistryTag) -> (title: String, message: String) {
         (StatusDisplay.clip("Untag \(tag.reference.value)?"),
-         "k3sm deletes the tag \(tag.reference.value) from the cluster registry, only while it still names \(tag.digest). "
+         "k3sm deletes the tag \(tag.reference.value) from the cluster registry, refused if the tag already names content other than \(tag.digest). "
             + "A manifest another tag names stays, the registry's garbage collection reclaims what no tag names, "
             + "and nodes that cached the image keep their copies, so pods using it keep running.")
     }
@@ -381,11 +386,18 @@ public enum ImageStoreText {
     public static func pullQuestion(_ reference: ImageRef, node: String) -> (title: String, message: String) {
         let copy = reference.mirrorsToRegistry
             ? "k3sm pulls \(reference.value) into the image cache of node \(node), this Mac, then copies it into the cluster registry, "
-                + "which nodes pull from when its own registry cannot be reached. "
+                + "which nodes pull from when its own registry cannot be reached. " + copyCredential
             : "k3sm pulls \(reference.value) into the image cache of node \(node), this Mac. "
                 + "No copy is written to the cluster registry for a reference in it or in a registry with a port. "
         return (StatusDisplay.clip("Mirror \(reference.value)?"), copy + registrySentence(reference))
     }
+
+    /// Whose credential the copy into the cluster registry uses: the root
+    /// step runs the CLI with no HOME and no KUBECONFIG, so the server's own
+    /// administrator credential mints the push token, and an agent, which has
+    /// none, skips the copy.
+    public static let copyCredential =
+        "The copy uses the server's own administrator credential, not your kubeconfig, so on an agent it is skipped. "
 
     /// The registry sentence: which host the image daemon, running as root,
     /// contacts. It fetches with no credential: the CLI's pull passes none
@@ -414,7 +426,8 @@ public enum ImageStoreText {
     /// The Mirror sheet's title and its line under a valid reference.
     public static let pullTitle = "Mirror an image into the cluster"
     public static let pullNote =
-        "k3sm pulls it to this Mac, checking every blob's digest, then copies a public image into the cluster registry."
+        "k3sm pulls it to this Mac, checking every blob's digest, then copies a public image into the cluster registry "
+            + "with the server's own credential; an agent skips the copy."
 
     /// The refusal when this Mac's node changed while the preview was open.
     public static let pruneNodeChanged = "This Mac's node changed while the preview was open, so nothing was deleted."
@@ -470,7 +483,7 @@ public enum ImageStoreText {
 
     public static func prompt(pull reference: ImageRef) -> String {
         reference.mirrorsToRegistry
-            ? "k3sm wants to pull \(reference.value) to this Mac and copy it into the cluster registry."
+            ? "k3sm wants to pull \(reference.value) to this Mac and copy it into the cluster registry with the server's credential."
             : "k3sm wants to pull \(reference.value) into this Mac's image cache."
     }
 
@@ -488,17 +501,23 @@ public enum ImageStoreText {
     /// A finished pull's line, from the CLI's first line ("pulled …" or
     /// "up to date …"), its "  mirror:   <name>" line when it wrote the copy,
     /// and its warning when it did not (only when the runner read standard
-    /// error). Every string from the CLI is clipped or cleaned.
-    public static func pulled(_ reference: ImageRef, node: String, output: String?, warning: String?) -> String {
+    /// error). On an agent the copy needs the server, so the line says it was
+    /// skipped. The mirror name is shown only once it passes `ImageRef`.
+    public static func pulled(_ reference: ImageRef, node: String, role: NodeRole? = nil,
+                              output: String?, warning: String?) -> String {
         let lines = (output ?? "").replacingOccurrences(of: "\r", with: "\n").split(separator: "\n")
         let upToDate = lines.first?.hasPrefix("up to date ") == true
         let base = upToDate ? "\(reference.value) was already up to date on node \(node)" : "Pulled \(reference.value) on node \(node)"
         if let line = lines.first(where: { $0.hasPrefix(mirrorLine) }) {
             let name = line.dropFirst(mirrorLine.count).trimmingCharacters(in: .whitespaces)
             let copied = upToDate ? " and was copied into the cluster registry as " : " and copied it into the cluster registry as "
-            if !name.isEmpty { return StatusDisplay.clip(base + copied + name + ".") }
+            if let mirror = ImageRef(name) { return StatusDisplay.clip(base + copied + mirror.value + ".") }
         }
         guard reference.mirrorsToRegistry else { return StatusDisplay.clip(base + ".") }
+        if role == .agent {
+            return StatusDisplay.clip(base + ". The copy into the cluster registry was skipped: it needs the server, "
+                + "whose own credential writes it.")
+        }
         if let warning, let at = warning.range(of: "warning: ") {
             let why = StatusDisplay.errorText(String(warning[at.upperBound...]))
             if !why.isEmpty { return StatusDisplay.clip(base + ", but its copy in the cluster registry was not written: " + why) }

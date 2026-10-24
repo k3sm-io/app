@@ -448,6 +448,7 @@ struct ImageStoreTests {
         #expect(hub.title == "Mirror nginx:1.27?")
         #expect(hub.message == "k3sm pulls nginx:1.27 into the image cache of node studio, this Mac, then copies it into the cluster registry, "
                 + "which nodes pull from when its own registry cannot be reached. "
+                + "The copy uses the server's own administrator credential, not your kubeconfig, so on an agent it is skipped. "
                 + "The image daemon, running as root, contacts this node's own registry if it has one, "
                 + "then Docker Hub (index.docker.io), with no credential.")
         let local = ImageStoreText.registrySentence(ImageRef("localhost:5000/app:1")!)
@@ -462,10 +463,15 @@ struct ImageStoreTests {
         let tag = try #require(RegistryTag(reference: "registry-k3sm:6450/nginx:1.27", digest: "sha256:" + Self.hex))
         let q = ImageStoreText.untagQuestion(tag)
         #expect(q.title == "Untag registry-k3sm:6450/nginx:1.27?")
-        #expect(q.message.contains("from the cluster registry, only while it still names sha256:" + Self.hex))
+        #expect(q.message.contains("from the cluster registry, refused if the tag already names content other than sha256:" + Self.hex))
+        #expect(!q.message.contains("only while"))
+        #expect(!ImageStoreText.untagNote.contains("only while"))
+        #expect(ImageStoreText.untagNote.contains("refused if the tag already names content other than the digest above"))
         #expect(ImageStoreText.prompt(untag: tag).contains("the cluster registry"))
         let ref = ImageRef("nginx:1.27")!
-        #expect(ImageStoreText.prompt(pull: ref) == "k3sm wants to pull nginx:1.27 to this Mac and copy it into the cluster registry.")
+        #expect(ImageStoreText.prompt(pull: ref)
+                == "k3sm wants to pull nginx:1.27 to this Mac and copy it into the cluster registry with the server's credential.")
+        #expect(ImageStoreText.pullNote.contains("with the server's own credential; an agent skips the copy"))
         #expect(ImageStoreText.prompt(pull: ImageRef("localhost:5000/a:1")!) == "k3sm wants to pull localhost:5000/a:1 into this Mac's image cache.")
         #expect(ImageStoreText.promptPruneDryRun.contains("this Mac"))
         #expect(ImageStoreText.promptPrune.contains("this Mac"))
@@ -473,6 +479,15 @@ struct ImageStoreTests {
                                       warning: nil)
                 == "nginx:1.27 was already up to date on node studio and was copied into the cluster registry as registry-k3sm:6450/docker.io/library/nginx:1.27.")
         #expect(ImageStoreText.pulled(ref, node: "studio", output: "pulled nginx:1.27", warning: nil)
+                == "Pulled nginx:1.27 on node studio, but k3sm did not report a copy in the cluster registry.")
+        // On an agent the copy needs the server: the line says it was skipped, over the CLI's warning.
+        let skipped = "Pulled nginx:1.27 on node laptop. The copy into the cluster registry was skipped: it needs the server, "
+            + "whose own credential writes it."
+        #expect(ImageStoreText.pulled(ref, node: "laptop", role: .agent, output: "pulled nginx:1.27", warning: nil) == skipped)
+        #expect(ImageStoreText.pulled(ref, node: "laptop", role: .agent, output: "pulled nginx:1.27",
+                                      warning: "k3sm image pull: warning: no admin credential\n") == skipped)
+        // A mirror name that does not pass ImageRef is not shown.
+        #expect(ImageStoreText.pulled(ref, node: "studio", output: "pulled nginx:1.27\n  mirror:   evil\u{202E}name; id", warning: nil)
                 == "Pulled nginx:1.27 on node studio, but k3sm did not report a copy in the cluster registry.")
         let local = ImageRef("registry-k3sm:6450/app:v1")!
         #expect(ImageStoreText.pulled(local, node: "studio", output: "pulled registry-k3sm:6450/app:v1", warning: nil)

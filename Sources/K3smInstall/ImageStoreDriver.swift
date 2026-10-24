@@ -100,7 +100,7 @@ public struct ImageStoreDriver: Sendable {
         guard let reference = ImageRef(trimmed) else { return .refused(ImageStoreText.pullRefused(.invalidCharacter)) }
         let question = ImageStoreText.pullQuestion(reference, node: node)
         guard await confirm(Question(title: question.title, message: question.message, verbTitle: "Mirror")) else { return .declined }
-        return await run(.pull(reference), node: node)
+        return await run(.pull(reference), node: node, role: scope.role)
     }
 
     /// Runs the prune's dry run and reads what it would delete. Nothing is
@@ -122,21 +122,23 @@ public struct ImageStoreDriver: Sendable {
         return await run(.prune, node: node)
     }
 
-    private func run(_ verb: LifecycleScriptBuilder.ImageVerb, node: String) async -> Result {
+    private func run(_ verb: LifecycleScriptBuilder.ImageVerb, node: String, role: NodeRole? = nil) async -> Result {
         let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.renderImage(verb, teamID: teamID), input: nil)
-        return Self.classify(run, verb: verb, node: node)
+        return Self.classify(run, verb: verb, node: node, role: role)
     }
 
     /// Reads one finished root step: the verb's line on success, the
     /// script's own refusals by their exit status, and any other failure
-    /// with the CLI's error text, cleaned.
-    public static func classify(_ run: PrivilegedRun, verb: LifecycleScriptBuilder.ImageVerb, node: String) -> Result {
+    /// with the CLI's error text, cleaned. `role` is this Mac's, for Mirror's
+    /// line on an agent.
+    public static func classify(_ run: PrivilegedRun, verb: LifecycleScriptBuilder.ImageVerb, node: String,
+                                role: NodeRole? = nil) -> Result {
         switch run.outcome {
         case .succeeded:
             switch verb {
             case .untag(let tag): return .ran(run.outcome, ImageStoreText.untagged(tag))
             case .pull(let reference):
-                return .ran(run.outcome, ImageStoreText.pulled(reference, node: node, output: run.output, warning: run.errorOutput))
+                return .ran(run.outcome, ImageStoreText.pulled(reference, node: node, role: role, output: run.output, warning: run.errorOutput))
             case .prune where run.outputTruncated: return .ran(run.outcome, ImageStoreText.prunedTruncated(node: node))
             case .prune: return .ran(run.outcome, ImageStoreText.pruned(output: run.output, node: node))
             case .pruneDryRun: return .ran(run.outcome, "")

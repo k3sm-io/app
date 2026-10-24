@@ -37,6 +37,23 @@ struct ImageActionsTests {
 
     static let tail = " untagged manifest(s); the registry's garbage collection reclaims their layers on its next sweep"
 
+    static let lowerHex: String = String(repeating: "0123456789abcdef", count: 4)
+    static let halfHex: String = String(repeating: "0123456789abcdef", count: 2)
+    static let hostileDigests: [String] = [
+        "junk@sha256:" + lowerHex,
+        "sha256:" + lowerHex + "\n",
+        "sha256:" + halfHex + "\n" + halfHex,
+        "sha256:" + lowerHex.uppercased(),
+        "SHA256:" + lowerHex,
+        " sha256:" + lowerHex,
+    ]
+
+    @Test("RegistryTag refuses a hostile digest field", arguments: hostileDigests)
+    func hostileDigest(_ digest: String) {
+        #expect(RegistryTag(reference: "registry-k3sm:6450/app:v1", digest: digest) == nil)
+        #expect(RegistryTag(reference: "registry-k3sm:6450/app:v1", digest: Self.digest) != nil)
+    }
+
     @Test("Untag, Prune and Mirror act on the cluster registry")
     func imageActionsTargetTheRegistry() throws {
         // Untag: a registry row's tag, pinned to the digest the list read.

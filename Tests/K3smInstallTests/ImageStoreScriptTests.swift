@@ -46,7 +46,7 @@ struct ImageStoreScriptTests {
         Case(verb: .untag(appTag), argv: ["image", "untag", "registry-k3sm:6450/app:v1", "--digest", "sha256:" + hex],
              prompt: "k3sm wants to delete the tag registry-k3sm:6450/app:v1 from the cluster registry."),
         Case(verb: .pull(ImageRef("ghcr.io/k3sm-io/app@sha256:" + hex)!), argv: ["image", "pull", "ghcr.io/k3sm-io/app@sha256:" + hex],
-             prompt: "k3sm wants to pull ghcr.io/k3sm-io/app@sha256:\(hex) to this Mac and copy it into the cluster registry."),
+             prompt: "k3sm wants to pull ghcr.io/k3sm-io/app@sha256:\(hex) to this Mac and copy it into the cluster registry with the server's credential."),
     ]
 
     @Test("the argument list", arguments: cases)
@@ -99,6 +99,27 @@ struct ImageStoreScriptTests {
         let text = LifecycleScriptBuilder.renderImage(.pull(Self.nginx), teamID: Self.team).text
         #expect(text.hasSuffix("\nexec \"$k3sm\" 'image' 'pull' 'docker.io/library/nginx:1.27'\n"))
         #expect(text.hasPrefix("set -eu\numask 077\ncd /\nk3sm='/Library/k3sm/k3sm'\n"))
+    }
+
+    @Test("the Mirror root step passes the CLI no HOME and no KUBECONFIG, so the copy uses the server's own credential")
+    func pullEnvironment() {
+        let script = LifecycleScriptBuilder.renderImage(.pull(Self.nginx), teamID: Self.team)
+        let line = script.command(inputPath: "/dev/null")
+        #expect(line.hasPrefix("/usr/bin/env -i PATH=\(K3smCLI.systemPath) /bin/sh -c "))
+        for name in ["HOME", "KUBECONFIG"] {
+            #expect(!script.text.contains(name), "the Mirror script names \(name)")
+            #expect(!line.contains(name + "="), "the Mirror command line sets \(name)")
+        }
+        #expect(script.prompt.contains("with the server's credential"))
+    }
+
+    @Test("Mirror on an agent says the copy was skipped because it needs the server")
+    func pullOnAgent() async {
+        let runner = Runner([PrivilegedRun(outcome: .succeeded, errorOutput: "k3sm image pull: warning: the copy was not written\n",
+                                           output: "pulled docker.io/library/nginx:1.27\n")])
+        let result = await Self.driver(runner).pull("docker.io/library/nginx:1.27", scope: ImageStoreScope(node: "laptop", role: .agent))
+        #expect(result == .ran(.succeeded, "Pulled docker.io/library/nginx:1.27 on node laptop. "
+                               + "The copy into the cluster registry was skipped: it needs the server, whose own credential writes it."))
     }
 
     @Test("no flag but prune's --force and untag's --digest is passed, never --no-mirror or an --allow flag")
@@ -248,6 +269,7 @@ struct ImageStoreScriptTests {
         #expect(asked.titles == ["Mirror docker.io/library/nginx:1.27?"])
         #expect(asked.messages == ["k3sm pulls docker.io/library/nginx:1.27 into the image cache of node studio, this Mac, "
                                    + "then copies it into the cluster registry, which nodes pull from when its own registry cannot be reached. "
+                                   + "The copy uses the server's own administrator credential, not your kubeconfig, so on an agent it is skipped. "
                                    + "The image daemon, running as root, contacts docker.io, with no credential."])
         #expect(runner.scripts == [LifecycleScriptBuilder.renderImage(.pull(Self.nginx), teamID: Self.team)])
         let declined = Runner([])
