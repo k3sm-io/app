@@ -287,6 +287,31 @@ struct ImageStoreTests {
         #expect(ImageStoreText.pruneKept(empty) == nil)
     }
 
+    @Test("the preview's registry line counts the untagged manifests the prune would delete")
+    func previewRegistryManifests() {
+        let one = ImagePrunePreview(digests: [], size: "0 B", kept: [],
+                                    registry: .init(manifests: ["apps/web@sha256:" + Self.hex]))
+        #expect(ImageStoreText.pruneRegistry(one)
+                == "It would also delete 1 untagged manifest from the cluster registry; "
+                + "the registry reclaims their layers on its next garbage collection.")
+        let two = ImagePrunePreview(digests: [], size: "0 B", kept: [],
+                                    registry: .init(manifests: ["apps/web@sha256:" + Self.hex, "apps/api@sha256:" + Self.hex]))
+        #expect(ImageStoreText.pruneRegistry(two)?.hasPrefix("It would also delete 2 untagged manifests from the cluster registry") == true)
+    }
+
+    @Test("the preview's registry line gives the reason when this node skips the registry")
+    func previewRegistrySkipped() {
+        let skipped = ImagePrunePreview(digests: [], size: "0 B", kept: [],
+                                        registry: .init(skipped: Self.skippedWhy))
+        #expect(ImageStoreText.pruneRegistry(skipped) == "Cluster registry: skipped, " + Self.skippedWhy + ".")
+    }
+
+    @Test("the preview has no registry line when the registry has nothing untagged")
+    func previewRegistryNone() {
+        let none = ImagePrunePreview(digests: ["sha256:" + Self.hex], size: "1 MiB", kept: [], registry: .init())
+        #expect(ImageStoreText.pruneRegistry(none) == nil)
+    }
+
     /// The k3sm checkout the prune's output shape is checked against.
     static func k3smSource(_ path: String) -> URL? {
         let root = URL(fileURLWithPath: #filePath)

@@ -424,6 +424,21 @@ public enum ImageStoreText {
         return "Kept: " + preview.kept.map { "\($0.count) \($0.reason)" }.joined(separator: ", ") + "."
     }
 
+    /// The preview's registry line: how many untagged manifests the prune
+    /// would delete from the cluster registry, or why this node skips the
+    /// registry; nil when the registry has nothing untagged to delete.
+    public static func pruneRegistry(_ preview: ImagePrunePreview) -> String? {
+        let registry = preview.registry
+        if let skipped = registry.skipped {
+            return StatusDisplay.clip("Cluster registry: skipped, \(skipped).")
+        }
+        guard !registry.manifests.isEmpty else { return nil }
+        let count = registry.manifests.count
+        let manifests = count == 1 ? "1 untagged manifest" : "\(count) untagged manifests"
+        return StatusDisplay.clip("It would also delete \(manifests) from the cluster registry; "
+            + "the registry reclaims their layers on its next garbage collection.")
+    }
+
     /// The preview's caveat: the prune is re-derived when it runs.
     public static let pruneCaveat =
         "The prune deletes what nothing references when it runs, so a pull or a new pod in between keeps its content."
