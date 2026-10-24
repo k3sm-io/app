@@ -248,7 +248,8 @@ struct ImagePullSheet: View {
 }
 
 /// ImagePruneSheet is the prune's preview: the node, what its dry run said
-/// it would delete (the digests, the size and what it kept), the caveat that
+/// it would delete (the digests, the size and what it kept), the cluster
+/// registry's untagged manifests or why it is skipped, the caveat that
 /// the prune is worked out again when it runs, and Prune, which runs it.
 struct ImagePruneSheet: View {
     @ObservedObject var app: AppModel
@@ -275,6 +276,10 @@ struct ImagePruneSheet: View {
             .background(Palette.wash)
             if let kept = ImageStoreText.pruneKept(preview) {
                 Text(verbatim: StatusDisplay.clip(kept)).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
+            }
+            if let registry = ImageStoreText.pruneRegistry(preview) {
+                Text(verbatim: registry).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Text(verbatim: ImageStoreText.pruneCaveat).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
                 .fixedSize(horizontal: false, vertical: true)
