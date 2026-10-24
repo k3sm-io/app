@@ -127,7 +127,8 @@ struct ImageStoreScriptTests {
         #expect(image.contains(#"case "pull", "untag", "inspect", "save":"#))
         // --force is the delete; the dry run is the default and has no flag of its own.
         #expect(image.contains(#"fs.BoolVar(&o.force, "force", false"#))
-        #expect(image.contains("DryRun: !o.force"))
+        let prune = try String(contentsOf: dir.appending(path: "imageprune.go"), encoding: .utf8)
+        #expect(prune.contains("DryRun: !o.force"))
         #expect(!image.contains(#""dry-run""#), "k3sm image grew a --dry-run flag; pass it explicitly")
         // A refused flag on a verb is an error, never ignored, so the argv is all there is.
         #expect(image.contains(#"case "untag":"#) && image.contains(#"case "pull":"#) && image.contains(#"case "prune":"#))
@@ -238,11 +239,13 @@ struct ImageStoreScriptTests {
 
     @Test("Prune runs its dry run, returns the parsed list, and deletes only on its own call")
     func prune() async {
-        let dry = ["would delete sha256:" + Self.hex, "would delete 1 blob(s), 1.0 KiB", "(dry run — pass --force to unlink)"]
+        let dry = ["registry registry-k3sm:6450:", "  skipped: this node runs no registry", "node cache:",
+                   "  would delete sha256:" + Self.hex, "  would delete 1 blob(s), 1.0 KiB", "(dry run — pass --force to delete)"]
             .joined(separator: "\r")
         let runner = Runner([PrivilegedRun(outcome: .succeeded, output: dry)])
         let preview = await Self.driver(runner).previewPrune(scope: Self.here)
-        #expect(preview == .preview(ImagePrunePreview(digests: ["sha256:" + Self.hex], size: "1.0 KiB", kept: [])))
+        #expect(preview == .preview(ImagePrunePreview(digests: ["sha256:" + Self.hex], size: "1.0 KiB", kept: [],
+                                                    registry: .init(skipped: "this node runs no registry"))))
         #expect(runner.scripts == [LifecycleScriptBuilder.renderImage(.pruneDryRun, teamID: Self.team)])
 
         // A dry run cut at the cap is refused on its own sentence, before any parse.
@@ -259,7 +262,8 @@ struct ImageStoreScriptTests {
         #expect(await Self.driver(failed).previewPrune(scope: Self.here)
                 == .ran(.failed(exitStatus: 1), "k3sm image prune failed: k3sm image: prune images: runtimed unavailable"))
 
-        let forced = Runner([PrivilegedRun(outcome: .succeeded, output: "deleted sha256:\(Self.hex)\rdeleted 1 blob(s), 1.0 KiB")])
+        let forced = Runner([PrivilegedRun(outcome: .succeeded, output: "registry registry-k3sm:6450:\r  skipped: this node runs no registry\rnode cache:\r"
+                                                              + "  deleted sha256:\(Self.hex)\r  deleted 1 blob(s), 1.0 KiB")])
         #expect(await Self.driver(forced).prune(scope: Self.here) == .ran(.succeeded, "Deleted 1 blob, 1.0 KiB, on node studio."))
         #expect(forced.scripts == [LifecycleScriptBuilder.renderImage(.prune, teamID: Self.team)])
 

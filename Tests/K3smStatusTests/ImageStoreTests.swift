@@ -25,8 +25,12 @@ import Testing
 struct ImageStoreTests {
     static let hex = String(repeating: "0123456789abcdef", count: 4)
     static let hex2 = String(repeating: "fedcba9876543210", count: 4)
-    static let note = "(dry run — pass --force to unlink)"
-    static let nothing = "nothing to reclaim: every blob in the store is referenced."
+    static let note = "(dry run — pass --force to delete)"
+    static let nothing = "  nothing to reclaim: every blob in the cache is referenced."
+    static let registryHead = "registry registry-k3sm:6450:"
+    static let skippedWhy = "this node runs no registry; prune the cluster registry on the server that runs it"
+    static let skipped = [registryHead, "  skipped: " + skippedWhy, "node cache:"]
+    static let gcTail = " untagged manifest(s); the registry's garbage collection reclaims their layers on its next sweep"
 
     // MARK: ImageRef
 
@@ -115,74 +119,121 @@ struct ImageStoreTests {
         var testDescription: String { name }
     }
 
-    static func preview(_ digests: [String], _ size: String, kept: [(String, Int)] = []) -> ImagePruneRead {
-        .read(ImagePrunePreview(digests: digests, size: size, kept: kept.map { ImagePrunePreview.Kept(reason: $0.0, count: $0.1) }))
+    static func preview(_ digests: [String], _ size: String, kept: [(String, Int)] = [],
+                        registry: ImagePrunePreview.Registry = .init(skipped: skippedWhy)) -> ImagePruneRead {
+        .read(ImagePrunePreview(digests: digests, size: size, kept: kept.map { ImagePrunePreview.Kept(reason: $0.0, count: $0.1) },
+                                registry: registry))
     }
 
+    /// A cache-only output behind the skipped registry half.
+    static func cache(_ lines: [String]) -> String { (skipped + lines).joined(separator: "\n") }
+
+    static let fullRegistry = ImagePrunePreview.Registry(
+        manifests: ["apps/web@sha256:" + hex, "apps/api@sha256:" + hex2],
+        kept: [.init(reason: "younger than the grace period", count: 1)], unreadable: ["apps/broken"])
+
     static let full = [
-        "would delete sha256:" + hex,
-        "would delete sha256:" + hex2,
-        "would delete 2 blob(s), 1.5 MiB",
+        registryHead,
+        "  would delete apps/web@sha256:" + hex + " (untagged)",
+        "  would delete apps/api@sha256:" + hex2 + " (untagged)",
+        "  would delete 2" + gcTail,
+        "  kept untagged:",
+        "    younger than the grace period    1",
+        "  unreadable, left alone: apps/broken",
+        "node cache:",
+        "  would delete sha256:" + hex,
+        "  would delete sha256:" + hex2,
+        "  would delete 2 blob(s), 1.5 MiB",
+        "  kept:",
+        "    in use by a pod              3",
+        "    reachable                    12",
         note,
-        "kept:",
-        "  in use by a pod           3",
-        "  reachable                 12",
         "",
     ].joined(separator: "\n")
 
+    static let fullRead = preview(["sha256:" + hex, "sha256:" + hex2], "1.5 MiB", kept: [("in use by a pod", 3), ("reachable", 12)],
+                                  registry: fullRegistry)
+
     static let pruneCases: [PruneCase] = [
-        PruneCase(name: "nothing to reclaim", output: [nothing, "would delete 0 blob(s), 0 B", note, ""].joined(separator: "\n"),
+        PruneCase(name: "nothing to reclaim", output: cache([nothing, "  would delete 0 blob(s), 0 B", note, ""]),
                   want: preview([], "0 B")),
         PruneCase(name: "nothing to reclaim, with what it kept",
-                  output: [nothing, "would delete 0 blob(s), 0 B", note, "kept:", "  in use by a pod           7"].joined(separator: "\n"),
+                  output: cache([nothing, "  would delete 0 blob(s), 0 B", "  kept:", "    in use by a pod           7", note]),
                   want: preview([], "0 B", kept: [("in use by a pod", 7)])),
-        PruneCase(name: "two blobs, and what it kept", output: full,
-                  want: preview(["sha256:" + hex, "sha256:" + hex2], "1.5 MiB", kept: [("in use by a pod", 3), ("reachable", 12)])),
+        PruneCase(name: "both halves, and what each kept", output: full, want: fullRead),
+        PruneCase(name: "an empty registry plan",
+                  output: [registryHead, "  would delete 0" + gcTail, "node cache:", nothing, "  would delete 0 blob(s), 0 B", note]
+                    .joined(separator: "\n"),
+                  want: preview([], "0 B", registry: .init())),
         PruneCase(name: "the administrator prompt's carriage returns, no last newline",
-                  output: full.replacingOccurrences(of: "\n", with: "\r").trimmingCharacters(in: .newlines),
-                  want: preview(["sha256:" + hex, "sha256:" + hex2], "1.5 MiB", kept: [("in use by a pod", 3), ("reachable", 12)])),
-        PruneCase(name: "CRLF line endings", output: full.replacingOccurrences(of: "\n", with: "\r\n"),
-                  want: preview(["sha256:" + hex, "sha256:" + hex2], "1.5 MiB", kept: [("in use by a pod", 3), ("reachable", 12)])),
-        PruneCase(name: "one blob, bytes", output: ["would delete sha256:" + hex, "would delete 1 blob(s), 512 B", note].joined(separator: "\n"),
+                  output: full.replacingOccurrences(of: "\n", with: "\r").trimmingCharacters(in: .newlines), want: fullRead),
+        PruneCase(name: "CRLF line endings", output: full.replacingOccurrences(of: "\n", with: "\r\n"), want: fullRead),
+        PruneCase(name: "one blob, bytes", output: cache(["  would delete sha256:" + hex, "  would delete 1 blob(s), 512 B", note]),
                   want: preview(["sha256:" + hex], "512 B")),
         PruneCase(name: "an unknown skip reason renders as its enum name",
-                  output: [nothing, "would delete 0 blob(s), 0 B", note, "kept:", "  PRUNE_SKIP_REASON_NEW    2"].joined(separator: "\n"),
+                  output: cache([nothing, "  would delete 0 blob(s), 0 B", "  kept:", "    PRUNE_SKIP_REASON_NEW    2", note]),
                   want: preview([], "0 B", kept: [("PRUNE_SKIP_REASON_NEW", 2)])),
         PruneCase(name: "empty output", output: "", want: .malformed(line: 1)),
-        PruneCase(name: "a malformed line is refused", output: ["would delete /etc/passwd", "would delete 0 blob(s), 0 B", note].joined(separator: "\n"),
+        PruneCase(name: "the old one-section shape is refused",
+                  output: ["would delete sha256:" + hex, "would delete 1 blob(s), 1.0 KiB", "(dry run — pass --force to unlink)"]
+                    .joined(separator: "\n"),
                   want: .malformed(line: 1)),
-        PruneCase(name: "a stray line is refused", output: [nothing, "would delete 0 blob(s), 0 B", "$(id)", note].joined(separator: "\n"),
-                  want: .malformed(line: 3)),
-        PruneCase(name: "a short digest", output: ["would delete sha256:abc", "would delete 1 blob(s), 1 B", note].joined(separator: "\n"),
+        PruneCase(name: "no registry section", output: ["node cache:", nothing, "  would delete 0 blob(s), 0 B", note].joined(separator: "\n"),
                   want: .malformed(line: 1)),
+        PruneCase(name: "a malformed line is refused", output: cache(["  would delete /etc/passwd", "  would delete 0 blob(s), 0 B", note]),
+                  want: .malformed(line: 4)),
+        PruneCase(name: "a stray line is refused", output: cache([nothing, "  would delete 0 blob(s), 0 B", "$(id)", note]),
+                  want: .malformed(line: 6)),
+        PruneCase(name: "a short digest", output: cache(["  would delete sha256:abc", "  would delete 1 blob(s), 1 B", note]),
+                  want: .malformed(line: 4)),
         PruneCase(name: "the count does not match the digests",
-                  output: ["would delete sha256:" + hex, "would delete 2 blob(s), 1.0 KiB", note].joined(separator: "\n"),
+                  output: cache(["  would delete sha256:" + hex, "  would delete 2 blob(s), 1.0 KiB", note]),
+                  want: .malformed(line: 6)),
+        PruneCase(name: "the registry count does not match its manifests",
+                  output: [registryHead, "  would delete apps/web@sha256:" + hex + " (untagged)", "  would delete 2" + gcTail]
+                    .joined(separator: "\n"),
                   want: .malformed(line: 3)),
+        PruneCase(name: "a registry with no summary",
+                  output: [registryHead, "  would delete apps/web@sha256:" + hex + " (untagged)", "node cache:"].joined(separator: "\n"),
+                  want: .malformed(line: 3)),
+        PruneCase(name: "a skipped registry beside a manifest",
+                  output: [registryHead, "  would delete apps/web@sha256:" + hex + " (untagged)", "  skipped: " + skippedWhy]
+                    .joined(separator: "\n"),
+                  want: .malformed(line: 3)),
+        PruneCase(name: "a manifest whose repository is not one word",
+                  output: [registryHead, "  would delete a b@sha256:" + hex + " (untagged)"].joined(separator: "\n"),
+                  want: .malformed(line: 2)),
+        PruneCase(name: "a failed deletion in a dry run",
+                  output: [registryHead, "  could not delete apps/web@sha256:" + hex + ": denied"].joined(separator: "\n"),
+                  want: .malformed(line: 2)),
         PruneCase(name: "no dry-run note: not shown as a dry run",
-                  output: ["would delete sha256:" + hex, "would delete 1 blob(s), 1.0 KiB"].joined(separator: "\n"),
-                  want: .malformed(line: 2)),
-        PruneCase(name: "a forced run's output is not a dry run",
-                  output: ["deleted sha256:" + hex, "deleted 1 blob(s), 1.0 KiB"].joined(separator: "\n"),
-                  want: .malformed(line: 1)),
-        PruneCase(name: "a size not in the CLI's units",
-                  output: ["would delete sha256:" + hex, "would delete 1 blob(s), 12 MB", note].joined(separator: "\n"),
-                  want: .malformed(line: 2)),
-        PruneCase(name: "a digest after the summary",
-                  output: ["would delete 0 blob(s), 0 B", "would delete sha256:" + hex, note].joined(separator: "\n"),
-                  want: .malformed(line: 2)),
-        PruneCase(name: "nothing to reclaim beside a digest",
-                  output: [nothing, "would delete sha256:" + hex, "would delete 1 blob(s), 1 B", note].joined(separator: "\n"),
-                  want: .malformed(line: 2)),
-        PruneCase(name: "zero blobs without the nothing line",
-                  output: ["would delete 0 blob(s), 0 B", note].joined(separator: "\n"), want: .malformed(line: 2)),
-        PruneCase(name: "a kept block with no entry",
-                  output: [nothing, "would delete 0 blob(s), 0 B", note, "kept:"].joined(separator: "\n"), want: .malformed(line: 4)),
-        PruneCase(name: "a kept entry with no count",
-                  output: [nothing, "would delete 0 blob(s), 0 B", note, "kept:", "  in use by a pod"].joined(separator: "\n"),
+                  output: cache(["  would delete sha256:" + hex, "  would delete 1 blob(s), 1.0 KiB"]),
                   want: .malformed(line: 5)),
+        PruneCase(name: "a forced run's output is not a dry run",
+                  output: cache(["  deleted sha256:" + hex, "  deleted 1 blob(s), 1.0 KiB"]),
+                  want: .malformed(line: 4)),
+        PruneCase(name: "a size not in the CLI's units",
+                  output: cache(["  would delete sha256:" + hex, "  would delete 1 blob(s), 12 MB", note]),
+                  want: .malformed(line: 5)),
+        PruneCase(name: "a digest after the summary",
+                  output: cache(["  would delete 0 blob(s), 0 B", "  would delete sha256:" + hex, note]),
+                  want: .malformed(line: 5)),
+        PruneCase(name: "nothing to reclaim beside a digest",
+                  output: cache([nothing, "  would delete sha256:" + hex, "  would delete 1 blob(s), 1 B", note]),
+                  want: .malformed(line: 5)),
+        PruneCase(name: "zero blobs without the nothing line",
+                  output: cache(["  would delete 0 blob(s), 0 B", note]), want: .malformed(line: 5)),
+        PruneCase(name: "a kept block with no entry",
+                  output: cache([nothing, "  would delete 0 blob(s), 0 B", "  kept:", note]), want: .malformed(line: 7)),
+        PruneCase(name: "a kept entry with no count",
+                  output: cache([nothing, "  would delete 0 blob(s), 0 B", "  kept:", "    in use by a pod", note]),
+                  want: .malformed(line: 7)),
         PruneCase(name: "two summaries",
-                  output: [nothing, "would delete 0 blob(s), 0 B", "would delete 0 blob(s), 0 B", note].joined(separator: "\n"),
-                  want: .malformed(line: 3)),
+                  output: cache([nothing, "  would delete 0 blob(s), 0 B", "  would delete 0 blob(s), 0 B", note]),
+                  want: .malformed(line: 6)),
+        PruneCase(name: "a line after the note",
+                  output: cache([nothing, "  would delete 0 blob(s), 0 B", note, "  would delete 0 blob(s), 0 B"]),
+                  want: .malformed(line: 7)),
     ]
 
     @Test("the prune dry run parses its output shapes and refuses any other", arguments: pruneCases)
@@ -192,11 +243,23 @@ struct ImageStoreTests {
 
     @Test("a forced prune reads its own lines, never a dry run's")
     func forcedPruneParses() {
-        let done = ["deleted sha256:" + Self.hex, "deleted 1 blob(s), 2.0 GiB", "kept:", "  reachable                 4"].joined(separator: "\n")
-        #expect(ImagePrune.parse(done, forced: true) == Self.preview(["sha256:" + Self.hex], "2.0 GiB", kept: [("reachable", 4)]))
-        #expect(ImagePrune.parse(Self.full, forced: true) == .malformed(line: 1))
-        let withNote = ["deleted 0 blob(s), 0 B", Self.note].joined(separator: "\n")
-        #expect(ImagePrune.parse(withNote, forced: true) == .malformed(line: 2))
+        let done = [
+            Self.registryHead,
+            "  deleted apps/web@sha256:" + Self.hex + " (untagged)",
+            "  could not delete apps/api@sha256:" + Self.hex2 + ": DELETE: unexpected status code 500",
+            "  deleted 1" + Self.gcTail,
+            "node cache:",
+            "  deleted sha256:" + Self.hex,
+            "  deleted 1 blob(s), 2.0 GiB",
+            "  kept:",
+            "    reachable                    4",
+        ].joined(separator: "\n")
+        #expect(ImagePrune.parse(done, forced: true)
+                == Self.preview(["sha256:" + Self.hex], "2.0 GiB", kept: [("reachable", 4)],
+                                registry: .init(manifests: ["apps/web@sha256:" + Self.hex], failed: 1)))
+        #expect(ImagePrune.parse(Self.full, forced: true) == .malformed(line: 2))
+        let withNote = Self.cache(["  deleted 0 blob(s), 0 B", Self.note])
+        #expect(ImagePrune.parse(withNote, forced: true) == .malformed(line: 5))
         #expect(ImageStoreText.pruned(output: done, node: "studio") == "Deleted 1 blob, 2.0 GiB, on node studio.")
         #expect(ImageStoreText.pruned(output: "garbage", node: "studio").contains("did not say"))
     }
@@ -212,43 +275,53 @@ struct ImageStoreTests {
     @Test("the preview sheet names the node, lists a bounded number of digests and says what it kept")
     func previewText() {
         let many = (0..<(ImagePrunePreview.shownDigests + 5)).map { _ in "sha256:" + Self.hex }
-        let preview = ImagePrunePreview(digests: many, size: "3.0 GiB", kept: [.init(reason: "reachable", count: 2)])
+        let preview = ImagePrunePreview(digests: many, size: "3.0 GiB", kept: [.init(reason: "reachable", count: 2)], registry: .init())
         #expect(ImageStoreText.pruneLead(preview, node: "studio")
                 == "On node studio, this Mac, the prune would delete 205 blobs no pod and no name references, 3.0 GiB:")
         let lines = ImageStoreText.pruneDigests(preview)
         #expect(lines.count == ImagePrunePreview.shownDigests + 1)
         #expect(lines.last == "and 5 more")
         #expect(ImageStoreText.pruneKept(preview) == "Kept: 2 reachable.")
-        let empty = ImagePrunePreview(digests: [], size: "0 B", kept: [])
+        let empty = ImagePrunePreview(digests: [], size: "0 B", kept: [], registry: .init())
         #expect(ImageStoreText.pruneLead(empty, node: "studio").hasPrefix("Nothing to reclaim on node studio"))
         #expect(ImageStoreText.pruneKept(empty) == nil)
     }
 
     /// The k3sm checkout the prune's output shape is checked against.
-    static var imageSource: URL? {
+    static func k3smSource(_ path: String) -> URL? {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let dir = ProcessInfo.processInfo.environment["K3SM_DIR"].map { URL(fileURLWithPath: $0) }
             ?? root.deletingLastPathComponent().appending(path: "k3sm")
-        let file = dir.appending(path: "cmd/k3sm/image.go")
+        let file = dir.appending(path: path)
         return FileManager.default.fileExists(atPath: file.path) ? file : nil
     }
 
-    @Test("the lines read are the ones cmd/k3sm/image.go prints", .enabled(if: imageSource != nil))
+    static var pruneSource: URL? { k3smSource("cmd/k3sm/imageprune.go") }
+    static var imageSource: URL? { k3smSource("cmd/k3sm/image.go") }
+
+    @Test("the lines read are the ones cmd/k3sm/imageprune.go prints", .enabled(if: pruneSource != nil && imageSource != nil))
     func pruneShapeMatchesTheCLI() throws {
-        let source = try String(contentsOf: try #require(Self.imageSource), encoding: .utf8)
-        let start = try #require(source.range(of: "func imagePrune("), "no imagePrune in cmd/k3sm/image.go; the scrape is stale")
-        let body = source[start.upperBound...].prefix(2500)
+        let prune = try String(contentsOf: try #require(Self.pruneSource), encoding: .utf8)
+        let render = try #require(prune.range(of: "func renderPrune("), "no renderPrune in cmd/k3sm/imageprune.go; the scrape is stale")
+        let body = prune[render.upperBound...].prefix(3000)
         for line in [
             #"verb := "would delete""#, #"verb = "deleted""#,
-            #""nothing to reclaim: every blob in the store is referenced.""#,
-            #""%s %s\n", verb, d"#, #""%s %d blob(s), %s\n""#,
-            #""(dry run"#, #""kept:""#, #""  %-24s %d\n""#, "DryRun: !o.force",
+            #""registry %s:\n""#, #""  skipped: %s\n""#, #""  %s %s@%s (untagged)\n""#,
+            #""  could not delete %s@%s: %s\n""#,
+            #""  %s %d untagged manifest(s); the registry's garbage collection reclaims their layers on its next sweep\n""#,
+            #""  kept untagged:""#, #""  unreadable, left alone: %s\n""#, #""node cache:""#,
+            #""  nothing to reclaim: every blob in the cache is referenced.""#,
+            #""  %s %s\n", verb, d"#, #""  %s %d blob(s), %s\n""#,
+            #""  kept:""#, #""(dry run — pass --force to delete)""#, #"renderCounts(out, r.Cache.Kept, "    ")"#,
+            #""%s%-28s %d\n""#,
         ] {
-            #expect(body.contains(line), "imagePrune no longer prints \(line)")
+            #expect(body.contains(line), "renderPrune no longer prints \(line)")
         }
-        #expect(source.contains(#"return fmt.Sprintf("%d B", n)"#))
-        #expect(source.contains(#"return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])"#))
+        #expect(prune.contains("DryRun: !o.force"))
+        let image = try String(contentsOf: try #require(Self.imageSource), encoding: .utf8)
+        #expect(image.contains(#"return fmt.Sprintf("%d B", n)"#))
+        #expect(image.contains(#"return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])"#))
     }
 
     // MARK: this Mac's node

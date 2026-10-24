@@ -100,9 +100,10 @@ public struct ImageStoreOffer: Equatable, Sendable {
 }
 
 /// ImagePrunePreview is what `k3sm image prune` (its dry run) said it would
-/// delete on this Mac: the blob digests, the size, and the kept blobs by reason.
+/// delete on this Mac: the node cache's blob digests, their size and the kept
+/// blobs by reason, and the cluster registry's half.
 public struct ImagePrunePreview: Equatable, Sendable {
-    /// One reason the daemon kept blobs, and how many.
+    /// One reason the daemon or the registry kept content, and how many.
     public struct Kept: Equatable, Sendable {
         /// The CLI's words, clipped.
         public let reason: String
@@ -114,19 +115,43 @@ public struct ImagePrunePreview: Equatable, Sendable {
         }
     }
 
+    /// The registry half: the untagged manifests the prune deletes from the
+    /// cluster registry, or why this node skipped it.
+    public struct Registry: Equatable, Sendable {
+        /// Why this node pruned no registry (it runs none); nil when it did.
+        public let skipped: String?
+        /// The untagged manifests, each "<repository>@sha256:<64 hex>".
+        public let manifests: [String]
+        public let kept: [Kept]
+        /// Repositories whose index could not be read; nothing in them is touched.
+        public let unreadable: [String]
+        /// Deletions the registry refused (a forced run only).
+        public let failed: Int
+
+        public init(skipped: String? = nil, manifests: [String] = [], kept: [Kept] = [], unreadable: [String] = [], failed: Int = 0) {
+            self.skipped = skipped
+            self.manifests = manifests
+            self.kept = kept
+            self.unreadable = unreadable
+            self.failed = failed
+        }
+    }
+
     /// The blobs it would delete, each "sha256:<64 hex>".
     public let digests: [String]
     /// The size those blobs come to, as the CLI wrote it ("12.3 MiB", "0 B").
     public let size: String
     public let kept: [Kept]
+    public let registry: Registry
 
-    public init(digests: [String], size: String, kept: [Kept]) {
+    public init(digests: [String], size: String, kept: [Kept], registry: Registry) {
         self.digests = digests
         self.size = size
         self.kept = kept
+        self.registry = registry
     }
 
-    /// Whether there is nothing to reclaim.
+    /// Whether there is nothing to reclaim in the node cache.
     public var isEmpty: Bool { digests.isEmpty }
 
     /// The most digests the preview sheet lists; the rest are counted.
@@ -142,61 +167,153 @@ public enum ImagePruneRead: Equatable, Sendable {
     case tooLong
 }
 
-/// ImagePrune reads `k3sm image prune`'s output (cmd/k3sm/image.go
-/// `imagePrune`), strictly: an optional "nothing to reclaim" line, one
-/// "would delete <digest>" line per blob, the "would delete N blob(s), <size>"
-/// summary whose N matches, the dry run's "(dry run …)" note, then an
-/// optional "kept:" block of "  <reason> <count>" lines. A forced run's
-/// lines say "deleted" and carry no note. Any other line refuses the whole
-/// read, so a run that did not say it was a dry run is never shown as one.
+/// ImagePrune reads `k3sm image prune`'s output (cmd/k3sm/imageprune.go
+/// `renderPrune`), strictly. Two sections, in order:
+///
+///   - "registry <name>:", then either "  skipped: <why>", or one
+///     "  <verb> <repo>@<digest> (untagged)" line per manifest, a forced run's
+///     "  could not delete <repo>@<digest>: <error>" lines, the
+///     "  <verb> N untagged manifest(s); …" summary whose N matches, an
+///     optional "  kept untagged:" block of "    <reason> <count>" lines, and
+///     "  unreadable, left alone: <repo>" lines;
+///   - "node cache:", then an optional "  nothing to reclaim: …" line, one
+///     "  <verb> <digest>" line per blob, the "  <verb> N blob(s), <size>"
+///     summary whose N matches, and an optional "  kept:" block.
+///
+/// A dry run ends with its "(dry run …)" note; a forced run says "deleted"
+/// and carries no note. Any other line refuses the whole read, so a run that
+/// did not say it was a dry run is never shown as one.
 public enum ImagePrune {
     /// The most lines a read accepts.
     public static let maxLines = 50_000
+
+    static let registrySummaryTail =
+        " untagged manifest(s); the registry's garbage collection reclaims their layers on its next sweep"
+    static let cacheNothing = "  nothing to reclaim: every blob in the cache is referenced."
+
+    private enum Section { case start, registry, registryKept, cache, cacheKept, done }
 
     public static func parse(_ output: String, forced: Bool = false) -> ImagePruneRead {
         let verb = forced ? "deleted " : "would delete "
         let lines = output.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
             .split(separator: "\n", omittingEmptySubsequences: false)
         if lines.count > maxLines { return .tooLong }
+        var section = Section.start
+        // The registry half.
+        var skipped: String?
+        var manifests: [String] = []
+        var failed = 0
+        var registryCount: Int?
+        var registryKept: [ImagePrunePreview.Kept] = []
+        var unreadable: [String] = []
+        // The node-cache half.
         var nothing = false
         var digests: [String] = []
         var summary: (count: Int, size: String)?
-        var noted = false
         var kept: [ImagePrunePreview.Kept] = []
-        var inKept = false
         for (index, raw) in lines.enumerated() {
             let line = String(raw)
             let bad = ImagePruneRead.malformed(line: index + 1)
             if line.isEmpty { continue }
-            if inKept {
-                guard let entry = keptEntry(line) else { return bad }
-                kept.append(entry)
-                continue
+            if section == .registryKept {
+                if let entry = keptEntry(line) {
+                    registryKept.append(entry)
+                    continue
+                }
+                guard !registryKept.isEmpty else { return bad }
+                section = .registry
             }
-            if line == "nothing to reclaim: every blob in the store is referenced." {
-                guard !nothing, digests.isEmpty, summary == nil else { return bad }
-                nothing = true
-            } else if line.hasPrefix(verb + "sha256:") {
-                let digest = String(line.dropFirst(verb.count))
-                guard !nothing, summary == nil, ImagesList.digest(of: "x@" + digest) == digest else { return bad }
-                digests.append(digest)
-            } else if line.hasPrefix(verb) {
-                guard summary == nil, let parsed = summaryLine(line.dropFirst(verb.count)) else { return bad }
-                summary = parsed
-            } else if !forced, line.hasPrefix("(dry run"), line.hasSuffix(")") {
-                guard summary != nil, !noted else { return bad }
-                noted = true
-            } else if line == "kept:" {
-                guard summary != nil, noted != forced else { return bad }
-                inKept = true
-            } else {
+            if section == .cacheKept {
+                if let entry = keptEntry(line) {
+                    kept.append(entry)
+                    continue
+                }
+                guard !kept.isEmpty else { return bad }
+                section = .cache
+            }
+            switch section {
+            case .start:
+                guard line.hasPrefix("registry "), line.hasSuffix(":"),
+                      word(line.dropFirst("registry ".count).dropLast()) != nil else { return bad }
+                section = .registry
+            case .registry:
+                if line == "node cache:" {
+                    guard skipped != nil || registryCount != nil else { return bad }
+                    section = .cache
+                } else if line.hasPrefix("  skipped: ") {
+                    let why = line.dropFirst("  skipped: ".count).trimmingCharacters(in: .whitespaces)
+                    guard skipped == nil, manifests.isEmpty, failed == 0, registryCount == nil, !why.isEmpty else { return bad }
+                    skipped = StatusDisplay.clip(why)
+                } else if line.hasPrefix("  " + verb), line.hasSuffix(" (untagged)") {
+                    let ref = line.dropFirst(2 + verb.count).dropLast(" (untagged)".count)
+                    guard skipped == nil, failed == 0, registryCount == nil, let ref = manifestRef(ref) else { return bad }
+                    manifests.append(ref)
+                } else if forced, line.hasPrefix("  could not delete ") {
+                    let rest = line.dropFirst("  could not delete ".count)
+                    // The digest's "sha256:" has no space after its colon, so
+                    // the first ": " ends the reference and starts the error.
+                    guard skipped == nil, registryCount == nil, let sep = rest.range(of: ": "),
+                          manifestRef(rest[..<sep.lowerBound]) != nil else { return bad }
+                    failed += 1
+                } else if line.hasPrefix("  " + verb), line.hasSuffix(registrySummaryTail) {
+                    let n = line.dropFirst(2 + verb.count).dropLast(registrySummaryTail.count)
+                    guard skipped == nil, registryCount == nil, let count = Int(n), count == manifests.count else { return bad }
+                    registryCount = count
+                } else if line == "  kept untagged:" {
+                    guard registryCount != nil, registryKept.isEmpty, unreadable.isEmpty else { return bad }
+                    section = .registryKept
+                } else if line.hasPrefix("  unreadable, left alone: ") {
+                    guard registryCount != nil, let repo = word(line.dropFirst("  unreadable, left alone: ".count)) else { return bad }
+                    unreadable.append(repo)
+                } else {
+                    return bad
+                }
+            case .cache:
+                if line == cacheNothing {
+                    guard !nothing, digests.isEmpty, summary == nil else { return bad }
+                    nothing = true
+                } else if line.hasPrefix("  " + verb + "sha256:") {
+                    let digest = String(line.dropFirst(2 + verb.count))
+                    guard !nothing, summary == nil, ImagesList.digest(of: "x@" + digest) == digest else { return bad }
+                    digests.append(digest)
+                } else if line.hasPrefix("  " + verb) {
+                    guard summary == nil, let parsed = summaryLine(line.dropFirst(2 + verb.count)) else { return bad }
+                    summary = parsed
+                } else if line == "  kept:" {
+                    guard summary != nil, kept.isEmpty else { return bad }
+                    section = .cacheKept
+                } else if !forced, line.hasPrefix("(dry run"), line.hasSuffix(")") {
+                    guard summary != nil else { return bad }
+                    section = .done
+                } else {
+                    return bad
+                }
+            case .done, .registryKept, .cacheKept:
                 return bad
             }
         }
         let end = ImagePruneRead.malformed(line: lines.count)
+        if section == .cacheKept, kept.isEmpty { return end }
+        guard section == (forced ? .cacheKept : .done) || (forced && section == .cache) else { return end }
         guard let summary, summary.count == digests.count, nothing == digests.isEmpty else { return end }
-        guard noted != forced, !inKept || !kept.isEmpty else { return end }
-        return .read(ImagePrunePreview(digests: digests, size: summary.size, kept: kept))
+        let registry = ImagePrunePreview.Registry(skipped: skipped, manifests: manifests, kept: registryKept,
+                                                  unreadable: unreadable, failed: failed)
+        return .read(ImagePrunePreview(digests: digests, size: summary.size, kept: kept, registry: registry))
+    }
+
+    /// "<repository>@sha256:<64 hex>", the repository one word.
+    static func manifestRef(_ text: Substring) -> String? {
+        guard let at = text.lastIndex(of: "@"), word(text[..<at]) != nil,
+              ImagesList.digest(of: String(text)) != nil else { return nil }
+        return String(text)
+    }
+
+    /// One non-empty word: no whitespace, no control character, bounded.
+    static func word(_ text: Substring) -> String? {
+        guard !text.isEmpty, text.count <= ImageRef.maxLength,
+              !text.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0) })
+        else { return nil }
+        return String(text)
     }
 
     /// "N blob(s), <size>", where the size is the CLI's `humanBytes`: "<n> B"
@@ -220,10 +337,10 @@ public enum ImagePrune {
         return (count, String(size))
     }
 
-    /// "  <reason> <count>": two spaces, the reason, its count.
+    /// "    <reason> <count>": four spaces, the reason, its count.
     static func keptEntry(_ line: String) -> ImagePrunePreview.Kept? {
-        guard line.hasPrefix("  "), let space = line.lastIndex(of: " ") else { return nil }
-        let reason = line[line.index(line.startIndex, offsetBy: 2)..<space].trimmingCharacters(in: .whitespaces)
+        guard line.hasPrefix("    "), let space = line.lastIndex(of: " ") else { return nil }
+        let reason = line[line.index(line.startIndex, offsetBy: 4)..<space].trimmingCharacters(in: .whitespaces)
         guard !reason.isEmpty, let count = Int(line[line.index(after: space)...]), count >= 0 else { return nil }
         return ImagePrunePreview.Kept(reason: StatusDisplay.clip(reason), count: count)
     }
