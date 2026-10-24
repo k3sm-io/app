@@ -29,6 +29,7 @@ struct ImageStoreScriptTests {
     static let team = TeamID("ABCDE12345")!
     static let hex = String(repeating: "0123456789abcdef", count: 4)
     static let nginx = ImageRef("docker.io/library/nginx:1.27")!
+    static let appTag = RegistryTag(reference: "registry-k3sm:6450/app:v1", digest: "sha256:" + hex)!
 
     struct Case: Sendable, CustomTestStringConvertible {
         let verb: LifecycleScriptBuilder.ImageVerb
@@ -39,13 +40,13 @@ struct ImageStoreScriptTests {
 
     static let cases: [Case] = [
         Case(verb: .pruneDryRun, argv: ["image", "prune"],
-             prompt: "k3sm wants to read what a prune would delete from this Mac's image store."),
+             prompt: "k3sm wants to read what a prune would delete from this Mac's image cache and the cluster registry."),
         Case(verb: .prune, argv: ["image", "prune", "--force"],
-             prompt: "k3sm wants to delete the image content nothing references from this Mac's image store."),
-        Case(verb: .untag(nginx), argv: ["image", "untag", "docker.io/library/nginx:1.27"],
-             prompt: "k3sm wants to remove the name docker.io/library/nginx:1.27 from this Mac's image store."),
+             prompt: "k3sm wants to delete the image content nothing references from this Mac's image cache and the cluster registry."),
+        Case(verb: .untag(appTag), argv: ["image", "untag", "registry-k3sm:6450/app:v1", "--digest", "sha256:" + hex],
+             prompt: "k3sm wants to delete the tag registry-k3sm:6450/app:v1 from the cluster registry."),
         Case(verb: .pull(ImageRef("ghcr.io/k3sm-io/app@sha256:" + hex)!), argv: ["image", "pull", "ghcr.io/k3sm-io/app@sha256:" + hex],
-             prompt: "k3sm wants to pull ghcr.io/k3sm-io/app@sha256:\(hex) into this Mac's image store."),
+             prompt: "k3sm wants to pull ghcr.io/k3sm-io/app@sha256:\(hex) to this Mac and copy it into the cluster registry."),
     ]
 
     @Test("the argument list", arguments: cases)
@@ -100,10 +101,10 @@ struct ImageStoreScriptTests {
         #expect(text.hasPrefix("set -eu\numask 077\ncd /\nk3sm='/Library/k3sm/k3sm'\n"))
     }
 
-    @Test("no flag but --force is passed, and never an --allow flag")
+    @Test("no flag but prune's --force and untag's --digest is passed, never --no-mirror or an --allow flag")
     func flags() {
         let all = Self.cases.flatMap(\.argv).filter { $0.hasPrefix("-") }
-        #expect(all == ["--force"])
+        #expect(all == ["--force", "--digest"])
     }
 
     /// The k3sm CLI source directory: K3SM_DIR, or a sibling checkout.
@@ -130,6 +131,13 @@ struct ImageStoreScriptTests {
         let prune = try String(contentsOf: dir.appending(path: "imageprune.go"), encoding: .utf8)
         #expect(prune.contains("DryRun: !o.force"))
         #expect(!image.contains(#""dry-run""#), "k3sm image grew a --dry-run flag; pass it explicitly")
+        // Untag pins the tag's digest; pull copies a public image into the cluster registry by default.
+        #expect(image.contains(#"fs.StringVar(&o.digest, "digest", """#))
+        #expect(image.contains(#"fs.BoolVar(&o.noMirror, "no-mirror", false"#))
+        #expect(image.contains("if !o.noMirror {"))
+        // Untag and prune's registry half act on the cluster registry, named registry-k3sm:6450.
+        let flat = try String(contentsOf: dir.appending(path: "flatregistry.go"), encoding: .utf8)
+        #expect(flat.contains(#"const flatRegistryHost = "\#(RegistryTag.registry)""#))
         // A refused flag on a verb is an error, never ignored, so the argv is all there is.
         #expect(image.contains(#"case "untag":"#) && image.contains(#"case "pull":"#) && image.contains(#"case "prune":"#))
     }
@@ -191,44 +199,62 @@ struct ImageStoreScriptTests {
         }
     }
 
-    @Test("Untag asks first, naming the image, and runs only its tag on this Mac's node")
-    func untag() async {
-        let image = Self.image(["studio", "laptop"], tags: ["studio": ["docker.io/library/nginx:1.27"], "laptop": ["nginx:old"]])
+    static func registryImage(_ reference: String, digest: String? = "sha256:" + hex) throws -> RegistryImage {
+        let field = digest.map { ",\"digest\":\"\($0)\"" } ?? ""
+        let json = "{\"schemaVersion\":1,\"registry\":{\"name\":\"registry-k3sm:6450\",\"reachable\":true},"
+            + "\"images\":[{\"reference\":\"\(reference)\"\(field)}]}"
+        return try #require(RegistryImages.decode(Data(json.utf8)).images.first)
+    }
+
+    @Test("Untag asks first, naming the tag, and runs only a registry tag pinned to its digest, on the server")
+    func untag() async throws {
+        let image = try Self.registryImage("registry-k3sm:6450/app:v1")
         let asked = Asked()
-        let runner = Runner([PrivilegedRun(outcome: .succeeded, output: "untagged docker.io/library/nginx:1.27")])
-        let result = await Self.driver(runner, asked: asked).untag(Self.nginx, of: image, scope: Self.here)
-        #expect(asked.titles == ["Untag docker.io/library/nginx:1.27 on this Mac?"])
-        #expect(runner.scripts == [LifecycleScriptBuilder.renderImage(.untag(Self.nginx), teamID: Self.team)])
-        #expect(result == .ran(.succeeded, "Untagged docker.io/library/nginx:1.27 on node studio. Prune reclaims its content."))
+        let runner = Runner([PrivilegedRun(outcome: .succeeded, output: "untagged registry-k3sm:6450/app:v1")])
+        let result = await Self.driver(runner, asked: asked).untag(image, role: .server)
+        #expect(asked.titles == ["Untag registry-k3sm:6450/app:v1?"])
+        #expect(runner.scripts == [LifecycleScriptBuilder.renderImage(.untag(Self.appTag), teamID: Self.team)])
+        #expect(result == .ran(.succeeded, "Untagged registry-k3sm:6450/app:v1 in the cluster registry."))
 
         let declined = Runner([])
-        #expect(await Self.driver(declined, answer: false).untag(Self.nginx, of: image, scope: Self.here) == .declined)
+        #expect(await Self.driver(declined, answer: false).untag(image, role: .server) == .declined)
         #expect(declined.scripts.isEmpty)
 
         let other = Runner([])
-        let old = ImageRef("nginx:old")!
-        #expect(await Self.driver(other).untag(old, of: image, scope: Self.here) == .refused(ImageStoreDriver.notOnThisMac(node: "studio")))
-        #expect(await Self.driver(other).untag(Self.nginx, of: image, scope: ImageStoreScope(node: nil))
-                == .refused(ImageStoreScope.unknownNodeText))
-        let elsewhere = Self.image(["laptop"], tags: ["laptop": ["docker.io/library/nginx:1.27"]])
-        #expect(await Self.driver(other).untag(Self.nginx, of: elsewhere, scope: Self.here)
-                == .refused(ImageStoreDriver.notOnThisMac(node: "studio")))
+        #expect(await Self.driver(other).untag(image, role: .agent) == .refused(ImageStoreText.untagOnServer))
+        #expect(await Self.driver(other).untag(image, role: nil) == .refused(ImageStoreText.untagOnServer))
+        let unpinned = try Self.registryImage("registry-k3sm:6450/app:v1", digest: nil)
+        #expect(await Self.driver(other).untag(unpinned, role: .server) == .refused(ImageStoreText.untagNoDigest))
         #expect(other.scripts.isEmpty)
+
+        let off = PrivilegedAvailability.disabled(reason: "no root step")
+        #expect(ImageStoreDriver.untagDisabledReason(image, role: .agent, availability: off, busy: true) == "no root step")
+        #expect(ImageStoreDriver.untagDisabledReason(image, role: .agent, availability: .enabled, busy: true) == ImageStoreText.untagOnServer)
+        #expect(ImageStoreDriver.untagDisabledReason(image, role: .server, availability: .enabled, busy: true) == "Another change is running.")
+        #expect(ImageStoreDriver.untagDisabledReason(image, role: .server, availability: .enabled, busy: false) == nil)
+
+        let refused = Runner([PrivilegedRun(outcome: .failed(exitStatus: 1),
+                                            errorOutput: "k3sm image: untag registry-k3sm:6450/app:v1: it names sha256:x, not sha256:y; nothing was removed")])
+        #expect(await Self.driver(refused).untag(image, role: .server)
+                == .ran(.failed(exitStatus: 1), "k3sm image untag failed: k3sm image: untag registry-k3sm:6450/app:v1: it names sha256:x, not sha256:y; nothing was removed"))
     }
 
-    @Test("Pull asks first, naming the registry, and runs only a reference that passes ImageRef")
+    @Test("Mirror asks first, naming the registry and the copy, and runs only a reference that passes ImageRef")
     func pull() async {
-        let runner = Runner([PrivilegedRun(outcome: .succeeded, output: "pulled docker.io/library/nginx:1.27\r  digest:   sha256:x")])
+        let runner = Runner([PrivilegedRun(outcome: .succeeded, output: "pulled docker.io/library/nginx:1.27\r  digest:   sha256:x"
+                                               + "\r  mirror:   registry-k3sm:6450/docker.io/library/nginx:1.27")])
         let asked = Asked()
         let result = await Self.driver(runner, asked: asked).pull("  docker.io/library/nginx:1.27 ", scope: Self.here)
-        #expect(asked.titles == ["Pull docker.io/library/nginx:1.27 to this Mac?"])
-        #expect(asked.messages == ["k3sm pulls docker.io/library/nginx:1.27 into the image store of node studio, this Mac. "
+        #expect(asked.titles == ["Mirror docker.io/library/nginx:1.27?"])
+        #expect(asked.messages == ["k3sm pulls docker.io/library/nginx:1.27 into the image cache of node studio, this Mac, "
+                                   + "then copies it into the cluster registry, which nodes pull from when its own registry cannot be reached. "
                                    + "The image daemon, running as root, contacts docker.io, with no credential."])
         #expect(runner.scripts == [LifecycleScriptBuilder.renderImage(.pull(Self.nginx), teamID: Self.team)])
         let declined = Runner([])
         #expect(await Self.driver(declined, answer: false).pull("nginx:1.27", scope: Self.here) == .declined)
         #expect(declined.scripts.isEmpty)
-        #expect(result == .ran(.succeeded, "Pulled docker.io/library/nginx:1.27 on node studio. It stays until you untag it."))
+        #expect(result == .ran(.succeeded, "Pulled docker.io/library/nginx:1.27 on node studio and copied it into the cluster registry "
+                               + "as registry-k3sm:6450/docker.io/library/nginx:1.27."))
         for hostile in hostileStrings + ["--force", "nginx:1; id"] where ImageRef(hostile.trimmingCharacters(in: .whitespaces)) == nil {
             let refused = Runner([])
             let got = await Self.driver(refused).pull(hostile, scope: Self.here)

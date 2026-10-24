@@ -260,7 +260,10 @@ struct ImageStoreTests {
         #expect(ImagePrune.parse(Self.full, forced: true) == .malformed(line: 2))
         let withNote = Self.cache(["  deleted 0 blob(s), 0 B", Self.note])
         #expect(ImagePrune.parse(withNote, forced: true) == .malformed(line: 5))
-        #expect(ImageStoreText.pruned(output: done, node: "studio") == "Deleted 1 blob, 2.0 GiB, on node studio.")
+        #expect(ImageStoreText.pruned(output: done, node: "studio")
+                == "Deleted 1 blob, 2.0 GiB, on node studio, and 1 untagged manifest from the cluster registry.")
+        #expect(ImageStoreText.pruned(output: Self.cache(["  deleted sha256:" + Self.hex, "  deleted 1 blob(s), 2.0 GiB"]), node: "studio")
+                == "Deleted 1 blob, 2.0 GiB, on node studio.")
         #expect(ImageStoreText.pruned(output: "garbage", node: "studio").contains("did not say"))
     }
 
@@ -283,7 +286,8 @@ struct ImageStoreTests {
         #expect(lines.last == "and 5 more")
         #expect(ImageStoreText.pruneKept(preview) == "Kept: 2 reachable.")
         let empty = ImagePrunePreview(digests: [], size: "0 B", kept: [], registry: .init())
-        #expect(ImageStoreText.pruneLead(empty, node: "studio").hasPrefix("Nothing to reclaim on node studio"))
+        #expect(ImageStoreText.pruneLead(empty, node: "studio").hasPrefix("Nothing to reclaim in the cache of node studio"))
+        #expect(empty.nothingToReclaim)
         #expect(ImageStoreText.pruneKept(empty) == nil)
     }
 
@@ -359,36 +363,12 @@ struct ImageStoreTests {
         return image
     }
 
-    @Test("with no node named as this Mac's, nothing is offered")
-    func offerUnknownNode() {
-        let offer = ImageStoreOffer.decide(Self.image(nodes: ["studio"], tags: ["studio": ["nginx:1"]]), scope: ImageStoreScope(node: nil))
-        #expect(offer.untag.isEmpty)
-        #expect(offer.note == ImageStoreScope.unknownNodeText)
+    @Test("the scope names this Mac's node only as a ResourceName")
+    func scopeNamesTheNode() {
         #expect(ImageStoreScope.decide(report: nil).node == nil)
         #expect(ImageStoreScope(node: "$(id)").node == nil)
         #expect(ImageStoreScope(node: nil).label == "This Mac: node not known")
         #expect(Self.here.label == "This Mac: node studio")
-    }
-
-    @Test("an image only on another Mac is managed on that Mac")
-    func offerOtherMac() {
-        let one = ImageStoreOffer.decide(Self.image(nodes: ["laptop"], tags: ["laptop": ["nginx:1"]]), scope: Self.here)
-        #expect(one.untag.isEmpty)
-        #expect(one.note == "This image is on node laptop, another Mac: images are managed on that Mac.")
-        let two = ImageStoreOffer.decide(Self.image(nodes: ["edge", "laptop"], tags: [:]), scope: Self.here)
-        #expect(two.untag.isEmpty)
-        #expect(two.note?.contains("images are managed on each of those Macs") == true)
-    }
-
-    @Test("an image on this Mac offers its tags on this Mac's node, and names the node")
-    func offerThisMac() {
-        let image = Self.image(nodes: ["laptop", "studio"], tags: ["studio": ["nginx:1", "nginx:latest"], "laptop": ["nginx:old"]])
-        let offer = ImageStoreOffer.decide(image, scope: Self.here)
-        #expect(offer.untag.map(\.value) == ["nginx:1", "nginx:latest"])
-        #expect(offer.note == "Untag acts on node studio, this Mac. The copies on laptop stay.")
-        let none = ImageStoreOffer.decide(Self.image(nodes: ["studio"], tags: [:]), scope: Self.here)
-        #expect(none.untag.isEmpty)
-        #expect(none.note?.contains("no tag on node studio") == true)
     }
 
     @Test("the tags come from each node's own names, unclipped, and only those ImageRef passes")
@@ -412,7 +392,6 @@ struct ImageStoreTests {
         let lookalike = try #require(images.first { $0.digest == nil })
         #expect(lookalike.names == ["docker.io/library/nginx:1.27"])
         #expect(lookalike.tags.isEmpty)
-        #expect(ImageStoreOffer.decide(lookalike, scope: Self.here).untag.isEmpty)
     }
 
     // MARK: the Pods column
@@ -446,7 +425,8 @@ struct ImageStoreTests {
     @Test("the image verbs' argv", arguments: [
         (K3smCLI.imagePruneDryRunArguments, ["image", "prune"]),
         (K3smCLI.imagePruneArguments, ["image", "prune", "--force"]),
-        (K3smCLI.imageUntagArguments(ImageRef("nginx:1.27")!), ["image", "untag", "nginx:1.27"]),
+        (K3smCLI.imageUntagArguments(RegistryTag(reference: "registry-k3sm:6450/nginx:1.27", digest: "sha256:" + hex)!),
+         ["image", "untag", "registry-k3sm:6450/nginx:1.27", "--digest", "sha256:" + hex]),
         (K3smCLI.imagePullArguments(ImageRef("ghcr.io/a/b@sha256:" + hex)!), ["image", "pull", "ghcr.io/a/b@sha256:" + hex]),
     ])
     func argv(_ pair: ([String], [String])) {
@@ -465,8 +445,9 @@ struct ImageStoreTests {
     @Test("Pull's question names the registry in its own sentence")
     func pullQuestion() {
         let hub = ImageStoreText.pullQuestion(ImageRef("nginx:1.27")!, node: "studio")
-        #expect(hub.title == "Pull nginx:1.27 to this Mac?")
-        #expect(hub.message == "k3sm pulls nginx:1.27 into the image store of node studio, this Mac. "
+        #expect(hub.title == "Mirror nginx:1.27?")
+        #expect(hub.message == "k3sm pulls nginx:1.27 into the image cache of node studio, this Mac, then copies it into the cluster registry, "
+                + "which nodes pull from when its own registry cannot be reached. "
                 + "The image daemon, running as root, contacts this node's own registry if it has one, "
                 + "then Docker Hub (index.docker.io), with no credential.")
         let local = ImageStoreText.registrySentence(ImageRef("localhost:5000/app:1")!)
@@ -476,20 +457,26 @@ struct ImageStoreTests {
         #expect(ImageStoreText.registrySentence(ImageRef("ghcr.io/a/b:1")!) == "The image daemon, running as root, contacts ghcr.io, with no credential.")
     }
 
-    @Test("Untag asks naming the image and the node, and the prompts name this Mac")
-    func questions() {
+    @Test("Untag asks naming the tag and its digest, and the prompts name where they act")
+    func questions() throws {
+        let tag = try #require(RegistryTag(reference: "registry-k3sm:6450/nginx:1.27", digest: "sha256:" + Self.hex))
+        let q = ImageStoreText.untagQuestion(tag)
+        #expect(q.title == "Untag registry-k3sm:6450/nginx:1.27?")
+        #expect(q.message.contains("from the cluster registry, only while it still names sha256:" + Self.hex))
+        #expect(ImageStoreText.prompt(untag: tag).contains("the cluster registry"))
         let ref = ImageRef("nginx:1.27")!
-        let q = ImageStoreText.untagQuestion(ref, node: "studio")
-        #expect(q.title == "Untag nginx:1.27 on this Mac?")
-        #expect(q.message.contains("nginx:1.27") && q.message.contains("node studio, this Mac"))
-        #expect(q.message.hasSuffix("If a pull moves the name to other content before the administrator step runs, that content loses the name instead."))
-        #expect(ImageStoreText.prompt(untag: ref).contains("this Mac's image store"))
-        #expect(ImageStoreText.prompt(pull: ref) == "k3sm wants to pull nginx:1.27 into this Mac's image store.")
+        #expect(ImageStoreText.prompt(pull: ref) == "k3sm wants to pull nginx:1.27 to this Mac and copy it into the cluster registry.")
+        #expect(ImageStoreText.prompt(pull: ImageRef("localhost:5000/a:1")!) == "k3sm wants to pull localhost:5000/a:1 into this Mac's image cache.")
         #expect(ImageStoreText.promptPruneDryRun.contains("this Mac"))
         #expect(ImageStoreText.promptPrune.contains("this Mac"))
-        #expect(ImageStoreText.pulled(ref, node: "studio", output: "up to date nginx:1.27\r  digest:   sha256:x")
-                == "nginx:1.27 was already up to date on node studio.")
-        #expect(ImageStoreText.pulled(ref, node: "studio", output: "pulled nginx:1.27").hasPrefix("Pulled nginx:1.27 on node studio."))
-        #expect(ImageStoreText.untagged(ref, node: "studio") == "Untagged nginx:1.27 on node studio. Prune reclaims its content.")
+        #expect(ImageStoreText.pulled(ref, node: "studio", output: "up to date nginx:1.27\r  digest:   sha256:x\r  mirror:   registry-k3sm:6450/docker.io/library/nginx:1.27",
+                                      warning: nil)
+                == "nginx:1.27 was already up to date on node studio and was copied into the cluster registry as registry-k3sm:6450/docker.io/library/nginx:1.27.")
+        #expect(ImageStoreText.pulled(ref, node: "studio", output: "pulled nginx:1.27", warning: nil)
+                == "Pulled nginx:1.27 on node studio, but k3sm did not report a copy in the cluster registry.")
+        let local = ImageRef("registry-k3sm:6450/app:v1")!
+        #expect(ImageStoreText.pulled(local, node: "studio", output: "pulled registry-k3sm:6450/app:v1", warning: nil)
+                == "Pulled registry-k3sm:6450/app:v1 on node studio.")
+        #expect(ImageStoreText.untagged(tag) == "Untagged registry-k3sm:6450/nginx:1.27 in the cluster registry.")
     }
 }

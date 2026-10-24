@@ -207,18 +207,20 @@ public enum LifecycleScriptBuilder {
         render(verb.verb, argv: arguments(for: verb), teamID: teamID, cliPath: cliPath)
     }
 
-    /// ImageVerb is every `k3sm image` verb the Images tab runs as root: each
-    /// talks to the root-owned runtimed socket and acts on this Mac's store.
-    /// The two prune verbs are compile-time constants; untag and pull carry
-    /// only an `ImageRef`, which they cannot be rendered without, so no free
-    /// text reaches the script.
+    /// ImageVerb is every `k3sm image` verb the Images tab runs as root: pull
+    /// and prune talk to the root-owned runtimed socket, and untag and prune's
+    /// registry half read the server's registry push credential under the
+    /// control-plane state root. The two prune verbs are compile-time
+    /// constants; untag carries only a `RegistryTag` and pull only an
+    /// `ImageRef`, which they cannot be rendered without, so no free text
+    /// reaches the script.
     public enum ImageVerb: Hashable, Sendable {
         /// `k3sm image prune`: the CLI's default dry run, a read.
         case pruneDryRun
         /// `k3sm image prune --force`.
         case prune
-        /// `k3sm image untag <reference>`.
-        case untag(ImageRef)
+        /// `k3sm image untag <tag> --digest <digest>`.
+        case untag(RegistryTag)
         /// `k3sm image pull <reference>`.
         case pull(ImageRef)
 
@@ -238,7 +240,7 @@ public enum LifecycleScriptBuilder {
             switch self {
             case .pruneDryRun: return ImageStoreText.promptPruneDryRun
             case .prune: return ImageStoreText.promptPrune
-            case .untag(let reference): return ImageStoreText.prompt(untag: reference)
+            case .untag(let tag): return ImageStoreText.prompt(untag: tag)
             case .pull(let reference): return ImageStoreText.prompt(pull: reference)
             }
         }
@@ -250,7 +252,7 @@ public enum LifecycleScriptBuilder {
         switch verb {
         case .pruneDryRun: return K3smCLI.imagePruneDryRunArguments
         case .prune: return K3smCLI.imagePruneArguments
-        case .untag(let reference): return K3smCLI.imageUntagArguments(reference)
+        case .untag(let tag): return K3smCLI.imageUntagArguments(tag)
         case .pull(let reference): return K3smCLI.imagePullArguments(reference)
         }
     }

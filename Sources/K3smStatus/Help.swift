@@ -265,23 +265,23 @@ public enum Help {
         /// The Pods column header.
         public static let pods = HelpTag("Pods that run this image, as k3sm counts them",
                                          control: "images: Pods column", label: "Pods")
-        /// The header row's Pull button, which opens the Pull sheet.
-        public static let pull = HelpTag("Fetch an image into this Mac's image store",
-                                         control: "images: Pull button", label: "Pull…")
+        /// The header row's Mirror button, which opens the Mirror sheet.
+        public static let pull = HelpTag("Pull a public image and copy it into the cluster registry",
+                                         control: "images: Mirror button", label: "Mirror…")
         /// The header row's Prune button, which runs the dry run first.
-        public static let prune = HelpTag("List what a prune would delete on this Mac, then ask",
+        public static let prune = HelpTag("List what a prune would delete from cache and registry, then ask",
                                           control: "images: Prune button", label: "Prune…")
-        /// One of the image inspector's Untag buttons, each naming a tag.
-        public static let untag = HelpTag("Remove this name from this Mac's image store, as an administrator",
-                                          control: "image inspector: Untag button", label: "Untag")
-        /// The Pull sheet's Pull button.
-        public static let pullConfirm = HelpTag("Fetch the reference on this Mac, as an administrator",
-                                                control: "pull sheet: Pull button", label: "Pull")
+        /// The image inspector's Untag button, for the selected registry tag.
+        public static let untag = HelpTag("Delete this tag from the cluster registry, as an administrator",
+                                          control: "image inspector: Untag button", label: "Untag…")
+        /// The Mirror sheet's Mirror button.
+        public static let pullConfirm = HelpTag("Pull the reference here and copy it, as an administrator",
+                                                control: "mirror sheet: Mirror button", label: "Mirror")
         /// The prune preview sheet's Prune button: it deletes the node cache
         /// blobs and, on a server, the cluster registry's untagged manifests.
         public static let pruneConfirm = HelpTag("Delete the listed blobs and untagged registry manifests, as an administrator",
                                                  control: "prune sheet: Prune button", label: "Prune")
-        /// The Pull and prune sheets' Cancel button.
+        /// The Mirror and prune sheets' Cancel button.
         public static let cancel = HelpTag("Close the sheet without changing anything",
                                            control: "image sheets: Cancel button", label: "Cancel")
 

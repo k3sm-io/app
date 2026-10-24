@@ -42,6 +42,9 @@ public struct RegistryImage: Equatable, Sendable {
     public let pods: Int?
     /// The nodes holding a cached copy, by name, in the CLI's order.
     public let cachedOn: [String]
+    /// The tag Untag deletes, read from the unclipped reference and digest;
+    /// nil when they are not a cluster-registry tag and a sha256 digest.
+    public let untag: RegistryTag?
 
     /// The digest as the row shows it: "sha256:" and its first 12 hex.
     public var shortDigest: String? {
@@ -128,7 +131,8 @@ public enum RegistryImages {
                 platforms: strings(entry["platforms"]).map(StatusDisplay.clip),
                 sizeBytes: ImagesList.size(entry["sizeBytes"]),
                 pods: number(entry["pods"]).flatMap { $0 >= 0 ? Int(exactly: $0) : nil },
-                cachedOn: nodes(entry["cachedOn"])))
+                cachedOn: nodes(entry["cachedOn"]),
+                untag: RegistryTag(reference: raw, digest: entry["digest"] as? String)))
         }
         return RegistryImageList(
             registryName: StatusDisplay.clip(registry["name"] as? String ?? ""),
@@ -232,10 +236,4 @@ extension InspectorDetails {
         ]
         return InspectorBody(kind: "Image", title: image.reference, subtitle: nil, facts: facts)
     }
-}
-
-extension ImageStoreText {
-    /// Why an image's Untag is disabled: the registry, not this Mac's node
-    /// store, holds it, and the row carries no node-store name to untag.
-    public static let untagManagedInRegistry = "Managed in the registry, not in this Mac's image store"
 }

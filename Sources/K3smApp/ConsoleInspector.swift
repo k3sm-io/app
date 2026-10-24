@@ -75,8 +75,8 @@ struct ConsoleInspector: View {
 }
 
 /// ImageInspector is the Images tab's inspector: the selected image from
-/// the registry's read, and its Untag button, disabled because a registry
-/// image carries no node-store name to untag (`ImageUntagBlock`).
+/// the registry's read, and its Untag button, which deletes its tag from the
+/// cluster registry (`ImageUntagBlock`).
 struct ImageInspector: View {
     @ObservedObject var app: AppModel
     @ObservedObject var images: TabLoader<RegistryImageList>
@@ -87,7 +87,7 @@ struct ImageInspector: View {
                 VStack(alignment: .leading, spacing: 0) {
                     RowInspector(content: InspectorDetails.registryImage(image),
                                  empty: "", actions: RowActions.selected(.images, app: app), fillsHeight: false)
-                    ImageUntagBlock()
+                    ImageUntagBlock(app: app, store: app.imageStore, image: image)
                 }
             }
             .background(Palette.surface)

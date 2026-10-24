@@ -23,9 +23,9 @@ import SwiftUI
 /// each with its short digest, size, the pods using it and the nodes caching
 /// it. An unreachable registry is one line with its error; a banner says when
 /// images stayed held in a node store, and a note names the nodes whose cache
-/// list was cut short. Its header row names this Mac's node and offers Pull
-/// and Prune, and its sheets are the Pull field and the prune's preview
-/// (`ImageStoreModel`).
+/// list was cut short. Its header row names this Mac's node and offers Mirror
+/// and Prune, each row's menu offers Untag, and its sheets are the Mirror
+/// field and the prune's preview (`ImageStoreModel`).
 struct ImagesSection: View {
     @ObservedObject var app: AppModel
     @ObservedObject var images: TabLoader<RegistryImageList>
@@ -97,10 +97,14 @@ struct ImagesSection: View {
         Text(verbatim: text).foregroundStyle(Palette.ink2).padding(20)
     }
 
-    /// The row's context-menu Untag item, disabled: a registry row carries
-    /// no node-store name to untag (`ImageStoreText.untagManagedInRegistry`).
+    /// The row's context-menu Untag item, which deletes the row's tag from
+    /// the cluster registry, enabled only when the inspector's Untag is
+    /// (`ImageStoreDriver.untagDisabledReason`).
     private func untagItems(_ image: RegistryImage) -> [RowMenuExtra] {
-        [RowMenuExtra(id: "untag " + image.key, title: "Untag…", enabled: false) {}]
+        let role = app.report.flatMap(NodeRole.detect)
+        let reason = ImageStoreDriver.untagDisabledReason(image, role: role, availability: app.availability,
+                                                          busy: app.running || store.running)
+        return [RowMenuExtra(id: "untag " + image.key, title: "Untag…", enabled: reason == nil) { store.untag(image, role: role) }]
     }
 }
 

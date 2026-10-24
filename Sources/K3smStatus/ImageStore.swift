@@ -16,11 +16,15 @@ limitations under the License.
 
 import Foundation
 
-// The Images tab's writes: Untag, Prune and Pull. Every `k3sm image` verb
-// talks to the root-owned runtimed socket and acts on this Mac's own image
-// store only, so each runs through the checked root step
-// (`LifecycleScriptBuilder.renderImage` in K3smInstall) on this Mac's node,
-// and an image held only by another Mac's node is managed on that Mac.
+// The Images tab's writes: Untag, Prune and Mirror, each through the checked
+// root step (`LifecycleScriptBuilder.renderImage` in K3smInstall) on this Mac.
+// Untag deletes a tag from the cluster registry with the server's push
+// credential, which only root and the control plane read, so it is offered
+// only on the server. Prune's cache half talks to the root-owned runtimed
+// socket and its registry half reads that same credential; on an agent the
+// CLI skips the registry half and says so. Mirror is `k3sm image pull`, which
+// fills this node's cache through the daemon and then copies a public image
+// into the cluster registry.
 
 extension K3smCLI {
     /// `k3sm image prune` with no flag: the CLI's dry run, which is its
@@ -29,12 +33,15 @@ extension K3smCLI {
     /// `k3sm image prune --force`: deletes the content no pod and no name references.
     public static let imagePruneArguments = ["image", "prune", "--force"]
 
-    /// `k3sm image untag <reference>`: removes one name, never bytes.
-    public static func imageUntagArguments(_ reference: ImageRef) -> [String] {
-        ["image", "untag", reference.value]
+    /// `k3sm image untag <tag> --digest <digest>`: deletes one tag from the
+    /// cluster registry, only while it still names the digest the list read.
+    public static func imageUntagArguments(_ tag: RegistryTag) -> [String] {
+        ["image", "untag", tag.reference.value, "--digest", tag.digest]
     }
 
-    /// `k3sm image pull <reference>`: fetches through the daemon's own puller.
+    /// `k3sm image pull <reference>`: fetches through the daemon's own puller,
+    /// then, by the CLI's default, copies a public image into the cluster
+    /// registry (no `--no-mirror`).
     public static func imagePullArguments(_ reference: ImageRef) -> [String] {
         ["image", "pull", reference.value]
     }
@@ -65,37 +72,25 @@ public struct ImageStoreScope: Equatable, Sendable {
     }
 }
 
-/// ImageStoreOffer is what the image inspector offers for one image: the
-/// names on this Mac's node that Untag may remove, in the row's order, and
-/// the line under them.
-public struct ImageStoreOffer: Equatable, Sendable {
-    public let untag: [ImageRef]
-    public let note: String?
+/// RegistryTag is one tag of the cluster registry that Untag may delete: a
+/// reference `ImageRef` passes, in the registry `registry-k3sm:6450`, with a
+/// tag and no digest, and the manifest digest the registry's list read for
+/// it, "sha256:" and 64 lowercase hex, which the CLI's `--digest` pins.
+public struct RegistryTag: Hashable, Sendable {
+    /// The cluster registry's name, as `k3sm image ls` writes references.
+    public static let registry = "registry-k3sm:6450"
 
-    public init(untag: [ImageRef], note: String?) {
-        self.untag = untag
-        self.note = note
-    }
+    public let reference: ImageRef
+    public let digest: String
 
-    /// The offer for `image`: none when the report names no node as this
-    /// Mac's, or the image is not on it ("images are managed on that Mac");
-    /// else the image's tags on this Mac's node that pass `ImageRef`, read
-    /// from the node list unclipped, with a line naming the node.
-    public static func decide(_ image: NodeImage, scope: ImageStoreScope) -> ImageStoreOffer {
-        guard let own = scope.node else { return ImageStoreOffer(untag: [], note: ImageStoreScope.unknownNodeText) }
-        let others = image.nodes.filter { $0 != own }
-        guard image.nodes.contains(own) else {
-            let list = others.joined(separator: ", ")
-            let text = others.count == 1
-                ? "This image is on node \(list), another Mac: images are managed on that Mac."
-                : "This image is on nodes \(list), other Macs: images are managed on each of those Macs."
-            return ImageStoreOffer(untag: [], note: StatusDisplay.clip(text))
-        }
-        let tags = image.tags[own] ?? []
-        var note = "Untag acts on node \(own), this Mac."
-        if !others.isEmpty { note += " The copies on \(others.joined(separator: ", ")) stay." }
-        if tags.isEmpty { note = "This image has no tag on node \(own), this Mac, that k3sm can untag." }
-        return ImageStoreOffer(untag: tags, note: StatusDisplay.clip(note))
+    /// The tag, or nil when `reference` is not a tag of the cluster registry
+    /// or `digest` is not a sha256 digest.
+    public init?(reference: String, digest: String?) {
+        guard let ref = ImageRef(reference), !ref.hasDigest, ref.registryHost == Self.registry,
+              let last = reference.split(separator: "/").last, last.contains(":"),
+              let digest, ImagesList.digest(of: "x@" + digest) == digest else { return nil }
+        self.reference = ref
+        self.digest = digest
     }
 }
 
@@ -153,6 +148,10 @@ public struct ImagePrunePreview: Equatable, Sendable {
 
     /// Whether there is nothing to reclaim in the node cache.
     public var isEmpty: Bool { digests.isEmpty }
+
+    /// Whether neither half has anything to delete: no blob in the node
+    /// cache and no untagged manifest in the cluster registry.
+    public var nothingToReclaim: Bool { digests.isEmpty && registry.manifests.isEmpty }
 
     /// The most digests the preview sheet lists; the rest are counted.
     public static let shownDigests = 200
@@ -350,22 +349,42 @@ public enum ImagePrune {
 /// questions, the preview sheet's lines and their outcomes. A reference in
 /// them is an `ImageRef` (ASCII, bounded); a node name a `ResourceName`.
 public enum ImageStoreText {
-    /// The Untag question: the image and the node, what is kept, and the
-    /// race an unpinned untag leaves (the node list's digest is an index's
-    /// when the image came through one, which the CLI's `--digest` pin does
-    /// not compare against, so the app cannot pin it).
-    public static func untagQuestion(_ reference: ImageRef, node: String) -> (title: String, message: String) {
-        (StatusDisplay.clip("Untag \(reference.value) on this Mac?"),
-         "k3sm removes the name \(reference.value) from the image store of node \(node), this Mac. "
-            + "The content stays on disk until a prune, pods using it keep running, and other nodes keep their copies. "
-            + "If a pull moves the name to other content before the administrator step runs, that content loses the name instead.")
+    /// Why Untag is disabled for a registry image, or nil when it may run:
+    /// the list gave it no tag and digest to pin, or this Mac is not the
+    /// server, which holds the registry's push credential.
+    public static func untagUnavailable(_ image: RegistryImage, role: NodeRole?) -> String? {
+        guard image.untag != nil else { return untagNoDigest }
+        guard role == .server else { return untagOnServer }
+        return nil
     }
 
-    /// The Pull question: the reference and the node, then, in its own
-    /// sentence, the registry the root step contacts (`ImageRef.registryHost`).
+    /// The line under an enabled Untag button.
+    public static let untagNote = "Untag deletes this tag from the cluster registry, only while it names the digest above."
+
+    /// Why Untag is disabled off the server.
+    public static let untagOnServer = "Untag runs on the server, which holds the cluster registry's credential."
+
+    /// Why Untag is disabled for a row with no tag and digest to pin.
+    public static let untagNoDigest = "The registry's list gave this image no tag and digest that Untag can pin."
+
+    /// The Untag question: the tag, the digest it is pinned to, and what stays.
+    public static func untagQuestion(_ tag: RegistryTag) -> (title: String, message: String) {
+        (StatusDisplay.clip("Untag \(tag.reference.value)?"),
+         "k3sm deletes the tag \(tag.reference.value) from the cluster registry, only while it still names \(tag.digest). "
+            + "A manifest another tag names stays, the registry's garbage collection reclaims what no tag names, "
+            + "and nodes that cached the image keep their copies, so pods using it keep running.")
+    }
+
+    /// The Mirror question: the reference and the node, the registry the root
+    /// step contacts (`ImageRef.registryHost`), and whether a copy is written
+    /// to the cluster registry (`ImageRef.mirrorsToRegistry`).
     public static func pullQuestion(_ reference: ImageRef, node: String) -> (title: String, message: String) {
-        (StatusDisplay.clip("Pull \(reference.value) to this Mac?"),
-         "k3sm pulls \(reference.value) into the image store of node \(node), this Mac. " + registrySentence(reference))
+        let copy = reference.mirrorsToRegistry
+            ? "k3sm pulls \(reference.value) into the image cache of node \(node), this Mac, then copies it into the cluster registry, "
+                + "which nodes pull from when its own registry cannot be reached. "
+            : "k3sm pulls \(reference.value) into the image cache of node \(node), this Mac. "
+                + "No copy is written to the cluster registry for a reference in it or in a registry with a port. "
+        return (StatusDisplay.clip("Mirror \(reference.value)?"), copy + registrySentence(reference))
     }
 
     /// The registry sentence: which host the image daemon, running as root,
@@ -392,9 +411,10 @@ public enum ImageStoreText {
         StatusDisplay.clip("The prune ran on node \(node). Its output was longer than k3sm reads, so the count is not shown.")
     }
 
-    /// The Pull sheet's title and its line under a valid reference.
-    public static let pullTitle = "Pull an image to this Mac"
-    public static let pullNote = "k3sm pulls it through its own puller, which checks every blob's digest."
+    /// The Mirror sheet's title and its line under a valid reference.
+    public static let pullTitle = "Mirror an image into the cluster"
+    public static let pullNote =
+        "k3sm pulls it to this Mac, checking every blob's digest, then copies a public image into the cluster registry."
 
     /// The refusal when this Mac's node changed while the preview was open.
     public static let pruneNodeChanged = "This Mac's node changed while the preview was open, so nothing was deleted."
@@ -405,7 +425,7 @@ public enum ImageStoreText {
     /// The preview's lead line: what the prune would delete, on which node.
     public static func pruneLead(_ preview: ImagePrunePreview, node: String) -> String {
         guard !preview.isEmpty else {
-            return "Nothing to reclaim on node \(node), this Mac: a pod or a name references every blob."
+            return "Nothing to reclaim in the cache of node \(node), this Mac: a pod or a name references every blob."
         }
         let blobs = preview.digests.count == 1 ? "1 blob" : "\(preview.digests.count) blobs"
         return "On node \(node), this Mac, the prune would delete \(blobs) no pod and no name references, \(preview.size):"
@@ -444,39 +464,67 @@ public enum ImageStoreText {
         "The prune deletes what nothing references when it runs, so a pull or a new pod in between keeps its content."
 
     /// The administrator prompts, one per verb, each naming this Mac.
-    public static func prompt(untag reference: ImageRef) -> String {
-        "k3sm wants to remove the name \(reference.value) from this Mac's image store."
+    public static func prompt(untag tag: RegistryTag) -> String {
+        "k3sm wants to delete the tag \(tag.reference.value) from the cluster registry."
     }
 
     public static func prompt(pull reference: ImageRef) -> String {
-        "k3sm wants to pull \(reference.value) into this Mac's image store."
+        reference.mirrorsToRegistry
+            ? "k3sm wants to pull \(reference.value) to this Mac and copy it into the cluster registry."
+            : "k3sm wants to pull \(reference.value) into this Mac's image cache."
     }
 
-    public static let promptPruneDryRun = "k3sm wants to read what a prune would delete from this Mac's image store."
-    public static let promptPrune = "k3sm wants to delete the image content nothing references from this Mac's image store."
+    public static let promptPruneDryRun = "k3sm wants to read what a prune would delete from this Mac's image cache and the cluster registry."
+    public static let promptPrune = "k3sm wants to delete the image content nothing references from this Mac's image cache and the cluster registry."
 
     /// A finished untag's line.
-    public static func untagged(_ reference: ImageRef, node: String) -> String {
-        StatusDisplay.clip("Untagged \(reference.value) on node \(node). Prune reclaims its content.")
+    public static func untagged(_ tag: RegistryTag) -> String {
+        StatusDisplay.clip("Untagged \(tag.reference.value) in the cluster registry.")
     }
 
-    /// A finished pull's line, from the CLI's first line ("pulled …" or "up to date …").
-    public static func pulled(_ reference: ImageRef, node: String, output: String?) -> String {
-        let first = output?.replacingOccurrences(of: "\r", with: "\n").split(separator: "\n").first ?? ""
-        if first.hasPrefix("up to date ") {
-            return StatusDisplay.clip("\(reference.value) was already up to date on node \(node).")
+    /// The prefix of the CLI's line naming the cluster registry's copy.
+    static let mirrorLine = "  mirror:   "
+
+    /// A finished pull's line, from the CLI's first line ("pulled …" or
+    /// "up to date …"), its "  mirror:   <name>" line when it wrote the copy,
+    /// and its warning when it did not (only when the runner read standard
+    /// error). Every string from the CLI is clipped or cleaned.
+    public static func pulled(_ reference: ImageRef, node: String, output: String?, warning: String?) -> String {
+        let lines = (output ?? "").replacingOccurrences(of: "\r", with: "\n").split(separator: "\n")
+        let upToDate = lines.first?.hasPrefix("up to date ") == true
+        let base = upToDate ? "\(reference.value) was already up to date on node \(node)" : "Pulled \(reference.value) on node \(node)"
+        if let line = lines.first(where: { $0.hasPrefix(mirrorLine) }) {
+            let name = line.dropFirst(mirrorLine.count).trimmingCharacters(in: .whitespaces)
+            let copied = upToDate ? " and was copied into the cluster registry as " : " and copied it into the cluster registry as "
+            if !name.isEmpty { return StatusDisplay.clip(base + copied + name + ".") }
         }
-        return StatusDisplay.clip("Pulled \(reference.value) on node \(node). It stays until you untag it.")
+        guard reference.mirrorsToRegistry else { return StatusDisplay.clip(base + ".") }
+        if let warning, let at = warning.range(of: "warning: ") {
+            let why = StatusDisplay.errorText(String(warning[at.upperBound...]))
+            if !why.isEmpty { return StatusDisplay.clip(base + ", but its copy in the cluster registry was not written: " + why) }
+        }
+        return StatusDisplay.clip(base + ", but k3sm did not report a copy in the cluster registry.")
     }
 
-    /// A finished prune's line, from its `--force` output.
+    /// A finished prune's line, from its `--force` output: the node cache's
+    /// blobs and the cluster registry's untagged manifests it deleted.
     public static func pruned(output: String?, node: String) -> String {
         guard let output, case .read(let done) = ImagePrune.parse(output, forced: true) else {
             return StatusDisplay.clip("The prune ran on node \(node). Its output did not say how much it deleted.")
         }
-        if done.isEmpty { return StatusDisplay.clip("The prune ran on node \(node) and found nothing to delete.") }
+        let count = done.registry.manifests.count
+        let manifests = count == 1 ? "1 untagged manifest" : "\(count) untagged manifests"
         let blobs = done.digests.count == 1 ? "1 blob" : "\(done.digests.count) blobs"
-        return StatusDisplay.clip("Deleted \(blobs), \(done.size), on node \(node).")
+        switch (done.isEmpty, count == 0) {
+        case (true, true):
+            return StatusDisplay.clip("The prune ran on node \(node) and found nothing to delete.")
+        case (false, true):
+            return StatusDisplay.clip("Deleted \(blobs), \(done.size), on node \(node).")
+        case (true, false):
+            return StatusDisplay.clip("Deleted \(manifests) from the cluster registry. Node \(node)'s cache had nothing to delete.")
+        case (false, false):
+            return StatusDisplay.clip("Deleted \(blobs), \(done.size), on node \(node), and \(manifests) from the cluster registry.")
+        }
     }
 
     /// The line when a dry run's output does not read.

@@ -127,6 +127,15 @@ public struct ImageRef: Hashable, Sendable {
         return name == "localhost" || name.hasPrefix("127.")
     }
 
+    /// Whether `k3sm image pull` copies the reference into the cluster
+    /// registry after the node's pull: a public reference does; one in the
+    /// cluster registry, or in a registry with a port, gets no copy (the
+    /// CLI's rule, `mirrorPulled` in cmd/k3sm/imagemirror.go).
+    public var mirrorsToRegistry: Bool {
+        guard let host = registryHost else { return true }
+        return host != RegistryTag.registry && !host.contains(":")
+    }
+
     /// Whether the reference carries a digest ("…@sha256:…").
     public var hasDigest: Bool { value.contains("@") }
 

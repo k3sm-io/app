@@ -280,7 +280,7 @@ login** in the app's Settings turns it off or on again (see
     one line with its error; a note names any node whose cache list was cut
     short, and a banner says when images stayed in a node's own store when
     they moved into the registry. Its header row names this Mac's node and
-    offers **Pull…** and **Prune…** (see below).
+    offers **Mirror…** and **Prune…** (see below).
   - **Builds**: the build engine's state, then your build history, newest
     first (from `k3sm build ls -o json`, the builds your account ran on this
     Mac): each build's image, status, start time and duration.
@@ -606,29 +606,42 @@ login** in the app's Settings turns it off or on again (see
   and run as your own account. A build's id reaches a command only as the
   twelve hexadecimal characters `k3sm build ls` gives it; a row with any
   other id offers no action.
-- The **Images** tab changes this Mac's own image store, and only that:
-  every `k3sm image` command talks to the root-owned image daemon on the Mac
-  it runs on, so each runs as an administrator through the same checked step
-  as Stop and Restart (the installed k3sm and every folder above it owned by
-  root and not writable by others, and the k3sm Developer ID signature, are
-  checked first). The administrator prompt and the tab's header row name
-  this Mac and its node.
-  - **Untag…**, in an image's details and its Control-click menu, is shown
-    disabled: the tab lists the registry, which `k3sm image untag` does not
-    act on, so its reason says the image is managed in the registry.
-  - **Pull…** opens a field for an image reference and pulls it with
-    `k3sm image pull <reference>`, through the daemon's own puller, which
-    checks every blob's digest. The field accepts only a reference in the
-    registry grammar (an optional registry host and port, lowercase path
-    parts, then a tag, a `sha256:` digest or both, at most 456 characters),
-    so nothing else can reach the command. It asks first, naming the node
-    and, in its own sentence, the registry the image daemon contacts as root
-    (the reference's registry host; for a name with none, this node's own
-    registry if it has one, then Docker Hub), with no credential. A pulled
-    image stays until you untag it.
+- The **Images** tab acts on the cluster registry and this Mac's image
+  cache. Every `k3sm image` command it runs needs either the root-owned image
+  daemon or the server's registry credential, so each runs as an
+  administrator through the same checked step as Stop and Restart (the
+  installed k3sm and every folder above it owned by root and not writable by
+  others, and the k3sm Developer ID signature, are checked first). The
+  administrator prompt names what it changes.
+  - **Untag…**, in an image's details and its Control-click menu, deletes
+    that tag from the cluster registry with
+    `k3sm image untag <tag> --digest <digest>`, pinned to the digest the
+    list read, so a tag moved to other content in between is left alone. It
+    removes a name, not bytes: a manifest another tag names stays, the
+    registry's garbage collection reclaims the rest, and nodes keep their
+    cached copies. It is offered on the server's app only, since the server
+    holds the registry's credential; elsewhere its reason says so.
+  - **Mirror…** opens a field for an image reference and runs
+    `k3sm image pull <reference>`: the daemon's own puller fetches it into
+    this node's cache, checking every blob's digest, then k3sm copies a
+    public image into the cluster registry as
+    `registry-k3sm:6450/<registry>/<repository>:<tag>`, which nodes pull
+    from when the public registry cannot be reached. A reference in the
+    cluster registry, or in a registry with a port, gets no copy. The field
+    accepts only a reference in the registry grammar (an optional registry
+    host and port, lowercase path parts, then a tag, a `sha256:` digest or
+    both, at most 456 characters), so nothing else can reach the command.
+    It asks first, naming the node, whether a copy is written and, in its
+    own sentence, the registry the image daemon contacts as root (the
+    reference's registry host; for a name with none, this node's own
+    registry if it has one, then Docker Hub), with no credential. The line
+    after it names the copy, or says k3sm did not report one.
   - **Prune…** first runs `k3sm image prune`, whose default is a dry run,
-    and shows what it would delete: the blobs, their size and what it kept
-    and why. Only if you confirm that list does it run
+    and shows what it would delete: the cluster registry's untagged
+    manifests (on the server; an agent's prune says it skips them), the
+    cache's blobs, their size and what it kept and why. The sheet opens
+    when either half has something to delete, so an empty cache still
+    offers the registry's half. Only if you confirm that list does it run
     `k3sm image prune --force`. The prune works out again what nothing
     references when it runs, so content a pull or a new pod picks up in
     between is kept. A dry run whose output k3sm cannot read, or that prints
@@ -642,8 +655,8 @@ login** in the app's Settings turns it off or on again (see
   its conditions (Ready first) with how long ago each last changed and why,
   its taints, and the pods on it that have not finished with what each uses
   now; an image's reference, digest, size, the
-  nodes holding it and the pods using it, with its Untag buttons for this
-  Mac's node; the build engine's state, pod,
+  nodes holding it and the pods using it, with its Untag button for the
+  registry tag; the build engine's state, pod,
   node and cache; a build's image, status, start time, duration, context,
   platform, digest or error, and record id; a service's type, cluster IP, ports, ready endpoints and
   ingress hosts; a

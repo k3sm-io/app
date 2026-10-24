@@ -19,10 +19,10 @@ import K3smInstall
 import K3smStatus
 import SwiftUI
 
-/// ImageStoreModel runs the Images tab's writes, Untag, Prune and Pull,
-/// one at a time through `ImageStoreDriver` and the checked root step, on
-/// this Mac's node only. It holds the sheet on screen (the Pull field or the
-/// prune's preview), the Pull field's text, and the last write's line, and
+/// ImageStoreModel runs the Images tab's writes, Untag, Prune and Mirror,
+/// one at a time through `ImageStoreDriver` and the checked root step on
+/// this Mac. It holds the sheet on screen (the Mirror field or the prune's
+/// preview), the Mirror field's text, and the last write's line, and
 /// asks for the registry's list and the node list again after each write
 /// that ran.
 @MainActor
@@ -68,25 +68,26 @@ final class ImageStoreModel: ObservableObject {
         sheet = nil
     }
 
-    /// Pulls the field's reference.
+    /// Mirrors the field's reference (`k3sm image pull`).
     func pull(scope: ImageStoreScope) {
         let text = pullText
         sheet = nil
         start { await $0.pull(text, scope: scope) }
     }
 
-    /// Untags one tag of `image` on this Mac's node, after its question.
-    func untag(_ reference: ImageRef, of image: NodeImage, scope: ImageStoreScope) {
-        start { await $0.untag(reference, of: image, scope: scope) }
+    /// Deletes `image`'s tag from the cluster registry, after its question.
+    func untag(_ image: RegistryImage, role: NodeRole?) {
+        start { await $0.untag(image, role: role) }
     }
 
     /// Runs the prune's dry run and shows what it would delete; nothing to
-    /// reclaim is a line, not a sheet.
+    /// reclaim in either half is a line, not a sheet, and an empty node cache
+    /// with untagged registry manifests still opens the sheet.
     func previewPrune(scope: ImageStoreScope) {
         guard let node = scope.node else { return }
         start { driver in
             switch await driver.previewPrune(scope: scope) {
-            case .preview(let preview) where preview.isEmpty:
+            case .preview(let preview) where preview.nothingToReclaim:
                 return .ran(.succeeded, ImageStoreText.pruneLead(preview, node: node))
             case .preview(let preview):
                 self.sheet = .prune(preview, node: node)
@@ -130,7 +131,7 @@ final class ImageStoreModel: ObservableObject {
         }
     }
 
-    /// Asks Untag's or Pull's question; Cancel is the default answer.
+    /// Asks Untag's or Mirror's question; Cancel is the default answer.
     private static func confirm(_ question: ImageStoreDriver.Question) -> Bool {
         NSApp.activate()
         let alert = NSAlert()
@@ -147,7 +148,7 @@ final class ImageStoreModel: ObservableObject {
 }
 
 /// ImagesHeaderRow is the Images tab's header row: where its writes act
-/// (this Mac's node), the last write's line, and Pull and Prune, each
+/// (this Mac's node), the last write's line, and Mirror and Prune, each
 /// disabled with its reason while the root step cannot run.
 struct ImagesHeaderRow: View {
     @ObservedObject var app: AppModel
@@ -167,7 +168,7 @@ struct ImagesHeaderRow: View {
                     .frame(maxWidth: 360, alignment: .trailing)
                     .help(Help.Actions.fullLine(line.text))
             }
-            Button("Pull…") { store.openPull() }
+            Button("Mirror…") { store.openPull() }
                 .controlSize(.small)
                 .disabled(reason != nil)
                 .help(Help.Images.write(Help.Images.pull, disabled: reason))
@@ -180,17 +181,23 @@ struct ImagesHeaderRow: View {
     }
 }
 
-/// ImageUntagBlock is the image inspector's Untag button, disabled with
-/// its reason: the registry holds the image, and its row carries no name in
-/// this Mac's node store that `k3sm image untag` could remove.
+/// ImageUntagBlock is the image inspector's Untag button for the selected
+/// registry image, which deletes its tag from the cluster registry pinned to
+/// its digest, disabled with its reason (`ImageStoreDriver.untagDisabledReason`).
 struct ImageUntagBlock: View {
+    @ObservedObject var app: AppModel
+    @ObservedObject var store: ImageStoreModel
+    let image: RegistryImage
+
     var body: some View {
-        let reason = ImageStoreText.untagManagedInRegistry
+        let role = app.report.flatMap(NodeRole.detect)
+        let reason = ImageStoreDriver.untagDisabledReason(image, role: role, availability: app.availability,
+                                                          busy: app.running || store.running)
         VStack(alignment: .leading, spacing: 6) {
-            Button("Untag…") {}
-                .disabled(true)
+            Button("Untag…") { store.untag(image, role: role) }
+                .disabled(reason != nil)
                 .help(Help.Images.write(Help.Images.untag, disabled: reason))
-            Text(verbatim: reason).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
+            Text(verbatim: reason ?? ImageStoreText.untagNote).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 18).padding(.vertical, 10)
@@ -199,8 +206,8 @@ struct ImageUntagBlock: View {
     }
 }
 
-/// ImagePullSheet is the Pull field: the node it pulls to, the reference,
-/// checked as it is typed (`ImageRef`), and Pull, enabled only for a
+/// ImagePullSheet is the Mirror field: the node it pulls to, the reference,
+/// checked as it is typed (`ImageRef`), and Mirror, enabled only for a
 /// reference that passes.
 struct ImagePullSheet: View {
     @ObservedObject var app: AppModel
@@ -226,7 +233,7 @@ struct ImagePullSheet: View {
                 Button("Cancel") { store.closeSheet() }
                     .keyboardShortcut(.cancelAction)
                     .help(Help.Images.cancel)
-                Button("Pull") { store.pull(scope: scope) }
+                Button("Mirror") { store.pull(scope: scope) }
                     .keyboardShortcut(.defaultAction)
                     .disabled(problem != nil || scope.node == nil)
                     .help(Help.Images.pullConfirm)
@@ -252,18 +259,20 @@ struct ImagePruneSheet: View {
             Text(verbatim: ImageStoreText.pruneTitle).font(.system(size: 14, weight: .semibold))
             Text(verbatim: ImageStoreText.pruneLead(preview, node: node)).font(.system(size: 12))
                 .fixedSize(horizontal: false, vertical: true)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(ImageStoreText.pruneDigests(preview).enumerated()), id: \.offset) { _, digest in
-                        Text(verbatim: digest).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                            .lineLimit(1).truncationMode(.middle)
+            if !preview.isEmpty {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(ImageStoreText.pruneDigests(preview).enumerated()), id: \.offset) { _, digest in
+                            Text(verbatim: digest).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                                .lineLimit(1).truncationMode(.middle)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(8)
+                .frame(height: 180)
+                .background(Palette.wash)
             }
-            .frame(height: 180)
-            .background(Palette.wash)
             if let kept = ImageStoreText.pruneKept(preview) {
                 Text(verbatim: StatusDisplay.clip(kept)).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
             }

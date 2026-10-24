@@ -16,13 +16,16 @@ limitations under the License.
 
 import K3smStatus
 
-/// ImageStoreDriver runs the Images tab's writes, Untag, Prune and Pull,
-/// through the checked root step (`LifecycleScriptBuilder.renderImage`), on
-/// this Mac's node only (`ImageStoreScope`). Untag asks first, naming the
-/// image and the node; Pull takes its reference only as an `ImageRef` and
-/// asks first, naming the registry the root step contacts; Prune
-/// is two steps, its dry run (`previewPrune`), whose output is parsed and
-/// shown, then, when the user confirms that list, `prune` with `--force`.
+/// ImageStoreDriver runs the Images tab's writes, Untag, Prune and Mirror,
+/// through the checked root step (`LifecycleScriptBuilder.renderImage`) on
+/// this Mac. Untag deletes a cluster-registry tag (`RegistryTag`) pinned to
+/// its digest, only on the server, after asking; Mirror takes its reference
+/// only as an `ImageRef` and asks first, naming the registry the root step
+/// contacts and the copy into the cluster registry; Prune is two steps, its
+/// dry run (`previewPrune`), whose output is parsed and shown, then, when
+/// the user confirms that list, `prune` with `--force`. Both prune halves,
+/// this node's cache and the cluster registry's untagged manifests, run in
+/// that one root step, which reads the registry credential as root.
 public struct ImageStoreDriver: Sendable {
     /// How one write ended.
     public enum Result: Equatable, Sendable {
@@ -65,32 +68,38 @@ public struct ImageStoreDriver: Sendable {
         return nil
     }
 
-    /// The refusal when the tag is not one this Mac's node holds for the image.
-    public static func notOnThisMac(node: String) -> String {
-        "That name is not a tag of this image on node \(node), this Mac, so nothing was changed."
+    /// Why Untag is disabled for `image` now, or nil when it may run: the
+    /// root step's availability first, then the image's own reason
+    /// (`ImageStoreText.untagUnavailable`), then a write already running.
+    public static func untagDisabledReason(_ image: RegistryImage, role: NodeRole?,
+                                           availability: PrivilegedAvailability, busy: Bool) -> String? {
+        if case .disabled(let reason) = availability { return reason }
+        if let reason = ImageStoreText.untagUnavailable(image, role: role) { return reason }
+        if busy { return "Another change is running." }
+        return nil
     }
 
-    /// Untags `reference` on this Mac's node, after asking. The reference
-    /// must be one of the image's tags there (`ImageStoreOffer`).
-    public func untag(_ reference: ImageRef, of image: NodeImage, scope: ImageStoreScope) async -> Result {
-        guard let node = scope.node else { return .refused(ImageStoreScope.unknownNodeText) }
-        guard ImageStoreOffer.decide(image, scope: scope).untag.contains(reference) else {
-            return .refused(Self.notOnThisMac(node: node))
-        }
-        let question = ImageStoreText.untagQuestion(reference, node: node)
+    /// Deletes `image`'s tag from the cluster registry, pinned to the digest
+    /// its row read, after asking; only on the server.
+    public func untag(_ image: RegistryImage, role: NodeRole?) async -> Result {
+        if let reason = ImageStoreText.untagUnavailable(image, role: role) { return .refused(reason) }
+        guard let tag = image.untag else { return .refused(ImageStoreText.untagNoDigest) }
+        let question = ImageStoreText.untagQuestion(tag)
         guard await confirm(Question(title: question.title, message: question.message, verbTitle: "Untag")) else { return .declined }
-        return await run(.untag(reference), node: node)
+        return await run(.untag(tag), node: "")
     }
 
-    /// Pulls the reference typed in the Pull field, trimmed, only once it
-    /// passes `ImageRef`, after asking (naming the node and the registry).
+    /// Mirrors the reference typed in the Mirror field, trimmed, only once it
+    /// passes `ImageRef`, after asking (naming the node, the registry and the
+    /// copy into the cluster registry): `k3sm image pull`, whose default copies
+    /// a public image into the cluster registry.
     public func pull(_ text: String, scope: ImageStoreScope) async -> Result {
         guard let node = scope.node else { return .refused(ImageStoreScope.unknownNodeText) }
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         if let problem = ImageRef.problem(trimmed) { return .refused(ImageStoreText.pullRefused(problem)) }
         guard let reference = ImageRef(trimmed) else { return .refused(ImageStoreText.pullRefused(.invalidCharacter)) }
         let question = ImageStoreText.pullQuestion(reference, node: node)
-        guard await confirm(Question(title: question.title, message: question.message, verbTitle: "Pull")) else { return .declined }
+        guard await confirm(Question(title: question.title, message: question.message, verbTitle: "Mirror")) else { return .declined }
         return await run(.pull(reference), node: node)
     }
 
@@ -125,8 +134,9 @@ public struct ImageStoreDriver: Sendable {
         switch run.outcome {
         case .succeeded:
             switch verb {
-            case .untag(let reference): return .ran(run.outcome, ImageStoreText.untagged(reference, node: node))
-            case .pull(let reference): return .ran(run.outcome, ImageStoreText.pulled(reference, node: node, output: run.output))
+            case .untag(let tag): return .ran(run.outcome, ImageStoreText.untagged(tag))
+            case .pull(let reference):
+                return .ran(run.outcome, ImageStoreText.pulled(reference, node: node, output: run.output, warning: run.errorOutput))
             case .prune where run.outputTruncated: return .ran(run.outcome, ImageStoreText.prunedTruncated(node: node))
             case .prune: return .ran(run.outcome, ImageStoreText.pruned(output: run.output, node: node))
             case .pruneDryRun: return .ran(run.outcome, "")
