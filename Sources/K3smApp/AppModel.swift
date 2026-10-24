@@ -152,6 +152,12 @@ final class AppModel: ObservableObject {
     /// The Images tab's read of the cluster's registry (`k3sm image ls -o
     /// json`); nil until the tab is first selected.
     @Published private(set) var registryImages: TabLoader<RegistryImageList>?
+    /// The build record whose Show in Images is reading the registry, by
+    /// row key; nil while none is.
+    @Published private(set) var buildImageReading: String?
+    /// The last Show in Images that could not select a row: the build
+    /// record's row key and its line (`BuildImageLink.note`).
+    @Published private(set) var buildImageNote: (key: String, text: String)?
     /// The build log the log pane shows; nil when it shows none.
     @Published private(set) var buildLog: BuildLogModel?
     /// The one build log's read: opening a log or closing the pane stops the last.
@@ -1145,6 +1151,37 @@ final class AppModel: ObservableObject {
             return BuildActions.menu(for: record)
         case .image, .stat, .issue:
             return .empty
+        }
+    }
+
+    /// A recorded build's Show in Images: reads the registry's list again,
+    /// then switches to the Images tab with the build's image selected
+    /// (`BuildHistory.imageLink`), clearing a search that would hide it;
+    /// when the image is gone, or the list could not be read, the Builds
+    /// tab stays and the control shows the line instead.
+    func showBuildImage(_ record: BuildRecord) {
+        guard record.imageKey != nil, buildImageReading == nil else { return }
+        buildImageNote = nil
+        buildImageReading = record.key
+        _ = loader(for: .images)
+        Task { [weak self] in
+            await self?.registryImages?.refresh()
+            guard let self else { return }
+            self.buildImageReading = nil
+            let list = self.registryImages?.value
+            switch BuildHistory.imageLink(record, in: list) {
+            case .listed(let key)?:
+                if let image = list?.images.first(where: { $0.key == key }),
+                   RegistryImages.visible([image], query: self.imagesQuery).isEmpty {
+                    self.imagesQuery = ""
+                }
+                self.section = .images
+                self.select(.image(key))
+            case let link?:
+                self.buildImageNote = link.note.map { (key: record.key, text: $0) }
+            case nil:
+                break
+            }
         }
     }
 

@@ -301,7 +301,11 @@ public enum Help {
         public static let duration = HelpTag("How long the build ran, or has run so far",
                                              control: "builds: Duration column", label: "Duration")
 
-        public static var all: [HelpTag] { [duration] }
+        /// A recorded build's Show in Images button, in the inspector.
+        public static let showInImages = HelpTag("Select this build's image in the registry's image list",
+                                                 control: "builds: Show in Images", label: "Show in Images")
+
+        public static var all: [HelpTag] { [duration, showInImages] }
     }
 
     // MARK: Services tab

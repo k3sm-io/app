@@ -100,6 +100,13 @@ public struct BuildRecord: Equatable, Sendable {
     public let dockerfile: String
     public let startedAt: Date?
     public let finishedAt: Date?
+    /// The cluster-registry reference the build recorded its image under
+    /// ("registry-k3sm:6450/myapp:dev"), clipped; set on success.
+    public let reference: String?
+    /// The reference's row key in the registry's image list
+    /// (`ImagesList.rowKey`, as `RegistryImages` keys its rows); nil
+    /// without a reference.
+    public let imageKey: String?
     /// The digest of the image the build recorded, set on success.
     public let digest: String?
     /// The failure's text, set on failure.
@@ -151,6 +158,8 @@ public enum BuildHistory {
                 dockerfile: string("dockerfile"),
                 startedAt: (object["startedAt"] as? String).flatMap(timestamp),
                 finishedAt: (object["finishedAt"] as? String).flatMap(timestamp),
+                reference: optional("reference").map(StatusDisplay.clip),
+                imageKey: optional("reference").map(ImagesList.rowKey),
                 digest: optional("imageDigest").map(StatusDisplay.clip),
                 error: optional("error").map(StatusDisplay.errorText))))
         }
@@ -224,6 +233,49 @@ public enum BuildHistory {
 }
 
 /// BuildHistoryDecodeError says why the history could not be read.
+/// BuildImageLink is where a build record's Show in Images leads, decided
+/// by `BuildHistory.imageLink(_:in:)`.
+public enum BuildImageLink: Equatable, Sendable {
+    /// The registry lists the build's image: the Images row key to select.
+    case listed(String)
+    /// The registry no longer holds the image the build recorded: its
+    /// reference is not listed, or now names another digest.
+    case gone
+    /// The registry's list has not been read, or the registry could not be
+    /// reached, so nothing can be said about the image.
+    case unread
+
+    /// The line the control shows instead of selecting; nil when it selects.
+    public var note: String? {
+        switch self {
+        case .listed: return nil
+        case .gone: return BuildHistory.imageGoneText
+        case .unread: return BuildHistory.imageUnreadText
+        }
+    }
+}
+
+extension BuildHistory {
+    /// The line when a build's image is no longer in the registry.
+    public static let imageGoneText = "This build's image is no longer in the cluster's registry."
+    /// The line when the registry's list could not be read.
+    public static let imageUnreadText = "The registry's image list could not be read, so the image was not found."
+
+    /// Where `record`'s Show in Images leads in `list`, the registry's last
+    /// read: its row when the registry lists the record's reference with the
+    /// digest the build recorded (either digest unreported counts as the
+    /// same), `.gone` when it does not, `.unread` without a read of a
+    /// reachable registry, and nil when the record names no image, so the
+    /// row offers no control.
+    public static func imageLink(_ record: BuildRecord, in list: RegistryImageList?) -> BuildImageLink? {
+        guard let key = record.imageKey else { return nil }
+        guard let list, list.reachable else { return .unread }
+        guard let image = list.images.first(where: { $0.key == key }) else { return .gone }
+        if let built = record.digest, let held = image.digest, built != held { return .gone }
+        return .listed(image.key)
+    }
+}
+
 public enum BuildHistoryDecodeError: Error, Equatable, Sendable {
     case malformed
     case notAnArray

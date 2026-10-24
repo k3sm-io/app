@@ -589,6 +589,13 @@ login** in the app's Settings turns it off or on again (see
   without root, and the line under the engine card then shows its own
   message. That line says how each action ended, with the freed size after
   a prune.
+- A **build** that pushed an image to the cluster's registry offers **Show
+  in Images** in its details. It reads the registry's list again
+  (`k3sm image ls -o json`), switches to the Images tab and selects the
+  image's row, by the reference `k3sm build ls` recorded and only while the
+  registry still holds the digest the build recorded. When the image is
+  gone, or the list could not be read, the Builds tab stays and the line
+  under the button says so.
 - Each **build** in the history offers, from its row's Control-click menu or
   its details: **Show Log**, the build's stored log in the log pane
   (`k3sm build logs <id>`, following it with `-f` while the build runs; the

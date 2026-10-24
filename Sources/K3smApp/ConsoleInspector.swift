@@ -123,21 +123,64 @@ struct StorageInspector: View {
 }
 
 /// BuildsInspector is the Builds tab's inspector over its two reads: the
-/// engine card's facts, or the selected recorded build's.
+/// engine card's facts, or the selected recorded build's, with Show in
+/// Images under them when the record names the image it pushed
+/// (`BuildImageLinkBlock`).
 struct BuildsInspector: View {
     @ObservedObject var app: AppModel
     @ObservedObject var engine: TabLoader<BuildEngine>
     @ObservedObject var history: TabLoader<[BuildRecord]>
 
     var body: some View {
-        RowInspector(content: content, empty: InspectorDetails.emptyText(.builds),
-                     actions: content == nil ? nil : RowActions.selected(.builds, app: app))
+        if let content, let record, record.imageKey != nil {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    RowInspector(content: content, empty: "",
+                                 actions: RowActions.selected(.builds, app: app), fillsHeight: false)
+                    BuildImageLinkBlock(app: app, record: record)
+                }
+            }
+            .background(Palette.surface)
+        } else {
+            RowInspector(content: content, empty: InspectorDetails.emptyText(.builds),
+                         actions: content == nil ? nil : RowActions.selected(.builds, app: app))
+        }
+    }
+
+    private var record: BuildRecord? {
+        guard let key = app.selection.selection(in: .builds)?.key, key != InspectorDetails.engineRow else { return nil }
+        return history.value?.first { $0.key == key }
     }
 
     private var content: InspectorBody? {
         guard let key = app.selection.selection(in: .builds)?.key else { return nil }
         if key == InspectorDetails.engineRow { return engine.value.map(InspectorDetails.build) }
-        return history.value?.first { $0.key == key }.map { InspectorDetails.buildRecord($0) }
+        return record.map { InspectorDetails.buildRecord($0) }
+    }
+}
+
+/// BuildImageLinkBlock is a recorded build's Show in Images button and,
+/// when the last click could not select a row, its line: the image is gone
+/// from the registry, or the registry's list could not be read.
+struct BuildImageLinkBlock: View {
+    @ObservedObject var app: AppModel
+    let record: BuildRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button("Show in Images") { app.showBuildImage(record) }
+                .disabled(app.buildImageReading != nil)
+                .help(Help.Builds.showInImages)
+            if app.buildImageReading == record.key {
+                Text("Reading the registry…").font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
+            } else if let note = app.buildImageNote, note.key == record.key {
+                Text(verbatim: note.text).font(.system(size: 11.5)).foregroundStyle(Palette.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 18).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .top) { Rectangle().fill(Palette.line).frame(height: 1) }
     }
 }
 
