@@ -124,8 +124,12 @@ final class Scratch: @unchecked Sendable {
             info["CFBundleShortVersionString"] = shortVersion ?? "1.0.0"
         }
         let data = try! PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
-        fm.createFile(atPath: path + "/Contents/Info.plist", contents: data)
-        fm.createFile(atPath: path + "/Contents/Resources/behaviour", contents: Data((behaviour + "\n").utf8))
+        // Written in place, never atomically: under a sandbox an atomic write
+        // on another volume leaves an unreadable `.TemporaryItems` directory
+        // at that volume's root, which is a staging directory in the EXDEV case.
+        try! data.write(to: URL(fileURLWithPath: path + "/Contents/Info.plist"), options: [])
+        try! Data((behaviour + "\n").utf8).write(to: URL(fileURLWithPath: path + "/Contents/Resources/behaviour"),
+                                                  options: [])
         let status = run("/usr/bin/codesign", ["--force", "--sign", "-", "--timestamp=none", "--identifier", "io.k3sm.test.fixture", path])
         precondition(status == 0, "codesign could not sign the fixture bundle")
     }
