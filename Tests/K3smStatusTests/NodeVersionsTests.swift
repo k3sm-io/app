@@ -57,14 +57,14 @@ struct NodeVersionsTests {
 
     static func release(_ s: String) -> SemanticVersion { SemanticVersion(s)! }
     static let latestStates: [String: NodeVersionState] = [
-        "mac-a": .current, "mac-b": .behind, "mac-c": .unknown, "mac-d": .ahead,
+        "mac-a": .current, "mac-b": .behind, "mac-c": .ahead, "mac-d": .ahead,
         "mac-e": .unknown, "mac-f": .unknown, "mac-g": .unknown,
     ]
 
     static let cases: [Case] = [
         Case(name: "a behind row: compared with the latest release", report: report([behind]), only: nil,
              target: NodeVersionTarget(version: release("0.1.8"), source: .latest), latest: "0.1.8", states: latestStates,
-             summary: "1 node behind 0.1.8 · 1 node ahead of 0.1.8 · 4 nodes with no tagged release · 1 on it"),
+             summary: "1 node behind 0.1.8 · 2 nodes ahead of 0.1.8 · 3 nodes with no tagged release · 1 on it"),
         Case(name: "the latest tag from the detail when the row carries no wide.latest",
              report: report([StatusRow(name: "update", state: "behind", detail: "k3sm v0.1.9 is available; behind: mac-a")]),
              only: ["mac-a", "mac-d"], target: NodeVersionTarget(version: release("0.1.9"), source: .latest), latest: "0.1.9",
@@ -87,7 +87,17 @@ struct NodeVersionsTests {
              states: ["mac-a": .current, "mac-b": .behind], summary: "1 node behind 0.1.8 · 1 on it"),
         Case(name: "no update row (a worker's report): the control plane's release", report: nil, only: nil,
              target: NodeVersionTarget(version: release("0.1.8"), source: .server), latest: nil, states: latestStates,
-             summary: "1 node behind 0.1.8 · 1 node ahead of 0.1.8 · 4 nodes with no tagged release · 1 on it"),
+             summary: "1 node behind 0.1.8 · 2 nodes ahead of 0.1.8 · 3 nodes with no tagged release · 1 on it"),
+        Case(name: "an untagged build reads behind the release it precedes",
+             report: report([StatusRow(name: "update", state: "behind", detail: "k3sm v0.1.9 is available")]),
+             only: ["mac-c", "mac-d", "mac-f"], target: NodeVersionTarget(version: release("0.1.9"), source: .latest), latest: "0.1.9",
+             states: ["mac-c": .behind, "mac-d": .current, "mac-f": .unknown],
+             summary: "1 node behind 0.1.9 · 1 node with no tagged release · 1 on it"),
+        Case(name: "an untagged build reads ahead of the release before it",
+             report: report([behind]), only: ["mac-a", "mac-c", "mac-g"],
+             target: NodeVersionTarget(version: release("0.1.8"), source: .latest), latest: "0.1.8",
+             states: ["mac-a": .current, "mac-c": .ahead, "mac-g": .unknown],
+             summary: "1 node ahead of 0.1.8 · 1 node with no tagged release · 1 on it"),
         Case(name: "every node current", report: report([behind]), only: ["mac-a"],
              target: NodeVersionTarget(version: release("0.1.8"), source: .latest), latest: "0.1.8",
              states: ["mac-a": .current], summary: "1 node on 0.1.8"),
@@ -119,6 +129,13 @@ struct NodeVersionsTests {
         #expect(!SemanticVersion("0.1.8")!.isUntagged)
         #expect(!SemanticVersion("0.2.0-rc.1")!.isUntagged)
         #expect(!SemanticVersion("0.2.0-20261015120000-0123456789AB")!.isUntagged)
+        // a pseudo-version ranks between the release before it and the one it precedes; a dirty build is not ranked.
+        let pseudo = SemanticVersion("0.1.8-0.20261024120000-0123456789ab")!
+        #expect(pseudo.isRankable && SemanticVersion("0.1.7")! < pseudo && pseudo < SemanticVersion("0.1.8")!)
+        #expect(SemanticVersion("0.1.8-rc.1")! < SemanticVersion("0.1.8-rc.1.0.20261024120000-0123456789ab")!)
+        #expect(!SemanticVersion("0.1.8-0.20261015120000-0123456789ab.dirty")!.isRankable)
+        #expect(NodeVersions.state(release: pseudo, target: SemanticVersion("0.1.7"), updating: false) == .ahead)
+        #expect(NodeVersions.state(release: pseudo, target: SemanticVersion("0.1.8"), updating: false) == .behind)
     }
 
     @Test("the Version column and the inspector show the state in words with both versions")
@@ -131,7 +148,9 @@ struct NodeVersionsTests {
         #expect(versions.columnText(ClusterNode(name: "other", ready: true)) == "")
         #expect(versions.inspectorText(try node("mac-b")) == "behind: runs 0.1.7, cluster target 0.1.8 (latest release)")
         #expect(versions.inspectorText(try node("mac-c"))
-            == "unknown: runs 0.1.9-0.20261015120000-0123456789ab, not a tagged release, cluster target 0.1.8 (latest release)")
+            == "ahead: runs 0.1.9-0.20261015120000-0123456789ab, not a tagged release, cluster target 0.1.8 (latest release)")
+        #expect(versions.columnText(try node("mac-c")) == "0.1.9-0.20261015120000-0123456789ab · ahead, untagged")
+        #expect(versions.columnText(try node("mac-d")) == "0.1.9 · ahead")
         #expect(versions.inspectorText(try node("mac-f")) == "unknown: no k3sm release reported, cluster target 0.1.8 (latest release)")
         #expect(versions.latestText == "0.1.8")
 
@@ -144,6 +163,6 @@ struct NodeVersionsTests {
         #expect(none.inspectorText(try node("mac-f")) == "unknown: no k3sm release reported; no target to compare with")
 
         let rows = NodesList.rows(nodes, report: Self.report([Self.behind]), metrics: MetricsState())
-        #expect(rows.map(\.versionState) == [.current, .behind, .unknown, .ahead, .unknown, .unknown, .unknown])
+        #expect(rows.map(\.versionState) == [.current, .behind, .ahead, .ahead, .unknown, .unknown, .unknown])
     }
 }

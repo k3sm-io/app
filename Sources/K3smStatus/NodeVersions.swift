@@ -30,9 +30,10 @@ public enum NodeVersionState: Equatable, Sendable {
     case ahead
     /// A managed update is updating this node now.
     case rolling
-    /// The node reports no tagged k3sm release (a dev build, a Go
-    /// pseudo-version, a build from a modified tree, no version at all), or
-    /// there is no target to compare it with.
+    /// The node reports no k3sm release that can be ranked (a dev build, a
+    /// build from a modified tree, no version at all), or there is no target
+    /// to compare it with. An untagged build of a commit (a Go
+    /// pseudo-version) is ranked, and reads behind, current or ahead.
     case unknown
 
     /// The state in plain words, as the Version column shows it.
@@ -104,14 +105,14 @@ public struct NodeVersions: Equatable, Sendable {
         let updating = row.flatMap(rollingNode)
         var states: [String: NodeVersionState] = [:]
         for node in nodes {
-            states[node.name] = state(release: tagged(node), target: target?.version,
+            states[node.name] = state(release: ranked(node), target: target?.version,
                                       updating: roll != nil && node.name == updating)
         }
         return NodeVersions(target: target, latest: latest, states: states, count: nodes.count)
     }
 
     /// One node's state: rolling while the update works on it; unknown with
-    /// no tagged release or no target; else the release against the target.
+    /// no ranked release or no target; else the release against the target.
     static func state(release: SemanticVersion?, target: SemanticVersion?, updating: Bool) -> NodeVersionState {
         if updating { return .rolling }
         guard let release, let target else { return .unknown }
@@ -125,6 +126,16 @@ public struct NodeVersions: Equatable, Sendable {
     /// the CLI's update row also reports as unknown.
     public static func tagged(_ node: ClusterNode) -> SemanticVersion? {
         guard let release = node.k3smRelease, !release.isUntagged else { return nil }
+        return release
+    }
+
+    /// A node's k3sm release when it can be ranked: a tagged release, or an
+    /// untagged build of a commit (a Go pseudo-version), which ranks by its
+    /// core and pre-release identifiers (semver §11), so
+    /// `0.1.8-0.<stamp>-<hash>` is newer than 0.1.7 and older than 0.1.8.
+    /// Nil for a dev build or a build from a modified tree.
+    public static func ranked(_ node: ClusterNode) -> SemanticVersion? {
+        guard let release = node.k3smRelease, release.isRankable else { return nil }
         return release
     }
 
@@ -149,12 +160,15 @@ public struct NodeVersions: Equatable, Sendable {
         states[node] ?? .unknown
     }
 
-    /// The Version column's text: "0.1.7 · behind", the state alone when the
-    /// node reports no version, "" for a node the list did not carry.
+    /// The Version column's text: "0.1.7 · behind", "… · ahead, untagged"
+    /// for a ranked build that is not a tagged release, the state alone when
+    /// the node reports no version, "" for a node the list did not carry.
     public func columnText(_ node: ClusterNode) -> String {
         guard states[node.name] != nil else { return "" }
         let version = NodesList.versionText(node)
-        let word = state(of: node.name).word
+        let state = state(of: node.name)
+        let untagged = state != .unknown && state != .rolling && Self.ranked(node) != nil && Self.tagged(node) == nil
+        let word = untagged ? state.word + ", " + Self.untaggedWord : state.word
         return version.isEmpty ? word : StatusDisplay.clip(version + " · " + word)
     }
 
@@ -204,6 +218,10 @@ public struct NodeVersions: Equatable, Sendable {
         latest?.description ?? "not reported"
     }
 
+    /// What the Version column adds after the state of a ranked build that
+    /// is not a tagged release.
+    public static let untaggedWord = "untagged"
+
     /// "1 node", "3 nodes".
     static func nodes(_ n: Int) -> String {
         n == 1 ? "1 node" : "\(n) nodes"
@@ -218,6 +236,14 @@ extension SemanticVersion {
     /// reports both as unknown, and so does the app.
     var isUntagged: Bool {
         prerelease.contains { $0 == "dirty" || Self.isPseudoIdentifier($0) }
+    }
+
+    /// Whether the version can be ranked against a release: a tagged
+    /// release or pre-release, or a Go pseudo-version (semver orders it by
+    /// its core and pre-release identifiers). A build from a modified tree
+    /// (a `dirty` identifier) is not ranked: its content is not the commit's.
+    var isRankable: Bool {
+        !prerelease.contains("dirty")
     }
 
     /// `20261015120000-0123456789ab`: fourteen digits, a dash, twelve hex.

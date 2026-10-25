@@ -67,6 +67,49 @@ struct UpdateOfferTests {
         #expect(status.conditions == [UpdateCondition(type: "Progressing", status: "True", reason: "NodeUpdated", message: "1 of 2 nodes updated")])
     }
 
+    /// A server report with this Mac's release and the other nodes' kubelet
+    /// versions, and an `update` row naming `latest` as behind.
+    static func cluster(latest: String, server: String, dirty: Bool = false, workers: [String: String] = [:]) -> StatusReport {
+        let row = StatusRow(name: "update", state: "behind", detail: "k3sm \(latest) is available", wide: ["latest": latest])
+        return StatusReport(schemaVersion: 1, verdict: .running, role: "server", summary: "ready",
+                            rows: [StatusRow(name: "server", state: "running", detail: "d"), row],
+                            workers: workers.sorted { $0.key < $1.key }.map { StatusWorker(name: $0.key, role: "agent", version: $0.value) },
+                            release: StatusRelease(text: server, dirty: dirty))
+    }
+
+    @Test("a behind row offers its tag only while a listed node runs an older release")
+    func updateOfferNeverOffersANonNewerRelease() {
+        let pseudo = "v0.1.8-0.20261024120000-0123456789ab"
+        func offer(_ r: StatusReport) -> UpdateOffer { UpdateOffer.decide(report: r, progress: UpdateProgress()) }
+        // k3sm#862: a stale row recorded by an older binary names v0.1.7 while
+        // the node runs a build from main after it: no downgrade is offered.
+        #expect(offer(Self.cluster(latest: "v0.1.7", server: pseudo)) == .hidden)
+        #expect(offer(Self.cluster(latest: "v0.1.7", server: "v0.1.7", workers: ["mac-2": "v1.36.2+k3sm." + pseudo.dropFirst()])) == .hidden)
+        // the untagged build is older than the release it precedes.
+        #expect(offer(Self.cluster(latest: "v0.1.8", server: pseudo)) == .available(tag: "v0.1.8"))
+        // a real behind cluster.
+        #expect(offer(Self.cluster(latest: "v0.1.8", server: "v0.1.7")) == .available(tag: "v0.1.8"))
+        // a mixed cluster: offered for the older node, hidden once none is.
+        #expect(offer(Self.cluster(latest: "v0.1.8", server: "v0.1.8", workers: ["mac-2": "v1.36.2+k3sm.0.1.7"])) == .available(tag: "v0.1.8"))
+        #expect(offer(Self.cluster(latest: "v0.1.8", server: "v0.1.8", workers: ["mac-2": "v1.36.2+k3sm.0.1.8"])) == .hidden)
+        #expect(offer(Self.cluster(latest: "v0.1.8", server: "v0.1.9", workers: ["mac-2": "v1.36.2+k3sm.0.1.8"])) == .hidden)
+        // a node newer than the tag does not hide it while another is older.
+        #expect(offer(Self.cluster(latest: "v0.1.8", server: "v0.1.9", workers: ["mac-2": "v1.36.2+k3sm.0.1.7"])) == .available(tag: "v0.1.8"))
+        // a dev or modified-tree build cannot be ranked, so nothing is offered.
+        #expect(offer(Self.cluster(latest: "v0.1.8", server: "dev", workers: ["mac-2": "v1.36.2+k3sm.0.1.7"])) == .hidden)
+        #expect(offer(Self.cluster(latest: "v0.1.8", server: "v0.1.7", dirty: true)) == .hidden)
+        #expect(offer(Self.cluster(latest: "v0.1.8", server: "v0.1.7", workers: ["mac-2": "v1.36.2+k3sm.dev"])) == .hidden)
+        #expect(offer(Self.cluster(latest: "v0.1.8", server: "v0.1.7", workers: ["mac-2": "v1.36.2+k3sm." + pseudo.dropFirst() + ".dirty"])) == .hidden)
+        // a worker that has reported no version yet is not counted.
+        #expect(offer(Self.cluster(latest: "v0.1.8", server: "v0.1.7", workers: ["mac-2": "v1.36.2"])) == .available(tag: "v0.1.8"))
+        // the downgrade question follows the same offer.
+        let stale = StatusRow(name: "update", state: "behind",
+                              detail: "k3sm v0.1.7 is available; newer than the latest release: mac-1 (v0.1.8-0.x)", wide: ["latest": "v0.1.7"])
+        let staleReport = StatusReport(schemaVersion: 1, verdict: .running, role: "server", summary: "ready", rows: [stale],
+                                       release: StatusRelease(text: pseudo))
+        #expect(!UpdateOffer.offersDowngrade(in: staleReport))
+    }
+
     @Test("the tag comes from wide.latest, else the detail, and must be a release version")
     func tag() {
         #expect(UpdateOffer.latestTag(in: Self.behind) == "v0.1.8")

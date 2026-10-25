@@ -94,11 +94,22 @@ extension UpdateOffer {
     public static let newerNodesMarker = "; newer than the latest release: "
 
     /// Whether `--allow-downgrade` could change what the apply does: the
-    /// live row is `behind` and names a node newer than the latest release,
-    /// which the roll would otherwise refuse to move back.
+    /// live row is `behind`, the nodes leave its release worth offering
+    /// (`nodesLeaveOffer`), and it names a node newer than the latest
+    /// release, which the roll would otherwise refuse to move back.
     public static func offersDowngrade(in report: StatusReport?) -> Bool {
-        guard let row = report?.row(named: "update"), row.rowState == .behind else { return false }
+        guard let report, let row = report.row(named: "update"), row.rowState == .behind,
+              let tag = latestTag(in: row), nodesLeaveOffer(tag, in: report) else { return false }
         return row.detail.contains(newerNodesMarker)
+    }
+
+    /// Whether the report's `update` row is `behind` with a tag that no
+    /// listed node is older than: a row recorded before the nodes moved past
+    /// the release it names.
+    static func staleBehind(in report: StatusReport?) -> Bool {
+        guard let report, let row = report.row(named: "update"), row.rowState == .behind,
+              let tag = latestTag(in: row) else { return false }
+        return !nodesLeaveOffer(tag, in: report)
     }
 }
 
@@ -139,6 +150,8 @@ public struct UpdatesPaneFacts: Equatable, Sendable {
         let state: String
         var available = latest
         switch row.rowState {
+        case .behind where UpdateOffer.staleBehind(in: report):
+            state = "No release is newer than the one this cluster runs."
         case .behind:
             state = latest.map { "k3sm \($0) is available; at least one node runs an older release." }
                 ?? "A newer release is available; at least one node runs an older release."
@@ -191,6 +204,7 @@ public struct UpdateNowControl: Equatable, Sendable {
         switch report?.row(named: "update")?.rowState {
         case .healthy?: reason = latestReason
         case .ahead?: reason = aheadReason
+        case .behind? where UpdateOffer.staleBehind(in: report): reason = aheadReason
         case .behind? where report?.row(named: "update").flatMap(UpdateOffer.latestTag(in:)) != nil:
             reason = finishedReason
         default: reason = unknownReason

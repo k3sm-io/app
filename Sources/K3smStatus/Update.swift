@@ -506,7 +506,8 @@ public struct UpdateNodeLine: Equatable, Sendable {
 /// UpdateOffer is the managed update's reading of the full report's
 /// `update` row and the app's progress, which `ManagedUpdateState` (and
 /// through it `UpdatePlan`) takes: only a `behind` row with a valid latest
-/// tag offers a release, and only while no update is under way. `ok`,
+/// tag offers a release, only while no update is under way, and only when
+/// a node the report lists runs an older release (`nodesLeaveOffer`). `ok`,
 /// `ahead`, `unknown`, any other word, and no row offer nothing. Whether the
 /// app can run the update is the plan's to decide, never this reading's.
 public enum UpdateOffer: Equatable, Sendable {
@@ -531,7 +532,42 @@ public enum UpdateOffer: Equatable, Sendable {
         if let done = progress.completedVersion.flatMap(SemanticVersion.init), SemanticVersion(tag) == done {
             return .hidden
         }
+        guard let report, nodesLeaveOffer(tag, in: report) else { return .hidden }
         return .available(tag: tag)
+    }
+
+    /// Whether the nodes the report lists leave `tag` worth offering: at
+    /// least one runs a release older than it, and none runs a build that
+    /// cannot be ranked (a developer build, a modified tree's build). A row
+    /// can be stale, recorded by an older k3sm before the node moved past
+    /// the tag, so the row's `behind` alone never offers a release that
+    /// would move every node down. An untagged build of a commit (a Go
+    /// pseudo-version) ranks by its core and pre-release identifiers, so
+    /// `v0.1.8-0.<stamp>-<hash>` is newer than v0.1.7 and older than v0.1.8.
+    /// A report that lists no node release at all (an older k3sm) leaves
+    /// the row's word standing.
+    public static func nodesLeaveOffer(_ tag: String, in report: StatusReport) -> Bool {
+        guard let target = SemanticVersion(tag) else { return false }
+        let releases = nodeReleases(in: report)
+        if releases.isEmpty { return true }
+        guard releases.allSatisfy({ $0 != nil }) else { return false }
+        return releases.contains { $0! < target }
+    }
+
+    /// Every k3sm release the report lists, ranked: the printing node's
+    /// (`version`), then each other node's (the k3sm part of its kubelet
+    /// version). A listed release that cannot be ranked is nil; a node that
+    /// reports no k3sm release (no version, no `+k3sm.` marker) is left out.
+    static func nodeReleases(in report: StatusReport) -> [SemanticVersion?] {
+        var releases: [SemanticVersion?] = []
+        if let own = report.release {
+            releases.append(own.dirty ? nil : SemanticVersion(own.text).flatMap { $0.isRankable ? $0 : nil })
+        }
+        for worker in report.workers ?? [] {
+            guard let version = worker.version, version.contains("+k3sm.") else { continue }
+            releases.append(worker.k3smRelease.flatMap { $0.isRankable ? $0 : nil })
+        }
+        return releases
     }
 
     /// Whether the report's `update` row says a managed update is in

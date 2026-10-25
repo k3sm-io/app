@@ -147,6 +147,13 @@ struct UpdatesPaneTests {
         #expect(UpdateNowControl.decide(plan: .none, report: nil).reason == UpdateNowControl.unknownReason)
         #expect(UpdateNowControl.decide(plan: .none, report: Self.update("behind", wide: ["latest": "v0.1.9"])).reason
             == UpdateNowControl.finishedReason)
+        // a stale behind row naming a release no node is older than.
+        let stale = StatusReport(schemaVersion: 1, verdict: .running, role: "server", summary: "ready",
+                                 rows: [StatusRow(name: "update", state: "behind", detail: "k3sm v0.1.7 is available", wide: ["latest": "v0.1.7"])],
+                                 release: StatusRelease(text: "v0.1.8-0.20261024120000-0123456789ab"))
+        #expect(UpdateNowControl.decide(plan: .none, report: stale).reason == UpdateNowControl.aheadReason)
+        let facts = UpdatesPaneFacts.decide(report: stale, installed: SemanticVersion("0.1.8-0.20261024120000-0123456789ab"))
+        #expect(facts.state == "No release is newer than the one this cluster runs." && facts.available == "v0.1.7")
         #expect(UpdateNowControl.title == "Update Now")
         #expect(Help.Updates.updateNow(offered, plan: .managed(tag: "v0.1.9")) == "Update every node to k3sm v0.1.9, the server last")
         #expect(Help.Updates.updateNow(payload, plan: .payload(SemanticVersion("0.1.9")!))

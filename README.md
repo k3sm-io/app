@@ -264,8 +264,9 @@ login** in the app's Settings turns it off or on again (see
     yet"). The target is the release a managed update in progress moves to,
     else the latest release the server's last update check found, else the
     release the control-plane node runs; the app asks no one on the network
-    for it. A dev build, a pseudo-version or a build from a modified tree is
-    unknown, as in `k3sm status`. A line over the list sums it up ("2 nodes
+    for it. A build of an untagged commit (a pseudo-version) is compared by
+    the release it follows and reads "ahead, untagged" or "behind, untagged";
+    a dev build or a build from a modified tree is unknown. A line over the list sums it up ("2 nodes
     on 0.1.8", "1 node behind 0.1.8", "Updating to 0.1.8 · 1 of 3 nodes on
     it"), and the node inspector shows the node's state with both versions
     and the latest release. It renders the same node list the panel and
@@ -1106,7 +1107,7 @@ one of:
 | the server, and the only node, with the app carrying a newer release | the app-carried update of this Mac |
 | the server of a cluster with workers, with the app carrying a newer release than the server runs, every node Ready, and the installed k3sm and the running update controller both able to bind the roll to the app's release (a release at or above the one that added `update apply --pin-sha256`) and at most one minor release behind it | the version-set roll: "Update the Cluster to vX" moves every node to the release the app carries, workers first, this server last, bound to the digest the app's signed bundle records |
 | the server of a cluster with workers, the same, but the installed k3sm cannot bind the roll to a digest, the running controller does not check a release pin, or the cluster is more than one minor release (or a different major release) behind the app | nothing from the app: the reason is shown, naming the `sudo k3sm update apply --version <tag>` command to run in Terminal, or the release to go through first |
-| the server, with the server's check naming a newer release | the managed update, every node, the server last |
+| the server, with the server's check naming a newer release that a node runs an older release than | the managed update, every node, the server last; a check that names a release no node is older than (recorded before the nodes moved past it), or a cluster with a dev or modified-tree build, offers nothing |
 | the server, with a node behind the release the server runs | the managed update pinned to the server's release, which moves the nodes not on it ([A node behind the server](#a-node-behind-the-server)) |
 | the server, with a node behind but the server on a build with no release tag, or a node on a newer release than the server | nothing: the reason is shown |
 | the server of a cluster with other nodes (or none known), the app newer but no newer release found yet, and no version-set roll to offer (the app carries no release tag, or no node needs to move) | nothing: it updates only by the managed update |
