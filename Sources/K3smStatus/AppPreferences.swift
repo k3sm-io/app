@@ -40,6 +40,8 @@ public struct AppPreferences: @unchecked Sendable {
         case updateDrain = "pref.updateDrain"
         /// Post a notification when an update becomes available (`UpdateNotice`).
         case notifyUpdate = "pref.notifyUpdate"
+        /// Run the Stop action before the app quits (`QuitPolicy`).
+        case stopOnQuit = "pref.stopOnQuit"
 
         /// The value when nothing usable is stored.
         public var defaultValue: Bool {
@@ -50,6 +52,7 @@ public struct AppPreferences: @unchecked Sendable {
             case .allChecksOpen: false
             case .updateDrain: false
             case .notifyUpdate: true
+            case .stopOnQuit: false
             }
         }
     }
@@ -137,6 +140,11 @@ public struct AppPreferences: @unchecked Sendable {
     public var notifyUpdate: Bool {
         get { bool(.notifyUpdate) }
         nonmutating set { set(newValue, for: .notifyUpdate) }
+    }
+
+    public var stopOnQuit: Bool {
+        get { bool(.stopOnQuit) }
+        nonmutating set { set(newValue, for: .stopOnQuit) }
     }
 
     /// The stored poll profile, through `PollProfile.restore`.

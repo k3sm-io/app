@@ -881,12 +881,16 @@ public enum Help {
         /// The appearance picker.
         public static let appearance = HelpTag("Show the app's windows light or dark, or as macOS is set",
                                                control: "general: appearance picker", label: "Appearance")
+        /// Stop k3sm when I quit the app.
+        public static let stopOnQuit = HelpTag("Run k3sm stop, as an administrator, before the app quits",
+                                               control: "general: stop on quit", label: QuitPolicy.toggleLabel)
 
         /// Take the Tour's tag.
         public static func tour(available: Bool) -> HelpTag { available ? tour : tourUnavailable }
 
         public static var all: [HelpTag] {
-            [openAtLogin, windowAtLogin, notifyStopped, dockAnimation, tour, tourUnavailable, resetLayout, pollProfile, appearance]
+            [openAtLogin, windowAtLogin, notifyStopped, stopOnQuit, dockAnimation, tour, tourUnavailable, resetLayout, pollProfile,
+             appearance]
         }
     }
 
@@ -999,7 +1003,7 @@ public enum Help {
         public static func pane(_ pane: SettingsPane) -> HelpTag {
             let text: String
             switch pane {
-            case .general: text = "Show the login, Dock and window settings"
+            case .general: text = "Show the login, quit, Dock and window settings"
             case .cluster: text = "Show the node's role and its cluster install settings"
             case .storage: text = "Show the data volume and where updates come from"
             case .network: text = "Show whether other devices may connect to pods"
