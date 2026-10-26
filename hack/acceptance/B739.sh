@@ -96,7 +96,8 @@ fi
 echo "    ok"
 
 echo "==> the toggle is in the General pane with its help tag"
-grep -q 'Toggle(QuitPolicy.toggleLabel, isOn: $preferences.stopOnQuit)' Sources/K3smApp/GeneralPane.swift \
+# shellcheck disable=SC2016 # the dollar sign is part of the Swift binding being matched
+grep -qF 'Toggle(QuitPolicy.toggleLabel, isOn: $preferences.stopOnQuit)' Sources/K3smApp/GeneralPane.swift \
 	|| { echo "FAIL: the General pane has no stop-on-quit toggle"; exit 1; }
 grep -q '.help(Help.General.stopOnQuit)' Sources/K3smApp/GeneralPane.swift \
 	|| { echo "FAIL: the toggle has no catalog help tag"; exit 1; }
