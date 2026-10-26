@@ -194,6 +194,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// Set while a Quit waits on the Stop action (`QuitPolicy`), so a second
+    /// Quit meanwhile is not asked again.
+    private var quitPending = false
+
+    /// Quit leaves k3sm running unless the General preference asks for a
+    /// stop first; then the app waits (`terminateLater`) for the Stop action
+    /// and quits only when it succeeded. The decisions are `QuitPolicy`'s.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let model, PreferencesStore.shared.stopOnQuit else { return .terminateNow }
+        if quitPending { return .terminateCancel }
+        let sessionEnding = Self.sessionEnding()
+        if sessionEnding { return .terminateNow }
+        quitPending = true
+        Task { @MainActor [weak self] in
+            let state = LifecycleState(report: await model.readFullReport())
+            self?.follow(QuitPolicy.decide(stopOnQuit: true, state: state), model: model)
+        }
+        return .terminateLater
+    }
+
+    /// Carries out one quit decision, answering the pending terminate.
+    private func follow(_ decision: QuitPolicy.Decision, model: AppModel) {
+        switch decision {
+        case .quit:
+            quitPending = false
+            NSApplication.shared.reply(toApplicationShouldTerminate: true)
+        case .stay(let why):
+            quitPending = false
+            NSApplication.shared.reply(toApplicationShouldTerminate: false)
+            AppModel.alert(title: QuitPolicy.stayTitle, text: why)
+        case .stopThenQuit:
+            log.notice("quit: stopping k3sm first, as the preference asks")
+            model.perform(.stop, expected: .running) { [weak self] succeeded, _ in
+                self?.follow(QuitPolicy.afterStop(succeeded: succeeded), model: model)
+            }
+        }
+    }
+
+    /// Whether this Quit comes from the session ending (log out, restart,
+    /// shut down), read from the quit Apple event's reason.
+    private static func sessionEnding() -> Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventID == AEEventID(kAEQuitApplication),
+              let reason = event.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason))?.enumCodeValue
+        else { return false }
+        return [kAELogOut, kAEReallyLogOut, kAERestart, kAEShowRestartDialog, kAEShutDown, kAEShowShutdownDialog]
+            .map { OSType($0) }.contains(reason)
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // A tour still running puts the user's layout back before it is saved.
         model?.tour.end()

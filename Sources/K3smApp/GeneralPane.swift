@@ -19,7 +19,8 @@ import SwiftUI
 
 /// GeneralPane is the Settings window's General pane: Open at login (the
 /// real login item, with the system's reason when it needs approval or
-/// refused), the stopped notice at login, the window at login, the app's
+/// refused), the stopped notice at login, the window at login, whether Quit
+/// stops k3sm first (`QuitPolicy`, off by default), the app's
 /// appearance (`AppAppearance`), the Dock
 /// animation (off and disabled under Reduce Motion), the poll profile
 /// (`PollProfile`), the tour and Reset Window Layout, and the app's own version (`AppVersion.title`). Its state
@@ -44,6 +45,11 @@ struct GeneralPane: View {
                     .help(Help.General.windowAtLogin)
                 Toggle("Notify me at login when k3sm is stopped", isOn: $preferences.notifyStoppedAtLogin)
                     .help(Help.General.notifyStopped)
+            }
+            group("Quit") {
+                Toggle(QuitPolicy.toggleLabel, isOn: $preferences.stopOnQuit)
+                    .help(Help.General.stopOnQuit)
+                note(QuitPolicy.paneNote)
             }
             group("Appearance") {
                 Picker("Appearance", selection: $preferences.appearance) {

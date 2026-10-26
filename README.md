@@ -790,7 +790,9 @@ window. Then come the actions:
   seconds; paste it into Terminal on the Mac that should join. It shows
   disabled, with the reason as its help text, while k3sm is not running on this
   Mac, another change is running, or the Mac has more than one join address.
-- **Settings…** (Command-comma), **Dashboard** and **Quit k3sm**.
+- **Settings…** (Command-comma), **Dashboard** and **Quit k3sm**. Quitting
+  the app leaves k3sm running, as k3s keeps running with nothing watching it,
+  unless **Stop k3sm when I quit the app** is on in Settings > General.
 
 The menu bar at the top of the screen has **View > Refresh** (Command-R),
 which re-reads the status and the open tab, and **Help > Take the Tour**, which
@@ -849,6 +851,14 @@ The **General** pane:
   at login, not only the status item. It is off at first.
 - **Notify me at login when k3sm is stopped** posts the "k3sm is stopped"
   notice with its Start button. It is on at first.
+- **Stop k3sm when I quit the app** makes **Quit k3sm** stop k3sm first, while
+  it is running, through the same Stop as the menu's: the same question, the
+  same warning on a server with joined workers, and the administrator prompt.
+  The app quits once the stop has finished. If the stop fails, or you answer
+  no or cancel the prompt, the app says so and stays open; quit again, or turn
+  the setting off. A quit because you log out, restart or shut down asks
+  nothing and leaves k3sm running. It is off at first, so quitting the app
+  leaves k3sm running.
 - **Appearance** is **System** (as macOS is set), **Light** or **Dark** for the app's windows, popover and menus; the menu bar item follows the menu bar. It is System at first.
 - **Animate the Dock icon while the window is open** beats the wings of the
   mark on the Dock icon. With Reduce Motion on in Accessibility settings the

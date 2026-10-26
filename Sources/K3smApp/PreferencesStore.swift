@@ -53,6 +53,10 @@ final class PreferencesStore: ObservableObject {
     @Published var notifyUpdate: Bool {
         didSet { if !reloading { preferences.notifyUpdate = notifyUpdate } }
     }
+    /// Run the Stop action before the app quits (`QuitPolicy`).
+    @Published var stopOnQuit: Bool {
+        didSet { if !reloading { preferences.stopOnQuit = stopOnQuit } }
+    }
     /// How often the app reads k3sm; every poll reads it through
     /// `PollSchedule.profile`, from its next wait.
     @Published var pollProfile: PollProfile {
@@ -80,6 +84,7 @@ final class PreferencesStore: ObservableObject {
         updateDrain = preferences.updateDrain
         updateSignature = preferences.updateSignature
         notifyUpdate = preferences.notifyUpdate
+        stopOnQuit = preferences.stopOnQuit
         pollProfile = preferences.pollProfile
         appearance = preferences.appearance
         PollSchedule.profile = pollProfile
@@ -98,6 +103,7 @@ final class PreferencesStore: ObservableObject {
         updateDrain = preferences.updateDrain
         updateSignature = preferences.updateSignature
         notifyUpdate = preferences.notifyUpdate
+        stopOnQuit = preferences.stopOnQuit
         pollProfile = preferences.pollProfile
         appearance = preferences.appearance
     }
