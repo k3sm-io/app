@@ -48,10 +48,11 @@ public struct ClusterCatchUp: Equatable, Sendable {
     /// workers, then the other servers, by name, then this server when its
     /// Node is not on the release. Empty without a tag.
     public let moves: [String]
-    /// The nodes on an older tagged release than the server's k3sm, by name
-    /// (this server's Node included when it is).
+    /// The nodes on an older tagged release than the roll's tag (the server's
+    /// k3sm, or the target passed to `decide(report:target:)`), by name (this
+    /// server's Node included when it is).
     public let behind: [String]
-    /// The nodes on a newer release than the server's k3sm, by name: the
+    /// The nodes on a newer release than the roll's tag, by name: the
     /// roll would refuse to start while any is.
     public let ahead: [String]
 

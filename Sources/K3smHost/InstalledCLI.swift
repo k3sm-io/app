@@ -19,8 +19,10 @@ import K3smInstall
 import K3smStatus
 import Security
 
-/// InstalledCLI is the check the app and the MCP server make before every
-/// run of the installed CLI, and the environment they run it with.
+/// InstalledCLI is the trust check on the installed CLI and the environment
+/// it runs with. The MCP server makes the check before every read; the app
+/// makes it before it runs the CLI as root, asks it which verbs it has, or
+/// runs an action through it.
 public enum InstalledCLI {
     /// Whether the installed CLI may be run: `/Library/k3sm/k3sm` and every
     /// directory above it are root-owned, not group or other writable, carry

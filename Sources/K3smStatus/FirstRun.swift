@@ -334,8 +334,10 @@ public enum FirstRunFlow {
     }
 
     /// The failing command's own last words in a finished copy-out log: the
-    /// last line before `copy-out: exit` that is not one of the step's own
-    /// progress lines, through `StatusDisplay.errorText`; nil when none.
+    /// last non-empty line before `copy-out: exit`, through
+    /// `StatusDisplay.errorText`. Nil when that line is one of the step's own
+    /// progress lines (its refusals and the missing-token line still count)
+    /// or there is none.
     public static func commandMessage(log: String) -> String? {
         let lines = log.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
         for line in lines.reversed() where !line.isEmpty && !line.hasPrefix(exitPrefix) {

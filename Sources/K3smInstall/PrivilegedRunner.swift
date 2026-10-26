@@ -22,16 +22,19 @@ public enum PrivilegedOutcome: Equatable, Sendable {
     case succeeded
     /// The user dismissed the administrator prompt.
     case cancelled
-    /// The script ran and exited with this status (see `CopyOutExit`).
+    /// The script ran and exited with this status (see `CopyOutExit` and
+    /// `LifecycleExit`).
     case failed(exitStatus: Int32)
     /// The step could not be started at all.
     case couldNotStart
 }
 
 /// PrivilegedRunner runs a rendered root step with administrator rights. It
-/// is the app's only path to root; the script text always comes from
-/// `RootScriptBuilder`, and `input` carries the join token, which never
-/// appears in the script or in any argv.
+/// is the app's only path to root; the script text always comes from one of
+/// the app's fixed script builders (`RootScriptBuilder` for the copy-out,
+/// `LifecycleScriptBuilder` for the lifecycle, update and image verbs,
+/// `JoinTokenMint` for the join token), and `input` carries the join token,
+/// which never appears in the script or in any argv.
 public protocol PrivilegedRunner: Sendable {
     func runAsRoot(_ script: RootScript, input: Data?) async -> PrivilegedOutcome
     /// Runs the step like `runAsRoot` and also returns what the step wrote

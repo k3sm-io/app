@@ -117,8 +117,9 @@ public struct LANToggle: Equatable, Sendable {
 
 /// LANSource picks the report that drives the checkbox and the status item
 /// dot from the two reads the app makes: the full report (with the daemon's
-/// applied state, read when the menu opens, every minute while the item shows,
-/// and around a change) and the daemons probe (without it, read at the poll
+/// applied state: streamed while the CLI can stream it, otherwise read when
+/// the menu opens, on the console window's cadence, and around a change) and
+/// the daemons probe (without it, read at the poll
 /// rate). The newer read wins. When the probe is newer, the last full read's
 /// applied state rides along only while the two reads agree on the setting
 /// and the record, so a stale applied report is never shown against a changed

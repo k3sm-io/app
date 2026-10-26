@@ -66,7 +66,7 @@ enum Palette {
     static let statsEmpty = adaptive(light: 0xb9bec6, dark: 0x454a53)      // the empty state's large symbol, decorative beside its line; 1.87:1 / 2.1:1
     /// The usage lines and the update bands, one per node or state in
     /// turn: the cards' bar, green, amber, the VM orange (3.46:1 / 5.42:1),
-    /// the headline navy and the system red (5.33:1 / 3.52:1).
+    /// the headline navy and the `bad` red #c9302c (5.33:1 / 3.52:1).
     static let statsSeries: [Color] = [statsBar, statsOk, statsWarn, vm, statsNumber, bad]
 
     static let vm = Color(red: 0.780, green: 0.467, blue: 0.0)          // #c77700, the Linux VM mark
@@ -86,8 +86,7 @@ enum Palette {
     /// serves light and dark.
     static let requestedBand = glowSoft.opacity(0.35)
 
-    /// The Stats tab's series on its navy tiles, one per node or state in
-    /// turn: the meters' fill, then the panel's other marks.
+    /// Unused: the Stats tab's series come from `statsSeries`.
     static let chartSeries: [Color] = [fill, okOnDark, vm, fillSoft, glowSoft, warnOnDark, dockMark]
 
     static let ok = Color(red: 0.090, green: 0.569, blue: 0.310)

@@ -24,8 +24,8 @@ import Foundation
 /// an action that is not a read, then walks the console through it with its
 /// own controls and quits. Nothing in the set reaches a change to the
 /// cluster or the root step: the only CLI runs a tour makes are the reads the
-/// console already makes (the pod list, the node list, the model list, and a
-/// pod's logs, events or manifest).
+/// console already makes (each shown tab's list, the node list, the event
+/// list, and a pod's logs, events or manifest).
 public enum DemoTour {
     /// The launch argument that names a tour file.
     public static let argument = "--demo-tour"

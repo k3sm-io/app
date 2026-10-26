@@ -760,11 +760,12 @@ public final class WatchStream {
         }
     }
 
-    // After an auth failure or a degradation the stream stays stopped until
-    // the next `start` (the window or tab opening again); meanwhile the
-    // tab's list poll keeps it current. This is the open choice the build
-    // kept: no retry loop against a refused credential or an object the
-    // framer or fold cannot hold.
+    // After a degradation the stream stays stopped until the next `start`
+    // (the window or tab opening again); after an auth failure it also
+    // restarts when a later full report shows the kubeconfig row `ok` again
+    // (`noteCredential`). Meanwhile the tab's list poll keeps it current. A
+    // refused credential, or an object the framer or fold cannot hold, gets
+    // no retry loop.
     private func degrade(_ why: WatchDegradation) {
         halt()
         state = .degraded(why)

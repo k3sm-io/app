@@ -20,10 +20,11 @@ import K3smInstall
 /// AppleScriptPrivilegedRunner runs a root step through the standard macOS
 /// administrator prompt (`do shell script ... with administrator
 /// privileges`). The command line is RootScript's, which wraps the builder's
-/// script in a scrubbed environment and the copy-out lock; this type adds
-/// only the AppleScript literal and the stdin plumbing. It runs on its own
-/// thread so the prompt never blocks the main thread. Tests and ci never
-/// construct it.
+/// script in a scrubbed environment and, for a step that stages the bundle,
+/// the copy-out lock; this type adds only the AppleScript literal and the
+/// stdin plumbing. It runs on its own thread so the prompt never blocks the
+/// main thread. Tests construct it only to build an `AppModel` and never run
+/// a step through it.
 struct AppleScriptPrivilegedRunner: PrivilegedRunner {
     /// The most stdin the runner forwards: a join token is about a hundred
     /// bytes, and a FIFO's buffer holds far more than this, so the writer

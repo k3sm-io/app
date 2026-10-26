@@ -16,8 +16,9 @@ limitations under the License.
 
 import Foundation
 
-/// ConsoleTable names each table in the console, one per tab (the Workloads
-/// tab has two, its pods and its events). Its raw value is the id its
+/// ConsoleTable names each table in the console: one per tab that lists rows
+/// (the Workloads tab has two, its pods and its events; Alerts and Stats have
+/// none). Its raw value is the id its
 /// remembered column widths are kept under (`AppPreferences.columnWidthsKey`).
 public enum ConsoleTable: String, CaseIterable, Sendable {
     case pods
@@ -43,8 +44,8 @@ public enum ColumnID: String, CaseIterable, Sendable {
     case ready, endpoint
 }
 
-/// ColumnEdge is the side of a column its drag handle sits on: the side away
-/// from the flexible name column, so the edge under the pointer follows it.
+/// ColumnEdge is the side of a column its drag handle sits on: the side that
+/// faces the flexible name column, so the edge under the pointer follows it.
 /// A column after the name column is right-anchored and drags by its leading
 /// edge; one before it drags by its trailing edge.
 public enum ColumnEdge: Sendable {

@@ -727,8 +727,10 @@ login** in the app's Settings turns it off or on again (see
   most 1440 points, so the window fits the narrowest Mac laptop display.
 - The **window** reopens where you left it, at its size and on its display, after a relaunch too; if that display is gone or the window would sit off the screen, it is moved onto the main display, never smaller than its minimum.
 
-The app reads state only from `k3sm status -o json`, the machine interface the
-k3sm CLI documents. It runs `/Library/k3sm/k3sm` by absolute path with an
+The app reads the machine interface the k3sm CLI documents: the cluster's state
+from `k3sm status -o json`, the console's lists through `k3sm kubectl` and the
+`k3sm image`, `k3sm build`, `k3sm datavol` and `k3sm update status` read
+commands. It runs `/Library/k3sm/k3sm` by absolute path with an
 environment it builds itself. A newer CLI may print status words this app does
 not know; they are shown as printed and never stop the app from reading the
 rest.

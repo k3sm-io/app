@@ -55,7 +55,7 @@ struct AdvancedPane: View {
             Button("Reset", role: .destructive) { settings.resetDefaults() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The notifications, the window at login, the Dock animation and the status popover's All checks go back to their defaults. Open at login, the window layout and k3sm itself stay as they are.")
+            Text("Every preference goes back to its default: the notifications, the window at login, the Dock animation, the status popover's All checks, Quit, the update options, the refresh pace and the appearance. Open at login, the window layout and k3sm itself stay as they are.")
         }
     }
 

@@ -54,8 +54,8 @@ let package = Package(
             dependencies: ["K3smSwap", "K3smInstall", "K3smStatus"],
             exclude: ["Fixtures"]
         ),
-        // Drives the console's split views in a real window: the few app
-        // behaviours that only AppKit and SwiftUI together decide.
+        // The app target's own tests: the console's split views driven in a
+        // real window, and the info popover's height cap.
         .testTarget(name: "K3smAppTests", dependencies: ["K3smApp", "K3smInstall", "K3smStatus"]),
     ]
 )

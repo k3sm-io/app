@@ -84,7 +84,7 @@ extension ColumnWidths {
 
 /// ColumnHeader is a table's column titles, laid out from its
 /// `TableColumns` and the widths on `ColumnsModel`, with a drag handle on
-/// the edge of every fixed column that faces away from the name column.
+/// the edge of every fixed column that faces the name column (`ColumnEdge`).
 /// `help` gives a title its tag by column, for one whose unit or meaning
 /// its title does not show.
 struct ColumnHeader: View {

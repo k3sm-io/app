@@ -225,7 +225,8 @@ struct StatsBars: ViewModifier {
     }
 }
 
-/// The colours for `names`, in turn from `Palette.statsSeries`.
+/// The first `count` colours (at least one), in turn from
+/// `Palette.statsSeries`.
 private func seriesColors(_ count: Int) -> [Color] {
     (0..<max(1, count)).map { Palette.statsSeries[$0 % Palette.statsSeries.count] }
 }

@@ -58,8 +58,9 @@ public struct NodeVersionTarget: Equatable, Sendable {
         /// The latest release the server's last update check found (the
         /// `update` row's `wide.latest`, else the tag its detail names).
         case latest
-        /// No update check is known (a worker's report has no `update` row):
-        /// the newest release a control-plane node runs.
+        /// No update check is known (no `update` row, or one that names no
+        /// latest release: no check yet, or a worker whose server has
+        /// published none): the newest release a control-plane node runs.
         case server
     }
 
@@ -80,7 +81,8 @@ public struct NodeVersionTarget: Equatable, Sendable {
 public struct NodeVersions: Equatable, Sendable {
     public let target: NodeVersionTarget?
     /// The latest release from the `update` row, nil when the row does not
-    /// name one (no check yet, a worker, or a roll in progress).
+    /// name one (no check yet, a worker whose server has published none, or a
+    /// roll in progress).
     public let latest: SemanticVersion?
     /// Each listed node's state, by node name.
     public let states: [String: NodeVersionState]
@@ -122,8 +124,8 @@ public struct NodeVersions: Equatable, Sendable {
     }
 
     /// A node's k3sm release when it is a tagged release; nil for a dev
-    /// build, a Go pseudo-version or a build from a modified tree, which
-    /// the CLI's update row also reports as unknown.
+    /// build, a Go pseudo-version or a build from a modified tree (see
+    /// `ranked` for the order the Version column uses).
     public static func tagged(_ node: ClusterNode) -> SemanticVersion? {
         guard let release = node.k3smRelease, !release.isUntagged else { return nil }
         return release
@@ -233,7 +235,8 @@ extension SemanticVersion {
     /// pseudo-version (a pre-release ending `<14 digits>-<12 hex>`, the
     /// build of an untagged commit) or a build from a modified tree (whose
     /// kubelet version carries a `dirty` identifier). The CLI's update row
-    /// reports both as unknown, and so does the app.
+    /// ranks the first and reports the second as unknown; the app does the
+    /// same (`isRankable`).
     var isUntagged: Bool {
         prerelease.contains { $0 == "dirty" || Self.isPseudoIdentifier($0) }
     }

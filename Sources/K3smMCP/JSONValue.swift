@@ -30,7 +30,7 @@ public enum JSONValue: Equatable, Sendable {
     case array([JSONValue])
     case object([String: JSONValue])
 
-    /// JSONParseError says why bytes are not one JSON document.
+    /// ParseError says why bytes are not one JSON document.
     public enum ParseError: Error, Equatable, Sendable {
         case malformed
     }

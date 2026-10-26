@@ -24,7 +24,8 @@ import SwiftUI
 /// the report's next commands. A card with an alert leads with its cause,
 /// then its evidence, numbered fix steps (Copy only, never run) and guide
 /// link. While the update plan offers Update its card comes first
-/// (`UpdateCard`), the console's one Update button. When the report is clean
+/// (`UpdateCard`); the Nodes tab's Update controls run the same plan
+/// through `AppModel.performUpdate`. When the report is clean
 /// and there is no card to show, the tab rests: one sentence saying
 /// everything is healthy with the report's age, over the butterfly's field
 /// (`FieldScene`), with any check that could not tell or needs an

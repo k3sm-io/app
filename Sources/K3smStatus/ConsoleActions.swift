@@ -139,7 +139,7 @@ extension ConsoleActionRequest {
 }
 
 /// ActionMenuItem is one action a row offers, as the row's context menu,
-/// the inspector's buttons and the Delete key all show it.
+/// the inspector's Actions menu and the Delete key all show it.
 public struct ActionMenuItem: Identifiable, Sendable {
     public let request: any ConsoleActionRequest
 

@@ -229,7 +229,7 @@ public struct FieldLanding: Equatable, Sendable {
 /// and now and then it glides with the wings held partly open, sinking a
 /// little. It is turned the way it travels: in side profile, facing ahead,
 /// when it moves across the field, and seen from above when it hovers or
-/// moves mostly up or down (`flightTurn(at:)`). Once or twice a lap it
+/// moves mostly up or down (`flightTurn(at:)`). Twice a lap it
 /// visits a flower (`visits`, a different flower each time
 /// over a `cycle` of laps, set off where the loop passes nearest it): it
 /// flies to the flower's head at a gentle pace, slowing to a stop, brakes

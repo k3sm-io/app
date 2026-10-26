@@ -439,7 +439,7 @@ enum JSONValue: Equatable {
 /// encoding other than UTF-8, invalid UTF-8, a lone surrogate escape, a raw
 /// control character in a string, whitespace other than space, tab, CR and
 /// LF, and a repeated key (compared after escapes are decoded, so `"tag"` and
-/// `"tag"` are the same key). It checks each key against the schema as
+/// `"t\u0061g"` are the same key). It checks each key against the schema as
 /// it reads it. Recursion is bounded by the schema: a key that is not in it
 /// is refused before its value is read.
 struct StrictJSONScanner {

@@ -17,9 +17,10 @@ limitations under the License.
 import Foundation
 
 /// StartTimeBound is how long the app waits for `k3sm start`. The CLI states
-/// its own bound (`k3sm start --print-time-bound`, an integer number of
-/// seconds on standard output, exit 0); the app waits that long plus
-/// `marginSeconds`, the same margin the CLI adds before it cuts itself off.
+/// the deadline it enforces on itself (`k3sm start --print-time-bound`, an
+/// integer number of seconds on standard output, exit 0: its computed bound
+/// plus its own margin); the app waits that long plus `marginSeconds` more,
+/// so it never stops waiting before the start does.
 /// A CLI that has no such flag, exits non-zero, or prints anything but a
 /// whole number in range gets `fallbackSeconds`, and the reason is kept so
 /// the caller can log it.

@@ -192,8 +192,8 @@ public struct SwapClient: Sendable {
 
     /// Why `target` cannot take a swap, or nil: the path checks and the
     /// volume checks (`RENAME_SWAP` support, the previous root on the same
-    /// volume). The app calls this before it offers an update, and
-    /// `beginUpdate` calls it again before it writes anything.
+    /// volume). `beginUpdate` calls it before it writes anything; a caller
+    /// that offers an update should call it first.
     public func refusal(target: String) -> SwapPaths.TargetRefusal? {
         paths.refusal(target: target) ?? paths.volumeRefusal(target: target)
     }

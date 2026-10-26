@@ -16,6 +16,8 @@ limitations under the License.
 
 import os
 
-/// The unified-log subsystem every message from the app uses. Messages are
-/// static strings at notice level, so a lab script can assert them.
+/// The unified-log subsystem every message from the app uses. Most messages
+/// are fixed strings at notice level, so a lab script can assert them; the
+/// few that carry a value (an action's verb, an error's text) mark it
+/// public, and a login-item failure logs at error level.
 let log = Logger(subsystem: "io.k3sm.app", category: "app")

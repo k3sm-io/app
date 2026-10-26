@@ -49,7 +49,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         NSApp.activate()
         // While the console is on screen, the Dock icon is drawn here: its
         // own tile, still, with the mark flapping on it at the wordmark's
-        // angle. The first-run and install screens keep the bundle icon. A
+        // angle. While nothing is installed (`Screen.firstRun`, the set-up flow
+        // in the content pane) the Dock keeps the bundle icon. A
         // frame that fails to render leaves the last good one in place.
         // With the Dock animation turned off in Settings the mark stays flat.
         let dockAngle = model.flap.$angle.combineLatest(PreferencesStore.shared.$dockAnimation).map { $1 ? $0 : 0 }

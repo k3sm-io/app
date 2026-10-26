@@ -107,8 +107,8 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
 }
 
 /// LifecycleExit names the exit statuses of a lifecycle run. The script's
-/// own refusals sit above the CLI's range (0 to 3, and 33 to 95 for a stop
-/// that left something behind), so the two never collide.
+/// own refusals (100 and up) sit above the CLI's range (0 to 4, and 33 to 95
+/// for a stop that left something behind), so the two never collide.
 public enum LifecycleExit {
     /// The CLI refused or failed before anything was stopped.
     public static let failed: Int32 = 1

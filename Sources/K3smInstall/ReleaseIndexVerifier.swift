@@ -29,7 +29,8 @@ import K3smStatus
 /// (a test holds it so), so an index is never decoded from bytes a signature
 /// check has not accepted: not from a cache, not from a preference, not from
 /// a download kept beside the `.p7m`. Every failure is a
-/// `ReleaseIndexVerifierError`, and the caller shows each one as "could not
+/// `ReleaseIndexVerifierError`; the update check that consumes this type
+/// (not yet wired in this release) must show each one as "could not
 /// verify", never as an update.
 ///
 /// No public API evaluates a code requirement against a CMS signer chain, so
@@ -56,7 +57,7 @@ public struct ReleaseIndexVerifier: Sendable {
     public static let maxTimestampLead: TimeInterval = 3_600
 
     /// A release index the verifier accepted, with the signing time the
-    /// timestamp authority attested. The caller enforces the index's own
+    /// timestamp authority attested. The consumer must enforce the index's own
     /// `issuedAt` against `signedAt`, never against a clock it reads itself.
     public struct VerifiedReleaseIndex: Sendable {
         public let index: ReleaseIndex
@@ -253,8 +254,8 @@ public struct ReleaseIndexVerifier: Sendable {
     /// where Gatekeeper and notarization revocation are best-effort online
     /// checks, and it is accepted because a hard fail would make updates
     /// impossible on Macs that are offline or behind a filtering proxy. The
-    /// (tag, issuedAt) monotonic floor stops replay of an old index;
-    /// it does not cover this: a stolen, revoked key could sign a new index
+    /// consumer's (tag, issuedAt) monotonic floor, owed with the app update
+    /// check, is what stops replay of an old index; it does not cover this: a stolen, revoked key could sign a new index
     /// while the responder is blocked.
     func checkSigner(_ trust: SecTrust, at date: Date) throws(ReleaseIndexVerifierError) {
         let roots = Self.roots(anchors)
@@ -392,8 +393,9 @@ public struct ReleaseIndexVerifier: Sendable {
     }
 }
 
-/// Why a release index was not accepted. The app shows every case as "could
-/// not verify"; the case names the check, for the log and the tests.
+/// Why a release index was not accepted. The update check is to show every
+/// case as "could not verify"; the case names the check, for the log and the
+/// tests.
 public enum ReleaseIndexVerifierError: Error, Equatable, Sendable, CustomStringConvertible {
     /// Over `ReleaseIndexVerifier.maxSignedBytes`, before any decoding.
     case tooLarge(Int)

@@ -76,8 +76,11 @@
 # the image with make-dmg.sh, and runs the same payload and mount checks. In
 # place of the signed checks it requires an ad-hoc signature that verifies:
 # codesign -dv reports Signature=adhoc, no Authority and no Team ID, and the
-# executable holds no Team ID stamp. Every child it starts runs under env -i
-# with only PATH, HOME, TMPDIR, DEVELOPER_DIR and the Go toolchain locations.
+# executable holds no Team ID stamp. Every script it starts (stage.sh,
+# build-app.sh, make-dmg.sh and verify-release.sh) runs under env -i with only
+# PATH, HOME, TMPDIR, DEVELOPER_DIR and the Go toolchain locations; the checks
+# it runs itself (the staged k3sm's version, codesign, hdiutil, plutil) run in
+# its own environment.
 # The output is
 #   <out-dir>/k3sm_<version>_darwin_arm64-unsigned.dmg
 # where <out-dir> defaults to a fresh rehearsal-<version>-<UTC time> directory

@@ -153,9 +153,11 @@ public struct SwapJournal: Codable, Equatable, Sendable {
     /// The launched process, once there is one.
     public var launched: ProcessIdentity?
     /// Why the swap ended where it did, written with the state when the
-    /// helper stops short of a commit: the relaunched app reads this (the
-    /// helper's exit status reaches nobody), and the administrator path
-    /// takes over a `verified` journal whose reason is `needsAdministrator`.
+    /// helper stops short of a commit, because the helper's exit status
+    /// reaches nobody. It is the record a relaunched app and the
+    /// administrator path (which takes over a `verified` journal whose
+    /// reason is `needsAdministrator`) are to read; nothing in this release
+    /// reads it yet.
     public var reason: SwapExit?
     /// The previous-copy record in force before this swap wrote its own, so
     /// an undone swap (the helper's rollback, or the reconciler after a
@@ -190,7 +192,8 @@ public struct SwapJournal: Codable, Equatable, Sendable {
 /// PreviousRecord is the engine's own record of the previous copy it keeps:
 /// its name, its tag and its main executable's cdhash, and the tag and
 /// cdhash of the bundle that replaced it. The engine writes it right before
-/// a swap and removes it when the swap is undone. A go-back restores only
+/// a swap, and an undone swap puts back the record that was in force before
+/// it (or none, when there was none). A go-back restores only
 /// the copy this record names, only while the installed bundle is the one
 /// it names, and only with both cdhashes and tags checked again on the
 /// bundles themselves.

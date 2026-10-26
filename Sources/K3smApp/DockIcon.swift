@@ -17,10 +17,10 @@ limitations under the License.
 import AppKit
 import SwiftUI
 
-/// DockIcon is the running app's Dock image: a tile of its own (the night
-/// concept's navy, standing in until an icon is chosen) that stays still,
-/// with the mark on it flapping at `angle`. The Dock shows a runtime image
-/// as drawn, so the tile is part of the drawing rather than the system's.
+/// DockIcon is the running app's Dock image: a navy tile of its own that
+/// stays still, with the mark on it flapping at `angle`. The Dock shows a
+/// runtime image as drawn, so the tile is part of the drawing rather than
+/// the system's; the bundle's icon (`AppIcon.icns`) is the mark alone.
 struct DockIcon: View {
     let angle: Double
 

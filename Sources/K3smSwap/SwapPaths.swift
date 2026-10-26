@@ -123,8 +123,6 @@ public struct SwapPaths: Equatable, Sendable {
 
     /// The staging directory for `target` (an allowed target) and a staging
     /// name: `<target dir>/<name>`. The staged bundle is `k3sm.app` in it.
-    /// This is the one place the staging location is defined; the download
-    /// that fills it uses it too.
     public static func stagingDirectory(target: String, name: String) -> String {
         (target as NSString).deletingLastPathComponent + "/" + name
     }

@@ -343,8 +343,9 @@ public struct ClusterIssues: Equatable, Sendable {
             checkedAt: parse(report.timestamp))
     }
 
-    /// The headline while something is wrong: the count of failing and
-    /// warning rows, or, with none, the verdict's word as the headline shows it.
+    /// The headline while something is wrong: the count of listed faults
+    /// (failing, warning and reported rows, `IssueLevel.isFault`), or, with
+    /// none, the verdict's word as the headline shows it.
     static func headline(problems: Int, verdict: Verdict) -> String {
         switch problems {
         case 0: return "\(StatusHeadline.word(verdict)), with no failing check."
@@ -409,10 +410,11 @@ public struct UpdateCard: Equatable, Sendable {
     public static let rollingTitle = "An update is rolling"
 
     /// The card for `plan`, nil when the plan offers no Update. A catch-up
-    /// names its nodes' count; a managed roll counts the nodes the report
-    /// shows on an older release than its tag (the server's own release and
-    /// each worker's), or says the release is available when none is known
-    /// to be behind; the app-carried update names this Mac.
+    /// names its nodes' count; a managed roll and the roll to this app's
+    /// release count the nodes the report shows on an older release than its
+    /// tag (the server's own release and each worker's), or, when none is
+    /// known to be behind, say the release is available (managed) or that
+    /// this app carries it (bundled); the payload install names this Mac.
     public static func of(plan: UpdatePlan, report: StatusReport?) -> UpdateCard? {
         guard let button = plan.buttonTitle else { return nil }
         let title: String

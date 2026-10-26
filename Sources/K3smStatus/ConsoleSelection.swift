@@ -19,8 +19,8 @@ import Foundation
 /// ConsoleRow is one row's identity on a console tab: the kind of row (the
 /// tab it belongs to) and the key the tab's decoder gave it. The key is
 /// always a clipped string (`Pod.key`, `NodeImage.key`, `ServiceRow.key`,
-/// `StorageRow.key`, `ModelRow.key`, `NodeRow.key`, or `InspectorDetails.engineRow` for the
-/// Builds tab's engine card), so it is safe to show and to store.
+/// `StorageRow.key`, `ModelRow.key`, `NodeRow.key`, `BuildRecord.key`, or
+/// `InspectorDetails.engineRow` for the Builds tab's engine card), so it is safe to show and to store.
 public enum ConsoleRow: Hashable, Sendable {
     case pod(String)
     case node(String)

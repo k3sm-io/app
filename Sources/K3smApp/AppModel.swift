@@ -187,8 +187,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var dataVolume: TabLoader<DataVolume>?
     @Published private(set) var models: TabLoader<[ModelRow]>?
     @Published private(set) var events: TabLoader<[ClusterEvent]>?
-    /// Each tab's loader, created on the tab's first selection. Images has
-    /// none: it renders the shared node list.
+    /// Each tab's loader, created on the tab's first selection. Nodes and
+    /// Alerts have none: Nodes renders the shared node list, Alerts the
+    /// status report.
     private var loaders: [ConsoleSection: any TabLoading] = [:]
     /// Whether the console is on screen, so a tab change starts its loader.
     private var consoleShown = false
@@ -482,8 +483,9 @@ final class AppModel: ObservableObject {
             guard let self else { return PollSchedule.fastInterval }
             return PollSchedule.interval(for: self.section, engineReady: self.engineReady)
         }
-        // The waiting butterflies follow each tab's own read: the pod list,
-        // the shared node list (Images) and the engine read (Builds).
+        // The waiting butterflies follow each tab's own read: the pod list (or
+        // the events), the shared node list (Nodes), the registry list
+        // (Images), the engine read (Builds) and each object tab's list.
         waiting.load = { [weak self] section in
             guard let self else { return nil }
             switch section {
@@ -538,7 +540,7 @@ final class AppModel: ObservableObject {
             await self?.registryImages?.refresh()
             await self?.workloads.nodeList.refresh()
         }
-        // The Builds tab's Show Log opens the log sheet.
+        // The Builds tab's Show Log opens the build's log in the log pane.
         LocalActions.showBuildLog = { [weak self] target in self?.showBuildLog(target) }
         // An unfinished or failed earlier run is the first thing the window
         // shows on relaunch.
@@ -1629,8 +1631,9 @@ final class AppModel: ObservableObject {
     /// Wants the status stream, at launch and when the session becomes
     /// active again. While the installed k3sm's capabilities are unknown,
     /// one full report is read to learn them, unless a refresh is already
-    /// reading one; that read goes through the trust check like every
-    /// window read, so the stream starts only after a trusted CLI answered.
+    /// reading one; that read goes through the trust check like every full
+    /// report (`runCLI`), so the stream starts only after a trusted CLI
+    /// answered.
     func startStatusStream() {
         statusStream.start()
         guard statusStream.state == .detecting else { return }
@@ -1866,8 +1869,9 @@ final class AppModel: ObservableObject {
         return d
     }
 
-    /// Runs one lifecycle verb from the menu, the window or the login
-    /// notification. `expected` is the state the user acted on. The driver
+    /// Runs one lifecycle verb from the menu, the window, the login
+    /// notification, or a quit the stop-on-quit preference turns into a
+    /// Stop. `expected` is the state the user acted on. The driver
     /// re-reads the status, asks (naming the verb, with the Stop warning),
     /// re-reads again, and only then shows the administrator prompt.
     ///
@@ -2121,8 +2125,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// The trust-checked CLI every unprivileged run in the window and the
-    /// lifecycle flow goes through.
+    /// The trust-checked CLI behind the window's full report, version and
+    /// lifecycle reads (`runCLI`). The tabs' list reads (`TabLoader.run`)
+    /// and the pod, metrics and status polls run the CLI without this check.
     private var cli: TrustedCLI<CLIOutcome> {
         let teamID = teamID
         let environment = environment

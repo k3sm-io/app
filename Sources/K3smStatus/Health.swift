@@ -87,8 +87,9 @@ public enum HealthState: Equatable, Sendable {
 
     /// Whether this is a half-installed k3sm that Repair (the install run
     /// again over it from the app's payload) is offered for: the command
-    /// missing or untrusted, or one daemon down beside the other. The one
-    /// definition the guided panel and `RepairPolicy` share.
+    /// missing or untrusted, or one daemon down beside the other. `RepairPolicy`
+    /// reads it; the guided panel (`GuidedSteps`) offers Repair for the same
+    /// states, and a test keeps the two in step.
     public var repairable: Bool {
         switch self {
         case .cliMissing, .cliUntrusted, .partlyRunning: return true

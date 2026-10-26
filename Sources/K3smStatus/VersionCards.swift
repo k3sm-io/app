@@ -26,7 +26,8 @@ import Foundation
 /// the same or older than the installed one, no installed release, and no
 /// payload release. Which cards show, their eyebrows, values and notes are
 /// decided here in `K3smStatus`; a view only renders the cards it is given.
-/// No view uses them yet: the popover still shows `versionLine`.
+/// The status popover renders them; `versionLine` stays as their
+/// accessibility text.
 public struct VersionCard: Equatable, Sendable {
     /// The small-caps label over the version ("INSTALLED", "THIS APP").
     public let eyebrow: String

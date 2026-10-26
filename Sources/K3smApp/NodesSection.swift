@@ -23,8 +23,8 @@ import SwiftUI
 /// `NodesList`, under the version summary line (`NodeVersions.summary`)
 /// and, on the server's app while a node is behind, the header's Update
 /// (`NodeUpdateControl.header`). A row selects its node for the inspector
-/// and offers its Cordon or Uncordon as a context menu, with Update for a
-/// node behind (`NodeUpdateControl.decide`). Every Update runs the one
+/// and offers its Cordon or Uncordon and Drain as a context menu, with
+/// Update for a node behind (`NodeUpdateControl.decide`). Every Update runs the one
 /// update plan through `AppModel.performUpdate`.
 struct NodesSection: View {
     @ObservedObject var app: AppModel

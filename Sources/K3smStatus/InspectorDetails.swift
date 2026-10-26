@@ -51,8 +51,10 @@ public struct InspectorBody: Equatable, Sendable {
 /// inspector shows when its tab has no selection. Nothing is invented: a
 /// fact the read did not carry is left out or says it was not reported.
 public enum InspectorDetails {
-    /// The Builds tab's engine card's key. The build history's rows are keyed
-    /// by their record ids, twelve hex characters, so none can be this.
+    /// The Builds tab's engine card's key. The CLI prints every record id as
+    /// twelve hex characters, so no record it writes is keyed "engine";
+    /// `BuildHistory.decode` keys rows by the id as printed and does not
+    /// itself refuse this one.
     public static let engineRow = "engine"
 
     /// What a row of each tab is called, lowercase.
@@ -71,7 +73,8 @@ public enum InspectorDetails {
     }
 
     /// The inspector's line while its tab has no selection: "Select an image.",
-    /// or, on Stats, whose charts have no rows, what the charts cover.
+    /// or, on Stats, whose charts have no rows, what the charts cover, and on
+    /// Cluster, what its cards say.
     public static func emptyText(_ section: ConsoleSection) -> String {
         if section == .stats { return StatsDisplay.inspectorText }
         if section == .cluster { return ClusterIssues.inspectorText }

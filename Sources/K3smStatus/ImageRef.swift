@@ -45,7 +45,7 @@ public struct ImageRef: Hashable, Sendable {
     /// The longest reference: a name, a 128-character tag and a digest.
     public static let maxLength = maxNameLength + 1 + 128 + 1 + 71
 
-    /// Problem is why a text is not an image reference, as the Pull field says it.
+    /// Problem is why a text is not an image reference, as the Mirror sheet's field says it.
     public enum Problem: Equatable, Sendable {
         case empty
         case tooLong
@@ -55,7 +55,7 @@ public struct ImageRef: Hashable, Sendable {
         case badTag
         case badDigest
 
-        /// The line shown under the Pull field.
+        /// The line shown under the Mirror sheet's reference field.
         public var text: String {
             switch self {
             case .empty: return "Enter an image reference, such as docker.io/library/nginx:1.27."

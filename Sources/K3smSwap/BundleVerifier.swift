@@ -40,7 +40,8 @@ public enum BundleVerifyError: Error, Equatable, Sendable {
     case missing
     /// The signature is invalid or does not satisfy the requirement.
     case signature(OSStatus)
-    /// The sealed Info.plist's `CFBundleIdentifier` is not the app's.
+    /// The sealed Info.plist's `CFBundleIdentifier` is not the app's, or its
+    /// `CFBundleExecutable` is missing or not a plain file name.
     case bundleIdentifier
     /// The sealed Info.plist carries no valid `K3smPayloadTag`.
     case payloadTag

@@ -134,8 +134,9 @@ public struct IndexSignerPolicy: Equatable, Sendable {
 
     /// The checks a verifier makes, each a fixed sentence. This list is the
     /// complete, ordered contract the release index verifier implements: it
-    /// makes every check, in this order, before it decodes the index, and
-    /// its tests cover every entry. An index that fails any of them is
+    /// makes every check, in this order, and decodes the index only as the
+    /// last one (the context string is read by that decode); its tests
+    /// cover every entry. An index that fails any of them is
     /// "could not verify", never an update.
     ///
     /// The anchor check is `anchor apple generic` and no hash of a particular

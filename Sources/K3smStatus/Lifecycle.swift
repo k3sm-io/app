@@ -97,8 +97,9 @@ public enum StoppedNotice {
 
 /// K3smLogs is the fixed set of log files the menu opens: the node daemon's
 /// log for this Mac's role, netd's log, and the app's own copy-out log. The
-/// paths are k3sm's (`pkg/install`: `LogDir`, root:admin 0640) and never come
-/// from the CLI's output.
+/// node and netd logs are k3sm's (`pkg/install`: `LogDir`, group admin, files
+/// 0640); the copy-out log is the app's. None of the paths comes from the
+/// CLI's output.
 public enum K3smLogs {
     public static let directory = "/var/log/k3sm"
     public static let netd = "/var/log/k3sm/netd.log"

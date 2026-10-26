@@ -238,8 +238,9 @@ public struct UpdateStatus: Decodable, Equatable, Sendable {
 public enum UpdateApplyResult: Equatable, Sendable {
     /// The CLI created the roll (exit 0).
     case started
-    /// The CLI refused because a roll already exists (exit 1, "an update is
-    /// already rolling (<phase>)"): the app follows that roll.
+    /// The CLI refused because an unfinished Update already exists (exit 1,
+    /// "the Update current to <version> is <phase>; follow it with ..."; see
+    /// `ManagedUpdate.alreadyRollingMarkers`): the app follows that roll.
     case alreadyRolling
     /// Nothing was started: the prompt was dismissed, or the run failed.
     case notStarted

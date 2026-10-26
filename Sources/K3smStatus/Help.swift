@@ -110,7 +110,9 @@ public enum Help {
             return HelpTag(text, control: "console strip: \(section.title.lowercased()) tab", label: section.title)
         }
 
-        /// The update button's tag when it installs the app's release on this Mac.
+        /// The app-carried update's wording without a version, kept in the catalog
+        /// so the standard checks it; the update button itself shows `update(_:)`'s
+        /// `.payload` text.
         public static let updateThisMac = HelpTag("Install the release this app carries on this Mac, as an administrator",
                                                   control: "alerts: update card button, this Mac", label: "Update")
 
@@ -258,7 +260,7 @@ public enum Help {
         /// The Size column header.
         public static let size = HelpTag("Size of the image, as the registry reports it",
                                          control: "images: Size column", label: "Size")
-        /// The Nodes column header.
+        /// The Cached on column header (the `.nodes` column).
         public static let nodes = HelpTag("Nodes that hold a cached copy of the image",
                                           control: "images: Cached on column", label: "Cached on")
 
@@ -491,9 +493,11 @@ public enum Help {
 
     // MARK: Row actions
 
-    /// The actions a row offers, in the inspector and a tab's header row,
-    /// by the request's `verb` and the local item's id. A context menu's
-    /// items show no help tag on macOS, so only the buttons carry these.
+    /// The actions a row offers, by the request's `verb` and the local item's
+    /// id. In the inspector's Actions menu and a row's context menu they are
+    /// menu items, which show no help tag on macOS, so only the buttons that
+    /// run one directly carry these: a tab's header row, a paused
+    /// controller's row and the inspector's Scale button.
     public enum Actions {
         /// Each request verb's tag.
         static let byVerb: [String: HelpTag] = [

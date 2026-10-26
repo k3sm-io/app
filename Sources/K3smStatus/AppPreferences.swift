@@ -343,8 +343,9 @@ public enum LoginItemStatus: Sendable {
 
 /// LoginItemDisplay is the General pane's Open at login control: on while
 /// the app is registered (approved or waiting for approval), off otherwise;
-/// a change is offered only to a copy in /Applications, the only place the
-/// app registers from; and the note says why when the system needs the
+/// turning it on is offered only to a copy in /Applications, the only place
+/// the app registers from, while a registered app can always be turned off;
+/// and the note says why when the system needs the
 /// user's approval, cannot find the app, or refused the last change.
 public struct LoginItemDisplay: Equatable, Sendable {
     public let isOn: Bool

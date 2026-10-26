@@ -98,9 +98,9 @@ public struct NodeLifecycleOffer: Equatable, Sendable {
 /// on the server's app: in its row's context menu and its inspector, and once
 /// for every such node on the Nodes tab's header. It runs the one update plan
 /// (`UpdatePlan`), so it is enabled only when the plan's roll moves the node:
-/// the managed roll to the latest release, which moves every node, or the
-/// catch-up pinned to the server's own release, when the node is one it
-/// moves. Otherwise it is shown disabled, with the reason. A worker's app
+/// the managed roll to the latest release or the roll to this app's own
+/// release (`bundled`), each of which moves every node, or the catch-up
+/// pinned to the server's own release, when the node is one it moves. Otherwise it is shown disabled, with the reason. A worker's app
 /// offers none: the managed update runs on the server.
 public struct NodeUpdateControl: Equatable, Sendable {
     public static let title = "Update…"

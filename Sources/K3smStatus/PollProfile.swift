@@ -37,7 +37,7 @@ public struct PollIntervals: Equatable, Sendable {
     public let consoleHeartbeat: Duration
     /// The Images tab.
     public let images: Duration
-    /// The Services, Storage, Models and Stats tabs.
+    /// The Services, Storage, Models, Stats and Alerts tabs.
     public let objects: Duration
     /// The Events view.
     public let events: Duration

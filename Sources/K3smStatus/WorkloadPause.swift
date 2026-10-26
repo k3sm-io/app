@@ -313,9 +313,11 @@ public enum WorkloadPause {
 
     /// The request for one action's first step on a controller, or nil when
     /// it does not offer it: Pause for a Deployment or StatefulSet asking for
-    /// replicas with no recorded count, Resume for one carrying a record;
-    /// nothing for a ReplicaSet, a name `ResourceName` refuses or a
-    /// controller listed without a UID.
+    /// replicas with no recorded count, and for one whose record is stale
+    /// (still asking for replicas) the retry of Pause's scale step alone;
+    /// Resume for one carrying a record and scaled to zero; nothing for a
+    /// ReplicaSet, a name `ResourceName` refuses or a controller listed
+    /// without a UID.
     public static func request(_ action: WorkloadAction, for controller: WorkloadController) -> WorkloadActionRequest? {
         guard controller.kind.scalable, !controller.uid.isEmpty,
               let namespace = ResourceName(controller.namespace), let name = ResourceName(controller.name) else { return nil }
@@ -350,7 +352,8 @@ public enum WorkloadPause {
         return WorkloadAction.allCases.compactMap { request($0, for: c) }
     }
 
-    /// A paused controller's row menu: its Resume.
+    /// A paused controller's row menu: its Resume, or the Pause retry when its
+    /// record is stale.
     public static func menu(for controller: WorkloadController) -> ActionMenu {
         ActionMenu(available(for: controller).compactMap { request($0, for: controller) })
     }
@@ -412,7 +415,9 @@ public enum WorkloadPause {
 
     /// What the state read just before a step says: nil when the controller
     /// is still the one confirmed (its UID; for Pause's first step, also the
-    /// replicas it records), so the step runs; otherwise the line shown
+    /// replicas it records; for Resume's first step and a Pause retry, also
+    /// the record as offered, with replicas at 0 for Resume and above 0 for
+    /// the retry), so the step runs; otherwise the line shown
     /// instead, and nothing more runs.
     public static func verify(_ request: WorkloadActionRequest, run: ActionRun) -> ActionOutcome? {
         let verb = request.action.title

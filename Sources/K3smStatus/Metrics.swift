@@ -161,8 +161,9 @@ public enum Metrics {
         return MetricsSample(nodes: byName, pods: podUsage)
     }
 
-    /// One poll whose node read exited `nodesExit` (not 0), with the
-    /// APIService read's exit and output (standard error kept) when it ran.
+    /// One poll whose metrics read exited `nodesExit` (not 0) and printed
+    /// nothing `sampled(combined:exit:)` could use, with the APIService
+    /// read's exit and output (standard error kept) when it ran.
     /// A NotFound APIService is absent; one whose Available condition is not
     /// True is absent with its reason and message; an available API, or an
     /// APIService read that failed some other way, makes this poll a failure.

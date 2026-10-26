@@ -24,8 +24,8 @@ import SwiftUI
 /// the state, tiles with what it uses and the data root, the nodes block, the
 /// core grid and the memory meter). Both end with the daemons from the status
 /// report. It is the left pane of the console's split view: wider than its
-/// minimum, the tiles take more columns and a node row puts its meters on its
-/// own line.
+/// minimum, the tiles widen (always two columns) and a Cluster view node row
+/// puts its meters on its heading's line.
 struct MacPanel: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
@@ -288,7 +288,8 @@ struct MacPanel: View {
         }
     }
 
-    /// The nodes block from the status report: this Mac, then `workers`.
+    /// The nodes block from the status report (`NodesDisplay.view`): this Mac,
+    /// then `workers` on a server or the server it joined on a worker.
     @ViewBuilder private var nodesBlock: some View {
         if let nodes {
             PanelBlock("Nodes", value: nodes.heading ?? "") {

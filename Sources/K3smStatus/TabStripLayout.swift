@@ -31,9 +31,9 @@ public enum TabStripLayout {
     /// `searchMinimum` it keeps the nine labels, at the estimate's wide
     /// advance, inside a 1440 pt window with the panel and inspector shown.
     public static let tabSpacing: Double = 14
-    /// The gap between the strip's items: the tabs, the spacer, the update
-    /// button, the search field and the icon buttons (12 pt before the Stats
-    /// tab; the strip's `HStack` uses this value).
+    /// The gap between the strip's items: the tabs, the spacer, the search
+    /// field and the icon buttons (12 pt before the Stats tab; the strip's
+    /// `HStack` uses this value).
     public static let itemSpacing: Double = 10
     /// The spacer between the tabs and the controls, at its least.
     public static let spacerMinimum: Double = 8

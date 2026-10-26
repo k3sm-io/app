@@ -33,7 +33,7 @@ public enum SwapExit: Int32, Codable, Sendable, CaseIterable {
     /// A bundle failed verification, or is not newer than the installed one;
     /// nothing was renamed, or the swap was undone before any launch.
     case verificationFailed = 65
-    /// The rename was refused with `EPERM`: the administrator path is needed.
+    /// The rename was refused with `EPERM` or `EACCES`: the administrator path is needed.
     /// The old bundle is in place and the journal is at `verified`.
     case needsAdministrator = 66
     /// The volume cannot swap two names in one step (`VOL_CAP_INT_RENAME_SWAP`

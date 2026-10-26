@@ -232,7 +232,6 @@ public enum BuildHistory {
     }
 }
 
-/// BuildHistoryDecodeError says why the history could not be read.
 /// BuildImageLink is where a build record's Show in Images leads, decided
 /// by `BuildHistory.imageLink(_:in:)`.
 public enum BuildImageLink: Equatable, Sendable {
@@ -276,6 +275,7 @@ extension BuildHistory {
     }
 }
 
+/// BuildHistoryDecodeError says why the history could not be read.
 public enum BuildHistoryDecodeError: Error, Equatable, Sendable {
     case malformed
     case notAnArray

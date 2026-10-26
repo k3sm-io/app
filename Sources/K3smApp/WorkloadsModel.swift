@@ -373,8 +373,9 @@ final class WorkloadsModel: ObservableObject {
         }
     }
 
-    /// Loads the selected pod's logs, events or manifest through the fixed
-    /// argument lists; the names were validated by the decoder.
+    /// Loads the selected pod's events or manifest through the fixed argument
+    /// lists; the names were validated by the decoder. Logs are the log
+    /// pane's read (`loadLog`), so for `.logs` it clears the detail.
     func loadDetail() {
         detailTask?.cancel()
         guard let pod = selectedPod, let ns = pod.namespaceName, let name = pod.resourceName else {

@@ -25,9 +25,10 @@ import SwiftUI
 /// is unknown or not a read, then drives the console with its own state (the
 /// tab, the sub-tab, the selected row, the inspector, the window frame), in
 /// order, and quits: status 0 when the tour ends, 1 with the failed step on
-/// standard error, 2 when the argument or the file was refused. It holds no
-/// action runner and no privileged runner, so no change to the cluster and
-/// no root step is within its reach. The user's stored layout is put back
+/// standard error, 2 when the argument or the file was refused. It runs only
+/// the steps `DemoTour` admits (navigation and reads) and calls no action or
+/// root step through the model, so a tour changes nothing in the cluster and
+/// asks for no administrator prompt. The user's stored layout is put back
 /// before it quits.
 @MainActor
 final class DemoTourRunner {

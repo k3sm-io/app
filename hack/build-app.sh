@@ -310,9 +310,9 @@ fi
 
 echo "==> ad-hoc sign (inside out)"
 # Nested code first: the MCP server and the swap helper, then the app's own
-# executable, the only code this script signs; payload binaries keep the
-# signatures stage.sh gave them, because re-signing would change the bytes the
-# manifest describes.
+# executable, then the bundle root. Payload binaries are not re-signed: they
+# keep the signatures stage.sh gave them, because re-signing would change the
+# bytes the manifest describes.
 codesign --force --sign - --timestamp=none --identifier "$MCP_ID" "$APP/Contents/MacOS/$MCP"
 codesign --force --sign - --timestamp=none --identifier "$HELPER_ID" "$APP/Contents/Helpers/$HELPER"
 codesign --force --sign - --timestamp=none "$APP/Contents/MacOS/$EXE"
