@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import Foundation
 import Testing
 @testable import K3smStatus
 
@@ -104,5 +105,44 @@ struct NodeNameMaskTests {
         #expect(throws: NodeNameMask.LaunchError.withoutTour) { try NodeNameMask.requested(in: ["k3sm-app", "--demo-mask"]) }
         #expect(throws: NodeNameMask.LaunchError.withoutTour) { try NodeNameMask.requested(in: ["--demo-tour", "--demo-mask"]) }
         #expect(NodeNameMask.LaunchError.withoutTour.message == "--demo-mask needs --demo-tour")
+    }
+    @Test("the image inspector's Nodes fact shows masked names")
+    func imageInspector() {
+        let mask = NodeNameMask.make(nodes: [maskNode("main", server: true), maskNode("laptop")])
+        let image = NodeImage(key: "sha256:a", digest: "sha256:a", names: ["a:1"], sizeBytes: 1, nodes: ["laptop", "main"])
+        let body = InspectorDetails.image(image, pods: nil, mask: mask)
+        #expect(body.facts.first { $0.label == "Nodes" }?.value == "worker-1, server")
+        #expect(InspectorDetails.image(image, pods: nil, mask: nil).facts.first { $0.label == "Nodes" }?.value == "laptop, main")
+    }
+
+    @Test("the registry inspector's Cached on fact and the incomplete-cache note show masked names")
+    func registry() throws {
+        let list = try RegistryImages.decode(fixture("image_ls.golden.json"))
+        let mask = NodeNameMask.make(nodes: [maskNode("node-a", server: true), maskNode("node-b"), maskNode("node-full")])
+        let image = try #require(list.images.first)
+        #expect(InspectorDetails.registryImage(image, mask: mask).facts.first { $0.label == "Cached on" }?.value == "server, worker-1")
+        #expect(RegistryImages.incompleteText(list, mask: mask)
+            == "Node worker-2 listed only part of its images, so a Cached on cell may leave it out.")
+    }
+
+    @Test("the cordon, uncordon and drain dialogs and results name the masked node; the request keeps the real one")
+    func nodeActions() throws {
+        let mask = NodeNameMask.make(nodes: [maskNode("main", server: true), maskNode("laptop")])
+        var node = maskNode("laptop")
+        node.uid = "u-1"
+        let cordon = try #require(NodeActions.request(.cordon, for: node))
+        #expect(cordon.node.value == "laptop")
+        #expect(cordon.confirmation(mask: mask).title == "Cordon worker-1?")
+        #expect(try #require(NodeActions.request(.uncordon, for: node)).confirmation(mask: mask).title == "Uncordon worker-1?")
+        #expect(try #require(NodeActions.request(.drain, for: node)).confirmation(mask: mask).title == "Drain worker-1?")
+        #expect(NodeActions.report(cordon, run: .exited(status: 0, output: Data()), mask: mask)
+            == .succeeded("Cordon asked: no new pods are placed on worker-1."))
+    }
+
+    @Test("the catch-up block's node list shows masked names")
+    func updateNames() {
+        let mask = NodeNameMask.make(nodes: [maskNode("main", server: true), maskNode("a"), maskNode("b")])
+        #expect(UpdatePath.names(["b", "a"], mask: mask) == "worker-2 and worker-1")
+        #expect(UpdatePath.names(["b", "a"], mask: nil) == "b and a")
     }
 }

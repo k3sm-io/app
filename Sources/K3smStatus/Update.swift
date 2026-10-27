@@ -471,6 +471,8 @@ public struct UpdatePanel: Equatable, Sendable {
     static func failureMessage(_ s: UpdateStatus) -> String? {
         if let node = s.nodes.first(where: { $0.phase.lowercased() == "failed" }) {
             let message = StatusDisplay.clip(node.message)
+            // An empty name stays empty: the mask would show it as "node",
+            // and the line below drops the "name: " prefix only when it is empty.
             let name = node.name.isEmpty ? "" : NodeNameMask.shown(node.name)
             if !message.isEmpty { return StatusDisplay.clip(name.isEmpty ? message : name + ": " + message) }
         }
@@ -490,6 +492,8 @@ public struct UpdateNodeLine: Equatable, Sendable {
     public let message: String
 
     public init(_ node: UpdateNode) {
+        // An empty name stays empty rather than the mask's "node": the
+        // update reported no node name, and the panel shows none.
         name = node.name.isEmpty ? "" : NodeNameMask.shown(node.name)
         let from = StatusDisplay.clip(node.from)
         let to = StatusDisplay.clip(node.to)

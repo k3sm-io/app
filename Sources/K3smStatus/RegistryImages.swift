@@ -181,8 +181,8 @@ public enum RegistryImages {
     }
 
     /// The note when some nodes' cache lists were cut short.
-    public static func incompleteText(_ list: RegistryImageList) -> String? {
-        let nodes = list.cachedOnIncomplete
+    public static func incompleteText(_ list: RegistryImageList, mask: [String: String]? = NodeNameMask.current) -> String? {
+        let nodes = list.cachedOnIncomplete.map { NodeNameMask.shown($0, mask: mask) }
         guard !nodes.isEmpty else { return nil }
         let names = nodes.count <= 3 ? "Nodes " + nodes.joined(separator: ", ") : "\(nodes.count) nodes"
         let text = nodes.count == 1
@@ -224,7 +224,7 @@ public enum RegistryImages {
 extension InspectorDetails {
     /// A registry image: its reference, digest, platforms, size, the pods
     /// using it and the nodes caching it.
-    public static func registryImage(_ image: RegistryImage) -> InspectorBody {
+    public static func registryImage(_ image: RegistryImage, mask: [String: String]? = NodeNameMask.current) -> InspectorBody {
         let size = WorkloadsDisplay.bytes(image.sizeBytes)
         let facts = [
             InspectorFact("Reference", image.reference, mono: true),
@@ -232,7 +232,7 @@ extension InspectorDetails {
             InspectorFact("Platforms", image.platforms.isEmpty ? "not reported" : image.platforms.joined(separator: ", ")),
             InspectorFact("Size", size.isEmpty ? "not reported" : size),
             InspectorFact("Pods", image.pods.map(String.init) ?? "not reported"),
-            InspectorFact("Cached on", image.cachedOn.isEmpty ? "no node" : image.cachedOn.joined(separator: ", ")),
+            InspectorFact("Cached on", image.cachedOn.isEmpty ? "no node" : image.cachedOn.map { NodeNameMask.shown($0, mask: mask) }.joined(separator: ", ")),
         ]
         return InspectorBody(kind: "Image", title: image.reference, subtitle: nil, facts: facts)
     }

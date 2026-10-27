@@ -69,8 +69,8 @@ public enum UpdatePath: Equatable, Sendable {
 
     /// "node-b", "node-b and node-c", "node-b, node-c and 4 more": each
     /// name clipped.
-    public static func names(_ nodes: [String]) -> String {
-        let shown = nodes.prefix(maxNames).map { StatusDisplay.clip($0) }
+    public static func names(_ nodes: [String], mask: [String: String]? = NodeNameMask.current) -> String {
+        let shown = nodes.prefix(maxNames).map { NodeNameMask.shown($0, mask: mask) }
         let more = nodes.count - shown.count
         if more > 0 { return shown.joined(separator: ", ") + " and \(more) more" }
         if shown.count <= 1 { return shown.first ?? "no node" }

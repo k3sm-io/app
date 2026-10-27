@@ -96,11 +96,11 @@ public enum InspectorDetails {
     /// An image: the name it shows, its digest, size, the nodes holding it,
     /// its other names, and, when the pod list has been read, the pods whose
     /// image is one of its names or carries its digest.
-    public static func image(_ image: NodeImage, pods: [Pod]?) -> InspectorBody {
+    public static func image(_ image: NodeImage, pods: [Pod]?, mask: [String: String]? = NodeNameMask.current) -> InspectorBody {
         var facts = [InspectorFact("Reference", image.title, mono: true)]
         facts.append(InspectorFact("Digest", image.digest ?? "not reported", mono: true))
         facts.append(InspectorFact("Size", sized(image.sizeBytes)))
-        facts.append(InspectorFact("Nodes", image.nodes.isEmpty ? "none" : image.nodes.joined(separator: ", ")))
+        facts.append(InspectorFact("Nodes", image.nodes.isEmpty ? "none" : image.nodes.map { NodeNameMask.shown($0, mask: mask) }.joined(separator: ", ")))
         let others = image.names.filter { $0 != image.title }
         if !others.isEmpty {
             facts.append(InspectorFact("Also named", others.joined(separator: ", "), mono: true))

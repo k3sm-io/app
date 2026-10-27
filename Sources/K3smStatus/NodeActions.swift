@@ -76,8 +76,12 @@ public struct NodeActionRequest: Equatable, ConsoleActionRequest {
     public var asksFirst: Bool { action != .uncordon }
     public var titleEllipsis: Bool { asksFirst }
 
-    public var confirmation: ActionConfirmation {
-        let name = StatusDisplay.clip(node.value)
+    public var confirmation: ActionConfirmation { confirmation() }
+
+    /// The dialog with the node's name as the console shows it (the demo
+    /// mask applies); the action itself runs on the real name.
+    public func confirmation(mask: [String: String]? = NodeNameMask.current) -> ActionConfirmation {
+        let name = NodeNameMask.shown(node.value, mask: mask)
         switch action {
         case .cordon:
             return ActionConfirmation(
@@ -165,9 +169,9 @@ public enum NodeActions {
     }
 
     /// The line shown after a run. CLI text passes `StatusDisplay.errorText`.
-    public static func report(_ request: NodeActionRequest, run: ActionRun) -> ActionOutcome {
+    public static func report(_ request: NodeActionRequest, run: ActionRun, mask: [String: String]? = NodeNameMask.current) -> ActionOutcome {
         let verb = request.action.title
-        let name = StatusDisplay.clip(request.node.value)
+        let name = NodeNameMask.shown(request.node.value, mask: mask)
         switch run {
         case .exited(status: 0, _):
             switch request.action {
