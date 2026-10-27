@@ -1363,6 +1363,10 @@ ends, 1 with the failed step on standard error, and 2 when the tour was
 refused. Reduce Motion turns off the tour's animations, and the stored tab,
 selection, inspector and window frame are put back before the app quits.
 
+`--demo-mask`, given beside `--demo-tour`, shows every node's name as `server`
+for the control-plane node and `worker-1`, `worker-2` and so on for the others
+in name order; alone it is refused with status 2.
+
 ## Releases
 
 A k3sm release that carries the app attaches
