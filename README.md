@@ -694,13 +694,12 @@ login** in the app's Settings turns it off or on again (see
   resize it, from 240 pt up to the width that leaves the list its minimum. The app keeps
   the width you drag to; resizing the window does not change it.
 - The **left panel** opens at its natural width: the narrowest at which
-  nothing in the Cluster or This Mac view is squeezed (every tile in one
-  row, the longest node row with its meters beside it, the memory block's
-  figures and legend, the live load bars), the wider of the two views. It
-  keeps that fit as the figures change until you drag the divider between
-  it and the list. You can make it narrower, down to its original width:
-  the tiles then take two columns and each node's meters move under its
-  name. It goes no wider than its natural width; dragging it back there,
+  nothing in the Cluster or This Mac view is squeezed (the tiles in their
+  two-by-two grid, the longest node row with its meters beside it, the
+  memory block's figures and legend, the live load bars), the wider of the
+  two views. It keeps that fit as the figures change until you drag the
+  divider between it and the list. You can make it narrower, down to its
+  original width: each node's meters then move under its name. It goes no wider than its natural width; dragging it back there,
   or Reset Window Layout in Settings, lets it fit itself again. Double-click the
   divider, or choose View > Hide Panel (Command-Option-L), to collapse the
   panel; do it again, or View > Show Panel, to bring it back. The window's
@@ -721,8 +720,7 @@ login** in the app's Settings turns it off or on again (see
   table back.
 - The **tab names** above the list stay whole on one line. The window goes
   no narrower than the row above the list needs for every tab name, the
-  Update button while one is offered, the search field at its narrowest and
-  the buttons beside it; only a tab name longer than 24 characters would be
+  search field at its narrowest and the buttons beside it; only a tab name longer than 24 characters would be
   shortened, at its end. With the panel and the details shown that is at
   most 1440 points, so the window fits the narrowest Mac laptop display.
 - The **window** reopens where you left it, at its size and on its display, after a relaunch too; if that display is gone or the window would sit off the screen, it is moved onto the main display, never smaller than its minimum.
