@@ -55,7 +55,7 @@ public struct RegistryImage: Equatable, Sendable {
     /// no node holds a copy.
     public var cachedOnText: String {
         if cachedOn.isEmpty { return "none" }
-        return cachedOn.count <= 2 ? cachedOn.joined(separator: ", ") : "\(cachedOn.count) nodes"
+        return cachedOn.count <= 2 ? cachedOn.map { NodeNameMask.shown($0) }.joined(separator: ", ") : "\(cachedOn.count) nodes"
     }
 }
 

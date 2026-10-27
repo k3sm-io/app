@@ -142,7 +142,7 @@ public enum NodesDisplay {
         }
         let sorted = workers.sorted { $0.name < $1.name }
         let others = sorted.map {
-            NodeLine(name: StatusDisplay.clip($0.name), role: roleWord($0.role), version: version(of: $0))
+            NodeLine(name: NodeNameMask.shown($0.name), role: roleWord($0.role), version: version(of: $0))
         }
         return (NodesView(heading: heading, lines: [mine] + others, note: nil), [installed] + sorted.map(\.k3smRelease))
     }

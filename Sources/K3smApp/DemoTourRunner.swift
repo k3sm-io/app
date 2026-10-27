@@ -46,9 +46,11 @@ final class DemoTourRunner {
 
     /// The tour the launch arguments name, nil when they name none. A
     /// refused argument or file ends the process with status 2 here, before
-    /// the app builds anything.
+    /// the app builds anything. `--demo-mask` beside the tour turns the node
+    /// name mask on (`NodeNameMask`); alone it is refused the same way.
     static func load(arguments: [String] = CommandLine.arguments) -> [DemoTour.Entry]? {
         do {
+            if try NodeNameMask.requested(in: arguments) { NodeNameMask.enable() }
             guard let path = try DemoTour.path(in: arguments) else { return nil }
             let file: URL
             if DemoTour.isBareName(path) {
@@ -67,6 +69,8 @@ final class DemoTourRunner {
         } catch let e as DemoTour.LaunchError {
             refuse(e.message)
         } catch let e as DemoTour.TourError {
+            refuse(e.message)
+        } catch let e as NodeNameMask.LaunchError {
             refuse(e.message)
         } catch {
             refuse("cannot read the tour file")

@@ -65,7 +65,7 @@ struct UpdateProgressPanel: View {
             }
             ForEach(Array(panel.nodes.enumerated()), id: \.offset) { _, node in
                 HStack(spacing: 12) {
-                    Text(node.name).font(.system(size: 12, weight: .medium)).frame(width: 160, alignment: .leading)
+                    Text(verbatim: node.name).font(.system(size: 12, weight: .medium)).frame(width: 160, alignment: .leading)
                     Text(node.versions).font(.system(size: 12).monospacedDigit()).frame(width: 150, alignment: .leading)
                     Text(node.phase).font(.system(size: 12)).frame(width: 90, alignment: .leading)
                     Text(node.message).font(.system(size: 12)).foregroundStyle(Palette.ink2).lineLimit(1)

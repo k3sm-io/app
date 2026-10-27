@@ -58,7 +58,7 @@ public enum NodesList {
         let ordered = nodes.filter { $0.name == ownNode } + nodes.filter { $0.name != ownNode }
         let versions = NodeVersions.decide(nodes, report: report)
         return ordered.map { node in
-            NodeRow(key: node.name, name: StatusDisplay.clip(node.name),
+            NodeRow(key: node.name, name: NodeNameMask.shown(node.name),
                     role: NodesDisplay.roleWord(node.role(ownNode: ownNode, ownRole: ownRole)),
                     status: statusText(node), ready: node.ready == true, version: versions.columnText(node),
                     versionState: versions.state(of: node.name),
@@ -161,13 +161,18 @@ extension InspectorDetails {
         let versions = NodeVersions.decide(nodes, report: report)
         facts.append(InspectorFact("k3sm", versions.inspectorText(node), help: Help.Nodes.versionFact))
         facts.append(InspectorFact("Latest", versions.latestText, help: Help.Nodes.latestFact))
-        let addresses = node.addresses.map { $0.type.isEmpty ? $0.address : "\($0.address) (\($0.type))" }
+        // A Hostname address equal to a node's name is that name, so the
+        // demo mask covers it; every other address stays as it is.
+        let addresses = node.addresses.map { a -> String in
+            let shown = NodeNameMask.shownAddress(a.address)
+            return a.type.isEmpty ? shown : "\(shown) (\(a.type))"
+        }
         facts.append(InspectorFact("Addresses", addresses.isEmpty ? "not reported" : addresses.joined(separator: ", "), mono: true))
         facts.append(InspectorFact("Capacity", resources(milliCPU: node.capacityMilliCPU, bytes: node.capacityMemoryBytes,
                                                          pods: node.capacityPods)))
         facts.append(InspectorFact("Allocatable", resources(milliCPU: node.allocatableMilliCPU, bytes: node.allocatableMemoryBytes,
                                                             pods: node.allocatablePods)))
-        let header = InspectorBody(kind: "Node", title: node.name, subtitle: ownNode == node.name ? NodesDisplay.thisMac : nil,
+        let header = InspectorBody(kind: "Node", title: NodeNameMask.shown(node.name), subtitle: ownNode == node.name ? NodesDisplay.thisMac : nil,
                                    facts: facts)
         let ordered = node.conditions.filter { $0.type == "Ready" } + node.conditions.filter { $0.type != "Ready" }
         let conditions = ordered.map { condition -> NodeConditionLine in

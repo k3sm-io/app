@@ -52,7 +52,7 @@ struct Inspector: View {
     /// The detail pane: the selected tab's read, the events or the manifest.
     private var pane: some View {
         ScrollView {
-            Text(verbatim: model.detailLoading ? "loading…" : model.detailText)
+            Text(verbatim: model.detailLoading ? "loading…" : NodeNameMask.shownText(model.detailText))
                 .font(.system(size: 11, design: .monospaced))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)

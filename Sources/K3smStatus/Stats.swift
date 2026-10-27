@@ -298,7 +298,7 @@ public enum StatsSeries {
             let points = (history.nodes[name] ?? []).compactMap { point in
                 used(point).flatMap { percent($0, of: total) }.map { StatsUsagePoint(at: point.at, percent: $0) }
             }
-            return points.isEmpty ? nil : StatsNodeSeries(node: name, points: points)
+            return points.isEmpty ? nil : StatsNodeSeries(node: NodeNameMask.shown(name), points: points)
         }
     }
 
@@ -319,7 +319,7 @@ public enum StatsSeries {
         var counts: [String: Int] = [:]
         var unbound = 0
         for pod in pods {
-            if let node = pod.nodeName { counts[StatusDisplay.clip(node), default: 0] += 1 } else { unbound += 1 }
+            if let node = pod.nodeName { counts[NodeNameMask.shown(node), default: 0] += 1 } else { unbound += 1 }
         }
         var buckets = counts.keys.sorted().map { StatsBucket($0, counts[$0] ?? 0) }
         if unbound > 0 { buckets.append(StatsBucket(unscheduled, unbound)) }
@@ -354,7 +354,7 @@ public enum StatsSeries {
         var counts: [String: Int] = [:]
         var sizes: [String: [Int64]] = [:]
         for image in images {
-            for node in image.nodes.map(StatusDisplay.clip) {
+            for node in image.nodes.map({ NodeNameMask.shown($0) }) {
                 counts[node, default: 0] += 1
                 if let size = image.sizeBytes, size > 0 { sizes[node, default: []].append(size) }
             }

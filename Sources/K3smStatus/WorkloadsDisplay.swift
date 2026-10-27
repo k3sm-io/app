@@ -128,11 +128,12 @@ public enum WorkloadsDisplay {
     }
 
     /// Which Mac a row says its pod runs on: no node yet, this Mac (the node
-    /// the status report names as this Mac's), or another node by name.
-    public static func nodeLabel(_ pod: Pod, ownNode: String?) -> PodNodeLabel {
+    /// the status report names as this Mac's), or another node by name,
+    /// masked by `mask` when the demo mask is on (`NodeNameMask`).
+    public static func nodeLabel(_ pod: Pod, ownNode: String?, mask: [String: String]? = NodeNameMask.current) -> PodNodeLabel {
         guard let node = pod.nodeName else { return .unscheduled }
         if let ownNode, node == ownNode { return .thisMac }
-        return .node(StatusDisplay.clip(node))
+        return .node(NodeNameMask.shown(node, mask: mask))
     }
 
     /// This Mac's node name from the status report, as the panel reads it;

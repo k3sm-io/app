@@ -405,7 +405,7 @@ public enum ClusterDisplay {
         }
         let version = node.k3smRelease?.description ?? node.kubeletVersion.map(StatusDisplay.clip) ?? NodesDisplay.versionUnknown
         return ClusterNodeRow(
-            name: StatusDisplay.clip(node.name), role: StatusDisplay.clip(node.role(ownNode: ownNode, ownRole: ownRole)),
+            name: NodeNameMask.shown(node.name), role: StatusDisplay.clip(node.role(ownNode: ownNode, ownRole: ownRole)),
             ready: ready, isReady: node.ready == true, version: showsVersion ? version : nil, thisMac: node.name == ownNode,
             cores: coresUsage(pods, allocatable: [node.allocatableMilliCPU]),
             memory: memoryUsage(pods, allocatable: [node.allocatableMemoryBytes]), running: running)

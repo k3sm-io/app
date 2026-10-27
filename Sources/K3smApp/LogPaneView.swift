@@ -127,7 +127,7 @@ private struct LogBlock: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                Text(verbatim: text)
+                Text(verbatim: NodeNameMask.shownText(text))
                     .font(.system(size: 11, design: .monospaced))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
@@ -148,7 +148,7 @@ private struct LogStatusLine: View {
     let text: String
 
     var body: some View {
-        Text(verbatim: text).font(.system(size: 11.5))
+        Text(verbatim: NodeNameMask.shownText(text)).font(.system(size: 11.5))
             .foregroundStyle(Palette.ink2)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 18).padding(.bottom, 10)

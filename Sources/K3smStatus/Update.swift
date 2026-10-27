@@ -471,7 +471,7 @@ public struct UpdatePanel: Equatable, Sendable {
     static func failureMessage(_ s: UpdateStatus) -> String? {
         if let node = s.nodes.first(where: { $0.phase.lowercased() == "failed" }) {
             let message = StatusDisplay.clip(node.message)
-            let name = StatusDisplay.clip(node.name)
+            let name = node.name.isEmpty ? "" : NodeNameMask.shown(node.name)
             if !message.isEmpty { return StatusDisplay.clip(name.isEmpty ? message : name + ": " + message) }
         }
         if let c = s.conditions.first(where: { ($0.type == "Failed" || $0.reason == "Failed") && !$0.message.isEmpty }) {
@@ -490,7 +490,7 @@ public struct UpdateNodeLine: Equatable, Sendable {
     public let message: String
 
     public init(_ node: UpdateNode) {
-        name = StatusDisplay.clip(node.name)
+        name = node.name.isEmpty ? "" : NodeNameMask.shown(node.name)
         let from = StatusDisplay.clip(node.from)
         let to = StatusDisplay.clip(node.to)
         switch (from.isEmpty, to.isEmpty) {

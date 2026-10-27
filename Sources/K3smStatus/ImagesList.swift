@@ -46,7 +46,7 @@ public struct NodeImage: Equatable, Sendable {
 
     /// The nodes as the row shows them: one or two names, else a count.
     public var nodesText: String {
-        nodes.count <= 2 ? nodes.joined(separator: ", ") : "\(nodes.count) nodes"
+        nodes.count <= 2 ? nodes.map { NodeNameMask.shown($0) }.joined(separator: ", ") : "\(nodes.count) nodes"
     }
 }
 

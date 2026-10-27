@@ -117,7 +117,7 @@ public enum InspectorDetails {
     public static func build(_ engine: BuildEngine) -> InspectorBody {
         var facts = [InspectorFact("State", engine.state.word), InspectorFact("Detail", engine.state.detail)]
         facts.append(InspectorFact("Pod", engine.podName ?? "none"))
-        if let node = engine.nodeName { facts.append(InspectorFact("Node", node)) }
+        if let node = engine.nodeName { facts.append(InspectorFact("Node", NodeNameMask.shown(node))) }
         if let cache = engine.cache {
             facts.append(InspectorFact("Cache", cache.name))
             if !cache.phase.isEmpty { facts.append(InspectorFact("Cache phase", cache.phase)) }

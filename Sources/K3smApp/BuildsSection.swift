@@ -150,7 +150,7 @@ struct EngineCard: View {
                 fact("Pod", pod)
             }
             if let node = engine.nodeName {
-                fact("Node", node)
+                fact("Node", NodeNameMask.shown(node))
             }
             if let cache = engine.cache {
                 fact("Cache", [cache.name, cache.phase, WorkloadsDisplay.bytes(cache.capacityBytes)]

@@ -122,6 +122,8 @@ final class WorkloadsModel: ObservableObject {
             },
             interval: { _ in PollSchedule.fastInterval })
         nodeList.onRead = { [weak self] in
+            // The demo mask follows every node list read (a no-op when off).
+            if let nodes = self?.nodeList.value?.nodes { NodeNameMask.observe(nodes: nodes) }
             self?.load = HostLoad.read()
             self?.onNodesRead?()
         }

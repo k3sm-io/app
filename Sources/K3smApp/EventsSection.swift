@@ -148,11 +148,11 @@ struct EventRow: View {
             }
             .frame(width: widths.cg(.reason), alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
-                Text(verbatim: event.object).font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
+                Text(verbatim: NodeNameMask.shownText(event.object)).font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
                 Text(verbatim: event.namespace).font(.system(size: 11)).foregroundStyle(Palette.dimText).lineLimit(1)
             }
             .frame(width: widths.cg(.object), alignment: .leading)
-            Text(verbatim: event.message).font(.system(size: 12)).foregroundStyle(Palette.ink2).lineLimit(2)
+            Text(verbatim: NodeNameMask.shownText(event.message)).font(.system(size: 12)).foregroundStyle(Palette.ink2).lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
