@@ -20,7 +20,7 @@ import SwiftUI
 /// LogPaneView is the log pane along the bottom of the console window,
 /// below the panel, the tab and the inspector: a title naming the log
 /// (`LogPaneSource.title`), its controls, the close button, then the log in
-/// a monospaced block that keeps its end in view, and the line saying how
+/// a monospaced block that keeps its end in view and scrolls sideways, and the line saying how
 /// the read stands. A pod's log is its last lines of every container
 /// (`WorkloadsModel.loadLog`) until Follow streams one container
 /// (`LogFollowRead`, Stop ends it); a build's is `BuildLogModel`'s read.
@@ -118,28 +118,20 @@ private struct BuildLogBody<Header: View>: View {
     }
 }
 
-/// LogBlock is the log itself: monospaced, selectable, scrolled to its end
-/// whenever `count` (the bytes read) changes; -1 for a read that does not grow.
+/// LogBlock is the log itself: monospaced, selectable, its lines unwrapped
+/// with a horizontal scroller along the bottom (`LogTextView`), scrolled to
+/// its end whenever `count` (the bytes read) changes; -1 for a read that
+/// does not grow.
 private struct LogBlock: View {
     let text: String
     let count: Int
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                Text(verbatim: NodeNameMask.shownText(text))
-                    .font(.system(size: 11, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding(12)
-                Color.clear.frame(height: 1).id("end")
-            }
-            .onChange(of: count) { if count >= 0 { proxy.scrollTo("end", anchor: .bottom) } }
-        }
-        .background(Palette.wash)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.line))
-        .padding(.horizontal, 14).padding(.bottom, 8)
+        LogTextView(text: NodeNameMask.shownText(text), count: count)
+            .background(Palette.wash)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.line))
+            .padding(.horizontal, 14).padding(.bottom, 8)
     }
 }
 

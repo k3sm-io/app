@@ -429,7 +429,9 @@ login** in the app's Settings turns it off or on again (see
   and its close button stops the read and puts the pane away. Opening
   another log, a pod's or a build's, replaces what the pane shows. Drag the
   pane's top edge to resize it, from 120 pt up; it opens at a third of the
-  window, and the app keeps the height you drag to.
+  window, and the app keeps the height you drag to. Long lines do not wrap:
+  the scroll bar along the bottom of a log reaches the end of its longest
+  line, and following the log keeps the sideways position.
 - **Follow** in the log pane streams the pod's log into it:
   `k3sm kubectl logs -f --tail=200 <pod> -n <namespace>`, with `-c
   <container>` from the Follow menu for a pod of several containers. The

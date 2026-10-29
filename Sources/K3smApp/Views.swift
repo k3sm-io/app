@@ -184,18 +184,14 @@ struct LoginApprovalLine: View {
     }
 }
 
-/// RootStepLog is the tail of the last root step's log, verbatim.
+/// RootStepLog is the tail of the last root step's log, verbatim, its lines
+/// unwrapped with a horizontal scroller (`LogTextView`).
 struct RootStepLog: View {
     let text: String
 
     var body: some View {
-        ScrollView {
-            Text(verbatim: text)
-                .font(.system(.caption, design: .monospaced))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        }
-        .frame(minHeight: 120)
+        LogTextView(text: text, count: -1, fontSize: 10, inset: 0)
+            .frame(minHeight: 120)
     }
 }
 
