@@ -73,7 +73,8 @@ and 24 pt down so it bleeds off the bottom-right corner; the panel is clipped. B
 decoration: `accessibilityHidden(true)`, no help tag (neither is a control or a meaning-bearing
 mark). `Palette.accent` is new: light #022ffb (7.49:1 on white, 6.34:1 on #ececec), dark
 #7d97ff, the navy's dark value (6.15:1 on #1e1e1e, 4.73:1 on #323232); #022ffb alone measures
-2.22:1 on #1e1e1e, which is why the pair. Part 3 ships the same pair as the app's accent.
+2.22:1 on #1e1e1e, which is why the pair. Part 3 ships the navy pair, not this one, as the app's
+accent (see Scope).
 
 **The version cards.** `AppVersion.versionCards(installed:payload:)` in `K3smStatus` decides
 two `VersionCard`s for the same cases `versionLine(installed:payload:)` covers, and the
@@ -167,7 +168,7 @@ pane's "Version" bullet becomes the corner line.
 ### Part 3: the accent colour
 
 To be written in part 3's PR: the asset catalog's contents, the script's steps and the tool it
-needs, and how the catalog's pair matches `Palette.accent`.
+needs, and how the catalog's pair matches `Palette.navy`.
 
 ## Gate
 

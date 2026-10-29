@@ -109,7 +109,7 @@ appearances, marks at least 3:1 where they carry meaning.
 | `statsAccent` | #1633e0 | #7d97ff | card | 8.13:1, 7.59:1 | 6.91:1, 7.26:1 | the symbol beside the title |
 | `statsNumber` | #011389 | #b9c5ff | card | 14.43:1, 13.47:1 | 11.15:1, 11.71:1 | the headline figure |
 | `statsMuted` | #6b7177 | #9aa1a9 | card | 4.94:1, 4.61:1 | 7.18:1, 7.54:1 | units, captions, axis labels, the empty line, a bar for a phase the lists do not name |
-| `statsBar` | #022ffb | #6f88fe | card | 7.49:1, 7.0:1 | 5.92:1, 6.21:1 | a bar; the first series |
+| `statsBar` | #1633e0 | #6f88fe | card | 8.13:1, 7.59:1 | 5.92:1, 6.21:1 | a bar; the first series |
 | `statsBarSoft` | #5f7bff | #3d5bff | card | 3.64:1, 3.4:1 | 3.69:1, 3.88:1 | the second bar: free space, Succeeded pods |
 | `statsOk` | #216e45 | #4cc287 | card | 6.21:1, 5.8:1 | 8.37:1, 8.79:1 | Running pods; the second series |
 | `statsWarn` | #875810 | #e0a33e | card | 6.12:1, 5.71:1 | 8.46:1, 8.89:1 | Pending pods, the restart bars; the third series |
