@@ -32,6 +32,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private var dockFlap: AnyCancellable?
     /// The Delete key monitor, for the selected row's delete action.
     private var deleteKeys: Any?
+    /// The observers of the app being hidden or shown, for the Images pause.
+    private var appVisibility: [NSObjectProtocol]?
 
     init(model: AppModel) {
         self.model = model
@@ -71,6 +73,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             model.flap.start()
         }
         model.setWindowVisible(true)
+        syncImagesPause()
+        if appVisibility == nil {
+            appVisibility = [NSApplication.didHideNotification, NSApplication.didUnhideNotification].map { name in
+                NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.syncImagesPause() }
+                }
+            }
+        }
         Task { await model.refresh() }
     }
 
@@ -88,10 +98,25 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         model.stopTabs()
         model.stopReportPolling()
         model.setWindowVisible(false)
+        model.setImagesPaused(false)
         model.flap.stop()
         NSApp.applicationIconImage = nil
         AppActivation.closed(.console)
     }
+
+    /// The Images tab's timed reads follow whether the window can be seen:
+    /// minimized, ordered out or with the app hidden they are held. The same
+    /// test as the flap's (`occlusionState` is unreliable here), run on each
+    /// change that can alter it.
+    func syncImagesPause() {
+        guard let window else { return }
+        let seen = window.isVisible && !window.isMiniaturized && !NSApp.isHidden
+        model.setImagesPaused(!seen)
+    }
+
+    func windowDidMiniaturize(_ notification: Notification) { syncImagesPause() }
+    func windowDidDeminiaturize(_ notification: Notification) { syncImagesPause() }
+    func windowDidChangeOcclusionState(_ notification: Notification) { syncImagesPause() }
 
     func windowDidMove(_ notification: Notification) {
         saveFrame()

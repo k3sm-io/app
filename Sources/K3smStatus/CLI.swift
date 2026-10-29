@@ -397,7 +397,8 @@ public enum PollSchedule {
     }
 
     /// The Images tab's cadence: images change only when one is pulled,
-    /// loaded or removed.
+    /// loaded or removed, and a read of a large registry takes tens of
+    /// seconds, so it is paced from the end of the last read.
     public static var imagesInterval: Duration { intervals.images }
     /// The cadence of the Services, Storage and Models tabs: objects that
     /// change when someone applies a manifest.
