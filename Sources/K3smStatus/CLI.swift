@@ -358,6 +358,23 @@ public enum PollSchedule {
     /// the console's runs serial, so a slow list delays the next poll
     /// without stacking runs.
     public static let listDeadline: Duration = .seconds(10)
+    /// The deadline for the full report (`k3sm status -o json`). The full
+    /// report reads the API server and every daemon, so on a loaded Mac it
+    /// can take several seconds; killed at `killDeadline`, sized for the
+    /// local daemons probe, a slow but healthy report read as a status that
+    /// could not be read. It stays under `consoleReportInterval`, and reads
+    /// are serial, so a slow report delays the next read without stacking.
+    public static let reportDeadline: Duration = .seconds(15)
+    /// The wait before the full report is read again after a read failed,
+    /// while the last good report still covers it (`ReportRecovery`).
+    public static let reportRetryInterval: Duration = .seconds(10)
+
+    /// The deadline for a trusted CLI run: `reportDeadline` for the full
+    /// report, `killDeadline` for every other quick read (the version).
+    public static func deadline(for arguments: [String]) -> Duration {
+        arguments == K3smCLI.reportArguments ? reportDeadline : killDeadline
+    }
+
     /// The deadline for the Images tab's registry read (`k3sm image ls`),
     /// used by that read only. The CLI reads every tag of every repository
     /// from the registry, which on a registry of a thousand tags takes far

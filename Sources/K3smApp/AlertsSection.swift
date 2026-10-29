@@ -29,8 +29,10 @@ import SwiftUI
 /// and there is no card to show, the tab rests: one sentence saying
 /// everything is healthy with the report's age, over the butterfly's field
 /// (`FieldScene`), with any check that could not tell or needs an
-/// administrator listed under it. It reads only `AppModel.report` and the
-/// update plan, so it has no loader of its own.
+/// administrator listed under it. While a failed read is covered by the
+/// last good report, a line under the headline says so with its age
+/// (`ReportHold.staleLine`). It reads only `AppModel.report`, its hold and
+/// the update plan, so it has no loader of its own.
 struct AlertsSection: View {
     @ObservedObject var app: AppModel
 
@@ -46,6 +48,10 @@ struct AlertsSection: View {
                                 .foregroundStyle(Palette.row(.healthy))
                                 .accessibilityHidden(true)
                             Text(verbatim: issues.healthyLine(now: context.date)).font(.system(size: 15, weight: .semibold))
+                        }
+                        if let stale = app.reportHold.staleLine(now: context.date) {
+                            Text(verbatim: stale).font(.caption).foregroundStyle(Palette.ink2)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         FieldScene()
                         IssueGroups(groups: issues.groups)
@@ -67,6 +73,10 @@ struct AlertsSection: View {
                             }
                             if app.report != nil {
                                 Text(verbatim: issues.checkedLine(now: context.date)).font(.caption).foregroundStyle(Palette.ink2)
+                            }
+                            if let stale = app.reportHold.staleLine(now: context.date) {
+                                Text(verbatim: stale).font(.caption).foregroundStyle(Palette.ink2)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                         if let card {

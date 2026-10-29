@@ -340,6 +340,15 @@ final class AppModel: ObservableObject {
     @Published private(set) var report: StatusReport? {
         didSet { workloads.ownNode = WorkloadsDisplay.ownNode(in: report) }
     }
+    /// Which report `report` is: fresh, or the last good one held over a
+    /// failed read (`ReportHold.staleLine` says so with its age).
+    @Published private(set) var reportHold = ReportHold()
+    /// Holds the last good report over a failed full read and reads again on
+    /// its own timer until a read decodes (`ReportRecovery`), so a read that
+    /// fails while the status stream is live (no timed read runs then) does
+    /// not stay on screen until Refresh.
+    private lazy var reportRecovery = ReportRecovery(
+        clock: WatchSystemClock(), retry: { [weak self] in await self?.recoveryRead() })
     @Published private(set) var installedVersion: SemanticVersion? {
         didSet { if installedVersion != oldValue { onUpdateRead?() } }
     }
@@ -955,6 +964,7 @@ final class AppModel: ObservableObject {
         let files = await Task.detached { SelfCheck.installFiles() }.value
         var trust: HealthFacts.CLITrust = .unchecked
         var read: StatusReport?
+        if !files.rootExists { reportRecovery.reset() }
         if files.rootExists {
             if let streamed {
                 read = streamed
@@ -963,6 +973,13 @@ final class AppModel: ObservableObject {
                 read = await fullRead()
             }
             trust = lanTrustRefusal.map { .refused($0) } ?? .trusted
+            // A failed read keeps the last good report for a few reads and
+            // schedules the next one; a trust refusal is its own state.
+            if lanTrustRefusal == nil {
+                read = reportRecovery.take(read)
+            } else {
+                reportRecovery.reset()
+            }
             if streamed == nil, case .exited(0, let stdout) = await runCLI(K3smCLI.versionArguments) {
                 installedVersion = SemanticVersion.fromVersionCommand(String(decoding: stdout, as: UTF8.self))
             }
@@ -984,11 +1001,14 @@ final class AppModel: ObservableObject {
             if next == .firstRun, !running { resetFirstRun() }
         }
         guard screen == .status else {
+            reportRecovery.reset()
+            reportHold = reportRecovery.hold
             report = nil
             installedVersion = nil
             joinTarget = nil
             return
         }
+        reportHold = reportRecovery.hold
         report = read
         joinTarget = role == .agent
             ? AgentJoinTarget.resolve(statusJoinTarget: report?.joinTarget, plist: Self.readPlist)
@@ -1685,6 +1705,13 @@ final class AppModel: ObservableObject {
         Task { await refresh(streamed: report) }
     }
 
+    /// The recovery's read after a failed one, while the console is on
+    /// screen; showing the console again reads at once anyway.
+    private func recoveryRead() async {
+        guard reportPollingWanted else { return }
+        await triggeredRefresh()
+    }
+
     /// The trigger's read: never alongside another `refresh()`; one asked
     /// for meanwhile runs once that one finishes.
     private func triggeredRefresh() async {
@@ -1716,6 +1743,7 @@ final class AppModel: ObservableObject {
     /// Stops the console's report loop when the console leaves the screen.
     func stopReportPolling() {
         reportPollingWanted = false
+        reportRecovery.pause()
         syncReportTrigger()
     }
 
@@ -2168,7 +2196,7 @@ final class AppModel: ObservableObject {
         return TrustedCLI(
             check: { await Task.detached { SelfCheck.installedCLITrust(team: teamID) }.value },
             execute: { arguments in
-                await CLIProcess.run(path: K3smCLI.path, arguments: arguments, environment: environment, deadline: PollSchedule.killDeadline, limit: OutputLimit.status)
+                await CLIProcess.run(path: K3smCLI.path, arguments: arguments, environment: environment, deadline: PollSchedule.deadline(for: arguments), limit: OutputLimit.status)
             })
     }
 

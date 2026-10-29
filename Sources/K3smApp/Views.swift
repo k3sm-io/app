@@ -461,6 +461,10 @@ struct StatusView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 problems(report)
+                if let stale = model.reportHold.staleLine() {
+                    Text(verbatim: stale).font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let line = model.statusStreamLine {
                     Text(verbatim: line).font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
