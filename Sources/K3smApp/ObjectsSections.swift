@@ -50,13 +50,24 @@ struct ListRow<Content: View>: View {
 }
 
 extension View {
-    /// Makes a console row select `row` on a click, and offer its actions
+    /// Makes a console row select `row` on a click, open it on a
+    /// double-click (`AppModel.activate`), and offer its actions
     /// (`AppModel.rowMenu`, the list its inspector shows) as a context menu,
     /// with `extra` after them (a behind node's Update, which runs through
     /// the app's root step rather than the action runner).
     func selects(_ row: ConsoleRow, in app: AppModel, extra: [RowMenuExtra] = []) -> some View {
-        contentShape(Rectangle()).onTapGesture { app.select(row) }
+        activates(select: { app.select(row) }, open: { app.activate(row) })
             .modifier(RowActionsMenu(menu: app.rowMenu(row), runner: app.actions, extra: extra) { app.select(row) })
+    }
+
+    /// The one click handling every console row shares: a click selects at
+    /// once, and the second click of a double-click opens. The double-click
+    /// runs beside the single one rather than before it, so a single click
+    /// is not held back for the double-click interval.
+    func activates(select: @escaping () -> Void, open: @escaping () -> Void) -> some View {
+        contentShape(Rectangle())
+            .onTapGesture(perform: select)
+            .simultaneousGesture(TapGesture(count: 2).onEnded(open))
     }
 }
 

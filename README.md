@@ -331,6 +331,8 @@ login** in the app's Settings turns it off or on again (see
   Storage cleanup of unused volumes, and the Builds tab's engine, cache and
   build actions (below). The app remembers the tab, each tab's
   search and selection, the Workloads switch and the events namespace.
+  A click on a row selects it; a double-click opens its details,
+  showing the details column if it is hidden.
 - **Restart…** and **Delete…** in the pod details are the console's writes.
   Restart is shown only for a pod whose owner recreates it (a ReplicaSet,
   which a Deployment's pods have, a StatefulSet or a DaemonSet); Delete is

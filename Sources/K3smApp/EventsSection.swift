@@ -50,7 +50,7 @@ struct WorkloadsTab: View {
             }
             .tabHeaderRow()
             switch app.workloadsView {
-            case .pods: WorkloadsSection(model: app.workloads, runner: app.actions, columns: app.columns)
+            case .pods: WorkloadsSection(model: app.workloads, runner: app.actions, columns: app.columns) { app.activate($0) }
             case .events:
                 if let events = app.events {
                     EventsSection(app: app, loader: events, columns: app.columns)

@@ -24,6 +24,8 @@ struct WorkloadsSection: View {
     @ObservedObject var model: WorkloadsModel
     let runner: ActionRunner
     @ObservedObject var columns: ColumnsModel
+    /// A double-click on a pod row (`AppModel.activate`).
+    let activate: (ConsoleRow) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,7 +42,8 @@ struct WorkloadsSection: View {
                         ForEach(WorkloadPause.namespaces(in: w), id: \.self) { ns in
                             NamespaceGroup(namespace: ns, pods: model.visible(w.pods(in: ns)),
                                            paused: WorkloadPause.pausedControllers(in: w, namespace: ns, query: model.query),
-                                           model: model, runner: runner, widths: columns.widths(.pods))
+                                           model: model, runner: runner, widths: columns.widths(.pods),
+                                           activate: activate)
                         }
                     }
                 }
@@ -70,6 +73,8 @@ struct NamespaceGroup: View {
     @ObservedObject var model: WorkloadsModel
     let runner: ActionRunner
     let widths: ColumnWidths
+    /// A double-click on a pod row (`AppModel.activate`).
+    let activate: (ConsoleRow) -> Void
 
     var body: some View {
         if !pods.isEmpty || !paused.isEmpty {
@@ -83,8 +88,7 @@ struct NamespaceGroup: View {
                 PodRow(pod: pod, node: model.nodeLabel(pod), selected: model.selected == pod.key,
                        paused: WorkloadPause.paused(pod, in: model.controllers),
                        stale: WorkloadPause.stale(pod, in: model.controllers), widths: widths)
-                    .contentShape(Rectangle())
-                    .onTapGesture { model.select(pod) }
+                    .activates(select: { model.select(pod) }, open: { activate(.pod(pod.key)) })
                     .modifier(RowActionsMenu(menu: PodActions.menu(for: pod, controllers: model.controllers), runner: runner) {
                         model.select(pod)
                     })

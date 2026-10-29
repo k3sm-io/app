@@ -1001,6 +1001,27 @@ final class AppModel: ObservableObject {
         selection.select(row, in: row.section)
     }
 
+    /// A double-click on `row`: opens what `RowActivation` decides, the
+    /// row's inspector detail (the details column shown if it was hidden)
+    /// or its log in the log pane; a row with neither does nothing.
+    func activate(_ row: ConsoleRow) {
+        switch RowActivation.destination(for: row) {
+        case .detail(let detail):
+            if case .pod(let key) = detail, let pod = workloads.pod(key: key) {
+                if workloads.selected != pod.key { workloads.select(pod) }
+            } else {
+                select(detail)
+            }
+            if !inspectorShown { inspectorShown = true }
+        case .logs(.pod(let key)):
+            if let pod = workloads.pod(key: key) { openPodLog(pod) }
+        case .logs(.build(let target)):
+            showBuildLog(target)
+        case .none:
+            break
+        }
+    }
+
     /// Whether `row` is its tab's selected row.
     func isSelected(_ row: ConsoleRow) -> Bool {
         selection.selection(in: row.section) == row
