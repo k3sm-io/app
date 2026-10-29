@@ -83,8 +83,8 @@ final class TabUnderTest {
 struct RegistryImageStreamTests {
     nonisolated static func line(_ text: String) -> Data { Data((text + "\n").utf8) }
 
-    static func lines() throws -> [Data] {
-        let text = try #require(String(data: try fixture("image_ls_stream.ndjson"), encoding: .utf8))
+    static func lines(of name: String = "image_ls_stream.ndjson") throws -> [Data] {
+        let text = try #require(String(data: try fixture(name), encoding: .utf8))
         return text.split(separator: "\n").map { line(String($0)) }
     }
 
@@ -152,6 +152,89 @@ struct RegistryImageStreamTests {
         ])
         #expect(list.cachedOnIncomplete == ["node-full"])
         #expect(stream.progress?.fraction == 1)
+    }
+
+    /// Reads a fixture through a stream in 64 KiB chunks, as the pipe delivers it.
+    static func streamed(_ name: String) throws -> RegistryImageStream {
+        let data = try fixture(name)
+        var stream = RegistryImageStream()
+        var i = data.startIndex
+        while i < data.endIndex {
+            let next = data.index(i, offsetBy: 64 << 10, limitedBy: data.endIndex) ?? data.endIndex
+            stream.append(data[i..<next])
+            i = next
+        }
+        stream.finish()
+        return stream
+    }
+
+    @Test("the live registry's sample reads: two images, its incomplete nodes, a first progress line at zero")
+    func liveSampleReads() throws {
+        // image_ls_ndjson_sample.golden.ndjson is six lines of a real run with
+        // the repository and node names replaced; its end line counts the
+        // whole registry, the sample keeps two of its images.
+        let stream = try Self.streamed("image_ls_ndjson_sample.golden.ndjson")
+        #expect(stream.started)
+        #expect(stream.ended)
+        #expect(stream.failure == nil)
+        #expect(stream.count == 2)
+        #expect(stream.progress == RegistryImageProgress(repositories: 28, repositoriesRead: 1, tags: 1, tagsRead: 0))
+        guard case .value(let list) = stream.result(.exited(0, Data())) else {
+            Issue.record("the sample did not read")
+            return
+        }
+        #expect(list.registryName == "registry-k3sm:6450")
+        #expect(list.reachable)
+        #expect(list.cachedOnIncomplete == ["node-a", "node-b"])
+        #expect(list.images.map(\.tag) == ["r1-1789002349", "r3-1789002350"])
+        #expect(list.images.allSatisfy { $0.platforms == ["darwin/arm64/v8"] && $0.sizeBytes == 409 && $0.pods == 0 })
+    }
+
+    @Test("a first progress line with every count at zero leaves the bar indeterminate")
+    func zeroProgressIsIndeterminate() throws {
+        let first = try #require(try Self.lines(of: "image_ls_ndjson_sample.golden.ndjson").dropFirst().first)
+        guard case .progress(let progress) = RegistryImageStream.event(first) else {
+            Issue.record("the second line is not a progress line")
+            return
+        }
+        #expect(progress == RegistryImageProgress(repositories: 28, repositoriesRead: 0, tags: 0, tagsRead: 0))
+        #expect(progress.fraction == nil)
+        #expect(progress.text == RegistryImageProgress.startText)
+    }
+
+    @Test("the live registry's whole run reads all 1,153 images with no error")
+    func liveFullRunReads() throws {
+        // image_ls_ndjson_full.golden.ndjson is a whole real run (1,153
+        // images, 235 progress lines) with the names replaced.
+        let stream = try Self.streamed("image_ls_ndjson_full.golden.ndjson")
+        #expect(stream.failure == nil)
+        #expect(stream.ended)
+        #expect(stream.count == 1153)
+        #expect(stream.progress?.fraction == 1)
+        #expect(stream.progress?.text == "Reading the registry: 1,153 of 1,153 images")
+        guard case .value(let list) = stream.result(.exited(0, Data())) else {
+            Issue.record("the whole run did not read")
+            return
+        }
+        #expect(list.images.count == 1153)
+        #expect(list.images.map(\.reference) == list.images.map(\.reference).sorted())
+        #expect(list.cachedOnIncomplete == ["node-a", "node-b"])
+    }
+
+    @Test("an unreachable registry's run ends with exit 0 and reads as the unreachable line")
+    func unreachableEndsCleanly() {
+        var stream = RegistryImageStream()
+        stream.append(Self.line(#"{"type":"start","schemaVersion":1,"registry":{"name":"registry-k3sm:6450","reachable":false,"error":"dial tcp: connect: connection refused"}}"#))
+        stream.append(Self.line(#"{"type":"end","images":0,"cachedOnIncomplete":[],"migration":null}"#))
+        stream.finish()
+        guard case .value(let list) = stream.result(.exited(0, Data())) else {
+            Issue.record("an unreachable registry's run did not read")
+            return
+        }
+        #expect(!list.reachable)
+        #expect(list.images.isEmpty)
+        #expect(RegistryImages.unreachableText(list)
+            == "The registry registry-k3sm:6450 could not be reached: dial tcp: connect: connection refused.")
     }
 
     @Test("a chunk boundary inside a line still frames whole lines")

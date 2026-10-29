@@ -1,0 +1,6 @@
+{"type":"start","schemaVersion":1,"registry":{"name":"registry-k3sm:6450","reachable":true}}
+{"type":"progress","repositories":28,"repositoriesRead":0,"tags":0,"tagsRead":0}
+{"type":"progress","repositories":28,"repositoriesRead":1,"tags":1,"tagsRead":0}
+{"type":"image","repository":"sample/repo-01","tag":"r3-1789002350","reference":"registry-k3sm:6450/sample/repo-01:r3-1789002350","digest":"sha256:c770d748241db8d4e5b914c3ec4b1223f0b1db3569684588aee194cb536861f3","platforms":["darwin/arm64/v8"],"sizeBytes":409,"pods":0,"cachedOn":[]}
+{"type":"image","repository":"sample/repo-01","tag":"r1-1789002349","reference":"registry-k3sm:6450/sample/repo-01:r1-1789002349","digest":"sha256:c770d748241db8d4e5b914c3ec4b1223f0b1db3569684588aee194cb536861f3","platforms":["darwin/arm64/v8"],"sizeBytes":409,"pods":0,"cachedOn":[]}
+{"type":"end","images":1153,"cachedOnIncomplete":["node-a","node-b"],"migration":null}

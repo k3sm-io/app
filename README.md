@@ -275,9 +275,15 @@ login** in the app's Settings turns it off or on again (see
     and the summary line carries one **Update…** for every node behind
     (see [A node behind the server](#a-node-behind-the-server)).
   - **Images**: the images in the cluster's one registry, from
-    `k3sm image ls -o json` (no administrator needed): each image's
+    `k3sm image ls -o ndjson` (no administrator needed): each image's
     reference over its short digest, its size, the number of pods using it
-    and the nodes holding a cached copy. A registry that cannot be reached is
+    and the nodes holding a cached copy. Rows appear as the registry is
+    read, and a bar under the header shows how far the read has got
+    ("Reading the registry: 340 of 1,153 images"); a refresh keeps the rows
+    on screen until its read ends. The read may take up to two minutes; one
+    that does not finish says so, over the images it read. A k3sm that does
+    not stream the list is read with `k3sm image ls -o json` for the rest
+    of the session. A registry that cannot be reached is
     one line with its error; a note names any node whose cache list was cut
     short, and a banner says when images stayed in a node's own store when
     they moved into the registry. Its header row names this Mac's node and
@@ -594,7 +600,7 @@ login** in the app's Settings turns it off or on again (see
   a prune.
 - A **build** that pushed an image to the cluster's registry offers **Show
   in Images** in its details. It reads the registry's list again
-  (`k3sm image ls -o json`), switches to the Images tab and selects the
+  (`k3sm image ls`), switches to the Images tab and selects the
   image's row, by the reference `k3sm build ls` recorded and only while the
   registry still holds the digest the build recorded. When the image is
   gone, or the list could not be read, the Builds tab stays and the line
