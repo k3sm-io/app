@@ -98,7 +98,7 @@ struct ImageInspector: View {
 
     private var selected: RegistryImage? {
         guard let key = app.selection.selection(in: .images)?.key else { return nil }
-        return images.value?.images.first { $0.key == key }
+        return app.shownImages.list?.images.first { $0.key == key }
     }
 }
 

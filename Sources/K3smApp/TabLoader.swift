@@ -76,11 +76,16 @@ final class TabLoader<Value: Sendable>: ObservableObject, TabLoading {
     func stop() { reader.stop() }
     func refresh() async { await reader.refresh() }
 
-    /// One run of a fixed argument list, with the list deadline and limit.
-    nonisolated static func run(arguments: [String], environment: [String: String]) async -> CLIOutcome {
+    /// One run of a fixed argument list, with the list limit and, unless the
+    /// read names its own (the Images tab's `imageListDeadline`), the list
+    /// deadline. `onOutput` receives the output as it is read.
+    nonisolated static func run(
+        arguments: [String], environment: [String: String], deadline: Duration = PollSchedule.listDeadline,
+        onOutput: (@Sendable (Data) -> Void)? = nil
+    ) async -> CLIOutcome {
         await CLIProcess.run(
             path: K3smCLI.path, arguments: arguments, environment: environment,
-            deadline: PollSchedule.listDeadline, limit: OutputLimit.list)
+            deadline: deadline, limit: OutputLimit.list, onOutput: onOutput)
     }
 
     /// One CLI run as a tab result.

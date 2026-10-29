@@ -150,8 +150,18 @@ final class AppModel: ObservableObject {
     @Published private(set) var builds: TabLoader<BuildEngine>?
     @Published private(set) var buildHistory: TabLoader<[BuildRecord]>?
     /// The Images tab's read of the cluster's registry (`k3sm image ls -o
-    /// json`); nil until the tab is first selected.
+    /// ndjson`, or `-o json` from a CLI that does not stream); nil until the
+    /// tab is first selected.
     @Published private(set) var registryImages: TabLoader<RegistryImageList>?
+    /// The streamed run behind `registryImages`: its rows and progress as
+    /// they arrive. It changes through `registryImages`' publisher.
+    private(set) var registryImageReader: RegistryImageReader?
+    /// What the Images tab draws: the rows read, the progress bar while a
+    /// run reads, and whether the rows are a stopped run's part.
+    var shownImages: RegistryImagesShown {
+        RegistryImagesShown.of(value: registryImages?.value, load: registryImages?.load ?? .idle,
+                               stream: registryImageReader?.current)
+    }
     /// The build record whose Show in Images is reading the registry, by
     /// row key; nil while none is.
     @Published private(set) var buildImageReading: String?
@@ -997,7 +1007,7 @@ final class AppModel: ObservableObject {
         switch section {
         case .workloads: return nil
         case .nodes: return NodesList.keys(workloads.nodes)
-        case .images: return RegistryImages.keys(registryImages?.value)
+        case .images: return RegistryImages.keys(shownImages.list)
         case .builds:
             guard let history = buildHistory?.value else { return nil }
             return InspectorDetails.keys(engine: builds?.value, history: history)
@@ -1034,10 +1044,12 @@ final class AppModel: ObservableObject {
             // Alerts renders the status report the app already polls.
             made = nil
         case .images:
-            let list = observed(TabLoader(
-                arguments: K3smCLI.imageListArguments, what: "registry image list", environment: environment,
-                decode: RegistryImages.tabResult(exitCode:stdout:),
+            let reader = RegistryImageReader(run: Self.imageListRun(environment: environment))
+            let list = observed(TabLoader<RegistryImageList>(
+                read: { await reader.read() },
                 interval: { _ in PollSchedule.interval(for: .images, engineReady: false) }))
+            reader.changed = { [weak list] in list?.objectWillChange.send() }
+            registryImageReader = reader
             registryImages = reported(list, .images)
             made = list
         case .stats:
@@ -1240,6 +1252,22 @@ final class AppModel: ObservableObject {
               let item = selectedRowMenu.deleteKeyItem else { return false }
         actions.ask(item.request)
         return true
+    }
+
+    /// The Images tab's CLI run: `k3sm image ls` with its own deadline,
+    /// `PollSchedule.imageListDeadline`, its output passed on as it is read.
+    private nonisolated static func imageListRun(environment: [String: String]) -> ImageListRun {
+        { arguments, onOutput in
+            switch await TabLoader<RegistryImageList>.run(
+                arguments: arguments, environment: environment, deadline: PollSchedule.imageListDeadline, onOutput: onOutput) {
+            case .missing: return .missing
+            case .failedToLaunch: return .failedToLaunch
+            case .refused(let why): return .refused(why)
+            case .killed: return .killed
+            case .truncated: return .truncated
+            case .exited(let status, let stdout): return .exited(status, stdout)
+            }
+        }
     }
 
     /// Forwards a loader's changes to the waiting butterflies.

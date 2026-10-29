@@ -37,6 +37,9 @@ public enum OutputLimit {
     /// A build's stored log in its sheet: 1 MiB. The CLI keeps up to 16 MiB;
     /// past this the sheet says the rest is in `k3sm build logs`.
     public static let buildLog = 1 << 20
+    /// The longest line of the streamed registry image list (`k3sm image ls
+    /// -o ndjson`) the app frames; one image's object is far smaller.
+    public static let imageLine = 64 << 10
 }
 
 /// CappedOutput keeps at most `limit` bytes of a stream, in order, and

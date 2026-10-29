@@ -19,9 +19,12 @@ import K3smStatus
 import SwiftUI
 
 /// ImagesSection is the Images tab: the images of the cluster's one
-/// registry, from its own read (`k3sm image ls -o json`, `RegistryImages`),
-/// each with its short digest, size, the pods using it and the nodes caching
-/// it. An unreachable registry is one line with its error; a banner says when
+/// registry, from its own read (`k3sm image ls -o ndjson`,
+/// `RegistryImageReader`), each with its short digest, size, the pods using
+/// it and the nodes caching it. While a read runs a progress bar sits under
+/// the header and a first read's rows appear as they arrive; a refresh keeps
+/// the rows on screen until it ends (`RegistryImagesShown`). A failed read
+/// shows its error over the rows it read, marked as a part. An unreachable registry is one line with its error; a banner says when
 /// images stayed held in a node store, and a note names the nodes whose cache
 /// list was cut short. Its header row names this Mac's node and offers Mirror
 /// and Prune, each row's menu offers Untag, and its sheets are the Mirror
@@ -35,6 +38,7 @@ struct ImagesSection: View {
     var body: some View {
         VStack(spacing: 0) {
             ImagesHeaderRow(app: app, store: store)
+            ImagesProgressRow(shown: shown)
             ColumnHeader(layout: .images, columns: columns,
                          help: [.size: Help.Images.size, .pods: Help.Images.pods, .nodes: Help.Images.nodes])
             ScrollView {
@@ -54,15 +58,24 @@ struct ImagesSection: View {
         }
     }
 
+    private var shown: RegistryImagesShown { app.shownImages }
+
     @ViewBuilder private var content: some View {
+        let shown = shown
         switch images.load {
-        case .failed(let text): note(text)
+        case .failed(let text):
+            note(text)
+            if let list = shown.list {
+                Text(verbatim: RegistryImages.partialText(list.images.count)).font(.system(size: 11.5))
+                    .foregroundStyle(Palette.dimText).padding(.horizontal, 10).padding(.bottom, 6)
+                listed(list)
+            }
         case .unavailable(let reason): note(reason)
         default:
-            if let list = images.value {
+            if let list = shown.list {
                 listed(list)
-            } else {
-                note("Reading the registry…")
+            } else if !shown.reading {
+                note(RegistryImageProgress.startText)
             }
         }
     }
@@ -105,6 +118,31 @@ struct ImagesSection: View {
         let reason = ImageStoreDriver.untagDisabledReason(image, role: role, availability: app.availability,
                                                           busy: app.running || store.running)
         return [RowMenuExtra(id: "untag " + image.key, title: "Untag…", enabled: reason == nil) { store.untag(image, role: role) }]
+    }
+}
+
+/// ImagesProgressRow is the bar under the Images header while a read runs:
+/// determinate with "Reading the registry: 340 of 1,153 images" once the
+/// tag total is known, indeterminate before; gone when the read ends.
+struct ImagesProgressRow: View {
+    let shown: RegistryImagesShown
+
+    var body: some View {
+        if shown.reading {
+            let progress = shown.progress
+            HStack(spacing: 10) {
+                if let fraction = progress?.fraction {
+                    ProgressView(value: fraction).progressViewStyle(.linear).frame(maxWidth: 220)
+                } else {
+                    ProgressView().progressViewStyle(.linear).frame(maxWidth: 220)
+                }
+                Text(verbatim: progress?.text ?? RegistryImageProgress.startText)
+                    .font(.system(size: 11.5)).foregroundStyle(Palette.dimText).monospacedDigit().lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 20).padding(.vertical, 6)
+            .accessibilityElement(children: .combine)
+        }
     }
 }
 

@@ -118,29 +118,40 @@ public enum RegistryImages {
         var seen = Set<String>()
         var images: [RegistryImage] = []
         for case let entry as [String: Any] in top["images"] as? [Any] ?? [] {
-            guard let raw = entry["reference"] as? String, !raw.isEmpty else { continue }
-            let key = ImagesList.rowKey(raw)
-            guard seen.insert(key).inserted else { continue }
-            let digest = (entry["digest"] as? String).flatMap { ImagesList.digest(of: "x@" + $0) }
-            images.append(RegistryImage(
-                key: key,
-                reference: StatusDisplay.clip(raw),
-                repository: StatusDisplay.clip(entry["repository"] as? String ?? ""),
-                tag: StatusDisplay.clip(entry["tag"] as? String ?? ""),
-                digest: digest,
-                platforms: strings(entry["platforms"]).map(StatusDisplay.clip),
-                sizeBytes: ImagesList.size(entry["sizeBytes"]),
-                pods: number(entry["pods"]).flatMap { $0 >= 0 ? Int(exactly: $0) : nil },
-                cachedOn: nodes(entry["cachedOn"]),
-                untag: RegistryTag(reference: raw, digest: entry["digest"] as? String)))
+            guard let image = image(entry), seen.insert(image.key).inserted else { continue }
+            images.append(image)
         }
         return RegistryImageList(
             registryName: StatusDisplay.clip(registry["name"] as? String ?? ""),
             reachable: reachable,
             error: error,
-            images: images.sorted { ($0.reference, $0.key) < ($1.reference, $1.key) },
+            images: sorted(images),
             cachedOnIncomplete: nodes(top["cachedOnIncomplete"]),
             migration: migration(top["migration"]))
+    }
+
+    /// One element of `images[]` (or one streamed image line), or nil when
+    /// it has no reference. Every string is clipped and unknown keys are
+    /// ignored.
+    static func image(_ entry: [String: Any]) -> RegistryImage? {
+        guard let raw = entry["reference"] as? String, !raw.isEmpty else { return nil }
+        let digest = (entry["digest"] as? String).flatMap { ImagesList.digest(of: "x@" + $0) }
+        return RegistryImage(
+            key: ImagesList.rowKey(raw),
+            reference: StatusDisplay.clip(raw),
+            repository: StatusDisplay.clip(entry["repository"] as? String ?? ""),
+            tag: StatusDisplay.clip(entry["tag"] as? String ?? ""),
+            digest: digest,
+            platforms: strings(entry["platforms"]).map(StatusDisplay.clip),
+            sizeBytes: ImagesList.size(entry["sizeBytes"]),
+            pods: number(entry["pods"]).flatMap { $0 >= 0 ? Int(exactly: $0) : nil },
+            cachedOn: nodes(entry["cachedOn"]),
+            untag: RegistryTag(reference: raw, digest: entry["digest"] as? String))
+    }
+
+    /// The images in the tab's order: by reference, then key.
+    static func sorted(_ images: [RegistryImage]) -> [RegistryImage] {
+        images.sorted { ($0.reference, $0.key) < ($1.reference, $1.key) }
     }
 
     /// One run as a tab result.

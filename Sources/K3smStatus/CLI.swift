@@ -358,6 +358,13 @@ public enum PollSchedule {
     /// the console's runs serial, so a slow list delays the next poll
     /// without stacking runs.
     public static let listDeadline: Duration = .seconds(10)
+    /// The deadline for the Images tab's registry read (`k3sm image ls`),
+    /// used by that read only. The CLI reads every tag of every repository
+    /// from the registry, which on a registry of a thousand tags takes far
+    /// longer than `listDeadline`; a read killed at 10 s never fills the
+    /// tab. `PollGate` keeps the runs serial, so a slow read delays the next
+    /// one rather than stacking them.
+    public static let imageListDeadline: Duration = .seconds(120)
     /// The wait between full status reads while the console window is open
     /// and a record watch cannot be held (`ReportTrigger`'s fallback).
     public static var consoleReportInterval: Duration { intervals.consoleReport }
