@@ -96,6 +96,47 @@ struct ConsoleSplitDragTests {
         }
     }
 
+    @Test("dragging the panel's divider past its minimum stops there and never hides the panel")
+    func panelDividerStopsAtTheMinimum() throws {
+        try SplitWindow.with { harness in
+            let before = harness.window.frame
+            harness.drag(harness.inner, divider: 0, by: -2000)
+            #expect(harness.window.frame == before)
+            #expect(!harness.inner.isSubviewCollapsed(harness.inner.arrangedSubviews[0]))
+            #expect(harness.inner.arrangedSubviews[0].frame.width == CGFloat(PanelLayout.minimum))
+            #expect(!harness.app.consolePanelCollapsed)
+        }
+    }
+
+    @Test("a double-click on the panel's divider does not hide the panel")
+    func panelDividerDoubleClickKeepsThePanel() throws {
+        try SplitWindow.with { harness in
+            let split = try #require(harness.inner.delegate as? ConsoleSplitController)
+            let panel = harness.inner.arrangedSubviews[0]
+            #expect(!split.splitView(harness.inner, shouldCollapseSubview: panel, forDoubleClickOnDividerAt: 0))
+            #expect(!split.splitView(harness.inner, canCollapseSubview: panel))
+        }
+    }
+
+    @Test("View > Hide Panel hides the panel and Show Panel brings it back at its width")
+    func menuHidesAndShowsThePanel() throws {
+        try SplitWindow.with { harness in
+            let panel = harness.inner.arrangedSubviews[0]
+            let width = panel.frame.width
+            harness.app.consolePanelCollapsed = true
+            harness.settle()
+            #expect(harness.inner.isSubviewCollapsed(panel))
+            harness.app.consolePanelCollapsed = false
+            harness.settle()
+            #expect(!harness.inner.isSubviewCollapsed(panel))
+            #expect(panel.frame.width == width)
+            // Shown again, the panel still cannot be dragged away.
+            harness.drag(harness.inner, divider: 0, by: -2000)
+            #expect(!harness.inner.isSubviewCollapsed(panel))
+            #expect(!harness.app.consolePanelCollapsed)
+        }
+    }
+
     @Test("dragging the log pane's top edge raises the pane, not the window")
     func logPaneEdgeKeepsTheWindow() throws {
         try SplitWindow.with(logOpen: true) { harness in
@@ -166,7 +207,7 @@ private struct SplitRoot: View {
             app: app,
             range: app.consolePanelWidth.range(estimate: SplitWindow.panelNatural),
             width: app.consolePanelWidth.shown(estimate: SplitWindow.panelNatural),
-            collapsed: false,
+            collapsed: app.consolePanelCollapsed,
             contentMinimum: Double(ConsoleView.contentMinWidth()),
             inspectorWidth: app.inspectorWidth,
             inspectorShown: true,

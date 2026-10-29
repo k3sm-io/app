@@ -706,11 +706,13 @@ login** in the app's Settings turns it off or on again (see
   two views. It keeps that fit as the figures change until you drag the
   divider between it and the list. You can make it narrower, down to its
   original width: each node's meters then move under its name. It goes no wider than its natural width; dragging it back there,
-  or Reset Window Layout in Settings, lets it fit itself again. Double-click the
-  divider, or choose View > Hide Panel (Command-Option-L), to collapse the
-  panel; do it again, or View > Show Panel, to bring it back. The window's
+  or Reset Window Layout in Settings, lets it fit itself again. Dragging the
+  divider stops at the panel's original width and never hides it. Choose
+  View > Hide Panel (Command-Option-L) to hide the panel, and View > Show
+  Panel (the same shortcut) to bring it back; while it is hidden the tabs
+  start past the window's close, minimize and zoom buttons. The window's
   minimum width follows: the panel's minimum plus the list's, or the list's
-  alone while the panel is hidden. A width you drag narrower than the content
+  alone, with room for those buttons, while the panel is hidden. A width you drag narrower than the content
   lasts the session only; a saved width that is narrower than the content is
   replaced, and the panel opens fitted. The app remembers whether the panel
   is hidden.

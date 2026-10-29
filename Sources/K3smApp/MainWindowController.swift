@@ -126,7 +126,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     /// The console's minimum size as `ConsoleView` lays it out
     /// (`TabStripLayout`), the same while the set-up flow fills its pane.
     private func minimum() -> WindowFrame.Size {
-        let size = ConsoleView.minSize(inspectorShown: model.inspectorShown, panelCollapsed: model.consolePanelCollapsed)
+        let size = ConsoleView.minSize(inspectorShown: model.inspectorShown, panelCollapsed: model.consolePanelCollapsed,
+                                       windowButtonsEdge: model.windowButtonsEdge)
         return WindowFrame.Size(width: Double(size.width), height: Double(size.height))
     }
 
@@ -173,6 +174,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // resizes it afterwards; the delegate is set last, so only the
         // user's moves and resizes from here on are saved.
         placeWindow(window, saved: saved)
+        // The window buttons sit where the transparent title bar put them;
+        // the strip clears them while the panel is hidden.
+        window.layoutIfNeeded()
+        model.windowButtonsEdge = window.standardButtonsEdge()
         window.delegate = self
         return window
     }
@@ -214,6 +219,17 @@ extension NSWindow {
     /// is set once, when the window is made: the set-up flow runs inside the
     /// console's content pane (`ConsolePane.titleBar`), so no pane restyles it.
     @MainActor
+    /// Where the close, minimize and zoom buttons end, in points from the
+    /// window's leading edge, or nil when the window has none laid out.
+    func standardButtonsEdge() -> Double? {
+        let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+        let edges = buttons.compactMap { standardWindowButton($0) }
+            .filter { !$0.isHidden }
+            .map { $0.convert($0.bounds, to: nil).maxX }
+        guard let edge = edges.max(), edge > 0 else { return nil }
+        return Double(edge)
+    }
+
     func setConsoleChrome(_ titleBar: ConsoleTitleBar) {
         switch titleBar {
         case .transparent:

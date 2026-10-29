@@ -121,6 +121,43 @@ struct TabStripLayoutTests {
         #expect(shown.hasPrefix(String(repeating: "a", count: TabStripLayout.labelCap - 1)))
     }
 
+    @Test("with the panel shown the strip keeps its half padding, whatever the window buttons")
+    func openPanelInsetUnchanged() {
+        #expect(TabStripLayout.leadingInset(panelCollapsed: false) == TabStripLayout.padding / 2)
+        #expect(TabStripLayout.leadingInset(panelCollapsed: false, windowButtonsEdge: 76) == TabStripLayout.padding / 2)
+        #expect(TabStripLayout.stripMinimumWidth(strip: 900, panelCollapsed: false, windowButtonsEdge: 76) == 900)
+    }
+
+    @Test("with the panel hidden the first tab starts past the window buttons", arguments: [52.0, 68.0, 76.0, 90.0])
+    func collapsedInsetClearsTheButtons(edge: Double) {
+        let inset = TabStripLayout.leadingInset(panelCollapsed: true, windowButtonsEdge: edge)
+        #expect(inset > edge)
+        #expect(inset == edge + TabStripLayout.padding / 2)
+        #expect(TabStripLayout.stripMinimumWidth(strip: 900, panelCollapsed: true, windowButtonsEdge: edge) == 900 + edge)
+    }
+
+    @Test("an unreported or unsettled button edge takes the fallback", arguments: [nil, 0, -4, .nan, .infinity, 500])
+    func collapsedInsetFallback(edge: Double?) {
+        let inset = TabStripLayout.leadingInset(panelCollapsed: true, windowButtonsEdge: edge)
+        #expect(inset == TabStripLayout.windowButtonsFallback + TabStripLayout.padding / 2)
+        #expect(inset > TabStripLayout.windowButtonsFallback)
+    }
+
+    @Test("the window's minimum with the panel hidden leaves the strip room past the window buttons")
+    func collapsedWindowMinimumHoldsTheInset() {
+        // A strip wider than the floor leaves, so the strip decides the column.
+        let strip = 1200.0
+        #expect(strip > TabStripLayout.columnMinimumWidth(strip: 0))
+        for edge in [nil, 76.0] {
+            let window = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: false, panelCollapsed: true,
+                                                           windowButtonsEdge: edge)
+            // The whole window is the tab column: the inset, the strip's
+            // content and its trailing half padding all fit.
+            let inset = TabStripLayout.leadingInset(panelCollapsed: true, windowButtonsEdge: edge)
+            #expect(window == inset + (strip - TabStripLayout.padding) + TabStripLayout.padding / 2)
+        }
+    }
+
     @Test("a narrow strip leaves the floor; collapsing the panel or the inspector lowers the window")
     func windowMinimumKeepsFloor() {
         #expect(TabStripLayout.windowMinimumWidth(strip: 0, inspectorShown: true, panelCollapsed: false,
@@ -131,7 +168,9 @@ struct TabStripLayoutTests {
         let shown = TabStripLayout.windowMinimumWidth(strip: 900, inspectorShown: true, panelCollapsed: false)
         let collapsed = TabStripLayout.windowMinimumWidth(strip: 900, inspectorShown: true, panelCollapsed: true)
         let noInspector = TabStripLayout.windowMinimumWidth(strip: 900, inspectorShown: false, panelCollapsed: false)
-        #expect(abs(collapsed - (shown - PanelLayout.minimum - TabStripLayout.dividerWidth)) < 1e-9)
+        // Collapsed, the strip also clears the window buttons.
+        let cleared = TabStripLayout.leadingInset(panelCollapsed: true) - TabStripLayout.padding / 2
+        #expect(abs(collapsed - (shown - PanelLayout.minimum - TabStripLayout.dividerWidth + cleared)) < 1e-9)
         #expect(abs(noInspector - (shown - InspectorWidth.minimum - TabStripLayout.dividerWidth)) < 1e-9)
         #expect(TabStripLayout.columnMinimumWidth(strip: 0)
             == TabStripLayout.windowFloor - PanelLayout.minimum - TabStripLayout.inspectorWidth - 2 * TabStripLayout.dividerWidth)

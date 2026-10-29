@@ -93,6 +93,16 @@ public enum PanelLayout {
     public static let widthKey = "consolePanelWidth"
     public static let collapsedKey = "consolePanelCollapsed"
 
+    /// Whether the split view may collapse the panel by itself, its item's
+    /// `canCollapse`: only while the panel is already hidden (View > Hide
+    /// Panel), so the collapsed item stays collapsed. While the panel is
+    /// shown a drag of its divider stops at `minimum` and a double-click on
+    /// the divider does nothing; nothing on screen could bring a panel back
+    /// that a drag had collapsed.
+    public static func splitCanCollapse(collapsed: Bool) -> Bool {
+        collapsed
+    }
+
     /// The panel's padding on each side, from its edge to its content.
     public static let edge: Double = 20
     /// The panel's horizontal padding, both sides together.

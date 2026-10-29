@@ -296,12 +296,18 @@ final class AppModel: ObservableObject {
         if let current = statusPopoverMeasured, abs(current - height) < 1 { return }
         statusPopoverMeasured = height
     }
-    /// Whether the console panel is collapsed: a double-click on the divider
-    /// and View > Hide Panel (Command-Option-L) toggle it. Kept across launches.
+    /// Whether the console panel is collapsed: View > Hide Panel
+    /// (Command-Option-L) toggles it; a drag or double-click on the divider
+    /// does not hide it. Kept across launches.
     @Published var consolePanelCollapsed: Bool = PanelLayout.restoreCollapsed(
         from: UserDefaults.standard.object(forKey: PanelLayout.collapsedKey)) {
         didSet { UserDefaults.standard.set(consolePanelCollapsed, forKey: PanelLayout.collapsedKey) }
     }
+    /// Where the main window's close, minimize and zoom buttons end, from
+    /// the window's leading edge, as the window controller measured them
+    /// (nil until then): the strip clears them while the panel is hidden
+    /// (`TabStripLayout.leadingInset`).
+    @Published var windowButtonsEdge: Double?
     /// The console's own state; it polls only while the console is on screen.
     let workloads: WorkloadsModel
     /// Every tab's writes: the one confirmation, the run and its report.

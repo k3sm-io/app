@@ -142,15 +142,50 @@ public enum TabStripLayout {
         return max(floor, strip)
     }
 
+    /// Where the window's close, minimize and zoom buttons end, measured
+    /// from the window's leading edge, when the window cannot say: the
+    /// standard buttons under a transparent title bar end before 78 pt.
+    public static let windowButtonsFallback: Double = 78
+    /// The farthest a reported button edge is believed; a larger value is a
+    /// layout that has not settled, and the fallback is used instead.
+    public static let windowButtonsCeiling: Double = 200
+
+    /// The strip's leading inset. With the panel shown it is half the
+    /// strip's `padding`, the strip starting beside the panel. While the
+    /// panel is hidden the strip runs from the window's leading edge, under
+    /// the transparent title bar, so the first tab starts that same half
+    /// padding past the window buttons: `windowButtonsEdge` is where the
+    /// buttons end (nil, non-finite, not positive or past
+    /// `windowButtonsCeiling` takes `windowButtonsFallback`).
+    public static func leadingInset(panelCollapsed: Bool, windowButtonsEdge: Double? = nil) -> Double {
+        let open = padding / 2
+        guard panelCollapsed else { return open }
+        var edge = windowButtonsFallback
+        if let reported = windowButtonsEdge, reported.isFinite, reported > 0, reported <= windowButtonsCeiling {
+            edge = reported
+        }
+        return max(open, edge + open)
+    }
+
+    /// The strip's minimum width with its leading inset: `strip` (from
+    /// `minimumWidth`, which counts half the padding on each side) plus
+    /// what the collapsed panel's inset adds past that half.
+    public static func stripMinimumWidth(strip: Double, panelCollapsed: Bool, windowButtonsEdge: Double? = nil) -> Double {
+        strip + leadingInset(panelCollapsed: panelCollapsed, windowButtonsEdge: windowButtonsEdge) - padding / 2
+    }
+
     /// The window's minimum width: the panel's minimum and its divider,
-    /// nothing while the panel is collapsed, the tab column's minimum, and
-    /// the inspector at `inspector` (its minimum unless named) with its
-    /// divider while it is shown.
+    /// nothing while the panel is collapsed, the tab column's minimum (for
+    /// a strip that, while the panel is collapsed, also clears the window
+    /// buttons, `stripMinimumWidth`), and the inspector at `inspector` (its
+    /// minimum unless named) with its divider while it is shown.
     public static func windowMinimumWidth(strip: Double, inspectorShown: Bool, panelCollapsed: Bool,
-                                          inspector: Double = InspectorWidth.minimum) -> Double {
+                                          inspector: Double = InspectorWidth.minimum,
+                                          windowButtonsEdge: Double? = nil) -> Double {
         let panel = panelCollapsed ? 0 : PanelLayout.minimum + dividerWidth
         let details = inspectorShown ? inspector + dividerWidth : 0
-        return panel + columnMinimumWidth(strip: strip) + details
+        let inset = stripMinimumWidth(strip: strip, panelCollapsed: panelCollapsed, windowButtonsEdge: windowButtonsEdge)
+        return panel + columnMinimumWidth(strip: inset) + details
     }
 }
 

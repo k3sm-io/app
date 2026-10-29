@@ -23,9 +23,9 @@ import SwiftUI
 /// divider between each that the user drags. The panel's width stays within
 /// `range` (its minimum to the natural width fixed at the window's layout,
 /// `PanelWidth`) and is drawn at `width`; a drag records the width on the
-/// model (`PanelWidth.drag`), a double-click on the divider collapses or
-/// expands the panel, and the model's collapsed flag (View > Hide Panel)
-/// drives the same item. The inspector opens at `inspectorWidth` and moves
+/// model (`PanelWidth.drag`) and stops at the panel's minimum: neither a
+/// drag nor a double-click collapses the panel (`PanelLayout.splitCanCollapse`),
+/// and only the model's collapsed flag (View > Hide Panel) hides it. The inspector opens at `inspectorWidth` and moves
 /// only when the user drags its divider (`InspectorWidth`, `PaneKeeper`),
 /// between its minimum and the widest that leaves the tab column at
 /// `contentMinimum`; the details button collapses and shows it. Under all
@@ -210,7 +210,8 @@ final class ConsoleSplitController: NSSplitViewController {
     private let inspectorItem: NSSplitViewItem
     /// A user's drag of the panel's divider, as the panel's new width.
     var onDrag: (Double) -> Void = { _ in }
-    /// A user's collapse or expand by double-clicking the divider.
+    /// The panel shown again by the split itself (a drag of the hidden
+    /// panel's divider), or hidden, which only the model asks for.
     var onCollapse: (Bool) -> Void = { _ in }
     /// A user's drag of the inspector's divider, as its new width.
     var onInspectorDrag: (Double) -> Void = { _ in }
@@ -234,7 +235,7 @@ final class ConsoleSplitController: NSSplitViewController {
 
     init(panel: NSViewController, content: NSViewController, inspector: NSViewController) {
         panelItem = NSSplitViewItem(viewController: panel)
-        panelItem.canCollapse = true
+        panelItem.canCollapse = PanelLayout.splitCanCollapse(collapsed: false)
         panelItem.minimumThickness = PanelLayout.minimum
         panelItem.holdingPriority = NSLayoutConstraint.Priority(260)
         contentItem = NSSplitViewItem(viewController: content)
@@ -264,10 +265,17 @@ final class ConsoleSplitController: NSSplitViewController {
         contentItem.minimumThickness = contentMinimum
         if panelItem.isCollapsed != collapsed {
             moving = true
+            // The item may collapse only while the model hides it: set
+            // before a collapse, cleared after an expand.
+            if collapsed { panelItem.canCollapse = PanelLayout.splitCanCollapse(collapsed: true) }
             panelItem.isCollapsed = collapsed
             moving = false
             placed = nil
         }
+        // An expand the split made itself (a drag of the hidden panel's
+        // divider) reaches here with the item already shown.
+        let canCollapse = PanelLayout.splitCanCollapse(collapsed: collapsed)
+        if panelItem.canCollapse != canCollapse { panelItem.canCollapse = canCollapse }
         guard !collapsed else { return }
         let target = PanelLayout.clamp(width, to: range)
         guard target != placed else { return }
@@ -333,13 +341,17 @@ final class ConsoleSplitController: NSSplitViewController {
 
     override func splitView(_ splitView: NSSplitView, shouldCollapseSubview subview: NSView,
                             forDoubleClickOnDividerAt dividerIndex: Int) -> Bool {
-        subview == panelItem.viewController.view
+        subview == panelItem.viewController.view && PanelLayout.splitCanCollapse(collapsed: panelItem.isCollapsed)
     }
 
     override func splitViewDidResizeSubviews(_ notification: Notification) {
         super.splitViewDidResizeSubviews(notification)
         guard !moving else { return }
         let collapsed = panelItem.isCollapsed
+        // A drag that showed the hidden panel cannot hide it again before
+        // the model's update arrives.
+        let canCollapse = PanelLayout.splitCanCollapse(collapsed: collapsed)
+        if panelItem.canCollapse != canCollapse { panelItem.canCollapse = canCollapse }
         onCollapse(collapsed)
         let inspectorCollapsed = inspectorItem.isCollapsed
         onInspectorCollapse(inspectorCollapsed)
