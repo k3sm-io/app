@@ -41,6 +41,9 @@ public final class TabReader<Value: Sendable> {
     /// Called before any of the published state changes.
     public var willChange: (@MainActor () -> Void)?
 
+    /// The wait between reads; `Task.sleep` unless a test drives time by hand.
+    var sleep: @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+
     private let read: @Sendable () async -> TabResult<Value>
     private var loop: Task<Void, Never>?
     private var refreshes: [Int: Task<Void, Never>] = [:]
@@ -55,6 +58,8 @@ public final class TabReader<Value: Sendable> {
     /// A held reader finishes the read in flight and its wait, then reads
     /// again only on resume; a `refresh()` is never held.
     public private(set) var paused = false
+    /// How many timed waits are held by a pause.
+    var heldWaits: Int { resumers.count }
 
     public init(read: @escaping @Sendable () async -> TabResult<Value>, interval: @escaping @MainActor (Value?) -> Duration) {
         self.read = read
@@ -76,7 +81,7 @@ public final class TabReader<Value: Sendable> {
                 guard let self else { return }
                 await self.poll()
                 let wait = PollJitter.spread(self.interval(self.value), unit: PollJitter.draw())
-                try? await Task.sleep(for: wait)
+                await self.sleep(wait)
                 await self.waitWhilePaused()
             }
         }
