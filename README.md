@@ -13,7 +13,7 @@ and is free to use.
 
 | channel | for | what you get |
 |---|---|---|
-| curl | headless Macs, scripted installs, SSH sessions | `curl -fsSL https://k3sm.io/install.sh \| sh` fetches a release tarball of ad-hoc signed binaries (only the app's disk image is Developer ID signed and notarized) and runs `k3sm install` |
+| curl | headless Macs, scripted installs, SSH sessions | `curl -fsSL https://k3sm.io/install.sh \| sh` fetches a release tarball of Developer ID signed and notarized programs and runs `k3sm install` |
 | app | desktop users | a notarized disk image holding `k3sm.app`, dragged to `/Applications`; Developer ID signed, downloaded from the GitHub release page; it does not update itself, so a new version is a new disk image |
 
 Both channels carry the same k3sm build at the same version and end in the
@@ -280,7 +280,7 @@ login** in the app's Settings turns it off or on again (see
     and the nodes holding a cached copy. Rows appear as the registry is
     read, and a bar under the header shows how far the read has got
     ("Reading the registry: 340 of 1,153 images"); a refresh keeps the rows
-    on screen until its read ends. The read may take up to two minutes; one
+    on screen until its read ends. The read is cut off after two minutes; a read
     that does not finish says so, over the images it read. A k3sm that does
     not stream the list is read with `k3sm image ls -o json` for the rest
     of the session. A registry that cannot be reached is
@@ -707,7 +707,9 @@ login** in the app's Settings turns it off or on again (see
   divider between it and the list. You can make it narrower, down to its
   original width: each node's meters then move under its name. It goes no wider than its natural width; dragging it back there,
   or Reset Window Layout in Settings, lets it fit itself again. Dragging the
-  divider stops at the panel's original width and never hides it. Choose
+  divider stops at the panel's original width and never hides it (a
+  double-click on it does nothing). While the panel is hidden, dragging the
+  divider at the window's left edge shows it again. Choose
   View > Hide Panel (Command-Option-L) to hide the panel, and View > Show
   Panel (the same shortcut) to bring it back; while it is hidden the tabs
   start past the window's close, minimize and zoom buttons. The window's
@@ -881,8 +883,9 @@ The **General** pane:
 - **Take the Tour** brings the window forward and starts the tour, once k3sm
   is installed.
 - **Reset Window Layout…** asks, then puts the console's left panel back to
-  its natural width (fitting itself again) and first view, shown, shows the details column at its first width, opens logs at a third of the window again, and puts every
-  table's columns back to their first widths. Tabs, searches and selections
+  its natural width and shows it if it was hidden, puts the details column
+  back to 320 pt and shows it, opens logs at a third of the window again, and
+  puts every table's columns back to their first widths. Tabs, searches and selections
   stay as they are.
 - The pane's corner carries the k3sm mark and the app's own version,
   `k3sm.app v0.2.0` for a release build or the pseudo-version for a

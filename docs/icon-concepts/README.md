@@ -29,7 +29,7 @@ hack/icon-concepts.sh docs/icon-concepts
 | Concept | | Tile | Wings |
 |---|---|---|---|
 | `night` | <img src="night.png" width="128" alt="night"> | the console's navy, `#111a5c` to `#070d3d`, with a blue glow | `#8fa4ff` / `#3d5bff`, glowing |
-| `night-glow` | <img src="night-glow.png" width="128" alt="night-glow"> | the console's navy with a blue glow, no gloss | `#8fa4ff` on both wings, glowing `#6f88fe`; the still frame of the Dock flap (#27) |
+| `night-glow` | <img src="night-glow.png" width="128" alt="night-glow"> | the console's navy with a blue glow, no gloss | `#8fa4ff` on both wings, glowing `#6f88fe`; the still frame of the Dock icon's wing animation |
 | `electric` | <img src="electric.png" width="128" alt="electric"> | brand blue, `#2d48fe` to `#022ffb` to `#011389` | white / `#c9d2ff` |
 | `porcelain` | <img src="porcelain.png" width="128" alt="porcelain"> | white to `#eef1ff` | the brand's `#022ffb` / `#011389` |
 | `bold` | <img src="bold.png" width="128" alt="bold"> | the console's navy | `#8fa4ff` / `#3d5bff`, the mark at 74%, as large as it can be while it and its glow stay inside the tile |
