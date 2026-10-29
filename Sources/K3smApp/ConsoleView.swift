@@ -162,7 +162,7 @@ struct ConsoleContent: View {
                 UpdateProgressPanel(app: app, panel: panel)
             }
             section
-                .overlay { TabWaitingMark(waiting: app.waiting, section: app.section, placement: .content) }
+                .overlay { ContentWaitingMark(app: app, waiting: app.waiting) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Palette.surface)

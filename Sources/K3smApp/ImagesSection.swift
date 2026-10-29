@@ -38,7 +38,7 @@ struct ImagesSection: View {
     var body: some View {
         VStack(spacing: 0) {
             ImagesHeaderRow(app: app, store: store)
-            ImagesProgressRow(shown: shown)
+            ImagesProgressRow(shown: shown, waiting: app.waiting)
             ColumnHeader(layout: .images, columns: columns,
                          help: [.size: Help.Images.size, .pods: Help.Images.pods, .nodes: Help.Images.nodes])
             ScrollView {
@@ -123,14 +123,19 @@ struct ImagesSection: View {
 
 /// ImagesProgressRow is the bar under the Images header while a read runs:
 /// determinate with "Reading the registry: 340 of 1,153 images" once the
-/// tag total is known, indeterminate before; gone when the read ends.
+/// tag total is known, indeterminate before; gone when the read ends. The
+/// first read's waiting butterfly sits at its left (`ImagesLoadingIndicator`).
 struct ImagesProgressRow: View {
     let shown: RegistryImagesShown
+    @ObservedObject var waiting: WaitingModel
 
     var body: some View {
         if shown.reading {
             let progress = shown.progress
             HStack(spacing: 10) {
+                if ImagesLoadingIndicator.placement(mark: waiting.marks[.images], progressBarVisible: true) == .inline {
+                    WaitingButterfly(flap: waiting.flap, size: WaitingButterfly.contentSize)
+                }
                 if let fraction = progress?.fraction {
                     ProgressView(value: fraction).progressViewStyle(.linear).frame(maxWidth: 220)
                 } else {

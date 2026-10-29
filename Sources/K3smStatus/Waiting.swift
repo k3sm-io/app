@@ -24,6 +24,35 @@ public enum WaitingMark: Equatable, Sendable {
     case label
 }
 
+/// ImagesLoadingIndicator is where the Images tab's waiting butterfly is
+/// drawn. While the registry read shows its progress bar the content mark
+/// sits inline, beside the bar, so the rows already read stay unobscured;
+/// the centred overlay remains only for a content mark with no bar to sit
+/// beside (a first read whose stream has not started or has ended).
+public enum ImagesLoadingIndicator {
+    /// Placement is where the Images tab draws the content waiting mark.
+    public enum Placement: Equatable, Sendable {
+        /// Beside the progress bar.
+        case inline
+        /// Centred over the tab's content.
+        case centred
+        /// Not drawn as a content mark.
+        case none
+    }
+
+    /// placement is where the content mark goes, given the tab's `mark` from
+    /// `Waiting` and whether the progress bar is visible. A label mark and no
+    /// mark draw no content indicator.
+    public static func placement(mark: WaitingMark?, progressBarVisible: Bool) -> Placement {
+        guard mark == .content else { return .none }
+        return progressBarVisible ? .inline : .centred
+    }
+
+    /// drawsCentredOverlay is whether the console's centred overlay draws the
+    /// Images tab's mark: only for the `centred` placement.
+    public static func drawsCentredOverlay(_ placement: Placement) -> Bool { placement == .centred }
+}
+
 /// Waiting is when the little butterfly that says "reading" is shown, in a
 /// console tab and on the menu bar's status item. A tab's first read, and the
 /// status item's read, show it only past `debounce` and then keep it at least

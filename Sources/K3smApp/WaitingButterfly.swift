@@ -59,6 +59,24 @@ struct TabWaitingMark: View {
     }
 }
 
+/// ContentWaitingMark is the console's centred waiting mark for the tab on
+/// screen. The Images tab's mark is not centred while its progress bar shows:
+/// it sits beside the bar (`ImagesProgressRow`), so this draws nothing there.
+struct ContentWaitingMark: View {
+    @ObservedObject var app: AppModel
+    @ObservedObject var waiting: WaitingModel
+
+    var body: some View {
+        let section = app.section
+        let placement: ImagesLoadingIndicator.Placement = section == .images
+            ? ImagesLoadingIndicator.placement(mark: waiting.marks[.images], progressBarVisible: app.shownImages.reading)
+            : .centred
+        if ImagesLoadingIndicator.drawsCentredOverlay(placement) {
+            TabWaitingMark(waiting: waiting, section: section, placement: .content)
+        }
+    }
+}
+
 /// PerchingButterfly is the label mark in flight: on a display-rate timeline,
 /// only while it is shown, it samples `flight`'s pose (`LabelFlight.pose`) on
 /// the monotonic clock and draws the mark at that offset from its perch,
