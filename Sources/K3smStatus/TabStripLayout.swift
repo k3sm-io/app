@@ -72,12 +72,13 @@ public enum TabStripLayout {
     /// The divider beside the panel, and the one beside the inspector.
     public static let dividerWidth: Double = 1
 
-    /// The details button's symbol: the column it toggles, drawn while the
-    /// inspector is shown, a plain window while it is hidden. The button
+    /// The details button's symbol: the column it toggles, drawn with a
+    /// filled stripe while the inspector is shown and an outlined one while
+    /// it is hidden (never a bare rectangle, which reads as no panel). The button
     /// keeps one colour in both states, so the symbol carries the state and
     /// the help tag (`Help.Strip.details`) says which way a click goes.
     public static func detailsSymbol(shown: Bool) -> String {
-        shown ? "sidebar.trailing" : "rectangle"
+        shown ? "rectangle.trailinghalf.inset.filled" : "sidebar.trailing"
     }
 
     /// waitingMarkFrame is where a tab's waiting butterfly is drawn, in the
