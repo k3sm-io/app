@@ -883,7 +883,8 @@ The **General** pane:
 - **Take the Tour** brings the window forward and starts the tour, once k3sm
   is installed.
 - **Reset Window Layout…** asks, then puts the console's left panel back to
-  its natural width and shows it if it was hidden, puts the details column
+  its natural width and its first view (Cluster or This Mac, as a first
+  launch chooses) and shows it if it was hidden, puts the details column
   back to 320 pt and shows it, opens logs at a third of the window again, and
   puts every table's columns back to their first widths. Tabs, searches and selections
   stay as they are.
