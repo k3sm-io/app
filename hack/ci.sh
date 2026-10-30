@@ -52,14 +52,17 @@
 #      stage), and hack/verify-no-inplace-write.sh (its self-test, then the
 #      live tree: the swap code never writes into a file in place). The full
 #      run's stage 2 already ran the K3smSwapTests suite.
-#  14. the shipped swap helper: hack/verify-shipped-helper.sh --self-test (a
-#      stand-in helper that accepts, or refuses without a reason, or changes
-#      its fixture tree, or is signed without the hardened runtime or with an
-#      entitlement, must red the check), then the helper built as a release
-#      builds it (the compiled Team ID pin and requirements, no test seam),
-#      signed ad-hoc with the release flags: no entitlements, the hardened
-#      runtime, and a refusal of every mode against every ad-hoc signed
-#      fixture.
+#  14. the shipped swap helper: hack/verify-shipped-helper.sh --self-test
+#      (stand-ins that accept, refuse without a reason or for another reason,
+#      change their fixture tree or the support directory, or are signed
+#      without the hardened runtime or with an entitlement must red the
+#      check; a changed release signing line must too), then the helper
+#      built as a release builds it (the compiled Team ID pin and
+#      requirements, no test seam), signed ad-hoc with the release flags: no
+#      entitlements and the hardened runtime, on the helper and inside the
+#      re-sealed bundle, and in every mode, confined by sandbox-exec where it
+#      can nest, it refuses to act outside its private copy. Its requirement
+#      check and bundle verifier are exercised only at attended signing.
 #
 # hack/ci.sh --acceptance runs only stage 12. hack/ci.sh --swap-engine runs
 # stage 13 with the K3smSwapTests suite itself (swift test --filter).
