@@ -88,7 +88,7 @@ struct ImageStoreScriptTests {
             of: "exec \"$k3sm\" 'stop' '--actor' 'user' '--reason' 'from the k3sm app'", with: "exec \"$k3sm\" " + argv))
         let exec = try #require(text.range(of: "exec \"$k3sm\""))
         #expect(text.range(of: "/usr/bin/codesign --verify --strict")!.lowerBound < exec.lowerBound)
-        #expect(text.range(of: "\tacl_check \"$p\"")!.lowerBound < exec.lowerBound)
+        #expect(text.range(of: "\ncheck \"$k3sm\"\n")!.lowerBound < exec.lowerBound)
         let line = LifecycleScriptBuilder.renderImage(c.verb, teamID: Self.team).command(inputPath: "/dev/null")
         #expect(!line.contains("lockf"))
         #expect(try shell(["-n", "-c", line]).status == 0)

@@ -122,7 +122,8 @@ public enum LifecycleExit {
     /// `k3sm network lan on|off` failed and could not restore the previous
     /// setting either.
     public static let lanRestoreFailed: Int32 = 4
-    /// `/Library/k3sm/k3sm` or an ancestor was a symlink, missing, not owned
+    /// `/Library/k3sm/k3sm` or an ancestor was a symlink (other than the
+    /// versioned chain `InstalledCLIPreamble` accepts), missing, not owned
     /// by root, writable by group or others, or carried an ACL (an ACL can
     /// grant write where the mode bits do not); or the binary is not a
     /// regular file. Nothing ran.
@@ -135,7 +136,8 @@ public enum LifecycleExit {
 /// It shares nothing with the copy-out (`RootScriptBuilder`): it stages
 /// nothing, takes no staging lock, and runs only the installed CLI, after
 /// re-checking that the CLI and every directory above it are root-owned, not
-/// group or other writable, not symlinks and carry no ACL, and that the CLI satisfies the
+/// group or other writable, not symlinks (but for the versioned chain
+/// `InstalledCLIPreamble` accepts) and carry no ACL, and that the CLI satisfies the
 /// Developer ID requirement built from the compiled Team ID. A developer
 /// build has no Team ID, so it can render no lifecycle script at all.
 public enum LifecycleScriptBuilder {
@@ -287,6 +289,19 @@ public enum LifecycleScriptBuilder {
 /// ACL; the CLI a regular file that passes `codesign --verify -R` against the
 /// Developer ID requirement built from the compiled Team ID. It ends with
 /// `$k3sm` set and checked, ready for the caller's one CLI line.
+///
+/// The CLI path may instead be exactly the versioned chain a k3sm install
+/// lays out: `<dir>/k3sm -> current/k3sm` and `<dir>/current ->
+/// versions/<version>`, both relative, where `<version>` is a release tag's
+/// characters starting with a letter or digit, not a `.partial` staging
+/// name, and `unknown-` only with twelve lowercase hex digits. Each step is
+/// read with `lstat` and `readlink -n` (the exact bytes, so a trailing
+/// newline cannot hide), and never followed beyond what that allows: both
+/// links, `versions` and the version directory get the same owner, mode and
+/// ACL checks, neither directory may be a link, and the target must be a
+/// regular file and not a link. Then `$k3sm` is the resolved target, so the
+/// file checked is the file run. Any other link, an absolute or longer
+/// chain, or a dangling one is refused.
 public enum InstalledCLIPreamble {
     /// Every path the script checks before running the CLI: `/`, each
     /// directory above it, and the CLI itself.
@@ -302,9 +317,23 @@ public enum InstalledCLIPreamble {
 
     /// The preamble text, ending in a newline.
     public static func render(teamID: TeamID, cliPath: String) -> String {
+        render(cliPath: cliPath, requirement: DesignatedRequirement.developerID(teamID: teamID), owners: [0])
+    }
+
+    /// The preamble for a CLI at `cliPath`, checked against the code
+    /// signing `requirement`, with every checked path owned by one of
+    /// `owners`. Only the tests pass anything but root and the Developer ID
+    /// requirement, to run the checks against a layout in a temporary
+    /// directory as this user.
+    static func render(cliPath: String, requirement: String, owners: [UInt32]) -> String {
         let q = ShellQuote.quote
-        let paths = checkedPaths(cliPath: cliPath).map(q).joined(separator: " ")
-        let requirement = "-R=" + DesignatedRequirement.developerID(teamID: teamID)
+        let all = checkedPaths(cliPath: cliPath)
+        let ancestors = all.dropLast().map(q).joined(separator: " ")
+        let dir = all.dropLast().last ?? "/"
+        let name = String(cliPath.split(separator: "/").last ?? "")
+        let layout = dir == "/" ? "" : dir
+        let ownerTest = owners.map { "! -user \($0)" }.joined(separator: " ")
+        let requirement = "-R=" + requirement
         return #"""
             set -eu
             umask 077
@@ -321,13 +350,51 @@ public enum InstalledCLIPreamble {
             	case "${listing%% *}" in *+) refuse "$1 carries an ACL" ;; esac
             	case "$listing" in *"$nl"*) refuse "$1 carries an ACL" ;; esac
             }
-            for p in \#(paths); do
+            check() {
+            	bad=$(/usr/bin/find "$1" -maxdepth 0 \( \#(ownerTest) -o -perm -0020 -o -perm -0002 \) -print) || refuse "$1 could not be checked"
+            	if [ -n "$bad" ]; then refuse "$1 is not owned by root, or is writable by group or others"; fi
+            	acl_check "$1"
+            }
+            link_target() {
+            	t=$(/usr/bin/readlink -n "$1" && echo x) || refuse "$1 could not be read"
+            	t=${t%x}
+            }
+            for p in \#(ancestors); do
             	if [ -L "$p" ]; then refuse "$p is a symlink"; fi
             	if [ ! -e "$p" ]; then refuse "$p does not exist"; fi
-            	bad=$(/usr/bin/find "$p" -maxdepth 0 \( ! -user 0 -o -perm -0020 -o -perm -0002 \) -print) || refuse "$p could not be checked"
-            	if [ -n "$bad" ]; then refuse "$p is not owned by root, or is writable by group or others"; fi
-            	acl_check "$p"
+            	check "$p"
             done
+            if [ -L "$k3sm" ]; then
+            	check "$k3sm"
+            	link_target "$k3sm"
+            	if [ "$t" != \#(q("current/" + name)) ]; then refuse "$k3sm is a symlink other than current/\#(name)"; fi
+            	p=\#(q(layout + "/current"))
+            	if [ ! -L "$p" ]; then refuse "$p is not a symlink into versions"; fi
+            	check "$p"
+            	link_target "$p"
+            	case "$t" in versions/*) ;; *) refuse "$p does not point into versions" ;; esac
+            	ver=${t#versions/}
+            	case "$ver" in
+            	'' | [!0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ]* | *[!0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.+_-]* | *.partial)
+            		refuse "$p names an invalid version" ;;
+            	unknown-*)
+            		case "$ver" in
+            		unknown-[0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef]) ;;
+            		*) refuse "$p names an invalid version" ;;
+            		esac ;;
+            	esac
+            	if [ "${#ver}" -gt \#(ReleaseTag.maxLength) ]; then refuse "$p names an invalid version"; fi
+            	for p in \#(q(layout + "/versions")) \#(q(layout + "/versions/"))"$ver"; do
+            		if [ -L "$p" ]; then refuse "$p is a symlink"; fi
+            		if [ ! -e "$p" ]; then refuse "$p does not exist"; fi
+            		if [ ! -d "$p" ]; then refuse "$p is not a directory"; fi
+            		check "$p"
+            	done
+            	k3sm=\#(q(layout + "/versions/"))"$ver"\#(q("/" + name))
+            	if [ -L "$k3sm" ]; then refuse "$k3sm is a symlink"; fi
+            fi
+            if [ ! -e "$k3sm" ]; then refuse "$k3sm does not exist"; fi
+            check "$k3sm"
             if [ ! -f "$k3sm" ]; then refuse "$k3sm is not a regular file"; fi
             if ! /usr/bin/codesign --verify --strict \#(q(requirement)) "$k3sm"; then
             	echo 'k3sm app: refused: the installed k3sm is not signed by the k3sm Developer ID' >&2
