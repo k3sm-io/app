@@ -1331,6 +1331,13 @@ mark changes and commit the result.
 Candidate icons with a tile of their own are in `docs/icon-concepts/`,
 rendered by `hack/icon-concepts.sh`.
 
+The app's accent colour, `Resources/Assets.car` (one colour set, `AccentColor`: the k3sm
+navy #011389 in light and #7d97ff in dark), is compiled by `hack/make-accent.sh` with
+Xcode's `actool`; rerun it after the colour changes and commit the result. A build needs
+only the Command Line Tools. `Info.plist` names the colour in `NSAccentColorName`, so
+the app's controls, the Settings toolbar's selected pane among them, take the k3sm blue
+while the system accent is Multicolour; a system accent you have chosen still wins.
+
 ```sh
 swift build
 swift test

@@ -1,7 +1,6 @@
 # The k3sm look for the info popover and Settings
 
-Status: parts 1 (the popover) and 2 (Settings) designed and implemented; part 3 to follow,
-filling in its own section below.
+Status: all three parts designed and implemented, each in its own PR.
 
 ## Summary
 
@@ -167,8 +166,39 @@ version sits in the corner with the mark, and the panes are tinted. `README.md`:
 pane's "Version" bullet becomes the corner line.
 ### Part 3: the accent colour
 
-To be written in part 3's PR: the asset catalog's contents, the script's steps and the tool it
-needs, and how the catalog's pair matches `Palette.navy`.
+**The catalog's contents.** `Resources/Assets.car` holds one colour set, `AccentColor`, with
+two sRGB entries: `#011389` for any appearance and `#7d97ff` for the dark appearance
+(`luminosity: dark`). That is the pair `Palette.navy` spells in code (light #011389, 14.43:1
+on white and 12.21:1 on #ececec; dark #7d97ff, 6.15:1 on #1e1e1e and 4.73:1 on #323232), so
+the controls AppKit tints, the strip's icons, the Pods chip and the Settings eyebrows are one
+navy in each mode. The brighter `Palette.accent` (#022ffb) was the first pair; on a filled
+control beside the navy it read as a second blue, so it stays on the marks and hairlines. The
+compiled file is 18,504 bytes.
+
+**The script.** `hack/make-accent.sh <out.car>` writes the colour set's two `Contents.json`
+files into a temporary `.xcassets`, runs `actool --compile` on it for `macosx` at the
+package's deployment target, and copies the resulting `Assets.car` to the path given. It
+uses `actool`, which ships with Xcode and not with the Command Line Tools, and
+`assetutil`, which ships with macOS; it refuses with a one-line hint when `xcrun` cannot
+find `actool`. `actool` stamps the time of the run into the file, so two runs are not the
+same bytes (24 bytes differ between runs on the same Mac). `hack/make-accent.sh --check
+Resources/Assets.car` is the reviewer's check: it compiles the catalog afresh and compares
+what the two files hold (`assetutil --info`, the Timestamp line aside): the colour set's
+name, its two appearances and their components. A build needs no regeneration:
+`hack/build-app.sh` copies the committed file into `Contents/Resources`, beside the icon,
+and `Resources/Info.plist` names the colour in `NSAccentColorName`.
+
+**What it changes.** Every control AppKit draws in the accent colour follows the catalog
+while the system accent is Multicolour: the Settings toolbar's selected pane, focus rings,
+default buttons, selection in lists and text, links. A system accent the user has chosen in
+System Settings wins, as it does in every app. The SwiftUI tint from part 2 stays, so the
+checkboxes and segments keep the navy under either rule.
+
+**Not changed.** No source target; `Package.swift`, `hack/verify-deps.sh` and
+`hack/deps.allow` are untouched. The navy Mac panel and the console keep their own colours.
+
+**Docs.** `docs/ARCHITECTURE.md`: the `build-app.sh` row names the catalog it copies.
+`README.md`: a paragraph beside the icon's says how the accent is made and when it applies.
 
 ## Gate
 
