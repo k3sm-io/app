@@ -187,7 +187,8 @@ struct InstalledCLITrustTests {
                 if let o = override[path] { return o }
                 return path == K3smCLI.path ? bin : dir
             },
-            signatureValid: { signature })
+            linkTarget: { _ in nil },
+            signatureValid: { _ in signature })
     }
 
     @Test("a root-owned, signed install is trusted")
@@ -237,7 +238,8 @@ struct InstalledCLITrustTests {
     func signature() {
         #expect(Self.evaluate(signature: false) == .refused("the installed k3sm is not signed by the k3sm Developer ID"))
         var checked = false
-        _ = InstalledCLITrust.evaluate(cliPath: K3smCLI.path, facts: { _ in nil }, signatureValid: { checked = true; return true })
+        _ = InstalledCLITrust.evaluate(cliPath: K3smCLI.path, facts: { _ in nil }, linkTarget: { _ in nil },
+                                       signatureValid: { _ in checked = true; return true })
         #expect(!checked)
     }
 }

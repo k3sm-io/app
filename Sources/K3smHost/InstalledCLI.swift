@@ -26,16 +26,33 @@ import Security
 public enum InstalledCLI {
     /// Whether the installed CLI may be run: `/Library/k3sm/k3sm` and every
     /// directory above it are root-owned, not group or other writable, carry
-    /// no ACL and are not symlinks, and the binary satisfies the Developer ID
-    /// requirement for `team`. The same checks the lifecycle root script
+    /// no ACL and are not symlinks (or `/Library/k3sm/k3sm` is the versioned
+    /// chain `InstalledCLITrust.evaluate` accepts), and the binary, resolved,
+    /// satisfies the Developer ID requirement for `team`. The same checks the lifecycle root script
     /// repeats as root before it runs.
     ///
     /// A developer build pins no team, so it checks the paths only.
     public static func trust(team: TeamID?) -> InstalledCLITrust {
+        trust(cliPath: K3smCLI.path, owners: [0]) { path in
+            team.map { binarySignatureValid(path: path, team: $0) } ?? true
+        }
+    }
+
+    /// The check on a CLI at `cliPath` with every path owned by one of
+    /// `owners`; `signatureValid` gets the resolved binary. Only the tests
+    /// pass anything but `K3smCLI.path` and root.
+    static func trust(cliPath: String, owners: Set<UInt32>, signatureValid: (String) -> Bool) -> InstalledCLITrust {
         InstalledCLITrust.evaluate(
-            cliPath: K3smCLI.path,
-            facts: pathFacts,
-            signatureValid: { team.map { binarySignatureValid(path: K3smCLI.path, team: $0) } ?? true })
+            cliPath: cliPath, owners: owners, facts: pathFacts, linkTarget: linkTarget, signatureValid: signatureValid)
+    }
+
+    /// The exact target of a symlink (`readlink(2)`, never followed), or nil
+    /// when the path is not a link, cannot be read, or the target is not UTF-8.
+    public static func linkTarget(_ path: String) -> String? {
+        var buffer = [UInt8](repeating: 0, count: Int(PATH_MAX) + 1)
+        let n = buffer.withUnsafeMutableBufferPointer { readlink(path, $0.baseAddress!, $0.count) }
+        guard n >= 0, n < buffer.count else { return nil }
+        return String(bytes: buffer[..<n], encoding: .utf8)
     }
 
     /// `lstat` of one path, or nil when it cannot be read.

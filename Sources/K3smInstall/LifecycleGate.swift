@@ -300,21 +300,65 @@ public enum InstalledCLITrust: Equatable, Sendable {
         }
     }
 
-    /// Decides trust from `lstat` of every path in `checkedPaths` order (nil
-    /// for a path that does not exist) and the binary's signature check. The
-    /// first failing path names the reason.
-    public static func evaluate(cliPath: String, facts: (String) -> PathFacts?, signatureValid: () -> Bool) -> InstalledCLITrust {
-        for path in LifecycleScriptBuilder.checkedPaths(cliPath: cliPath) {
-            guard let f = facts(path) else { return .refused("\(path) does not exist") }
-            if f.isSymlink { return .refused("\(path) is a symlink") }
-            if f.ownerUID != 0 || f.mode & 0o022 != 0 {
+    /// Decides trust from `lstat` of each checked path (`facts`, nil for a
+    /// path that does not exist), the exact target of each link
+    /// (`linkTarget`, `readlink`), and the binary's signature check, the same
+    /// rule the root preamble (`InstalledCLIPreamble`) runs: `/`, every
+    /// directory above the CLI and the CLI itself owned by one of `owners`,
+    /// not group or other writable, with no ACL; every directory a real
+    /// directory; and the CLI either a regular file, or exactly the chain
+    /// `<dir>/k3sm -> current/k3sm`, `<dir>/current -> versions/<version>`
+    /// (`VersionDirectoryName`), both links, `versions` and the version
+    /// directory held to the same checks, and the target a regular file, not
+    /// a link. `signatureValid` gets the resolved binary. The first failing
+    /// path names the reason. Only the tests pass `owners` other than root.
+    public static func evaluate(cliPath: String, owners: Set<UInt32> = [0], facts: (String) -> PathFacts?,
+                                linkTarget: (String) -> String?, signatureValid: (String) -> Bool) -> InstalledCLITrust {
+        func held(_ path: String, _ f: PathFacts) -> InstalledCLITrust? {
+            if !owners.contains(f.ownerUID) || f.mode & 0o022 != 0 {
                 return .refused("\(path) is not owned by root, or is writable by group or others")
             }
             if f.hasACL { return .refused("\(path) carries an ACL") }
-            if path == cliPath, !f.isRegularFile { return .refused("\(path) is not a regular file") }
-            if path != cliPath, !f.isDirectory { return .refused("\(path) is not a directory") }
+            return nil
         }
-        return signatureValid() ? .trusted : .refused("the installed k3sm is not signed by the k3sm Developer ID")
+        func directory(_ path: String) -> InstalledCLITrust? {
+            guard let f = facts(path) else { return .refused("\(path) does not exist") }
+            if f.isSymlink { return .refused("\(path) is a symlink") }
+            if let r = held(path, f) { return r }
+            return f.isDirectory ? nil : .refused("\(path) is not a directory")
+        }
+        let paths = LifecycleScriptBuilder.checkedPaths(cliPath: cliPath)
+        for path in paths.dropLast() {
+            if let r = directory(path) { return r }
+        }
+        let dir = paths.dropLast().last.map { $0 == "/" ? "" : $0 } ?? ""
+        let name = String(cliPath.split(separator: "/").last ?? "")
+        var binary = cliPath
+        guard var f = facts(binary) else { return .refused("\(binary) does not exist") }
+        if f.isSymlink {
+            if let r = held(cliPath, f) { return r }
+            guard linkTarget(cliPath) == "current/" + name else {
+                return .refused("\(cliPath) is a symlink other than current/\(name)")
+            }
+            let current = dir + "/current"
+            guard let c = facts(current), c.isSymlink else { return .refused("\(current) is not a symlink into versions") }
+            if let r = held(current, c) { return r }
+            guard let t = linkTarget(current), t.hasPrefix("versions/") else {
+                return .refused("\(current) does not point into versions")
+            }
+            let version = String(t.dropFirst("versions/".count))
+            guard VersionDirectoryName.isValid(version) else { return .refused("\(current) names an invalid version") }
+            for path in [dir + "/versions", dir + "/versions/" + version] {
+                if let r = directory(path) { return r }
+            }
+            binary = dir + "/versions/" + version + "/" + name
+            guard let b = facts(binary) else { return .refused("\(binary) does not exist") }
+            if b.isSymlink { return .refused("\(binary) is a symlink") }
+            f = b
+        }
+        if let r = held(binary, f) { return r }
+        if !f.isRegularFile { return .refused("\(binary) is not a regular file") }
+        return signatureValid(binary) ? .trusted : .refused("the installed k3sm is not signed by the k3sm Developer ID")
     }
 }
 

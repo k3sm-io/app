@@ -823,7 +823,10 @@ chose the action (k3sm stopped or started in the meantime), nothing is run.
 The root step runs only `/Library/k3sm/k3sm stop`, `start` or `restart`, and
 only after checking that the binary and every folder above it are owned by
 root, not writable by anyone else, not symlinks and free of ACLs, and that
-the binary is signed by the k3sm Developer ID. It never uses the app's own copy of k3sm.
+the binary is signed by the k3sm Developer ID. The one link it follows is the
+versioned layout a k3sm install makes, `/Library/k3sm/k3sm -> current/k3sm`
+and `current -> versions/<version>`, with every link and folder in it held to
+the same checks and the signed binary at its end; it runs that binary. It never uses the app's own copy of k3sm.
 
 Before Start runs, the app asks the installed k3sm how long a start may take
 (`k3sm start --print-time-bound`) and waits that long plus 30 seconds. A k3sm

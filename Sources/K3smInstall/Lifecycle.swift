@@ -334,6 +334,7 @@ public enum InstalledCLIPreamble {
         let layout = dir == "/" ? "" : dir
         let ownerTest = owners.map { "! -user \($0)" }.joined(separator: " ")
         let requirement = "-R=" + requirement
+        let versionCheck = VersionDirectoryName.shellLines.joined(separator: "\n\t")
         return #"""
             set -eu
             umask 077
@@ -374,16 +375,7 @@ public enum InstalledCLIPreamble {
             	link_target "$p"
             	case "$t" in versions/*) ;; *) refuse "$p does not point into versions" ;; esac
             	ver=${t#versions/}
-            	case "$ver" in
-            	'' | [!0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ]* | *[!0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.+_-]* | *.partial)
-            		refuse "$p names an invalid version" ;;
-            	unknown-*)
-            		case "$ver" in
-            		unknown-[0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef]) ;;
-            		*) refuse "$p names an invalid version" ;;
-            		esac ;;
-            	esac
-            	if [ "${#ver}" -gt \#(ReleaseTag.maxLength) ]; then refuse "$p names an invalid version"; fi
+            	\#(versionCheck)
             	for p in \#(q(layout + "/versions")) \#(q(layout + "/versions/"))"$ver"; do
             		if [ -L "$p" ]; then refuse "$p is a symlink"; fi
             		if [ ! -e "$p" ]; then refuse "$p does not exist"; fi
