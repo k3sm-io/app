@@ -53,6 +53,13 @@ final class PreferencesStore: ObservableObject {
     @Published var notifyUpdate: Bool {
         didSet { if !reloading { preferences.notifyUpdate = notifyUpdate } }
     }
+    /// The app's own update check and download (`AppUpdateSchedule`).
+    @Published var checkAppUpdates: Bool {
+        didSet { if !reloading { preferences.checkAppUpdates = checkAppUpdates } }
+    }
+    @Published var downloadAppUpdates: Bool {
+        didSet { if !reloading { preferences.downloadAppUpdates = downloadAppUpdates } }
+    }
     /// Run the Stop action before the app quits (`QuitPolicy`).
     @Published var stopOnQuit: Bool {
         didSet { if !reloading { preferences.stopOnQuit = stopOnQuit } }
@@ -84,6 +91,8 @@ final class PreferencesStore: ObservableObject {
         updateDrain = preferences.updateDrain
         updateSignature = preferences.updateSignature
         notifyUpdate = preferences.notifyUpdate
+        checkAppUpdates = preferences.checkAppUpdates
+        downloadAppUpdates = preferences.downloadAppUpdates
         stopOnQuit = preferences.stopOnQuit
         pollProfile = preferences.pollProfile
         appearance = preferences.appearance
@@ -103,6 +112,8 @@ final class PreferencesStore: ObservableObject {
         updateDrain = preferences.updateDrain
         updateSignature = preferences.updateSignature
         notifyUpdate = preferences.notifyUpdate
+        checkAppUpdates = preferences.checkAppUpdates
+        downloadAppUpdates = preferences.downloadAppUpdates
         stopOnQuit = preferences.stopOnQuit
         pollProfile = preferences.pollProfile
         appearance = preferences.appearance

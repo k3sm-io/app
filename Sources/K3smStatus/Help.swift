@@ -955,7 +955,26 @@ public enum Help {
         public static let notify = HelpTag("Post a notification once for each new release the app can install",
                                            control: "updates: notify checkbox", label: "Notify me when an update is available")
 
-        public static var all: [HelpTag] { [installed, available, state, updateNow, drain, allowDowngrade, signature, notify] }
+        /// The app's own release line.
+        public static let appState = HelpTag("This app against the latest signed release index",
+                                             control: "updates: app release line")
+        /// The age of the last successful check.
+        public static let lastCheck = HelpTag("When the release index was last fetched and verified",
+                                              control: "updates: last check line")
+        /// Check Now, for the app's own release.
+        public static let checkNow = HelpTag("Fetch and verify the signed release index now",
+                                             control: "updates: Check Now", label: "Check Now")
+        /// Check for app updates automatically.
+        public static let checkApp = HelpTag("Fetch the release index a minute after launch, then daily",
+                                             control: "updates: check app checkbox", label: "Check for app updates automatically")
+        /// Download app updates.
+        public static let downloadApp = HelpTag("Fetch and verify a new app release once one is found",
+                                                control: "updates: download app checkbox", label: "Download app updates when available")
+
+        public static var all: [HelpTag] {
+            [installed, available, state, updateNow, drain, allowDowngrade, signature, notify,
+             appState, lastCheck, checkNow, checkApp, downloadApp]
+        }
     }
 
     // MARK: Settings: Advanced
@@ -1045,6 +1064,9 @@ public enum Help {
                                               label: "Write a Bug Report…")
         /// Settings…
         public static let settings = HelpTag("Open the Settings window", control: "menus: Settings", label: "Settings…")
+        /// Check for Updates…, in the app menu.
+        public static let checkForUpdates = HelpTag("Fetch and verify the signed release index now",
+                                                    control: "app menu: Check for Updates", label: "Check for Updates…")
         /// Dashboard.
         public static let dashboard = HelpTag("Open the k3sm window", control: "status menu: Dashboard",
                                               label: MenuStatus.windowItemTitle)
@@ -1064,8 +1086,8 @@ public enum Help {
         public static let tour = HelpTag(Strip.tour.text, control: "help menu: Take the Tour", label: "Take the Tour")
 
         public static var all: [HelpTag] {
-            [stop, restart, liveStatus, liveTop, openLogs, bugReport, settings, dashboard, refresh, showStatus, panel,
-             resetColumns, tour]
+            [stop, restart, liveStatus, liveTop, openLogs, bugReport, settings, checkForUpdates, dashboard, refresh, showStatus,
+             panel, resetColumns, tour]
         }
     }
 }

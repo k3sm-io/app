@@ -38,6 +38,13 @@ struct UpdatesPane: View {
         let plan = app.updatePlan
         let control = UpdateNowControl.decide(plan: plan, report: app.lanReport)
         VStack(alignment: .leading, spacing: 18) {
+            group("k3sm.app") {
+                AppReleaseLines(model: app.appUpdate, cluster: app.installedVersion)
+                Toggle("Check for app updates automatically", isOn: $preferences.checkAppUpdates)
+                    .help(Help.Updates.checkApp)
+                Toggle("Download app updates when available", isOn: $preferences.downloadAppUpdates)
+                    .help(Help.Updates.downloadApp)
+            }
             group("Releases") {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
                     GridRow {
@@ -102,5 +109,30 @@ struct UpdatesPane: View {
     /// A secondary line under a control.
     private func note(_ text: String) -> some View {
         Text(verbatim: text).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// AppReleaseLines is the app's own release in the Updates pane: its state
+/// (`AppUpdateState`), the age of the last successful check, the standing
+/// line while the app carries a newer k3sm than this Mac runs, and Check Now.
+struct AppReleaseLines: View {
+    @ObservedObject var model: AppUpdateModel
+    let cluster: SemanticVersion?
+
+    var body: some View {
+        Text(verbatim: model.state.line).font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+            .help(Help.Updates.appState)
+        if model.own.isRelease {
+            Text(verbatim: AppUpdateState.lastCheckLine(model.lastSuccess, now: Date()))
+                .font(.callout).foregroundStyle(.secondary)
+                .help(Help.Updates.lastCheck)
+        }
+        if let ahead = AppUpdateState.aheadOfCluster(own: model.own, cluster: cluster) {
+            Text(verbatim: ahead).font(.callout).fixedSize(horizontal: false, vertical: true)
+        }
+        Button("Check Now") { model.checkNow() }
+            .disabled(!model.own.isRelease || model.checking)
+            .help(Help.Updates.checkNow)
     }
 }

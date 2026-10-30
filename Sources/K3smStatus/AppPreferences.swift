@@ -42,6 +42,11 @@ public struct AppPreferences: @unchecked Sendable {
         case notifyUpdate = "pref.notifyUpdate"
         /// Run the Stop action before the app quits (`QuitPolicy`).
         case stopOnQuit = "pref.stopOnQuit"
+        /// Check for a new app release on the app's own schedule
+        /// (`AppUpdateSchedule`); off, nothing is sent except Check Now.
+        case checkAppUpdates = "pref.checkAppUpdates"
+        /// Download and verify a new app release once one is found.
+        case downloadAppUpdates = "pref.downloadAppUpdates"
 
         /// The value when nothing usable is stored.
         public var defaultValue: Bool {
@@ -53,6 +58,8 @@ public struct AppPreferences: @unchecked Sendable {
             case .updateDrain: false
             case .notifyUpdate: true
             case .stopOnQuit: false
+            case .checkAppUpdates: true
+            case .downloadAppUpdates: true
             }
         }
     }
@@ -163,6 +170,49 @@ public struct AppPreferences: @unchecked Sendable {
     public var updateNotifiedRelease: String? {
         get { defaults.object(forKey: Self.updateNotifiedKey) as? String }
         nonmutating set { defaults.set(newValue, forKey: Self.updateNotifiedKey) }
+    }
+
+    /// The app's own update check: the highest release index accepted
+    /// (`AppUpdateRecord`), the last successful check, and the app release
+    /// the notice last named. `reset` keeps them: they are state, not
+    /// settings, and the floor must not move down.
+    public static let appUpdateHighTagKey = "appUpdateHighTag"
+    public static let appUpdateHighIssuedAtKey = "appUpdateHighIssuedAt"
+    public static let appUpdateLastSuccessKey = "appUpdateLastSuccess"
+    public static let appUpdateNotifiedKey = "appUpdateNotifiedRelease"
+
+    public var checkAppUpdates: Bool {
+        get { bool(.checkAppUpdates) }
+        nonmutating set { set(newValue, for: .checkAppUpdates) }
+    }
+
+    public var downloadAppUpdates: Bool {
+        get { bool(.downloadAppUpdates) }
+        nonmutating set { set(newValue, for: .downloadAppUpdates) }
+    }
+
+    /// The stored floor; a value of another type reads as absent.
+    public var appUpdateRecord: AppUpdateRecord {
+        get {
+            AppUpdateRecord(highTag: defaults.object(forKey: Self.appUpdateHighTagKey) as? String,
+                            highIssuedAt: defaults.object(forKey: Self.appUpdateHighIssuedAtKey) as? String)
+        }
+        nonmutating set {
+            defaults.set(newValue.highTag, forKey: Self.appUpdateHighTagKey)
+            defaults.set(newValue.highIssuedAt, forKey: Self.appUpdateHighIssuedAtKey)
+        }
+    }
+
+    /// When the last check succeeded; nil before the first.
+    public var appUpdateLastSuccess: Date? {
+        get { defaults.object(forKey: Self.appUpdateLastSuccessKey) as? Date }
+        nonmutating set { defaults.set(newValue, forKey: Self.appUpdateLastSuccessKey) }
+    }
+
+    /// The app release the notice last named; nil before the first.
+    public var appUpdateNotifiedRelease: String? {
+        get { defaults.object(forKey: Self.appUpdateNotifiedKey) as? String }
+        nonmutating set { defaults.set(newValue, forKey: Self.appUpdateNotifiedKey) }
     }
 
     /// The release the version-set question was last answered for; nil

@@ -55,6 +55,7 @@ final class MainMenu: NSObject, NSMenuItemValidation {
         menu.addItem(about)
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(openSettings(_:)), ",", help: Help.Menus.settings))
+        menu.addItem(item("Check for Updates…", #selector(checkForUpdates(_:)), "", help: Help.Menus.checkForUpdates))
         menu.addItem(.separator())
         menu.addItem(withTitle: "Hide k3sm", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         menu.addItem(withTitle: "Quit k3sm", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -130,6 +131,12 @@ final class MainMenu: NSObject, NSMenuItemValidation {
         settings()
     }
 
+    /// Checks the app's own release now (`AppUpdateModel.checkNow`); a
+    /// development build has nothing to check, so the item is disabled there.
+    @objc private func checkForUpdates(_ sender: Any?) {
+        model.appUpdate.checkNow()
+    }
+
     /// Opens the status panel (start, stop, connections, uninstall), the
     /// popover under the console's info button.
     @objc private func showStatus(_ sender: Any?) {
@@ -153,6 +160,7 @@ final class MainMenu: NSObject, NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         // The tour walks the console, so it is offered only while it is up.
         if menuItem.action == #selector(startTour(_:)) { return model.screen == .status }
+        if menuItem.action == #selector(checkForUpdates(_:)) { return model.appUpdate.own.isRelease }
         guard menuItem.action == #selector(togglePanel(_:)) else { return true }
         menuItem.title = model.consolePanelCollapsed ? "Show Panel" : "Hide Panel"
         return model.screen == .status

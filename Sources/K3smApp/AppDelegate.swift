@@ -120,6 +120,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.startStatusStream()
         if demoTour == nil {
             model.startUpdateCheck(wanted: { preferences.notifyUpdate })
+            // The app's own release: the notice once per release; the
+            // download is the follow-up's other half. Neither rolls the cluster.
+            model.appUpdate.firstRun = { [weak model] in model?.screen == .firstRun }
+            model.appUpdate.onFollowUp = { [weak notifier] step in
+                switch step {
+                case .notify(let release):
+                    if let notice = AppUpdateNotice.decide(.available(release, .idle), enabled: true, notified: nil) {
+                        notifier?.postUpdate(notice)
+                    }
+                case .download:
+                    appUpdateLog.notice("app update: download due")
+                }
+            }
+            model.appUpdate.start()
         }
         log.notice("k3sm app started")
         // A login-item launch, or one with --background, shows only the status

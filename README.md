@@ -941,6 +941,29 @@ cluster has none, or the read could not see it) the box shows a dash.
 
 The **Updates** pane (see [The managed update](#the-managed-update)):
 
+- **k3sm.app**: whether this app is the latest release, from the signed
+  release index the k3sm release publishes: up to date, a newer release is
+  available, this build is newer than the latest release (a release
+  candidate), the newer release needs a later macOS, could not check (and
+  why), or a development build, which checks nothing. Under it, when the last
+  successful check ran, and, while the app carries a newer k3sm than this Mac
+  runs, a line that says so until the cluster is updated. **Check Now** checks
+  at once; **Check for Updates…** in the app menu does the same.
+  - **Check for app updates automatically** (on at first): the first check a
+    minute after launch, then once a day, spread a little so Macs do not ask
+    together, and twice as long under Low power. Off, the app sends nothing
+    unless you click Check Now.
+  - **Download app updates when available** (on at first) is kept for the
+    download that follows a found release.
+  - The check is one `GET` of a fixed URL on github.com, over https only,
+    with the user agent `k3sm-app` and no version, no query string, no cookie
+    and no cache; every redirect must stay on GitHub's release hosts. GitHub
+    sees the Mac's address, the time and that the index was fetched. An index
+    is accepted only with a valid Developer ID signature and a trusted
+    timestamp, and never when it names an older release than one the app has
+    already seen. Finding a new app release never updates the cluster.
+  - A new app release is announced once, under the notification preference
+    below. The check logs under the subsystem `io.k3sm.app.update`.
 - **Installed** and **Available**: the release the installed k3sm reports,
   and the newest one the server's update check found (while an update rolls,
   the release it rolls to), with what the check says in plain words: a newer

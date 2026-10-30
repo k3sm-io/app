@@ -356,6 +356,8 @@ final class AppModel: ObservableObject {
     /// the installed version), so the update notice is decided on fresh
     /// facts. The app delegate sets it.
     var onUpdateRead: (@MainActor () -> Void)?
+    /// The app's own update check (`AppUpdateModel`).
+    let appUpdate: AppUpdateModel
     /// The background update check's loop (`startUpdateCheck`).
     private var updateCheckTask: Task<Void, Never>?
     @Published private(set) var availability: PrivilegedAvailability
@@ -488,6 +490,7 @@ final class AppModel: ObservableObject {
         self.environment = environment
         let teamID = SelfCheck.teamID()
         self.teamID = teamID
+        self.appUpdate = AppUpdateModel(pinned: teamID != nil, preferences: PreferencesStore.shared.preferences)
         self.workloads = WorkloadsModel(environment: environment)
         self.statusStream = StatusStream(launcher: CLIStream(environment: environment), clock: WatchSystemClock())
         self.actions = ActionRunner(environment: environment, teamID: teamID)
