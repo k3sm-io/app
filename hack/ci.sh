@@ -6,7 +6,10 @@
 #
 #   0. the package declares no dependencies
 #   1. swift build
-#   2. swift test (the status decoder, the visibility rule, role detection)
+#   2. swift test, once, with its swift-testing event stream: a failure names
+#      the failing tests from the stream, and a stream this repo's reader does
+#      not recognise is a failure; the acceptance gates of stage 12 read this
+#      same stream (K3SM_APP_TEST_EVENTS) instead of running the suite again
 #   3. hack/build-app.sh into a temp dir (builds, signs and verifies the bundle;
 #      the app icon is in it and reads back with a 1024-pixel member; the
 #      MCP server is in it, sealed by the bundle's signature, and answers
@@ -40,7 +43,8 @@
 #  12. the acceptance gates: hack/run-acceptance.sh --self-test (a planted
 #      failing gate must red the runner), hack/acceptance/lib/test-passed.sh
 #      --self-test (the gates' reader of swift-testing's event stream, over a
-#      recorded stream), then every hack/acceptance/B<n>.sh;
+#      recorded stream), then every hack/acceptance/B<n>.sh over the one
+#      stream of stage 2 (--acceptance runs the suite once for them);
 #      a gate that cannot run here says LAB-PENDING and exits 3, and is named
 #      in the summary, never counted as a pass
 #  13. the swap engine: swift build --product k3sm-app-update, every named
@@ -87,10 +91,42 @@ if [ -n "$devdir" ] && [ -f "$plugdir/libTestingMacros.dylib" ]; then
 	TEST_FLAGS=(-Xswiftc -plugin-path -Xswiftc "$plugdir")
 fi
 
+# shellcheck source=hack/acceptance/lib/test-passed.sh
+. hack/acceptance/lib/test-passed.sh
+
+# run_suite <dir>: the one swift test run of the whole package, its event
+# stream at <dir>/events.jsonl. On a failure the failing tests are named from
+# the stream before the run fails; a stream that cannot be read fails too. The
+# CLI cross-check tests read K3SM_DIR, given here as the absolute path the
+# acceptance gates also use, so the stream answers for the same checkout.
+run_suite() {
+	local dir="$1" status=0 k3sm_dir="${K3SM_DIR:-../k3sm}" env_args=()
+	# Without a checkout K3SM_DIR stays as the caller left it, so the tests
+	# that need one skip as they always have; ci.sh's own K3SM_DIR is never
+	# changed, since later stages read whether the caller set it.
+	if [ -d "$k3sm_dir/cmd/k3sm" ]; then
+		env_args=("K3SM_DIR=$(cd "$k3sm_dir" && pwd)")
+	fi
+	# The console output still reaches the caller; test.log keeps a copy for
+	# the failure lines. PIPESTATUS[0] is swift's exit, not tee's.
+	env ${env_args[@]+"${env_args[@]}"} swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} \
+		--experimental-event-stream-output "$dir/events.jsonl" 2>&1 | tee "$dir/test.log" || status=${PIPESTATUS[0]}
+	if [ "$status" != 0 ]; then
+		echo "==> the failing tests"
+		failure_names "$dir/events.jsonl" "$dir/test.log" "$dir/results.tsv"
+		echo "FAIL: swift test exited $status"
+		exit 1
+	fi
+	test_results "$dir/events.jsonl" > "$dir/results.tsv" || exit 1
+	failed_tests "$dir/results.tsv"
+}
+
 # The acceptance stage (12). K3SM_DIR is resolved to an absolute path here
-# because every gate changes to the repository root before reading it.
+# because every gate changes to the repository root before reading it. The
+# gates read the suite's event stream from <events> (stage 2's); with none,
+# the stage runs the suite once itself.
 acceptance_stage() {
-	local k3sm_dir="${K3SM_DIR:-../k3sm}"
+	local k3sm_dir="${K3SM_DIR:-../k3sm}" events="${1:-}" suite_dir
 	echo "==> acceptance gates (hack/run-acceptance.sh)"
 	bash hack/run-acceptance.sh --self-test
 	echo "==> hack/acceptance/lib/test-passed.sh --self-test"
@@ -103,7 +139,15 @@ acceptance_stage() {
 		echo "    skipped: no k3sm checkout at $k3sm_dir (set K3SM_DIR); the gates cross-check its CLI source"
 		return 0
 	fi
-	K3SM_DIR="$(cd "$k3sm_dir" && pwd)" bash hack/run-acceptance.sh
+	if [ -z "$events" ]; then
+		echo "==> swift test (once, for every gate)"
+		suite_dir="$(mktemp -d)"
+		# shellcheck disable=SC2064 # the path is fixed now, on purpose
+		trap "rm -rf '$suite_dir'" EXIT
+		run_suite "$suite_dir"
+		events="$suite_dir/events.jsonl"
+	fi
+	K3SM_DIR="$(cd "$k3sm_dir" && pwd)" K3SM_APP_TEST_EVENTS="$events" bash hack/run-acceptance.sh
 }
 # The swap engine stage (13). The named tests are the gate's contract: each
 # must be listed, so deleting or renaming one reds the stage. With "run" the
@@ -167,12 +211,14 @@ echo "==> swift build"
 # treats a bare "${arr[@]}" on an empty array as unbound under set -u.
 swift build ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"}
 
-echo "==> swift test"
-swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"}
-
-echo "==> hack/build-app.sh (temp dir)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+mkdir "$tmp/suite"
+
+echo "==> swift test"
+run_suite "$tmp/suite"
+
+echo "==> hack/build-app.sh (temp dir)"
 bash hack/build-app.sh "$tmp/out"
 [ -d "$tmp/out/k3sm.app" ] || { echo "FAIL: bundle not produced"; exit 1; }
 [ ! -e "$tmp/out/k3sm.app/Contents/Resources/payload" ] || { echo "FAIL: a payload appeared without --payload"; exit 1; }
@@ -509,7 +555,7 @@ echo "==> help tags (hack/verify-help.sh)"
 bash hack/verify-help.sh --self-test
 bash hack/verify-help.sh
 
-acceptance_stage
+acceptance_stage "$tmp/suite/events.jsonl"
 
 swap_engine_stage
 

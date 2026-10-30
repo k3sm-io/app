@@ -8,24 +8,25 @@
 # a `Test "..." passed` line can arrive split and a grep for it misses a test
 # that passed.
 #
-# A gate sources this file, runs
+# A gate sources this file and then, once:
 #
-#   swift test ... --experimental-event-stream-output "$tmp/events.jsonl"
-#
-# and then, once:
-#
-#   test_results "$tmp/events.jsonl" > "$tmp/results.tsv" || exit 1
+#   app_test_results "$tmp" || exit 1
 #   suite_passed "$tmp/results.tsv" "<suite display name>"
 #   test_passed "$tmp/results.tsv" "<test display name>"
 #
-# test_results writes one line per suite or test that has a display name:
-# <suite|test> TAB <pass|fail|skip|notrun> TAB <display name>.
+# app_test_results (below) reads the event stream hack/ci.sh hands every gate,
+# or runs swift test with the stream when the gate runs on its own, and writes
+# the table through test_results, which writes one line per suite or test
+# that has a display name:
+# <suite|test> TAB <pass|fail|skip|unfinished|notrun> TAB <display name>.
 #   fail    a failing issue was recorded in it or, for a suite, in anything it
 #           contains (a warning or a known issue is not a failure, as in the
 #           console)
 #   skip    it was skipped (disabled, or a condition was false)
 #   pass    it ended with none of the above
-#   notrun  it was declared and never ended
+#   unfinished  it started and never ended: its test process stopped under
+#           it, a crash or a kill, which records no issue in the stream
+#   notrun  it was declared and never started
 # It fails when the stream holds no completed run or no declared test.
 #
 # suite_passed and test_passed match the whole display name, so a name that
@@ -40,14 +41,29 @@
 #
 # Needs /usr/bin/jq (macOS 15 and later). Runs under macOS /bin/bash 3.2.
 
+# The event kinds this reader knows. A record that is not a test or an event,
+# or an event of any other kind, fails the read: a shape this reader was not
+# written for could carry a failure it does not see, so it answers red, never
+# green. A new toolchain that adds a kind is read only after the kind is
+# added here and to the fixture.
+TEST_EVENT_KINDS='["runStarted","runEnded","iterationStarted","iterationEnded","testStarted","testEnded","testCaseStarted","testCaseEnded","testSkipped","issueRecorded","valueAttached"]'
+
 # test_results <events.jsonl>: prints the verdict table described above.
 test_results() {
 	local events="$1"
 	[ -s "$events" ] || { echo "FAIL: no swift-testing event stream at $events" >&2; return 1; }
 	[ -x /usr/bin/jq ] || { echo "FAIL: /usr/bin/jq is missing; it reads the swift-testing event stream" >&2; return 1; }
 	local out
-	out="$(/usr/bin/jq -rn '
+	out="$(/usr/bin/jq -rn --argjson known "$TEST_EVENT_KINDS" '
 		[inputs] as $all
+		| ($all | map(select((type == "object" and (.kind == "test" or .kind == "event") and (.payload | type) == "object") | not))) as $odd
+		| if ($odd | length) > 0 then
+			error("an unrecognised record: \($odd[0] | tojson | .[0:200])")
+		  else . end
+		| ($all | map(select(.kind == "event") | .payload.kind) | map(select(. as $k | $known | index($k) | not))) as $unknown
+		| if ($unknown | length) > 0 then
+			error("an unrecognised event kind: \($unknown[0] | tojson)")
+		  else . end
 		| ($all | map(select(.kind == "test") | .payload)) as $tests
 		| ($all | map(select(.kind == "event") | .payload)) as $events
 		| if ($events | map(select(.kind == "runEnded")) | length) == 0 then
@@ -56,6 +72,7 @@ test_results() {
 			error("the event stream declares no tests")
 		  else . end
 		| (reduce ($events[] | select(.kind == "testEnded") | .testID) as $id ({}; .[$id] = true)) as $ended
+		| (reduce ($events[] | select(.kind == "testStarted") | .testID) as $id ({}; .[$id] = true)) as $started
 		| (reduce ($events[] | select(.kind == "testSkipped") | .testID) as $id ({}; .[$id] = true)) as $skipped
 		| [$events[]
 			| select(.kind == "issueRecorded" and .testID != null)
@@ -69,6 +86,7 @@ test_results() {
 		| (if any($failed[]; . == $id or startswith($id + "/")) then "fail"
 			elif $skipped[$id] then "skip"
 			elif $ended[$id] then "pass"
+			elif $started[$id] then "unfinished"
 			else "notrun" end) as $verdict
 		| [$kind, $verdict, .displayName] | @tsv
 	' "$events")" || { echo "FAIL: could not read the swift-testing event stream at $events" >&2; return 1; }
@@ -88,6 +106,85 @@ suite_passed() { result_passed "$1" suite "$2"; }
 
 # test_passed <results.tsv> <display name>
 test_passed() { result_passed "$1" test "$2"; }
+
+# failed_tests <results.tsv>: prints one line per failing or unfinished
+# suite or test,
+#   FAILED TEST: <suite|test> "<display name>"[ (started, never ended: ...)]
+# hack/run-acceptance.sh prints these lines of a failed gate's log before its
+# tail, so a failing test is named even when the tail does not reach it.
+failed_tests() {
+	local tab kind verdict name
+	tab="$(printf '\t')"
+	while IFS="$tab" read -r kind verdict name; do
+		case "$verdict" in
+		fail) printf 'FAILED TEST: %s "%s"\n' "$kind" "$name" ;;
+		unfinished) printf 'FAILED TEST: %s "%s" (started, never ended: its test process stopped)\n' "$kind" "$name" ;;
+		esac
+	done < "$1"
+	return 0
+}
+
+# failure_names <events.jsonl> <log> <results.tsv>: for a swift test run that
+# exited non-zero, names what failed: the FAILED TEST: lines of the stream
+# and, when the stream names none (a test process that died before it could
+# record an issue, or a stream that cannot be read), the log's own failure
+# and crash lines, so a failing test is never left to the tail alone.
+failure_names() {
+	local events="$1" log="$2" results="$3" named=""
+	if test_results "$events" > "$results" 2> /dev/null; then
+		named="$(failed_tests "$results")"
+	fi
+	if [ -n "$named" ]; then
+		printf '%s\n' "$named"
+		return 0
+	fi
+	echo "FAILED TEST: the event stream names no failing test; the log's failure lines:"
+	grep -E '✘|error:|Fatal error|crashed|signal [0-9]+|reported failures|exited with' "$log" 2> /dev/null \
+		| head -n 40 | sed 's/^/FAILED TEST:     /' || true
+	return 0
+}
+
+# app_test_results <dir> [<swift test argument>...]: writes <dir>/results.tsv,
+# the verdict table of one swift test run of this package.
+#
+# When K3SM_APP_TEST_EVENTS names a stream, that stream is read and nothing
+# runs: hack/ci.sh runs swift test once and hands its stream to every gate,
+# which asserts that the suites and tests it owns ran and passed there. A
+# failure in a suite the gate does not own is not its failure.
+#
+# Otherwise (a gate run on its own) it runs swift test here with the
+# arguments given, into <dir>/events.jsonl and <dir>/test.log, and exports
+# K3SM_APP_TEST_EVENTS so a gate this one runs reads the same stream. A
+# non-zero exit fails it, after the failing tests are named and the log's
+# tail is shown. The caller sets SWIFT_FLAGS and TEST_FLAGS (they may be
+# empty) and changes to the package root first.
+#
+# Either way the failing suites and tests are printed as FAILED TEST: lines,
+# and a stream that cannot be read fails.
+app_test_results() {
+	local dir="$1" events status=0
+	shift
+	if [ -n "${K3SM_APP_TEST_EVENTS:-}" ]; then
+		events="$K3SM_APP_TEST_EVENTS"
+		echo "    reading the event stream at $events (no second run)"
+		test_results "$events" > "$dir/results.tsv" || return 1
+		failed_tests "$dir/results.tsv"
+		return 0
+	fi
+	events="$dir/events.jsonl"
+	swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} "$@" \
+		--experimental-event-stream-output "$events" > "$dir/test.log" 2>&1 || status=$?
+	if [ "$status" != 0 ]; then
+		failure_names "$events" "$dir/test.log" "$dir/results.tsv"
+		tail -n 60 "$dir/test.log"
+		echo "FAIL: swift test exited $status"
+		return 1
+	fi
+	test_results "$events" > "$dir/results.tsv" || return 1
+	failed_tests "$dir/results.tsv"
+	K3SM_APP_TEST_EVENTS="$events"
+	export K3SM_APP_TEST_EVENTS
+}
 
 test_passed_self_test() {
 	local dir fixture tmp rc=0
@@ -137,7 +234,49 @@ test_passed_self_test_cases() {
 	if test_results "$tmp/empty.jsonl" > /dev/null 2>&1; then
 		echo "FAIL: self-test: an empty stream was read"; return 1
 	fi
-	echo "    ok ($n verdicts, and a cut-off and an empty stream refused)"
+	# A shape this reader was not written for is refused, never read green:
+	# an event kind it does not know, a record that is neither a test nor an
+	# event, and a line that is not JSON.
+	sed 's/"kind":"testSkipped"/"kind":"testVanished"/' "$fixture" > "$tmp/kind.jsonl"
+	if test_results "$tmp/kind.jsonl" > "$tmp/kind.out" 2>&1; then
+		echo "FAIL: self-test: a stream with an unknown event kind was read"; return 1
+	fi
+	grep -q 'unrecognised event kind' "$tmp/kind.out" \
+		|| { echo "FAIL: self-test: the unknown event kind was not named"; cat "$tmp/kind.out"; return 1; }
+	{ cat "$fixture"; echo '{"kind":"attachment","payload":{},"version":"6.4.0"}'; } > "$tmp/record.jsonl"
+	if test_results "$tmp/record.jsonl" > /dev/null 2>&1; then
+		echo "FAIL: self-test: a stream with an unknown record was read"; return 1
+	fi
+	{ cat "$fixture"; echo 'not json'; } > "$tmp/garbage.jsonl"
+	if test_results "$tmp/garbage.jsonl" > /dev/null 2>&1; then
+		echo "FAIL: self-test: a stream with a line that is not JSON was read"; return 1
+	fi
+	# A test that started and never ended (its process died) is unfinished,
+	# never a pass, and is named.
+	/usr/bin/jq -c 'select(.kind != "event" or .payload.kind != "testEnded" or (.payload.testID | startswith("LTests.Good/a()") | not))' \
+		"$fixture" > "$tmp/crash.jsonl"
+	test_results "$tmp/crash.jsonl" > "$tmp/crash.tsv" || return 1
+	if test_passed "$tmp/crash.tsv" "a pass"; then
+		echo "FAIL: self-test: a test that never ended was read as a pass"; return 1
+	fi
+	failed_tests "$tmp/crash.tsv" | grep -qF 'FAILED TEST: test "a pass" (started, never ended' \
+		|| { echo "FAIL: self-test: the unfinished test was not named"; failed_tests "$tmp/crash.tsv"; return 1; }
+	# A run that failed with nothing in the stream still names the log's
+	# failure lines.
+	printf 'building\nerror: K3smStatusTests reported failures\n' > "$tmp/crash.log"
+	failure_names "$tmp/empty.jsonl" "$tmp/crash.log" "$tmp/none.tsv" > "$tmp/names.out"
+	grep -qF 'FAILED TEST:     error: K3smStatusTests reported failures' "$tmp/names.out" \
+		|| { echo "FAIL: self-test: the log's failure line was not named"; cat "$tmp/names.out"; return 1; }
+	# The failing suites and tests are named, and only those.
+	failed_tests "$tmp/results.tsv" > "$tmp/failed.out"
+	for name in 'test "fails"' 'test "throws"' 'suite "bad suite"' 'test "inner fails"'; do
+		grep -qxF "FAILED TEST: $name" "$tmp/failed.out" \
+			|| { echo "FAIL: self-test: failed_tests does not name $name"; cat "$tmp/failed.out"; return 1; }
+	done
+	if grep -qF '"a pass"' "$tmp/failed.out"; then
+		echo "FAIL: self-test: failed_tests names a passing test"; return 1
+	fi
+	echo "    ok ($n verdicts; a cut-off, an empty and three unknown shapes refused; failing and unfinished tests named, and the log's failure lines when the stream names none)"
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then

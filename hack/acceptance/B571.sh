@@ -12,8 +12,11 @@
 #      asserts the bound the app read, the retrying text, the final text, and
 #      that start was invoked exactly twice. It fails when the re-run does not
 #      happen.
-#   2. swift test, and the suites and tests this build owns must have run and
-#      passed: the bound parser (a whole number in range, else the fallback
+#      This run needs the fake in its environment, so it is the one swift
+#      test a gate runs beside the shared stream.
+#   2. swift test (the stream hack/ci.sh hands every gate, or a run here when
+#      the gate runs on its own), and the suites and tests this build owns
+#      must have run and passed: the bound parser (a whole number in range, else the fallback
 #      of at least 600 s with a reason), the timeout (bound plus 30 s), the
 #      marker match on standard error, the one-retry policy and the driver
 #      over it, and the deadline race
@@ -85,6 +88,7 @@ status=0
 swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} --filter StartFakeCLITests \
 	--experimental-event-stream-output "$tmp/flow-events.jsonl" > "$tmp/flow.log" 2>&1 || status=$?
 if [ "$status" != 0 ]; then
+	failure_names "$tmp/flow-events.jsonl" "$tmp/flow.log" "$tmp/flow-results.tsv"
 	tail -n 60 "$tmp/flow.log"
 	echo "FAIL: swift test --filter StartFakeCLITests exited $status"
 	exit 1
@@ -92,6 +96,8 @@ fi
 test_results "$tmp/flow-events.jsonl" > "$tmp/flow-results.tsv" || exit 1
 suite_passed "$tmp/flow-results.tsv" "start against a fake CLI" \
 	|| { echo "FAIL: the Start flow did not run (is the suite still enabled by K3SM_B571_FAKE_K3SM?)"; exit 1; }
+flow="Start reads the bound, waits past it, re-runs a cordoned start once, and reports"
+test_passed "$tmp/flow-results.tsv" "$flow" || { echo "FAIL: test \"$flow\" did not run and pass"; exit 1; }
 [ -s "$tmp/state" ] || { echo "FAIL: the Start flow wrote no state"; exit 1; }
 sed 's/^/    | /' "$tmp/state"
 calls=$(wc -l < "$tmp/calls" | tr -d ' ')
@@ -110,20 +116,14 @@ grep -qxF "result: k3sm is starting." "$tmp/state" \
 echo "    ok (start invoked $calls times, first one past the printed bound)"
 
 echo "==> swift test"
-: > "$tmp/calls"
-status=0
-swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} \
-	--experimental-event-stream-output "$tmp/events.jsonl" > "$tmp/test.log" 2>&1 || status=$?
-if [ "$status" != 0 ]; then
-	tail -n 60 "$tmp/test.log"
-	echo "FAIL: swift test exited $status"
-	exit 1
-fi
-# The verdicts come from the event stream, not from test.log, whose lines
-# interleave when tests run in parallel.
-test_results "$tmp/events.jsonl" > "$tmp/results.tsv" || exit 1
+# The fake CLI belongs to the flow run above, whose stream already proved the
+# fake suite; the whole-suite run reads no fake, standalone or shared.
+unset K3SM_B571_FAKE_K3SM K3SM_B571_CALLS K3SM_B571_STATE
+# One run of the suite: the stream hack/ci.sh hands every gate, or a run
+# here when this gate runs on its own.
+app_test_results "$tmp" || exit 1
 
-for suite in "start time bound" "start retry" "start against a fake CLI" "lifecycle driver"; do
+for suite in "start time bound" "start retry" "lifecycle driver"; do
 	suite_passed "$tmp/results.tsv" "$suite" || { echo "FAIL: suite \"$suite\" did not run and pass"; exit 1; }
 	echo "    passed: $suite"
 done
@@ -138,8 +138,7 @@ for name in \
 	"a second cordoned exit shows that state and runs nothing further" \
 	"any other exit 1 stays a failed start, not re-run" \
 	"stop and restart never read the start bound and never re-run" \
-	"the deadline returns nil when the operation runs past it" \
-	"Start reads the bound, waits past it, re-runs a cordoned start once, and reports"; do
+	"the deadline returns nil when the operation runs past it"; do
 	if ! test_passed "$tmp/results.tsv" "$name"; then
 		echo "FAIL: test \"$name\" did not run and pass"
 		exit 1
