@@ -43,18 +43,9 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 echo "==> swift test (the installed CLI's versioned chain)"
-status=0
-swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} \
-	--filter 'InstalledCLIChainTests|InstalledCLITrustChainTests|InstalledCLIChainHostTests' \
-	--experimental-event-stream-output "$tmp/events.jsonl" > "$tmp/test.log" 2>&1 || status=$?
-if [ "$status" != 0 ]; then
-	tail -n 60 "$tmp/test.log"
-	echo "FAIL: swift test exited $status"
-	exit 1
-fi
-# The verdicts come from the event stream, not from test.log, whose lines
-# interleave when tests run in parallel.
-test_results "$tmp/events.jsonl" > "$tmp/results.tsv" || exit 1
+# One run of the suite: the stream hack/ci.sh hands every gate, or a run
+# here, focused on the three chain suites, when this gate runs on its own.
+app_test_results "$tmp" --filter 'InstalledCLIChainTests|InstalledCLITrustChainTests|InstalledCLIChainHostTests' || exit 1
 
 for suite in "installed CLI symlink chain" "installed CLI trust symlink chain" "installed CLI trust on a real chain"; do
 	suite_passed "$tmp/results.tsv" "$suite" || { echo "FAIL: suite \"$suite\" did not run and pass"; exit 1; }
