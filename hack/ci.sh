@@ -52,9 +52,18 @@
 #      stage), and hack/verify-no-inplace-write.sh (its self-test, then the
 #      live tree: the swap code never writes into a file in place). The full
 #      run's stage 2 already ran the K3smSwapTests suite.
+#  14. the shipped swap helper: hack/verify-shipped-helper.sh --self-test (a
+#      stand-in helper that accepts, or refuses without a reason, or changes
+#      its fixture tree, or is signed without the hardened runtime or with an
+#      entitlement, must red the check), then the helper built as a release
+#      builds it (the compiled Team ID pin and requirements, no test seam),
+#      signed ad-hoc with the release flags: no entitlements, the hardened
+#      runtime, and a refusal of every mode against every ad-hoc signed
+#      fixture.
 #
 # hack/ci.sh --acceptance runs only stage 12. hack/ci.sh --swap-engine runs
-# stage 13 with the K3smSwapTests suite itself (swift test --filter). The gates cross-check the k3sm
+# stage 13 with the K3smSwapTests suite itself (swift test --filter).
+# hack/ci.sh --shipped-helper runs only stage 14. The gates cross-check the k3sm
 # CLI source, so stage 12 needs a k3sm checkout (K3SM_DIR, or a sibling
 # ../k3sm): the full run skips it by name on a lone clone, and --acceptance
 # fails there.
@@ -67,12 +76,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-usage() { echo "usage: hack/ci.sh [--acceptance | --swap-engine]" >&2; exit 2; }
+usage() { echo "usage: hack/ci.sh [--acceptance | --swap-engine | --shipped-helper]" >&2; exit 2; }
 mode=all
 case "${1:-}" in
 "") ;;
 --acceptance) mode=acceptance ;;
 --swap-engine) mode=swap-engine ;;
+--shipped-helper) mode=shipped-helper ;;
 *) usage ;;
 esac
 [ "$#" -le 1 ] || usage
@@ -183,6 +193,14 @@ swap_engine_stage() {
 	bash hack/verify-no-inplace-write.sh
 }
 
+# The shipped helper stage (14): the self-test proves each check can fail,
+# then the release-built helper is checked.
+shipped_helper_stage() {
+	echo "==> the shipped swap helper (hack/verify-shipped-helper.sh)"
+	bash hack/verify-shipped-helper.sh --self-test
+	bash hack/verify-shipped-helper.sh
+}
+
 if [ "$mode" = acceptance ]; then
 	acceptance_stage
 	echo "app ci --acceptance: green"
@@ -191,6 +209,11 @@ fi
 if [ "$mode" = swap-engine ]; then
 	swap_engine_stage run
 	echo "app ci --swap-engine: green"
+	exit 0
+fi
+if [ "$mode" = shipped-helper ]; then
+	shipped_helper_stage
+	echo "app ci --shipped-helper: green"
 	exit 0
 fi
 
@@ -558,5 +581,7 @@ bash hack/verify-help.sh
 acceptance_stage "$tmp/suite/events.jsonl"
 
 swap_engine_stage
+
+shipped_helper_stage
 
 echo "app ci: green"
