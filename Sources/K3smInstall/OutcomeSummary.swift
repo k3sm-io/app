@@ -35,6 +35,9 @@ public enum OutcomeSummary {
                 return "The app bundle or a k3sm path was not safe to use, so nothing was run. The log says which."
             case CopyOutExit.missingToken:
                 return "No join token arrived. Paste the token again."
+            case CopyOutExit.developerModeMissing:
+                if case .uninstall = action { return DeveloperMode.missingUninstallText }
+                return DeveloperMode.missingText
             default:
                 if case .join = action {
                     return "The join failed (exit \(status)). A join token expires in minutes: run `k3sm token create` on the server for a fresh one and try again."

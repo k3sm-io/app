@@ -187,7 +187,7 @@ struct StartRetryTests {
     static func driver(_ runner: ScriptedRunner, progress: Progress, timer: ManualTimer,
                        bound: StartTimeBound.Reading = .printed(420)) -> LifecycleDriver {
         var d = LifecycleDriver(
-            teamID: team,
+            policy: .developerID(team),
             readStatus: { Reports.stopped },
             confirm: { _ in true },
             runner: runner,
@@ -249,7 +249,7 @@ struct StartRetryTests {
             let runner = ScriptedRunner([Self.cordoned])
             let progress = Progress()
             let d = LifecycleDriver(
-                teamID: Self.team, readStatus: { Reports.running }, confirm: { _ in true }, runner: runner,
+                policy: .developerID(Self.team), readStatus: { Reports.running }, confirm: { _ in true }, runner: runner,
                 readStartTimeBound: { progress.readBound(); return .printed(1) }, progress: { progress.append($0) })
             _ = await d.perform(verb, expected: .running)
             #expect(runner.scripts.count == 1)
@@ -263,7 +263,7 @@ struct StartRetryTests {
         let runner = ScriptedRunner([Self.ok])
         let progress = Progress()
         let d = LifecycleDriver(
-            teamID: Self.team, readStatus: { Reports.stopped }, confirm: { _ in false }, runner: runner,
+            policy: .developerID(Self.team), readStatus: { Reports.stopped }, confirm: { _ in false }, runner: runner,
             readStartTimeBound: { progress.readBound(); return .printed(1) })
         #expect(await d.perform(.start, expected: .stopped) == .declined)
         #expect(progress.reads == 0)
@@ -394,7 +394,7 @@ struct StartRetryTests {
         var armed = timer.armed.makeAsyncIterator()
         let d = {
             var d = LifecycleDriver(
-                teamID: Self.team, readStatus: { Reports.stopped }, confirm: { _ in true }, runner: runner,
+                policy: .developerID(Self.team), readStatus: { Reports.stopped }, confirm: { _ in true }, runner: runner,
                 readStartTimeBound: { .printed(420) })
             d.deadlineTimer = timer.timer
             return d
@@ -486,7 +486,7 @@ struct StartFakeCLITests {
         let progress = Progress()
         let bound = Mutex<StartTimeBound.Reading?>(nil)
         let driver = LifecycleDriver(
-            teamID: TeamID("ABCDE12345")!,
+            policy: .developerID(TeamID("ABCDE12345")!),
             readStatus: { Reports.stopped },
             confirm: { _ in true },
             runner: FakeRootRunner(path: fake),

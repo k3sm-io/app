@@ -213,7 +213,7 @@ struct ImageStoreScriptTests {
     }
 
     static func driver(_ runner: Runner, answer: Bool = true, asked: Asked? = nil) -> ImageStoreDriver {
-        ImageStoreDriver(teamID: team, runner: runner) { question in
+        ImageStoreDriver(policy: .developerID(team), runner: runner) { question in
             asked?.append(question.title)
             asked?.message(question.message)
             return answer

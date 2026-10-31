@@ -45,9 +45,32 @@ public enum CopyOutAction: Hashable, Sendable {
     /// Remove k3sm; `purge` also deletes its data.
     case uninstall(purge: Bool)
 
+    /// The sentence the administrator prompt shows under the Developer ID
+    /// policy, as `prompt(policy:)` renders it for `.developerID`.
+    public var prompt: String { basePrompt }
+
+    /// Whether this is a first install, which has no developer-mode marker yet.
+    public var isFirstInstall: Bool {
+        switch self {
+        case .startServer, .join: return true
+        case .update, .repair, .uninstall: return false
+        }
+    }
+
     /// The sentence the administrator prompt shows. Fixed text per action:
-    /// nothing typed by the user or read from the CLI appears in it.
-    public var prompt: String {
+    /// nothing typed by the user or read from the CLI appears in it. In
+    /// developer mode an install, update or repair ends ", with signature
+    /// checks off." in place of its period; an uninstall is unchanged.
+    public func prompt(policy: TrustPolicy) -> String {
+        let text = basePrompt
+        guard policy.isDeveloper else { return text }
+        switch self {
+        case .uninstall: return text
+        case .startServer, .join, .update, .repair: return String(text.dropLast()) + ", with signature checks off."
+        }
+    }
+
+    private var basePrompt: String {
         switch self {
         case .startServer: return "k3sm wants to install a k3sm server on this Mac."
         case .join: return "k3sm wants to install k3sm on this Mac and join it to a cluster."
@@ -115,8 +138,9 @@ public struct CopyOutPlan: Hashable, Sendable {
     public let bundlePath: String
     /// The payload's version, which names the staging directory.
     public let payloadVersion: SemanticVersion
-    /// The team whose Developer ID signature the copy must carry.
-    public let teamID: TeamID
+    /// What the copy must be signed with: the Developer ID of a team, or,
+    /// in developer mode, only an intact signature.
+    public let policy: TrustPolicy
     /// The account running the app, whose home receives the admin
     /// kubeconfig (`--user`).
     public let user: ConsoleUser
@@ -134,14 +158,21 @@ public struct CopyOutPlan: Hashable, Sendable {
     /// `.` or `..` component) and end in `.app`; control characters are
     /// refused outright even though the script would quote them.
     public init(
-        bundlePath: String, payloadVersion: SemanticVersion, teamID: TeamID, user: ConsoleUser, action: CopyOutAction
+        bundlePath: String, payloadVersion: SemanticVersion, policy: TrustPolicy, user: ConsoleUser, action: CopyOutAction
     ) throws(PlanError) {
         try Self.checkBundlePath(bundlePath)
         self.bundlePath = bundlePath
         self.payloadVersion = payloadVersion
-        self.teamID = teamID
+        self.policy = policy
         self.user = user
         self.action = action
+    }
+
+    /// A plan under the Developer ID requirement for `teamID`.
+    public init(
+        bundlePath: String, payloadVersion: SemanticVersion, teamID: TeamID, user: ConsoleUser, action: CopyOutAction
+    ) throws(PlanError) {
+        try self.init(bundlePath: bundlePath, payloadVersion: payloadVersion, policy: .developerID(teamID), user: user, action: action)
     }
 
     /// The bundle path checks every root step that copies the app makes
@@ -165,8 +196,7 @@ public struct CopyOutPlan: Hashable, Sendable {
         "\(Self.stagingRoot)/\(payloadVersion).XXXXXXXX"
     }
 
-    /// The code requirement the staged copy must satisfy.
-    public var designatedRequirement: String {
-        DesignatedRequirement.developerID(teamID: teamID)
-    }
+    /// The code requirement the staged copy must satisfy, or nil in
+    /// developer mode, where only an intact signature is checked.
+    public var designatedRequirement: String? { policy.requirementClause }
 }

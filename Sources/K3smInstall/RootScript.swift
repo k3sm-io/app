@@ -29,8 +29,13 @@ public enum CopyOutExit {
     public static let missingToken: Int32 = 66
     /// Another copy-out holds the lock (lockf's EX_TEMPFAIL).
     public static let busy: Int32 = 75
-    /// The staged copy failed the designated requirement.
+    /// The staged copy failed the designated requirement (in developer
+    /// mode: its signature is not intact).
     public static let signatureRejected: Int32 = 77
+    /// Developer mode: an update, repair or uninstall found the marker
+    /// missing or failing its checks (`LifecycleExit.developerModeMissing`,
+    /// the same status). Nothing ran from the staged copy.
+    public static let developerModeMissing: Int32 = LifecycleExit.developerModeMissing
 }
 
 /// RootScript is a rendered root step: the script text, the prompt the
@@ -112,11 +117,23 @@ public enum RootScriptBuilder {
         let q = ShellQuote.quote
         let staged = stagedBundle
         let text = stagedCopy(bundlePath: plan.bundlePath, stagingTemplate: plan.stagingTemplate,
-                              designatedRequirement: plan.designatedRequirement) + #"""
+                              designatedRequirement: plan.policy.requirementClause, beforeCopy: markerCheck(plan)) + #"""
             k3sm=\#(staged)/\#(q(CopyOutPlan.payloadCLI))
             \#(actionLines(plan, q: q))
             """#
-        return stagedStep(text: text + "\n", prompt: plan.action.prompt, readsInput: plan.action.readsToken)
+        return stagedStep(text: text + "\n", prompt: plan.action.prompt(policy: plan.policy), readsInput: plan.action.readsToken)
+    }
+
+    /// In developer mode, the marker check every copy-out but the first
+    /// install makes before it stages anything (`stagedCopy`'s `beforeCopy`,
+    /// right after the log is set up): an update, a repair or an uninstall
+    /// copies nothing and runs nothing unless developer mode is on. The first install
+    /// (`.startServer`, `.join`) has no marker yet; the administrator prompt
+    /// and its `--developer-mode on` are its authorization. Under the
+    /// Developer ID policy, nothing.
+    static func markerCheck(_ plan: CopyOutPlan) -> String {
+        guard plan.policy.isDeveloper, !plan.action.isFirstInstall else { return "" }
+        return DeveloperMode.shellCheck()
     }
 
     /// The root script of a step that begins with `stagedCopy`: it holds the
@@ -138,9 +155,36 @@ public enum RootScriptBuilder {
     /// on every exit path and the log ends with `copy-out: exit <status>`.
     /// After it, `$stage` is set and the verified copy is
     /// `stagedBundle`; nothing is read from `bundlePath` again.
-    static func stagedCopy(bundlePath: String, stagingTemplate: String, designatedRequirement: String) -> String {
+    static func stagedCopy(bundlePath: String, stagingTemplate: String, policy: TrustPolicy) -> String {
+        stagedCopy(bundlePath: bundlePath, stagingTemplate: stagingTemplate, designatedRequirement: policy.requirementClause)
+    }
+
+    /// `stagedCopy(bundlePath:stagingTemplate:policy:)` with the requirement
+    /// itself: nil (developer mode) runs `codesign --verify --strict --deep`
+    /// with no `-R`, which proves the signature is intact, not who made it.
+    /// `beforeCopy` (shell lines ending in a newline, or "") runs once the
+    /// log and its exit trap are set up, before the staging root is touched:
+    /// the developer-mode marker check, so a refusal copies nothing.
+    static func stagedCopy(bundlePath: String, stagingTemplate: String, designatedRequirement: String?,
+                           beforeCopy: String = "") -> String {
         let q = ShellQuote.quote
         let staged = stagedBundle
+        let verify: String
+        if let designatedRequirement {
+            verify = #"""
+                if ! /usr/bin/codesign --verify --strict --deep \#(q("-R=" + designatedRequirement)) \#(staged); then
+                	echo 'copy-out: refused: the app is not signed by the k3sm Developer ID'
+                	exit \#(CopyOutExit.signatureRejected)
+                fi
+                """#
+        } else {
+            verify = #"""
+                if ! /usr/bin/codesign --verify --strict --deep \#(staged); then
+                	echo 'copy-out: refused: the app signature is not intact'
+                	exit \#(CopyOutExit.signatureRejected)
+                fi
+                """#
+        }
         return #"""
             set -eu
             umask 077
@@ -167,7 +211,7 @@ public enum RootScriptBuilder {
             }
             trap finish EXIT
             trap 'exit 130' HUP INT TERM
-            root=\#(q(CopyOutPlan.stagingRoot))
+            \#(beforeCopy)root=\#(q(CopyOutPlan.stagingRoot))
             if [ -L "$root" ]; then
             	echo 'copy-out: refused: the staging root is a symlink'
             	exit \#(CopyOutExit.refusedPath)
@@ -189,10 +233,7 @@ public enum RootScriptBuilder {
             fi
             /usr/sbin/chown -R root:wheel \#(staged)
             echo 'copy-out: verifying the signature'
-            if ! /usr/bin/codesign --verify --strict --deep \#(q("-R=" + designatedRequirement)) \#(staged); then
-            	echo 'copy-out: refused: the app is not signed by the k3sm Developer ID'
-            	exit \#(CopyOutExit.signatureRejected)
-            fi
+            \#(verify)
 
             """#
     }
@@ -214,8 +255,20 @@ public enum RootScriptBuilder {
     ///   start a second cluster; without it, that shape is refused;
     /// - a plain uninstall takes no flag (`--yes` and `--user` apply only to
     ///   `--purge`); a purge passes `--user` because `env -i` strips SUDO_USER
-    ///   and the CLI must be told whose kubeconfig to clean.
+    ///   and the CLI must be told whose kubeconfig to clean;
+    /// - in developer mode the first install (`.startServer`, `.join`) ends
+    ///   with `--developer-mode on`, which makes k3sm write the marker; an
+    ///   update or repair passes no flag, so k3sm keeps the marker as it is.
     public static func arguments(for plan: CopyOutPlan) -> [CLIArgument] {
+        let words = baseArguments(for: plan)
+        guard plan.policy.isDeveloper, plan.action.isFirstInstall else { return words }
+        return words + developerModeArguments
+    }
+
+    /// The flag a first install in developer mode ends with.
+    public static let developerModeArguments: [CLIArgument] = [.literal("--developer-mode"), .literal("on")]
+
+    private static func baseArguments(for plan: CopyOutPlan) -> [CLIArgument] {
         let install: [CLIArgument] = [
             .literal("install"), .literal("--from-staging"), .stagingDirectory,
             .literal("--user"), .literal(plan.user.name),

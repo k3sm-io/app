@@ -98,19 +98,25 @@ enum SelfCheck {
         return groups.prefix(Int(filled)).contains(adminGID)
     }
 
-    /// Evaluates every check into the window's availability.
-    static func availability() -> PrivilegedAvailability {
-        let team = teamID()
-        let valid = team.map { signatureValid(team: $0) } ?? false
-        return PrivilegedAvailability.evaluate(teamID: team, signatureValid: valid, userIsAdmin: userIsAdmin())
-    }
-
     /// Whether the app will run the installed CLI as root, or ask it which
     /// verbs it has: `InstalledCLI.trust`, the check the MCP server makes too.
     /// A developer build pins no team, so it checks the paths only; it offers
     /// no lifecycle verb either way.
     static func installedCLITrust(team: TeamID?) -> InstalledCLITrust {
         InstalledCLI.trust(team: team)
+    }
+
+    /// The check before the window's trust-checked reads, which decide the
+    /// privileged verbs it offers (`AppModel.cli`): `InstalledCLI.trust(policy:)`
+    /// under the policy the root step runs under, so in developer mode the
+    /// marker is checked again with the CLI; `installedCLITrust(team:)` when
+    /// this build runs no root step.
+    static func installedCLITrust(policy: TrustPolicy?, team: TeamID?) -> InstalledCLITrust {
+        // The nil-policy fallback (a developer build outside developer mode)
+        // checks the paths only. It is for unprivileged reads alone and must
+        // never gate a root step: every root step takes a `TrustPolicy` and
+        // runs its own checks as root.
+        policy.map { InstalledCLI.trust(policy: $0) } ?? InstalledCLI.trust(team: team)
     }
 
     /// The startup health check's file facts: whether `/Library/k3sm` and

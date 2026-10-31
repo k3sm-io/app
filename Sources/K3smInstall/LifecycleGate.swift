@@ -196,7 +196,7 @@ public struct LifecycleDriver: Sendable {
         case timedOut(String)
     }
 
-    let teamID: TeamID
+    let policy: TrustPolicy
     let readStatus: @Sendable () async -> StatusReport?
     let confirm: @MainActor @Sendable (LifecycleConfirmation) async -> Bool
     let runner: any PrivilegedRunner
@@ -209,7 +209,7 @@ public struct LifecycleDriver: Sendable {
     /// classifies it with `StartTimeBound.parse`; `progress` receives the
     /// sentence to show while a start is re-run.
     public init(
-        teamID: TeamID,
+        policy: TrustPolicy,
         readStatus: @escaping @Sendable () async -> StatusReport?,
         confirm: @escaping @MainActor @Sendable (LifecycleConfirmation) async -> Bool,
         runner: any PrivilegedRunner,
@@ -218,7 +218,7 @@ public struct LifecycleDriver: Sendable {
         },
         progress: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) {
-        self.teamID = teamID
+        self.policy = policy
         self.readStatus = readStatus
         self.confirm = confirm
         self.runner = runner
@@ -243,7 +243,7 @@ public struct LifecycleDriver: Sendable {
             return .refused(why)
         }
         if verb == .start { return await start() }
-        let outcome = await runner.runAsRoot(LifecycleScriptBuilder.render(fixed, teamID: teamID), input: nil)
+        let outcome = await runner.runAsRoot(LifecycleScriptBuilder.render(fixed, policy: policy), input: nil)
         return .ran(outcome, LifecycleOutcome.text(outcome, verb: verb))
     }
 
@@ -251,7 +251,7 @@ public struct LifecycleDriver: Sendable {
     /// it exits still cordoned.
     private func start() async -> Result {
         let bound = await readStartTimeBound()
-        let script = LifecycleScriptBuilder.render(.start, teamID: teamID)
+        let script = LifecycleScriptBuilder.render(.start, policy: policy)
         let runner = self.runner
         let timer = deadlineTimer
         var attempt = 0

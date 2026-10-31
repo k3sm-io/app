@@ -86,6 +86,9 @@ public enum Help {
         /// The gear, which opens the Settings window.
         public static let settings = HelpTag("Open the Settings window (Command-Comma)",
                                              control: "console strip: gear button")
+        /// The Developer mode badge, shown while the developer-mode marker counts.
+        public static let developerMode = HelpTag("Who signed this app and its k3sm is not checked",
+                                                  control: "console strip: developer mode badge", label: "Developer mode")
         /// The update button's tag when an update is offered with no tag to name.
         public static let updateAny = HelpTag("Update every node to the newest k3sm release",
                                               control: "alerts: update card button", label: "Update")
@@ -137,7 +140,7 @@ public enum Help {
         }
 
         public static var all: [HelpTag] {
-            [showDetails, hideDetails, tour, status, settings, updateAny, updateThisMac] + ConsoleSection.allCases.map(tab)
+            [showDetails, hideDetails, tour, status, settings, developerMode, updateAny, updateThisMac] + ConsoleSection.allCases.map(tab)
         }
     }
 
@@ -790,6 +793,9 @@ public enum Help {
         /// Install in Terminal, a developer build's install on the review step.
         public static let installInTerminal = HelpTag("Run the commands below in a new Terminal window",
                                                       control: "first run: Install in Terminal", label: "Install in Terminal")
+        /// The Developer mode checkbox, on a developer build's review step.
+        public static let developerMode = HelpTag("Skip signature checks so a build from source can install",
+                                                  control: "first run: Developer mode checkbox", label: "Developer mode")
         /// The install watch's path, where the butterfly flies between checks.
         public static let installPath = HelpTag("Checks for k3sm every 5 seconds; the button below checks now",
                                                 control: "first run: install watch path")
@@ -809,7 +815,8 @@ public enum Help {
         }
 
         public static var all: [HelpTag] {
-            [choice, next, back, start, join, clearPaste, copyCommand, installInTerminal, installPath, checkAgain, tryAgain, openConsole]
+            [choice, next, back, start, join, clearPaste, copyCommand, installInTerminal, developerMode, installPath, checkAgain, tryAgain,
+             openConsole]
         }
     }
 

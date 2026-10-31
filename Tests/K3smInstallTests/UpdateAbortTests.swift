@@ -122,7 +122,7 @@ struct UpdateAbortTests {
         #expect(verb.isUpdate && !verb.isLAN && verb.requiredState == nil)
         #expect(verb.command == "update abort" && verb.title == "Abort Update")
         let runner = LANRunner()
-        let lifecycle = LifecycleDriver(teamID: Self.team, readStatus: { ManagedUpdateTests.report(latest: "v0.1.8") },
+        let lifecycle = LifecycleDriver(policy: .developerID(Self.team), readStatus: { ManagedUpdateTests.report(latest: "v0.1.8") },
                                         confirm: { _ in true }, runner: runner)
         guard case .refused = await lifecycle.perform(verb, expected: .running) else {
             Issue.record("the lifecycle driver ran the abort")

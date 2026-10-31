@@ -188,20 +188,20 @@ public struct UpdateDriver: Sendable {
     /// The shorter form is the one first agreed for the contract.
     public static let alreadyRollingMarkers = ["follow it with `k3sm update status --watch`", "an update is already rolling"]
 
-    let teamID: TeamID
+    let policy: TrustPolicy
     let readStatus: @Sendable () async -> StatusReport?
     let confirm: @MainActor @Sendable (LifecycleConfirmation) async -> Bool
     let confirmApply: @MainActor @Sendable (LifecycleConfirmation) async -> UpdateApplyAnswer
     let runner: any PrivilegedRunner
 
     public init(
-        teamID: TeamID,
+        policy: TrustPolicy,
         readStatus: @escaping @Sendable () async -> StatusReport?,
         confirm: @escaping @MainActor @Sendable (LifecycleConfirmation) async -> Bool,
         confirmApply: @escaping @MainActor @Sendable (LifecycleConfirmation) async -> UpdateApplyAnswer,
         runner: any PrivilegedRunner
     ) {
-        self.teamID = teamID
+        self.policy = policy
         self.readStatus = readStatus
         self.confirm = confirm
         self.confirmApply = confirmApply
@@ -246,7 +246,7 @@ public struct UpdateDriver: Sendable {
         case .proceed(let pinned): release = pinned
         case .refused(let why): return .refused(why)
         }
-        let script = LifecycleScriptBuilder.renderUpdateApply(teamID: teamID, options: confirmed, release: release)
+        let script = LifecycleScriptBuilder.renderUpdateApply(policy: policy, options: confirmed, release: release)
         let run = await runner.runAsRootReportingError(script, input: nil)
         return Self.classify(run, verb: .updateApply)
     }
@@ -271,7 +271,7 @@ public struct UpdateDriver: Sendable {
             return .refused("The nodes behind k3sm \(StatusDisplay.clip(tag)) changed while the question was open. Nothing was changed.")
         case .refused(let why): return .refused(why)
         }
-        let script = LifecycleScriptBuilder.renderUpdateApply(teamID: teamID, options: frozen, release: release)
+        let script = LifecycleScriptBuilder.renderUpdateApply(policy: policy, options: frozen, release: release)
         let run = await runner.runAsRootReportingError(script, input: nil)
         return Self.classify(run, verb: .updateApply)
     }
@@ -280,7 +280,7 @@ public struct UpdateDriver: Sendable {
     public func cancel() async -> Result {
         let empty = StatusReport(schemaVersion: StatusReport.supportedSchemaVersion, verdict: .unknown, role: "", summary: "", rows: [])
         guard await confirm(LifecycleConfirmation(verb: .updateCancel, report: empty)) else { return .declined }
-        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(.updateCancel, teamID: teamID), input: nil)
+        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(.updateCancel, policy: policy), input: nil)
         return Self.classify(run, verb: .updateCancel)
     }
 
@@ -291,7 +291,7 @@ public struct UpdateDriver: Sendable {
     public func abort() async -> Result {
         let empty = StatusReport(schemaVersion: StatusReport.supportedSchemaVersion, verdict: .unknown, role: "", summary: "", rows: [])
         guard await confirm(LifecycleConfirmation(verb: .updateAbort, report: empty)) else { return .declined }
-        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(.updateAbort, teamID: teamID), input: nil)
+        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(.updateAbort, policy: policy), input: nil)
         return Self.classify(run, verb: .updateAbort)
     }
 

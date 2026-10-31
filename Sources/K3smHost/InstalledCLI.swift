@@ -38,6 +38,39 @@ public enum InstalledCLI {
         }
     }
 
+    /// The check the app makes before a privileged path under `policy`.
+    /// Under `.developerID` it is `trust(team:)` for that team. Under
+    /// `.developer` the paths are checked the same way, and the signature
+    /// check is replaced by the developer-mode marker (`developerModeOn()`,
+    /// read fresh, the marker and every directory above it): with the marker
+    /// gone or failing its checks, the verdict is the signature refusal, as
+    /// for a binary that fails the Developer ID requirement. The MCP server
+    /// runs no root step and keeps `trust(team:)`.
+    public static func trust(policy: TrustPolicy) -> InstalledCLITrust {
+        trust(policy: policy, cliPath: K3smCLI.path, owners: [0], markerOn: { developerModeOn() })
+    }
+
+    /// `trust(policy:)` for a CLI at `cliPath` with every path owned by one
+    /// of `owners`, the marker's verdict from `markerOn`. Only the tests pass
+    /// anything but `K3smCLI.path`, root and the real marker.
+    static func trust(policy: TrustPolicy, cliPath: String, owners: Set<UInt32>,
+                      markerOn: () -> Bool) -> InstalledCLITrust {
+        trust(cliPath: cliPath, owners: owners) { path in
+            switch policy {
+            case .developerID(let team): return binarySignatureValid(path: path, team: team)
+            case .developer: return markerOn()
+            }
+        }
+    }
+
+    /// Whether the developer-mode marker counts on this Mac: the predicate
+    /// the root step checks as root (`DeveloperMode.isOn(markerPath:owners:facts:)`)
+    /// over `lstat` of the marker and every directory above it, never
+    /// following a link. Only the tests pass anything but the real path and root.
+    public static func developerModeOn(markerPath: String = DeveloperMode.markerPath, owners: Set<UInt32> = [0]) -> Bool {
+        DeveloperMode.isOn(markerPath: markerPath, owners: owners, facts: pathFacts)
+    }
+
     /// The check on a CLI at `cliPath` with every path owned by one of
     /// `owners`; `signatureValid` gets the resolved binary. Only the tests
     /// pass anything but `K3smCLI.path` and root.

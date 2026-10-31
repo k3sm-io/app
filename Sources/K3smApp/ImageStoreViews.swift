@@ -46,16 +46,18 @@ final class ImageStoreModel: ObservableObject {
     /// Reads the Images tab's lists again after a write.
     var refresh: (@MainActor () async -> Void)?
 
-    private let teamID: TeamID?
+    /// What the root step checks the installed CLI against, read at each
+    /// click (`AppModel.trustPolicy`): the pin, or in a developer build the
+    /// developer-mode marker; nil when this build runs no root step.
+    var policy: @MainActor () -> TrustPolicy? = { nil }
     private let runner: any PrivilegedRunner
 
-    init(teamID: TeamID?, runner: any PrivilegedRunner) {
-        self.teamID = teamID
+    init(runner: any PrivilegedRunner) {
         self.runner = runner
     }
 
     private func driver() -> ImageStoreDriver? {
-        teamID.map { ImageStoreDriver(teamID: $0, runner: runner, confirm: { Self.confirm($0) }) }
+        policy().map { ImageStoreDriver(policy: $0, runner: runner, confirm: { Self.confirm($0) }) }
     }
 
     func openPull() {

@@ -66,7 +66,7 @@ struct CopyOutTests {
         let p = try Self.plan(.startServer)
         #expect(CopyOutPlan.stagingRoot == "/Library/k3sm.staging")
         #expect(p.stagingTemplate == "/Library/k3sm.staging/0.2.0.XXXXXXXX")
-        #expect(p.designatedRequirement.hasSuffix(#"leaf[subject.OU] = "ABCDE12345""#))
+        #expect(p.designatedRequirement?.hasSuffix(#"leaf[subject.OU] = "ABCDE12345""#) == true)
     }
 
     static let actions: [CopyOutAction] = [
@@ -132,7 +132,7 @@ struct CopyOutTests {
     func requirementWord() throws {
         let p = try Self.plan(.update(.server))
         let text = RootScriptBuilder.render(p).text
-        #expect(text.contains("--deep " + ShellQuote.quote("-R=" + p.designatedRequirement) + " "))
+        #expect(text.contains("--deep " + ShellQuote.quote("-R=" + p.designatedRequirement!) + " "))
     }
 
     @Test("the command line wraps the script in the lock and a scrubbed environment")

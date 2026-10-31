@@ -37,7 +37,7 @@ struct ManagedUpdateTests {
 
     static func driver(_ reads: StatusSequence, runner: LANRunner, answer: Bool, downgrade: Bool = false,
                        asked: Questions? = nil, afterAnswer: (@Sendable () -> Void)? = nil) -> UpdateDriver {
-        UpdateDriver(teamID: team, readStatus: { reads.next() }, confirm: { c in
+        UpdateDriver(policy: .developerID(team), readStatus: { reads.next() }, confirm: { c in
             asked?.append(c)
             return answer
         }, confirmApply: { c in
@@ -84,7 +84,7 @@ struct ManagedUpdateTests {
     @Test("the lifecycle and LAN drivers refuse an update verb", arguments: LifecycleVerb.updateVerbs)
     func otherDriversRefuse(_ verb: LifecycleVerb) async {
         let runner = LANRunner()
-        let lifecycle = LifecycleDriver(teamID: Self.team, readStatus: { Self.report(latest: "v0.1.8") }, confirm: { _ in true }, runner: runner)
+        let lifecycle = LifecycleDriver(policy: .developerID(Self.team), readStatus: { Self.report(latest: "v0.1.8") }, confirm: { _ in true }, runner: runner)
         guard case .refused = await lifecycle.perform(verb, expected: .running) else {
             Issue.record("the lifecycle driver ran \(verb)")
             return

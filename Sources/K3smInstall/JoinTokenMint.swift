@@ -51,8 +51,13 @@ public enum JoinTokenMint: String, CaseIterable, Hashable, Sendable {
     }
 
     /// Renders the mint script for the installed CLI at `K3smCLI.path`.
+    public static func render(_ mint: JoinTokenMint, policy: TrustPolicy) -> RootScript {
+        render(mint, policy: policy, cliPath: K3smCLI.path)
+    }
+
+    /// `render(_:policy:)` under the Developer ID requirement for `teamID`.
     public static func render(_ mint: JoinTokenMint, teamID: TeamID) -> RootScript {
-        render(mint, teamID: teamID, cliPath: K3smCLI.path)
+        render(mint, policy: .developerID(teamID))
     }
 
     /// Renders the mint script for a CLI at `cliPath`: the same checks as
@@ -63,8 +68,12 @@ public enum JoinTokenMint: String, CaseIterable, Hashable, Sendable {
     /// asks for its output as a secret (`RootScript.ResultUse.secret`), so
     /// only the capturing call returns it. Only the tests pass another path.
     static func render(_ mint: JoinTokenMint, teamID: TeamID, cliPath: String) -> RootScript {
+        render(mint, policy: .developerID(teamID), cliPath: cliPath)
+    }
+
+    static func render(_ mint: JoinTokenMint, policy: TrustPolicy, cliPath: String) -> RootScript {
         let argv = arguments(for: mint).map(ShellQuote.quote).joined(separator: " ")
-        let text = InstalledCLIPreamble.render(teamID: teamID, cliPath: cliPath)
+        let text = InstalledCLIPreamble.render(policy: policy, cliPath: cliPath)
             + "token=$(\"$k3sm\" \(argv))\n"
             + "printf '%s\\n' \"$token\"\n"
         return RootScript(text: text, prompt: mint.prompt, readsInput: false, usesStagingLock: false, result: .secret)

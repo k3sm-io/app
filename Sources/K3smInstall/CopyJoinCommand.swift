@@ -101,7 +101,7 @@ public final class JoinCommandDriver {
         case copied(String)
     }
 
-    let teamID: TeamID
+    let policy: TrustPolicy
     let readStatus: @MainActor @Sendable () async -> StatusReport?
     let availability: @MainActor @Sendable () -> PrivilegedAvailability
     let addresses: any JoinAddressSource
@@ -112,7 +112,7 @@ public final class JoinCommandDriver {
     public private(set) var inFlight = false
 
     public init(
-        teamID: TeamID,
+        policy: TrustPolicy,
         readStatus: @escaping @MainActor @Sendable () async -> StatusReport?,
         availability: @escaping @MainActor @Sendable () -> PrivilegedAvailability,
         addresses: any JoinAddressSource,
@@ -120,7 +120,7 @@ public final class JoinCommandDriver {
         clipboard: ConcealedClipboard,
         log: @escaping @MainActor @Sendable (String) -> Void
     ) {
-        self.teamID = teamID
+        self.policy = policy
         self.readStatus = readStatus
         self.availability = availability
         self.addresses = addresses
@@ -152,7 +152,7 @@ public final class JoinCommandDriver {
             server = s
         }
         log("join command: minting")
-        switch await runner.runAsRootCapturingOutput(JoinTokenMint.render(.workerToken, teamID: teamID)) {
+        switch await runner.runAsRootCapturingOutput(JoinTokenMint.render(.workerToken, policy: policy)) {
         case .failure(.notSucceeded(let run)):
             log("join command: mint did not succeed")
             if run.outcome == .cancelled { return .cancelled }
@@ -191,6 +191,8 @@ public final class JoinCommandDriver {
                 text = "The installed k3sm at \(K3smCLI.path), or a folder above it, is not owned by root or is writable by others, so nothing was run."
             case LifecycleExit.signatureRejected:
                 text = "The installed k3sm is not signed by the k3sm Developer ID, so nothing was run."
+            case LifecycleExit.developerModeMissing:
+                text = DeveloperMode.missingText
             default:
                 text = "k3sm could not create a join token (exit status \(status)). Nothing was copied."
             }
