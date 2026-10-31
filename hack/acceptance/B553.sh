@@ -126,7 +126,9 @@ grep -qF 'case .lanOff: return ["network", "lan", "off"]' "$lc" || { echo "FAIL:
 got="$(grep -rc 'RootScript(text:' Sources | grep -v ':0$' | sort | tr '\n' ' ')"
 want="Sources/K3smInstall/JoinTokenMint.swift:1 Sources/K3smInstall/Lifecycle.swift:1 Sources/K3smInstall/RootScript.swift:1 "
 [ "$got" = "$want" ] || { echo "FAIL: RootScript constructions in Sources are '$got'; want '$want' (the copy-out, the lifecycle script and the join token mint)"; exit 1; }
-grep -qE 'LifecycleScriptBuilder\.render\([A-Za-z]+, teamID: teamID\)' Sources/K3smInstall/LANAccess.swift \
+# The driver renders under its stored trust policy (the Developer ID
+# requirement, or the developer-mode marker check), never a script of its own.
+grep -qE 'LifecycleScriptBuilder\.render\([A-Za-z]+, policy: policy\)' Sources/K3smInstall/LANAccess.swift \
 	|| { echo "FAIL: the LAN driver does not run the lifecycle script"; exit 1; }
 echo "    ok"
 
