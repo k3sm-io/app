@@ -32,17 +32,45 @@ public enum DeveloperMode {
     public static let markerPath = "/Library/k3sm.developer-mode"
 
     /// The fixed warning shown wherever developer mode is offered or on.
-    public static let warning = "Developer mode: k3sm will not verify who signed this app or the k3sm it installs and runs as root. Anyone who can replace those files gets root. Use it only on a Mac you build k3sm on. Installing a signed release turns it off."
+    public static let warning = "Developer mode: k3sm will not verify who signed this app or the k3sm it installs and runs as root. Anyone who can replace those files gets root. Use it only on a Mac you build k3sm on. Only `sudo k3sm install --developer-mode off`, or an update to a release whose every program is signed by one Developer ID team, turns it off."
 
     /// The exit status of a root step that found the marker missing or
     /// failing a check (`LifecycleExit.developerModeMissing`).
     public static var missingExit: Int32 { LifecycleExit.developerModeMissing }
 
-    /// Whether `lstat` of the marker (`facts`, nil when it does not exist)
-    /// shows a marker that counts.
-    public static func isOn(facts: InstalledCLITrust.PathFacts?) -> Bool {
-        guard let f = facts else { return false }
-        return !f.isSymlink && f.isRegularFile && f.ownerUID == 0 && f.mode & 0o022 == 0 && !f.hasACL
+    /// The one sentence every outcome mapper shows for `missingExit`: the
+    /// lifecycle verbs, the LAN setting, the managed update, the image store,
+    /// the join token, and the copy-out's update and repair.
+    public static let missingText =
+        "Developer mode is off on this Mac, or its marker failed its check, so nothing ran. "
+        + "To turn it on again on purpose, install k3sm afresh and tick the Developer mode box on the review step."
+
+    /// `missingText` for an uninstall, which has a way out without the
+    /// mode: the CLI's own uninstall in Terminal.
+    public static let missingUninstallText =
+        "Developer mode is off on this Mac, or its marker failed its check, so nothing ran. "
+        + "Run `sudo k3sm uninstall` in Terminal to uninstall k3sm."
+
+    /// Whether the marker at `markerPath` counts: the predicate the root
+    /// step's `shellCheck` applies as root, made from `lstat` facts (`facts`,
+    /// nil for a path that does not exist; no link is ever followed). Every
+    /// directory above the marker, from `/`, must be a real directory, and
+    /// every path, the marker included, owned by one of `owners`, not
+    /// writable by group or others, and without an ACL; the marker must be a
+    /// regular file. Only the tests pass anything but the real path and root.
+    public static func isOn(markerPath: String = markerPath, owners: Set<UInt32> = [0],
+                            facts: (String) -> InstalledCLITrust.PathFacts?) -> Bool {
+        let paths = InstalledCLIPreamble.checkedPaths(cliPath: markerPath)
+        for ancestor in paths.dropLast() {
+            guard let f = facts(ancestor), !f.isSymlink, f.isDirectory, held(f, owners: owners) else { return false }
+        }
+        guard let f = facts(markerPath) else { return false }
+        return !f.isSymlink && f.isRegularFile && held(f, owners: owners)
+    }
+
+    /// Owned by one of `owners`, not writable by group or others, no ACL.
+    private static func held(_ f: InstalledCLITrust.PathFacts, owners: Set<UInt32>) -> Bool {
+        owners.contains(f.ownerUID) && f.mode & 0o022 == 0 && !f.hasACL
     }
 
     /// The shell lines that refuse with `missingExit` unless the marker at

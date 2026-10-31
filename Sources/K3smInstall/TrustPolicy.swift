@@ -48,9 +48,10 @@ public enum TrustPolicy: Hashable, Sendable {
     /// The policy this build runs the root step under, or nil when it runs
     /// none. A pinned build is always `.developerID(pin)`, whatever the
     /// marker says: a release never enters developer mode. An unpinned build
-    /// is `.developer` only while the marker passes `DeveloperMode.isOn`.
-    public static func current(pin: TeamID?, marker: InstalledCLITrust.PathFacts?) -> TrustPolicy? {
+    /// is `.developer` only while `developerModeOn`, the marker and every
+    /// directory above it passing `DeveloperMode.isOn(markerPath:owners:facts:)`.
+    public static func current(pin: TeamID?, developerModeOn: Bool) -> TrustPolicy? {
         if let pin { return .developerID(pin) }
-        return DeveloperMode.isOn(facts: marker) ? .developer : nil
+        return developerModeOn ? .developer : nil
     }
 }

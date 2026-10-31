@@ -471,10 +471,6 @@ public enum LifecycleOutcome {
         return leftoverClasses.filter { n & $0.bit != 0 }.map(\.name)
     }
 
-    /// The sentence for `LifecycleExit.developerModeMissing`.
-    public static let developerModeMissingText =
-        "Developer mode was turned off, so nothing ran. Install a build from source again to turn it on."
-
     public static func text(_ outcome: PrivilegedOutcome, verb: LifecycleVerb) -> String {
         switch outcome {
         case .succeeded:
@@ -499,7 +495,7 @@ public enum LifecycleOutcome {
             case LifecycleExit.signatureRejected:
                 return "The installed k3sm is not signed by the k3sm Developer ID, so nothing was run."
             case LifecycleExit.developerModeMissing:
-                return developerModeMissingText
+                return DeveloperMode.missingText
             case LifecycleExit.needsRoot:
                 return "k3sm did not run as root, so nothing was done."
             case LifecycleExit.usage:

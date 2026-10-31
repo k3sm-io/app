@@ -151,6 +151,8 @@ public struct ImageStoreDriver: Sendable {
             return .ran(run.outcome, "The installed k3sm at \(K3smCLI.path), or a folder above it, is not owned by root or is writable by others, so nothing was run.")
         case .failed(LifecycleExit.signatureRejected):
             return .ran(run.outcome, "The installed k3sm is not signed by the k3sm Developer ID, so nothing was run.")
+        case .failed(LifecycleExit.developerModeMissing):
+            return .ran(run.outcome, DeveloperMode.missingText)
         case .failed(let status):
             let cli = run.errorOutput.map(StatusDisplay.errorText) ?? ""
             if !cli.isEmpty { return .ran(run.outcome, "k3sm \(verb.command) failed: " + cli) }

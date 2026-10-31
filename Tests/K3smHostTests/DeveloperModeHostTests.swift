@@ -34,10 +34,19 @@ struct DeveloperModeHostTests {
         ("group-writable", Facts(isSymlink: false, isDirectory: false, isRegularFile: true, ownerUID: 0, mode: 0o664)),
         ("an ACL", Facts(isSymlink: false, isDirectory: false, isRegularFile: true, ownerUID: 0, mode: 0o644, hasACL: true)),
     ]
+    /// `/`, `/Library` as root-owned directories and `marker` at the marker path.
+    static func rooted(_ marker: Facts?) -> (String) -> Facts? {
+        { path in
+            if path == DeveloperMode.markerPath { return marker }
+            return ["/", "/Library"].contains(path)
+                ? Facts(isSymlink: false, isDirectory: true, isRegularFile: false, ownerUID: 0, mode: 0o755) : nil
+        }
+    }
     static let signatureRefusal = InstalledCLITrust.refused("the installed k3sm is not signed by the k3sm Developer ID")
 
     static func trust(_ layout: InstalledCLIChainHostTests.Layout, _ policy: TrustPolicy, marker: Facts?) -> InstalledCLITrust {
-        InstalledCLI.trust(policy: policy, cliPath: layout.cli, owners: [0, getuid()], marker: { marker })
+        InstalledCLI.trust(policy: policy, cliPath: layout.cli, owners: [0, getuid()],
+                           markerOn: { DeveloperMode.isOn(owners: [0], facts: Self.rooted(marker)) })
     }
 
     @Test("developer mode trusts the paths with a valid marker, and refuses on the signature path without one")
@@ -64,5 +73,48 @@ struct DeveloperModeHostTests {
             return
         }
         #expect(why.contains("is not owned by root, or is writable by group or others"))
+    }
+
+    /// A marker in a real directory tree, read through `developerModeOn`,
+    /// the check the app's badge, its enabled verbs and its trust policy use.
+    static func markerTree() throws -> (dir: String, marker: String) {
+        // The real path (/private/var/..., not /var/...), so no ancestor is a symlink.
+        let tmp = try #require(realpath(NSTemporaryDirectory(), nil))
+        defer { free(tmp) }
+        let base = String(cString: tmp) + "/k3sm-host-marker-\(UUID().uuidString)"
+        let dir = base + "/Library"
+        let fm = FileManager.default
+        try fm.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o755])
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: base)
+        let marker = dir + "/k3sm.developer-mode"
+        try Data().write(to: URL(fileURLWithPath: marker))
+        try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: marker)
+        return (dir, marker)
+    }
+
+    @Test("a marker whose parent directory is group-writable reads as off")
+    func developerModeMarkerParentGroupWritable() throws {
+        let tree = try Self.markerTree()
+        let base = (tree.dir as NSString).deletingLastPathComponent
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        // Every ancestor of the temporary directory belongs to root or to this user.
+        let owners: Set<UInt32> = [0, getuid()]
+        #expect(InstalledCLI.developerModeOn(markerPath: tree.marker, owners: owners))
+        try FileManager.default.setAttributes([.posixPermissions: 0o775], ofItemAtPath: tree.dir)
+        #expect(!InstalledCLI.developerModeOn(markerPath: tree.marker, owners: owners))
+        // The marker alone still passes the leaf checks: only the chain refuses it.
+        let leaf = try #require(InstalledCLI.pathFacts(tree.marker))
+        #expect(!leaf.isSymlink && leaf.isRegularFile && leaf.mode & 0o022 == 0)
+    }
+
+    @Test("a marker reached through a symlinked directory reads as off")
+    func developerModeMarkerSymlinkedParent() throws {
+        let tree = try Self.markerTree()
+        let base = (tree.dir as NSString).deletingLastPathComponent
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        let link = base + "/linked"
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: "Library")
+        #expect(!InstalledCLI.developerModeOn(markerPath: link + "/k3sm.developer-mode", owners: [0, getuid()]))
+        #expect(!InstalledCLI.developerModeOn(markerPath: base + "/Library/absent", owners: [0, getuid()]))
     }
 }

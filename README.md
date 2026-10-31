@@ -1382,19 +1382,26 @@ build k3sm on.
   install runs `k3sm install --developer-mode on`.
 - k3sm records the choice as a root-owned file, `/Library/k3sm.developer-mode`.
   The app reads it at each status read; while it is a root-owned regular
-  file that only root can write, the window's strip shows a **Developer mode**
+  file that only root can write, in folders that are the same from `/` down
+  (no symlink, no ACL), the window's strip shows a **Developer mode**
   badge and the app runs Start, Stop, Restart, the managed update, Repair,
   the update from its payload and Uninstall. Every one of those steps checks
-  the file again as root first and runs nothing if it is gone.
+  the file again as root first and runs nothing if it is gone or fails the
+  check; the app then says so, and for Uninstall gives `sudo k3sm uninstall`
+  to run in Terminal.
 - Each step still checks that the installed k3sm and its directories are
-  root-owned and not writable by others, and that the staged copy of the app
-  has an intact signature; it checks no Developer ID requirement.
+  root-owned and not writable by others. The copy of the app it stages and
+  runs as root is checked only for an intact signature, not for who signed
+  it: any app bundle with an unbroken ad-hoc signature passes. That is the
+  trade developer mode makes, and why it is only for a build from source.
 - The app names the payload by its own pseudo-version. k3sm still refuses
   an older k3sm over a newer one and the app shows that refusal; the app
   never passes `--allow-downgrade`, which stays a flag to run in Terminal.
-- Installing a signed release of k3sm turns developer mode off, and so does
-  `sudo <tree>/k3sm install --developer-mode off` from a staged k3sm tree.
-  Uninstalling k3sm removes the file.
+- `sudo <tree>/k3sm install --developer-mode off` from a staged k3sm tree
+  turns developer mode off. An update turns it off only when every program
+  in it carries the Developer ID signature of one team, the installed
+  k3sm's team when it has one; any other update, a plain `k3sm install`
+  included, keeps it on. Uninstalling k3sm removes the file.
 
 `hack/release/README.md` describes the release signing order. The bundle id
 is `io.k3sm.app`, and the app logs to the unified log under the same

@@ -106,6 +106,15 @@ enum SelfCheck {
         InstalledCLI.trust(team: team)
     }
 
+    /// The check before the window's trust-checked reads, which decide the
+    /// privileged verbs it offers (`AppModel.cli`): `InstalledCLI.trust(policy:)`
+    /// under the policy the root step runs under, so in developer mode the
+    /// marker is checked again with the CLI; `installedCLITrust(team:)` when
+    /// this build runs no root step.
+    static func installedCLITrust(policy: TrustPolicy?, team: TeamID?) -> InstalledCLITrust {
+        policy.map { InstalledCLI.trust(policy: $0) } ?? InstalledCLI.trust(team: team)
+    }
+
     /// The startup health check's file facts: whether `/Library/k3sm` and
     /// its CLI exist (`lstat`, so a symlinked CLI counts as present and then
     /// fails its trust check).

@@ -87,7 +87,7 @@ public enum Help {
         public static let settings = HelpTag("Open the Settings window (Command-Comma)",
                                              control: "console strip: gear button")
         /// The Developer mode badge, shown while the developer-mode marker counts.
-        public static let developerMode = HelpTag("Signature checks are off; k3sm runs unverified builds as root",
+        public static let developerMode = HelpTag("Who signed this app and its k3sm is not checked",
                                                   control: "console strip: developer mode badge", label: "Developer mode")
         /// The update button's tag when an update is offered with no tag to name.
         public static let updateAny = HelpTag("Update every node to the newest k3sm release",

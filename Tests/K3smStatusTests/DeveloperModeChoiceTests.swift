@@ -128,6 +128,14 @@ struct DeveloperModeChoiceTests {
             let text = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
             #expect(!text.lowercased().contains("developer"), "\(file)")
         }
+        // The first run's checkbox is off at every launch and lives only on
+        // the model: no line that names it reads or writes the defaults.
+        let model = try String(contentsOf: root.appendingPathComponent("Sources/K3smApp/AppModel.swift"), encoding: .utf8)
+        #expect(model.contains("@Published var developerModeChecked = false {"))
+        for line in model.split(separator: "\n") where line.contains("developerModeChecked") {
+            #expect(!line.contains("UserDefaults") && !line.contains("defaults") && !line.contains("preferences")
+                    && !line.contains("@AppStorage") && !line.contains("restor"), "\(line)")
+        }
         // A stored developer-mode key changes nothing the preferences read.
         let suite = "io.k3sm.test.developer-mode.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

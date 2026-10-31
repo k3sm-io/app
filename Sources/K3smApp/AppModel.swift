@@ -371,13 +371,12 @@ final class AppModel: ObservableObject {
     @Published var developerModeChecked = false {
         didSet { if developerModeChecked != oldValue { evaluateAvailability() } }
     }
-    /// Whether the developer-mode marker counts (`DeveloperMode.isOn`),
-    /// read again with each refresh. Only a developer build acts on it.
+    /// Whether the developer-mode marker counts (`InstalledCLI.developerModeOn`:
+    /// the marker and every directory above it, as the root step checks
+    /// them), read again with each refresh. Only a developer build acts on it.
     @Published private(set) var developerModeOn = false {
         didSet { if developerModeOn != oldValue { evaluateAvailability() } }
     }
-    /// `lstat` of the developer-mode marker at the last refresh.
-    private var developerModeMarker: InstalledCLITrust.PathFacts?
     /// Whether this build's own signature satisfies its pin, checked once.
     private let selfSignatureValid: Bool
     /// Whether the user is an administrator, checked once.
@@ -665,7 +664,7 @@ final class AppModel: ObservableObject {
     /// and the staged bundle against (`TrustPolicy.current`): the pin, or in
     /// a developer build the marker; nil when this build runs none.
     var trustPolicy: TrustPolicy? {
-        TrustPolicy.current(pin: teamID, marker: developerModeMarker)
+        TrustPolicy.current(pin: teamID, developerModeOn: developerModeOn)
     }
 
     /// The first install's policy: the pin, or `.developer` on a developer
@@ -1056,9 +1055,7 @@ final class AppModel: ObservableObject {
             }
         }
         let files = await Task.detached { SelfCheck.installFiles() }.value
-        let marker = await Task.detached { InstalledCLI.pathFacts(DeveloperMode.markerPath) }.value
-        developerModeMarker = marker
-        developerModeOn = DeveloperMode.isOn(facts: marker)
+        developerModeOn = await Task.detached { InstalledCLI.developerModeOn() }.value
         var trust: HealthFacts.CLITrust = .unchecked
         var read: StatusReport?
         if !files.rootExists { reportRecovery.reset() }
@@ -2341,9 +2338,10 @@ final class AppModel: ObservableObject {
     /// and the pod, metrics and status polls run the CLI without this check.
     private var cli: TrustedCLI<CLIOutcome> {
         let teamID = teamID
+        let policy = trustPolicy
         let environment = environment
         return TrustedCLI(
-            check: { await Task.detached { SelfCheck.installedCLITrust(team: teamID) }.value },
+            check: { await Task.detached { SelfCheck.installedCLITrust(policy: policy, team: teamID) }.value },
             execute: { arguments in
                 await CLIProcess.run(path: K3smCLI.path, arguments: arguments, environment: environment, deadline: PollSchedule.deadline(for: arguments), limit: OutputLimit.status)
             })

@@ -98,23 +98,59 @@ struct DeveloperModeTrustTests {
         ("carries an ACL", Facts(isSymlink: false, isDirectory: false, isRegularFile: true, ownerUID: 0, mode: 0o644, hasACL: true)),
     ]
 
+    static let rootDir = Facts(isSymlink: false, isDirectory: true, isRegularFile: false, ownerUID: 0, mode: 0o755)
+
+    /// `lstat` facts for `/`, `/Library` and the marker: good directories,
+    /// with `marker` at the marker path and `overrides` replacing any path.
+    static func layout(marker: Facts?, _ overrides: [String: Facts?] = [:]) -> (String) -> Facts? {
+        { path in
+            if let o = overrides[path] { return o }
+            if path == DeveloperMode.markerPath { return marker }
+            return ["/", "/Library"].contains(path) ? rootDir : nil
+        }
+    }
+
+    static func on(marker: Facts?, _ overrides: [String: Facts?] = [:]) -> Bool {
+        DeveloperMode.isOn(facts: layout(marker: marker, overrides))
+    }
+
     @Test("isOn: only a root-owned regular file, not group or other writable, with no ACL")
     func developerModeTrustTableIsOn() {
-        #expect(DeveloperMode.isOn(facts: Self.marker))
-        #expect(DeveloperMode.isOn(facts: Facts(isSymlink: false, isDirectory: false, isRegularFile: true, ownerUID: 0, mode: 0o600)))
+        #expect(Self.on(marker: Self.marker))
+        #expect(Self.on(marker: Facts(isSymlink: false, isDirectory: false, isRegularFile: true, ownerUID: 0, mode: 0o600)))
         for (name, facts) in Self.badMarkers {
-            #expect(!DeveloperMode.isOn(facts: facts), "\(name)")
+            #expect(!Self.on(marker: facts), "\(name)")
         }
+    }
+
+    @Test("isOn: every directory above the marker is checked as the root step checks it")
+    func developerModeTrustTableIsOnAncestors() {
+        let bad: [(String, Facts?)] = [
+            ("absent", nil),
+            ("a symlink", Facts(isSymlink: true, isDirectory: false, isRegularFile: false, ownerUID: 0, mode: 0o755)),
+            ("a regular file", Facts(isSymlink: false, isDirectory: false, isRegularFile: true, ownerUID: 0, mode: 0o755)),
+            ("another owner", Facts(isSymlink: false, isDirectory: true, isRegularFile: false, ownerUID: 501, mode: 0o755)),
+            ("group-writable", Facts(isSymlink: false, isDirectory: true, isRegularFile: false, ownerUID: 0, mode: 0o775)),
+            ("other-writable", Facts(isSymlink: false, isDirectory: true, isRegularFile: false, ownerUID: 0, mode: 0o757)),
+            ("carries an ACL", Facts(isSymlink: false, isDirectory: true, isRegularFile: false, ownerUID: 0, mode: 0o755, hasACL: true)),
+        ]
+        for ancestor in ["/", "/Library"] {
+            for (name, facts) in bad {
+                #expect(!Self.on(marker: Self.marker, [ancestor: facts]), "\(ancestor) \(name)")
+            }
+        }
+        // The owners set widens every path's owner check, and only that.
+        let mine = Facts(isSymlink: false, isDirectory: false, isRegularFile: true, ownerUID: 501, mode: 0o644)
+        #expect(DeveloperMode.isOn(owners: [0, 501], facts: Self.layout(marker: mine)))
+        #expect(!DeveloperMode.isOn(owners: [0], facts: Self.layout(marker: mine)))
     }
 
     @Test("TrustPolicy.current: a pinned build is never developer mode; an unpinned one only with a valid marker")
     func developerModeTrustTableCurrent() {
-        #expect(TrustPolicy.current(pin: Self.team, marker: Self.marker) == .developerID(Self.team))
-        #expect(TrustPolicy.current(pin: nil, marker: Self.marker) == .developer)
-        for (name, facts) in Self.badMarkers {
-            #expect(TrustPolicy.current(pin: Self.team, marker: facts) == .developerID(Self.team), "\(name)")
-            #expect(TrustPolicy.current(pin: nil, marker: facts) == nil, "\(name)")
-        }
+        #expect(TrustPolicy.current(pin: Self.team, developerModeOn: true) == .developerID(Self.team))
+        #expect(TrustPolicy.current(pin: Self.team, developerModeOn: false) == .developerID(Self.team))
+        #expect(TrustPolicy.current(pin: nil, developerModeOn: true) == .developer)
+        #expect(TrustPolicy.current(pin: nil, developerModeOn: false) == nil)
         #expect(DeveloperMode.markerPath == "/Library/k3sm.developer-mode")
         #expect(TrustPolicy.developer.requirementClause == nil)
         #expect(TrustPolicy.developerID(Self.team).requirementClause == DesignatedRequirement.developerID(teamID: Self.team))
@@ -156,7 +192,8 @@ struct DeveloperModeTrustTests {
     @Test("every .developerID render equals its golden byte for byte")
     func developerModeTrustTableDeveloperIDGoldens() throws {
         let renders = Self.policyRenders()
-        #expect(Set(renders.map(\.name)) == Set(RootScriptGoldenTests.renders().map(\.name)))
+        // The goldens' developer-mode renders (`developer-*`) are checked by the golden suite itself.
+        #expect(Set(renders.map(\.name)) == Set(RootScriptGoldenTests.renders().map(\.name).filter { !$0.hasPrefix("developer-") }))
         for (name, text) in renders {
             let expected = try RootScriptGoldenTests.fixture(name)
             if let d = RootScriptGoldenTests.diff(expected: expected, actual: text) {
@@ -251,7 +288,7 @@ struct DeveloperModeTrustTests {
     func developerModeTrustTableOutcome() {
         for verb in LifecycleVerb.allCases {
             #expect(LifecycleOutcome.text(.failed(exitStatus: LifecycleExit.developerModeMissing), verb: verb)
-                == "Developer mode was turned off, so nothing ran. Install a build from source again to turn it on.")
+                == DeveloperMode.missingText)
         }
         let taken: [Int32] = [LifecycleExit.failed, LifecycleExit.usage, LifecycleExit.needsRoot, LifecycleExit.lanRestoreFailed,
                               LifecycleExit.refusedBinary, LifecycleExit.signatureRejected,

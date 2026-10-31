@@ -191,6 +191,8 @@ public final class JoinCommandDriver {
                 text = "The installed k3sm at \(K3smCLI.path), or a folder above it, is not owned by root or is writable by others, so nothing was run."
             case LifecycleExit.signatureRejected:
                 text = "The installed k3sm is not signed by the k3sm Developer ID, so nothing was run."
+            case LifecycleExit.developerModeMissing:
+                text = DeveloperMode.missingText
             default:
                 text = "k3sm could not create a join token (exit status \(status)). Nothing was copied."
             }

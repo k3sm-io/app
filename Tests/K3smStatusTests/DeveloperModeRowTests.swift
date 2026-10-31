@@ -37,7 +37,9 @@ struct DeveloperModeRowTests {
     static let cases: [Case] = [
         Case(file: "status_json_developer_mode.json", state: "on",
              detail: "Developer mode: the signature of the k3sm that runs as root is not checked",
-             remedy: "Install a signed release of k3sm; it turns developer mode off", signing: "ad-hoc", fixNeedsAdmin: false),
+             remedy: "Run sudo k3sm install --developer-mode off, or update through k3sm.app to a release whose every program "
+                 + "carries the Developer ID signature of one team, the installed k3sm's team if it has one",
+             signing: "ad-hoc", fixNeedsAdmin: true),
         Case(file: "status_json_developer_mode_invalid.json", state: "invalid",
              detail: "A developer-mode marker exists but is not a root-owned file, so it is ignored and the signature checks stay on",
              remedy: "sudo rm /Library/k3sm.developer-mode", signing: "team ABCDE12345", fixNeedsAdmin: true),
