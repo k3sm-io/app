@@ -41,6 +41,9 @@ public final class TabReader<Value: Sendable> {
     /// Called before any of the published state changes.
     public var willChange: (@MainActor () -> Void)?
 
+    /// The wait between reads; `Task.sleep` unless a test drives time by hand.
+    var sleep: @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+
     private let read: @Sendable () async -> TabResult<Value>
     private var loop: Task<Void, Never>?
     private var refreshes: [Int: Task<Void, Never>] = [:]
@@ -48,6 +51,15 @@ public final class TabReader<Value: Sendable> {
     /// The tasks `stop()` cancelled, until the next `start()` waits for them.
     private var stopping: [Task<Void, Never>] = []
     private var gate = PollGate()
+    /// Callers waiting for `setPaused(false)`.
+    private var resumers: [CheckedContinuation<Void, Never>] = []
+
+    /// Whether the timed reads are held (the window is minimized or hidden).
+    /// A held reader finishes the read in flight and its wait, then reads
+    /// again only on resume; a `refresh()` is never held.
+    public private(set) var paused = false
+    /// How many timed waits are held by a pause.
+    var heldWaits: Int { resumers.count }
 
     public init(read: @escaping @Sendable () async -> TabResult<Value>, interval: @escaping @MainActor (Value?) -> Duration) {
         self.read = read
@@ -69,7 +81,8 @@ public final class TabReader<Value: Sendable> {
                 guard let self else { return }
                 await self.poll()
                 let wait = PollJitter.spread(self.interval(self.value), unit: PollJitter.draw())
-                try? await Task.sleep(for: wait)
+                await self.sleep(wait)
+                await self.waitWhilePaused()
             }
         }
     }
@@ -84,6 +97,37 @@ public final class TabReader<Value: Sendable> {
         loop = nil
         refreshes = [:]
         set { $0.load = TabLoad.stopped($0.load, readAt: $0.loadedAt) }
+    }
+
+    /// Holds or releases the timed reads. Releasing while a wait ended during
+    /// the hold reads at once (the last read is older than the interval by
+    /// then); releasing earlier changes nothing, the wait runs out as usual.
+    public func setPaused(_ hold: Bool) {
+        guard hold != paused else { return }
+        paused = hold
+        guard !hold else { return }
+        let waiting = resumers
+        resumers = []
+        for w in waiting { w.resume() }
+    }
+
+    /// Returns when the reader is not paused, or the task is cancelled.
+    private func waitWhilePaused() async {
+        while paused && !Task.isCancelled {
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                    if paused && !Task.isCancelled { resumers.append(c) } else { c.resume() }
+                }
+            } onCancel: {
+                Task { @MainActor [weak self] in self?.releaseResumers() }
+            }
+        }
+    }
+
+    private func releaseResumers() {
+        let waiting = resumers
+        resumers = []
+        for w in waiting { w.resume() }
     }
 
     /// Reads now, or, with a read in flight, once more after it, in a task

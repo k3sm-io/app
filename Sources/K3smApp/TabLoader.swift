@@ -75,6 +75,8 @@ final class TabLoader<Value: Sendable>: ObservableObject, TabLoading {
     func start() { reader.start() }
     func stop() { reader.stop() }
     func refresh() async { await reader.refresh() }
+    /// Holds or releases the timed reads (`TabReader.setPaused`).
+    func setPaused(_ hold: Bool) { reader.setPaused(hold) }
 
     /// One run of a fixed argument list, with the list limit and, unless the
     /// read names its own (the Images tab's `imageListDeadline`), the list

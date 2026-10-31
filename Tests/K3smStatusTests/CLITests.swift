@@ -62,8 +62,8 @@ struct CLITests {
     func perTabCadence() {
         #expect(PollSchedule.interval(for: .workloads, engineReady: false) == .seconds(5))
         #expect(PollSchedule.interval(for: .workloads, engineReady: true) == .seconds(5))
-        #expect(PollSchedule.interval(for: .images, engineReady: false) == .seconds(15))
-        #expect(PollSchedule.interval(for: .images, engineReady: true) == .seconds(15))
+        #expect(PollSchedule.interval(for: .images, engineReady: false) == .seconds(60))
+        #expect(PollSchedule.interval(for: .images, engineReady: true) == .seconds(60))
         #expect(PollSchedule.interval(for: .builds, engineReady: false) == .seconds(5))
         #expect(PollSchedule.interval(for: .builds, engineReady: true) == .seconds(15))
     }

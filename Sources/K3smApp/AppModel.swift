@@ -201,6 +201,9 @@ final class AppModel: ObservableObject {
     /// Alerts have none: Nodes renders the shared node list, Alerts the
     /// status report.
     private var loaders: [ConsoleSection: any TabLoading] = [:]
+    /// Whether the Images tab's timed reads are held because the window is
+    /// minimized or not visible; a Refresh still reads.
+    private var imagesPaused = false
     /// Whether the console is on screen, so a tab change starts its loader.
     private var consoleShown = false
     /// The console panel's view the user chose (Cluster or This Mac), nil
@@ -1100,6 +1103,7 @@ final class AppModel: ObservableObject {
                 interval: { _ in PollSchedule.interval(for: .images, engineReady: false) }))
             reader.changed = { [weak list] in list?.objectWillChange.send() }
             registryImageReader = reader
+            list.setPaused(imagesPaused)
             registryImages = reported(list, .images)
             made = list
         case .stats:
@@ -1377,6 +1381,13 @@ final class AppModel: ObservableObject {
         } else {
             events?.stop()
         }
+    }
+
+    /// Holds the Images tab's timed reads while the window cannot be seen and
+    /// releases them (with one read if the wait ended meanwhile) when it can.
+    func setImagesPaused(_ hold: Bool) {
+        imagesPaused = hold
+        registryImages?.setPaused(hold)
     }
 
     /// Starts the console's reads when it comes on screen: the shared node

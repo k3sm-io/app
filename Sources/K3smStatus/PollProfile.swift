@@ -115,13 +115,13 @@ public enum PollProfile: String, CaseIterable, Sendable {
         switch self {
         case .normal:
             PollIntervals(visible: .seconds(15), hidden: .seconds(60), fast: .seconds(5), consoleReport: .seconds(30),
-                          consoleHeartbeat: .seconds(5 * 60), images: .seconds(15),
+                          consoleHeartbeat: .seconds(5 * 60), images: .seconds(60),
                           objects: .seconds(15), events: .seconds(5), buildsReady: .seconds(15), updateStatus: .seconds(5),
                           background: .seconds(30), metrics: .seconds(15), metricsSlow: .seconds(60), metricsAbsent: .seconds(60),
                           updateCheck: .seconds(30 * 60))
         case .lowPower:
             PollIntervals(visible: .seconds(30), hidden: .seconds(120), fast: .seconds(10), consoleReport: .seconds(60),
-                          consoleHeartbeat: .seconds(10 * 60), images: .seconds(30),
+                          consoleHeartbeat: .seconds(10 * 60), images: .seconds(120),
                           objects: .seconds(30), events: .seconds(10), buildsReady: .seconds(30), updateStatus: .seconds(10),
                           background: .seconds(60), metrics: .seconds(30), metricsSlow: .seconds(120), metricsAbsent: .seconds(120),
                           updateCheck: .seconds(60 * 60))

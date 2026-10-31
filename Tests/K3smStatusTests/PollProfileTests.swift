@@ -41,7 +41,7 @@ struct PollProfileTests {
         #expect(normal.fast == .seconds(5))
         #expect(normal.consoleReport == .seconds(30))
         #expect(normal.consoleHeartbeat == .seconds(5 * 60))
-        #expect(normal.images == .seconds(15))
+        #expect(normal.images == .seconds(60))
         #expect(normal.objects == .seconds(15))
         #expect(normal.events == .seconds(5))
         #expect(normal.buildsReady == .seconds(15))
