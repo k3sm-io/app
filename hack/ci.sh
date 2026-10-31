@@ -319,6 +319,7 @@ echo "==> hack/build-version.sh (fixture repositories)"
 # Each case is a throwaway repository with a fixed commit time, so the
 # expected pseudo-version is exact: Go's form, the next patch after the
 # highest reachable vX.Y.Z tag, pre-release tags ignored, +dirty for changes.
+# The caller's K3SM_DIR is dropped so only a fixture k3sm sibling counts.
 vgit() { git -C "$1" -c user.name=ci -c user.email=ci@invalid -c commit.gpgsign=false -c tag.gpgsign=false "${@:2}"; }
 vrepo="$tmp/vrepo"
 mkdir -p "$vrepo"
@@ -329,7 +330,7 @@ GIT_COMMITTER_DATE='2026-10-16T22:15:30Z' GIT_AUTHOR_DATE='2026-10-16T22:15:30Z'
 vsha="$(vgit "$vrepo" rev-parse HEAD | cut -c1-12)"
 expect_version() {
 	local name="$1" dir="$2" want="$3" got
-	got="$(bash hack/build-version.sh "$dir")"
+	got="$(env -u K3SM_DIR bash hack/build-version.sh "$dir")"
 	[ "$got" = "$want" ] || { echo "FAIL: build-version $name: got '$got', want '$want'"; exit 1; }
 	echo "    $name: $got"
 }
@@ -341,6 +342,15 @@ vgit "$vrepo" tag not-a-version
 expect_version "highest release tag" "$vrepo" "v0.1.11-0.20261016221530-$vsha"
 printf 'b\n' > "$vrepo/b"
 expect_version "modified tree" "$vrepo" "v0.1.11-0.20261016221530-$vsha+dirty"
+vk3sm="$tmp/k3sm"
+mkdir -p "$vk3sm"
+vgit "$vk3sm" init -q
+printf 'k\n' > "$vk3sm/k"
+vgit "$vk3sm" add k
+vgit "$vk3sm" commit -q -m one
+vgit "$vk3sm" tag v0.2.3
+vgit "$vk3sm" tag v0.2.4-rc.1
+expect_version "k3sm sibling's release tag" "$vrepo" "v0.2.4-0.20261016221530-$vsha+dirty"
 mkdir -p "$vrepo/sub"
 expect_version "inside another repository" "$vrepo/sub" "v0.0.0-unknown"
 mkdir -p "$tmp/tarball"

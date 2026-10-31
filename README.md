@@ -1346,10 +1346,14 @@ A build without `--version` is a development build. Its
 `CFBundleShortVersionString` and `CFBundleVersion` stay `0.0.0`, and it
 carries a pseudo-version in the same form k3sm's own development builds
 report, computed by `hack/build-version.sh` from the checkout: the next patch
-after the latest `vX.Y.Z` tag (or `v0.0.0`), the commit time in UTC and the
-commit's first 12 hex digits, plus `+dirty` for a modified tree, for example
-`v0.0.0-0.20261016221530-2eda966a1b2c`. A copy of the source outside a git
-checkout gets `v0.0.0-unknown`. The About panel, Settings > General, the
+after the latest `vX.Y.Z` release tag (or `v0.0.0`), the commit time in UTC
+and the commit's first 12 hex digits, plus `+dirty` for a modified tree, for
+example `v0.2.4-0.20261016221530-2eda966a1b2c`. The app's releases carry
+k3sm's tags, so the tag is the highest one reachable in this checkout or in
+the k3sm checkout beside it (`K3SM_DIR`, else `../k3sm`). The version ranks
+above that release and below every release candidate and release of the
+next patch. The bundle versions stay `0.0.0` because macOS takes digits only
+there. A copy of the source outside a git checkout gets `v0.0.0-unknown`. The About panel, Settings > General, the
 status popover's version cards and `k3sm-mcp` show that version; a release
 build (`--version x.y.z`) shows `x.y.z`. A short version of `0.0.0` is no
 release, so a development build carries no payload release: it offers no

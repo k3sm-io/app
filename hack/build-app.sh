@@ -16,7 +16,10 @@
 #                            digits only there) and Info.plist gains
 #                            K3smBuildVersion, the pseudo-version
 #                            hack/build-version.sh computes from the checkout
-#                            (v0.0.0-0.20261016221530-2eda966a1b2c, +dirty
+#                            and the k3sm one beside it (K3SM_DIR, else
+#                            ../k3sm), the next patch after their latest
+#                            release tag
+#                            (v0.2.4-0.20261016221530-2eda966a1b2c, +dirty
 #                            for a modified tree, v0.0.0-unknown outside a
 #                            git checkout). A release build carries no
 #                            K3smBuildVersion.
