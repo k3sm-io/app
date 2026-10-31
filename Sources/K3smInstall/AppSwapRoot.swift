@@ -18,8 +18,10 @@ limitations under the License.
 /// app swap (`AppSwapRootScriptBuilder`): the script's own refusals and the
 /// installed helper's root mode (`--admin-swap`). They sit above every other
 /// root step's (`CopyOutExit` 64 to 77, `LifecycleExit` 100, 101 and 110,
-/// `BundledRollExit` 102 to 105), so a status names one cause. The copy of
-/// the installed bundle at the start exits with `CopyOutExit`'s statuses.
+/// `BundledRollExit` 102 to 105), so a status names one cause, and below
+/// 126, 127 and 128 and up, which `sh` uses for a command it could not run,
+/// one it could not find and a signal. The copy of the installed bundle at
+/// the start exits with `CopyOutExit`'s statuses.
 public enum AppSwapRootExit {
     /// `/Applications` or `/Applications/k3sm.app` is a symlink, missing or
     /// not a directory; or the target was replaced between the check and the
@@ -42,10 +44,10 @@ public enum AppSwapRootExit {
     /// in one step, or the rename crossed volumes again after the retry.
     public static let volumeRefused: Int32 = 125
     /// The rename failed with another errno; the old bundle is in place.
-    public static let swapFailed: Int32 = 126
+    public static let swapFailed: Int32 = 118
     /// The helper was not run as root, from a root-owned copy, with exactly
     /// `--admin-swap`.
-    public static let refusedInvocation: Int32 = 127
+    public static let refusedInvocation: Int32 = 119
 }
 
 /// AppSwapRoot is every fixed fact of the administrator path for the app
