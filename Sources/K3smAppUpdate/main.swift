@@ -29,10 +29,11 @@ import Security
 // the compiled requirements and the real adapters only; nothing selects
 // another requirement or a seam.
 //
-// The copy it runs from is in a directory the user owns. A root mode, when
-// one is added, must never exec this copy or any file a user can write: root
-// runs only a copy it made itself into a root-owned directory and verified
-// there.
+// The copy it runs from is in a directory the user owns. The one root mode,
+// --admin-swap, never runs from that copy or any file a user can write: the
+// administrator path's root script (AppSwapRootScriptBuilder) copies the
+// installed bundle into a root-owned 0700 stage, verifies it there, and runs
+// that copy's helper, which checks its own location and code again below.
 
 func refuse(_ message: String) -> Never {
     FileHandle.standardError.write(Data(("k3sm-app-update: refused: " + message + "\n").utf8))
@@ -40,6 +41,53 @@ func refuse(_ message: String) -> Never {
 }
 
 let arguments = Array(CommandLine.arguments.dropFirst())
+
+/// Whether every directory from the copy-out staging root down to the
+/// executable, and the executable itself, is root-owned, not a symlink, and
+/// writable by no group and no other user.
+func rootOwnedChain(_ path: String) -> Bool {
+    guard path.hasPrefix(AppSwapRoot.helperStagePrefix), !path.contains("/../"), !path.contains("/./") else { return false }
+    var current = path
+    while current.count >= CopyOutPlan.stagingRoot.count {
+        var st = stat()
+        guard lstat(current, &st) == 0, (st.st_mode & S_IFMT) != S_IFLNK, st.st_uid == 0, st.st_mode & 0o022 == 0 else {
+            return false
+        }
+        if current == CopyOutPlan.stagingRoot { return true }
+        current = (current as NSString).deletingLastPathComponent
+    }
+    return false
+}
+
+/// The root mode: the swap of the administrator path. No path, no request
+/// file; every location is a compiled constant or derived from the console
+/// user (AdminSwapEngine).
+func adminSwap() -> Never {
+    func refuseRoot(_ message: String) -> Never {
+        FileHandle.standardError.write(Data(("k3sm-app-update: refused: " + message + "\n").utf8))
+        exit(AppSwapRootExit.refusedInvocation)
+    }
+    guard getuid() == 0, geteuid() == 0 else { refuseRoot("--admin-swap runs only as root") }
+    guard let team = TeamIDPin.teamID else { refuseRoot("a developer build pins no team and never updates itself") }
+    guard let own = ownExecutable(), let resolved = realpath(own, nil) else { refuseRoot("no path for this helper") }
+    let path = String(cString: resolved)
+    free(resolved)
+    guard path == own, path.hasSuffix("/" + AppSwapRoot.bundleName + "/" + AppSwapRoot.helperPath), rootOwnedChain(path) else {
+        refuseRoot("--admin-swap runs only from the root-owned copy of the installed bundle")
+    }
+    guard selfSatisfies(AppUpdateTrust.helperRequirement(teamID: team)) else {
+        refuseRoot("this helper does not satisfy the helper requirement")
+    }
+    let requirement = AppUpdateTrust.appRequirement(teamID: team)
+    let engine = AdminSwapEngine(
+        verifier: StaticCodeVerifier(requirement: requirement, runningTeam: team),
+        renamer: SystemRenamer(),
+        console: SystemConsoleSession(),
+        relauncher: SystemSessionRelauncher(),
+        locations: .standard)
+    exit(engine.run())
+}
+if arguments == [AppSwapRoot.argument] { adminSwap() }
 guard arguments.count == 1, let mode = HelperMode(rawValue: arguments[0]) else {
     refuse("usage: k3sm-app-update --swap | --go-back | --relaunch")
 }

@@ -47,7 +47,9 @@ let package = Package(
             dependencies: ["K3smStatus", "K3smMCP"],
             resources: [.copy("Fixtures")]
         ),
-        .testTarget(name: "K3smInstallTests", dependencies: ["K3smInstall", "K3smStatus"], resources: [.copy("Fixtures")]),
+        // K3smSwap too: the administrator path's root script is tested with the
+        // root half of the swap it runs (`AdminSwapEngine`).
+        .testTarget(name: "K3smInstallTests", dependencies: ["K3smInstall", "K3smStatus", "K3smSwap"], resources: [.copy("Fixtures")]),
         .testTarget(name: "K3smHostTests", dependencies: ["K3smHost", "K3smStatus"]),
         .testTarget(
             name: "K3smSwapTests",
