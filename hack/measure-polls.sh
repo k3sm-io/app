@@ -429,7 +429,8 @@ EOF
 
 	# Unknown counts are kept as unknown.
 	good | sed 's/^pods 12/pods unknown/' > "$dir/unknownpods.log"
-	aggregate "$dir/unknownpods.log" | grep -q ' pods=unknown nodes=2$' || die "self-test: unknown pods not kept"
+	agg="$(aggregate "$dir/unknownpods.log")"
+	grep -q ' pods=unknown nodes=2$' <<<"$agg" || die "self-test: unknown pods not kept"
 	n=$((n + 1))
 
 	# The eslogger conversion keeps time, pid, parent pid and path, never the

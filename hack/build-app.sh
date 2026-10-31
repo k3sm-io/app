@@ -323,13 +323,16 @@ codesign --force --sign - --timestamp=none "$APP"
 
 echo "==> verify"
 codesign --verify --strict --deep --verbose=2 "$APP"
-lipo -archs "$APP/Contents/MacOS/$EXE" | grep -qx arm64 \
+archs="$(lipo -archs "$APP/Contents/MacOS/$EXE")"
+grep -qx arm64 <<<"$archs" \
 	|| { echo "build-app: executable is not arm64-only" >&2; exit 1; }
 codesign --verify --strict --verbose=2 "$APP/Contents/MacOS/$MCP"
-lipo -archs "$APP/Contents/MacOS/$MCP" | grep -qx arm64 \
+archs="$(lipo -archs "$APP/Contents/MacOS/$MCP")"
+grep -qx arm64 <<<"$archs" \
 	|| { echo "build-app: $MCP is not arm64-only" >&2; exit 1; }
 codesign --verify --strict --verbose=2 -R="identifier \"$HELPER_ID\"" "$APP/Contents/Helpers/$HELPER"
-lipo -archs "$APP/Contents/Helpers/$HELPER" | grep -qx arm64 \
+archs="$(lipo -archs "$APP/Contents/Helpers/$HELPER")"
+grep -qx arm64 <<<"$archs" \
 	|| { echo "build-app: $HELPER is not arm64-only" >&2; exit 1; }
 if [ -n "$TEAM_ID" ]; then
 	bash "$ROOT/hack/check-team-pin.sh" "$APP/Contents/MacOS/$EXE" "$TEAM_ID" > /dev/null \

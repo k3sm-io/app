@@ -329,7 +329,8 @@ built="$app/Contents/Helpers/k3sm-app-update"
 [ -x "$built" ] || { echo "FAIL: the release build has no Contents/Helpers/k3sm-app-update"; exit 1; }
 bash hack/check-team-pin.sh "$built" "$TEAM" > /dev/null \
 	|| { echo "FAIL: the helper is not pinned to exactly $TEAM"; exit 1; }
-lipo -archs "$built" | grep -qx arm64 || { echo "FAIL: the helper is not arm64-only"; exit 1; }
+archs="$(lipo -archs "$built")"
+grep -qx arm64 <<<"$archs" || { echo "FAIL: the helper is not arm64-only"; exit 1; }
 
 echo "    sign: the release flags (--options runtime --identifier $HELPER_ID), ad-hoc"
 helper="$work/k3sm-app-update"

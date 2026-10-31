@@ -112,6 +112,17 @@ test_passed() { result_passed "$1" test "$2"; }
 #   FAILED TEST: <suite|test> "<display name>"[ (started, never ended: ...)]
 # hack/run-acceptance.sh prints these lines of a failed gate's log before its
 # tail, so a failing test is named even when the tail does not reach it.
+# output_has PATTERN CMD [ARG...]: succeed when CMD's output has a line with the
+# fixed string PATTERN. The output is read whole before grep sees it: with
+# `CMD | grep -qF`, grep exits at its first match, CMD takes SIGPIPE if it is
+# still writing, and pipefail reddens a check that matched.
+output_has() {
+	local pat="$1" out
+	shift
+	out="$("$@")" || return 1
+	grep -qF -- "$pat" <<<"$out"
+}
+
 failed_tests() {
 	local tab kind verdict name
 	tab="$(printf '\t')"
@@ -259,8 +270,19 @@ test_passed_self_test_cases() {
 	if test_passed "$tmp/crash.tsv" "a pass"; then
 		echo "FAIL: self-test: a test that never ended was read as a pass"; return 1
 	fi
-	failed_tests "$tmp/crash.tsv" | grep -qF 'FAILED TEST: test "a pass" (started, never ended' \
+	output_has 'FAILED TEST: test "a pass" (started, never ended' failed_tests "$tmp/crash.tsv" \
 		|| { echo "FAIL: self-test: the unfinished test was not named"; failed_tests "$tmp/crash.tsv"; return 1; }
+	# output_has reads the producer whole, so a match that precedes more than a
+	# pipe buffer of output holds; the `| grep -q` shape it replaced did not.
+	_bigout() { printf 'match line\n'; head -c 300000 /dev/zero | tr '\0' x; echo; }
+	if (set -o pipefail; _bigout | grep -qF 'match line') 2> /dev/null; then
+		echo "FAIL: self-test: the pipe-to-grep -q shape survived a producer past a pipe buffer (the case is vacuous)"; return 1
+	fi
+	output_has 'match line' _bigout \
+		|| { echo "FAIL: self-test: output_has lost a match ahead of more than a pipe buffer"; return 1; }
+	if output_has 'absent line' _bigout; then
+		echo "FAIL: self-test: output_has matched a line the producer never wrote"; return 1
+	fi
 	# A run that failed with nothing in the stream still names the log's
 	# failure lines.
 	printf 'building\nerror: K3smStatusTests reported failures\n' > "$tmp/crash.log"

@@ -128,7 +128,7 @@ check() {
 		[ -n "$hit" ] || continue
 		path="${hit%%:*}"; rest="${hit#*:}"
 		content="$(printf '%s' "${rest#*:}" | trim)"
-		if printf '%s' "$used" | grep -qxF -- "$path: $content"; then continue; fi
+		if grep -qxF -- "$path: $content" <<<"$used"; then continue; fi
 		echo "    FAIL: $path:${rest%%:*}: a control with no .help( in its modifier chain; give it .help(Help.<area>.<name>)"
 		echo "        $content"
 		bad=1
@@ -168,7 +168,7 @@ self_test() {
 		pass) [ "$status" = 0 ] || { echo "FAIL: $name should pass:"; echo "$out"; return 1; } ;;
 		fail)
 			[ "$status" != 0 ] || { echo "FAIL: $name should be refused"; return 1; }
-			printf '%s' "$out" | grep -Fq -- "$substr" || { echo "FAIL: $name: no '$substr' in:"; echo "$out"; return 1; }
+			grep -Fq -- "$substr" <<<"$out" || { echo "FAIL: $name: no '$substr' in:"; echo "$out"; return 1; }
 			;;
 		*) echo "FAIL: $name: bad expect file"; return 1 ;;
 		esac

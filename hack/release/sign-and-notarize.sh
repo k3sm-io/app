@@ -332,7 +332,8 @@ trap 'rm -rf "$work"' EXIT
 echo "==> check payload signatures"
 if [ -d "$app/Contents/Resources/payload" ]; then
 	while IFS= read -r -d '' f; do
-		if /usr/bin/file -b "$f" | grep -q 'Mach-O'; then
+		ftype="$(/usr/bin/file -b "$f")"
+		if grep -q 'Mach-O' <<<"$ftype"; then
 			/usr/bin/codesign --verify --strict -R="$requirement" "$f" \
 				|| { echo "sign-and-notarize: payload binary is not Developer ID signed by $team: $f" >&2; exit 1; }
 		fi
