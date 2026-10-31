@@ -13,7 +13,9 @@
 #      the cross-check of the verbs and status fields against the k3sm CLI
 #      source, required, never skipped), the tri-state checkbox, the
 #      confirmation before turning access on, and the driver (re-read, no
-#      optimistic toggle, the CLI's error text cleaned and truncated)
+#      optimistic toggle, the CLI's error text cleaned and truncated, and
+#      the lifecycle script rendered under the driver's own trust policy,
+#      Developer ID or developer mode)
 #   2. the LAN verbs' argv are compile-time constants, and no second root
 #      script exists
 #   3. the LAN fixture is the app's own, not a vendored k3sm golden
@@ -87,6 +89,7 @@ for name in \
 	"each LAN prompt says allow or stop allowing connections from other devices" \
 	"the LAN scripts run the stop script's checks under env -i" \
 	"a LAN script's refusals stop before the CLI runs" \
+	"the LAN driver runs the lifecycle script rendered under its own policy, Developer ID or developer mode" \
 	"the lifecycle driver and precondition refuse a LAN verb" \
 	"every LAN verb and status field the app uses is one the CLI declares" \
 	"the checkbox is tri-state: on, off, unknown" \
@@ -126,10 +129,6 @@ grep -qF 'case .lanOff: return ["network", "lan", "off"]' "$lc" || { echo "FAIL:
 got="$(grep -rc 'RootScript(text:' Sources | grep -v ':0$' | sort | tr '\n' ' ')"
 want="Sources/K3smInstall/JoinTokenMint.swift:1 Sources/K3smInstall/Lifecycle.swift:1 Sources/K3smInstall/RootScript.swift:1 "
 [ "$got" = "$want" ] || { echo "FAIL: RootScript constructions in Sources are '$got'; want '$want' (the copy-out, the lifecycle script and the join token mint)"; exit 1; }
-# The driver renders under its stored trust policy (the Developer ID
-# requirement, or the developer-mode marker check), never a script of its own.
-grep -qE 'LifecycleScriptBuilder\.render\([A-Za-z]+, policy: policy\)' Sources/K3smInstall/LANAccess.swift \
-	|| { echo "FAIL: the LAN driver does not run the lifecycle script"; exit 1; }
 echo "    ok"
 
 echo "==> the LAN fixture is the app's own"

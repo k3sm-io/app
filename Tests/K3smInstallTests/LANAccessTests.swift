@@ -351,6 +351,28 @@ struct LANDriverTests {
         #expect(runner.scripts == [LifecycleScriptBuilder.render(.lanOff, teamID: Self.team)])
     }
 
+    @Test("the LAN driver runs the lifecycle script rendered under its own policy, Developer ID or developer mode")
+    func lanAccessRendersScriptUnderBothPolicies() async {
+        let policies: [TrustPolicy] = [.developerID(Self.team), .developer]
+        // The two renders must differ, or this test could not tell them apart.
+        #expect(LifecycleScriptBuilder.render(.lanOn, policy: policies[0]) != LifecycleScriptBuilder.render(.lanOn, policy: policies[1]))
+        for policy in policies {
+            let onRunner = LANRunner()
+            let onReads = StatusSequence([LANReports.off, LANReports.off, LANReports.on])
+            let onResult = await LANDriver(policy: policy, readStatus: { onReads.next() }, confirm: { _ in true }, runner: onRunner)
+                .perform(.lanOn, expected: .off)
+            #expect(onResult == .ran(.succeeded, LifecycleOutcome.text(.succeeded, verb: .lanOn), confirmed: .on))
+            #expect(onRunner.scripts == [LifecycleScriptBuilder.render(.lanOn, policy: policy)], "policy \(policy)")
+
+            let offRunner = LANRunner()
+            let offReads = StatusSequence([LANReports.on, LANReports.off])
+            let offResult = await LANDriver(policy: policy, readStatus: { offReads.next() }, confirm: { _ in false }, runner: offRunner)
+                .perform(.lanOff, expected: .on)
+            #expect(offResult == .ran(.succeeded, LifecycleOutcome.text(.succeeded, verb: .lanOff), confirmed: .off))
+            #expect(offRunner.scripts == [LifecycleScriptBuilder.render(.lanOff, policy: policy)], "policy \(policy)")
+        }
+    }
+
     @Test("a declined question runs nothing")
     func declined() async {
         let runner = LANRunner()
