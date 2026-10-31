@@ -25,7 +25,8 @@ limitations under the License.
 /// - a development build keeps both bundle versions at `0.0.0` (macOS takes
 ///   digits only there, and `0.0.0` is how the app knows it carries no
 ///   release) and stamps `K3smBuildVersion` with a Go-style pseudo-version
-///   (`v0.0.0-0.20261016221530-2eda966a1b2c`, `+dirty` for a modified tree,
+///   of the next patch after the latest k3sm release
+///   (`v0.2.4-0.20261016221530-2eda966a1b2c`, `+dirty` for a modified tree,
 ///   `v0.0.0-unknown` outside a git checkout); it shows that string.
 ///
 /// A `K3smBuildVersion` that does not start with `v` or does not parse as a
