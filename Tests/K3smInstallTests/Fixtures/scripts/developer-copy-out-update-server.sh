@@ -55,6 +55,10 @@ fi
 /usr/sbin/chown root:wheel "$root"
 /bin/chmod 0700 "$root"
 echo 'copy-out: sweeping stale staging entries'
+# rm cannot remove a file flagged uchg or uappnd, which a user can set
+# on a staged file and ditto keeps; under set -eu that would wedge every
+# later root step. Clear them first; a failure falls through to rm.
+/usr/bin/find "$root" -mindepth 1 -maxdepth 1 -exec /usr/bin/chflags -R nouchg,nouappnd {} + || true
 /usr/bin/find "$root" -mindepth 1 -maxdepth 1 -exec /bin/rm -rf {} +
 stage=$(/usr/bin/mktemp -d '/Library/k3sm.staging/0.2.0.XXXXXXXX')
 /usr/sbin/chown root:wheel "$stage"

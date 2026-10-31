@@ -289,6 +289,25 @@ import K3smStatus
         #expect(s.tag(at: s.target) == "v1.0.0" && s.relaunched.isEmpty)
         s.expectNothingLeft()
     }
+
+    @Test("a staged file flagged uchg is refused before the chown, and root's copy of it is removed")
+    func immutableStagedFile() throws {
+        let s = AdminScratch()
+        defer {
+            run("/usr/bin/chflags", ["-R", "nouchg", s.root])
+            s.cleanUp()
+        }
+        s.install(tag: "v1.0.0")
+        s.stage(tag: "v1.1.0")
+        // A file the signature seals, so the flag is the only fault.
+        let locked = s.staged + "/Contents/Info.plist"
+        try #require(run("/usr/bin/chflags", ["uchg", locked]) == 0)
+        #expect(s.engine().run() == AppSwapRootExit.verificationFailed)
+        #expect(s.tag(at: s.target) == "v1.0.0" && s.relaunched.isEmpty)
+        s.expectNothingLeft()
+        var st = stat()
+        #expect(lstat(locked, &st) == 0 && st.st_flags & UInt32(UF_IMMUTABLE) != 0, "the staged file is left as it was")
+    }
 }
 
 // MARK: fixtures

@@ -128,7 +128,10 @@ public struct SystemSessionRelauncher: SessionRelauncher {
 ///    (`statfs` `f_fsid` equal), on a volume that can swap two names in one
 ///    step. The staged bundle is copied into a fresh directory in it (`ditto`
 ///    with no extended attributes), refused if any entry is a symlink, a
-///    special file, setuid or setgid, or group or other writable, chowned to
+///    special file, a hard link, setuid or setgid, group or other writable,
+///    or flagged immutable, append-only or undeletable (a system flag is
+///    refused on the staged tree before the copy; the user flags are cleared
+///    on root's copy before it is removed), chowned to
 ///    root, checked to be on the target's volume, and verified there: the
 ///    requirement, the bundle id, the team stamp, and a `K3smPayloadTag`
 ///    strictly above the installed one.
@@ -238,13 +241,30 @@ public struct AdminSwapEngine: Sendable {
         guard Self.resolvesToItself((staged as NSString).deletingLastPathComponent),
               lstat(staged, &stagedStat) == 0, (stagedStat.st_mode & S_IFMT) == S_IFDIR
         else { return AppSwapRootExit.stagedRefused }
+        // A system flag on the staged tree would survive into root's copy,
+        // and root cannot clear it outside single-user mode, so it is
+        // refused before anything is copied. A user can set none of them.
+        guard let stagedParentFD = FileOps.openDirectory((staged as NSString).deletingLastPathComponent) else {
+            return AppSwapRootExit.stagedRefused
+        }
+        let systemFlagFree = Self.isFree(of: Self.systemLockingFlags, at: stagedParentFD, AppSwapRoot.bundleName)
+        close(stagedParentFD)
+        guard systemFlagFree else { return AppSwapRootExit.stagedRefused }
 
         // Root's work directory, on the target's volume.
         guard let workFD = privateDirectory(locations.workRoot) else { return AppSwapRootExit.volumeRefused }
         defer { close(workFD) }
         guard Self.sameVolume(Self.fsid(locations.workRoot), targetVolume) else { return AppSwapRootExit.volumeRefused }
         var made: [String] = []
-        defer { made.forEach { FileOps.removeTree(at: workFD, $0) } }
+        defer {
+            // `ditto` keeps a staged file's flags, so the copy can hold a
+            // `uchg` file that would keep its directory from ever being
+            // removed; the user flags are cleared first.
+            for dirName in made {
+                Self.clearUserLockingFlags(locations.workRoot + "/" + dirName)
+                FileOps.removeTree(at: workFD, dirName)
+            }
+        }
 
         // Copies the staged bundle into a fresh directory, gives it the
         // target's owner and mode, and verifies it twice.
@@ -310,7 +330,10 @@ public struct AdminSwapEngine: Sendable {
         // The old bundle leaves Applications for root's previous directory.
         let previousName = SwapPaths.previousName(tag: installed.tag)
         if let previousFD = privateDirectory(locations.previousRoot) {
-            for entry in FileOps.entries(previousFD) { FileOps.removeTree(at: previousFD, entry) }
+            for entry in FileOps.entries(previousFD) {
+                Self.clearUserLockingFlags(locations.previousRoot + "/" + entry)
+                FileOps.removeTree(at: previousFD, entry)
+            }
             if renamer.move(fromDir: copy.fd, from: AppSwapRoot.bundleName, toDir: previousFD, to: previousName) == 0 {
                 FileOps.fullSync(previousFD)
             }
@@ -347,20 +370,63 @@ public struct AdminSwapEngine: Sendable {
         return fd
     }
 
+    /// UF_NOUNLINK: 0x10 in the BSD header, commented out in Darwin's, so
+    /// spelled here; refused all the same.
+    static let ufNoUnlink: UInt32 = 0x0000_0010
+    /// The flags a file's owner can set that keep it from being changed,
+    /// appended to only, or removed: `uchg`, `uappnd` and `uunlnk`.
+    static let userLockingFlags = UInt32(UF_IMMUTABLE) | UInt32(UF_APPEND) | ufNoUnlink
+    /// The superuser's flags of the same kind: `schg`, `sappnd`, `sunlnk`.
+    static let systemLockingFlags = UInt32(SF_IMMUTABLE) | UInt32(SF_APPEND) | UInt32(SF_NOUNLINK)
+
     /// Whether `name` in `dirFD`, and everything under it, is a regular file
-    /// or a directory, not setuid or setgid, and not group or other writable.
-    /// Nothing is followed.
+    /// or a directory, not setuid or setgid, not group or other writable,
+    /// carrying none of `userLockingFlags` or `systemLockingFlags`, and, for
+    /// a regular file, with one link only. Nothing is followed.
+    ///
+    /// The link count refuses every hard link, inside the tree or to a file
+    /// outside it: root's copy is made by `ditto` into a fresh directory, so
+    /// a count above one there is a link `ditto` kept between two staged
+    /// files, and a release bundle has none.
     static func isSafeTree(at dirFD: Int32, _ name: String) -> Bool {
         var st = stat()
-        guard fstatat(dirFD, name, &st, AT_SYMLINK_NOFOLLOW) == 0, st.st_mode & 0o6022 == 0 else { return false }
+        guard fstatat(dirFD, name, &st, AT_SYMLINK_NOFOLLOW) == 0, st.st_mode & 0o6022 == 0,
+              st.st_flags & (userLockingFlags | systemLockingFlags) == 0
+        else { return false }
         switch st.st_mode & S_IFMT {
-        case S_IFREG: return true
+        case S_IFREG: return st.st_nlink == 1
         case S_IFDIR:
             guard let fd = FileOps.openDirectory(at: dirFD, name) else { return false }
             defer { close(fd) }
             return FileOps.entries(fd).allSatisfy { isSafeTree(at: fd, $0) }
         default: return false
         }
+    }
+
+    /// Whether `name` in `dirFD`, and everything under it, carries none of
+    /// `flags`. Nothing is followed; a directory that cannot be opened counts
+    /// as carrying them.
+    static func isFree(of flags: UInt32, at dirFD: Int32, _ name: String) -> Bool {
+        var st = stat()
+        guard fstatat(dirFD, name, &st, AT_SYMLINK_NOFOLLOW) == 0, st.st_flags & flags == 0 else { return false }
+        guard (st.st_mode & S_IFMT) == S_IFDIR else { return true }
+        guard let fd = FileOps.openDirectory(at: dirFD, name) else { return false }
+        defer { close(fd) }
+        return FileOps.entries(fd).allSatisfy { isFree(of: flags, at: fd, $0) }
+    }
+
+    /// Clears `userLockingFlags` on `path` and everything under it, never
+    /// following a symlink (`lchflags`), so the tree can be removed. It runs
+    /// only on trees root made inside its own 0700 directories, which no
+    /// other user can change, so the paths name what was checked. Root may
+    /// clear a user flag; the system flags are refused before the copy.
+    static func clearUserLockingFlags(_ path: String) {
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return }
+        if st.st_flags & userLockingFlags != 0 { _ = lchflags(path, st.st_flags & ~userLockingFlags) }
+        guard (st.st_mode & S_IFMT) == S_IFDIR, let fd = FileOps.openDirectory(path) else { return }
+        defer { close(fd) }
+        for entry in FileOps.entries(fd) { clearUserLockingFlags(path + "/" + entry) }
     }
 
     /// Sets the owner and group of `name` in `dirFD` and everything under
