@@ -42,23 +42,6 @@ func refuse(_ message: String) -> Never {
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 
-/// Whether every directory from the copy-out staging root down to the
-/// executable, and the executable itself, is root-owned, not a symlink, and
-/// writable by no group and no other user.
-func rootOwnedChain(_ path: String) -> Bool {
-    guard path.hasPrefix(AppSwapRoot.helperStagePrefix), !path.contains("/../"), !path.contains("/./") else { return false }
-    var current = path
-    while current.count >= CopyOutPlan.stagingRoot.count {
-        var st = stat()
-        guard lstat(current, &st) == 0, (st.st_mode & S_IFMT) != S_IFLNK, st.st_uid == 0, st.st_mode & 0o022 == 0 else {
-            return false
-        }
-        if current == CopyOutPlan.stagingRoot { return true }
-        current = (current as NSString).deletingLastPathComponent
-    }
-    return false
-}
-
 /// The root mode: the swap of the administrator path. No path, no request
 /// file; every location is a compiled constant or derived from the console
 /// user (AdminSwapEngine).
@@ -72,7 +55,7 @@ func adminSwap() -> Never {
     guard let own = ownExecutable(), let resolved = realpath(own, nil) else { refuseRoot("no path for this helper") }
     let path = String(cString: resolved)
     free(resolved)
-    guard path == own, path.hasSuffix("/" + AppSwapRoot.bundleName + "/" + AppSwapRoot.helperPath), rootOwnedChain(path) else {
+    guard path == own, path.hasSuffix("/" + AppSwapRoot.bundleName + "/" + AppSwapRoot.helperPath), HelperChain.isRootOwned(path) else {
         refuseRoot("--admin-swap runs only from the root-owned copy of the installed bundle")
     }
     guard selfSatisfies(AppUpdateTrust.helperRequirement(teamID: team)) else {
