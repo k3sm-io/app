@@ -540,6 +540,29 @@ else
 	echo "    skipped: no k3sm checkout at $k3sm_dir (set K3SM_DIR)"
 fi
 
+echo "==> developer-mode marker path (shared with k3sm)"
+# The app checks the developer-mode marker at the path k3sm writes it to.
+# Both hardcode it; the quoted path on k3sm's constant line and the app's
+# DeveloperMode.markerPath must be the same string. A k3sm checkout that
+# predates the constant passes with a warning; a lone clone skips.
+dm_go="$k3sm_dir/pkg/install/developermode.go"
+dm_swift=Sources/K3smInstall/DeveloperMode.swift
+dm_app="$(sed -n 's/^[[:space:]]*public static let markerPath = "\([^"]*\)"$/\1/p' "$dm_swift")"
+[ -n "$dm_app" ] && [ "$(printf '%s\n' "$dm_app" | wc -l | tr -d ' ')" = 1 ] \
+	|| { echo "FAIL: no single markerPath line in $dm_swift"; exit 1; }
+if [ -f "$dm_go" ]; then
+	dm_k3sm="$(sed -n 's/^[[:space:]]*\(const[[:space:]][[:space:]]*\)\{0,1\}DeveloperModeMarkerPath = "\([^"]*\)"$/\2/p' "$dm_go")"
+	[ "$(printf '%s\n' "$dm_k3sm" | wc -l | tr -d ' ')" = 1 ] || dm_k3sm=""
+	[ -n "$dm_k3sm" ] || { echo "FAIL: no DeveloperModeMarkerPath = \"...\" line in $dm_go"; exit 1; }
+	[ "$dm_k3sm" = "$dm_app" ] \
+		|| { echo "FAIL: marker path drift: k3sm $dm_k3sm, app $dm_app"; exit 1; }
+	echo "    ok ($dm_app)"
+elif [ -d "$k3sm_dir/pkg/install" ]; then
+	echo "    WARN: $dm_go does not exist yet; the app's $dm_app is not compared"
+else
+	echo "    skipped: no k3sm checkout at $k3sm_dir (set K3SM_DIR)"
+fi
+
 echo "==> release index fixtures (vendored from k3sm)"
 # k3sm owns the k3sm-release-index/v1 contract, its golden document and its
 # refusal corpus. The copy under Tests/K3smStatusTests/Fixtures/release-index

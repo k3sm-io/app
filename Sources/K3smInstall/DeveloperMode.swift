@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import K3smStatus
+
 /// DeveloperMode is the install-time choice that stops the signature checks
 /// so a k3sm built from source can be installed and run as root by a
 /// developer build of the app. `k3sm install --developer-mode on` records it
@@ -80,5 +82,27 @@ public enum DeveloperMode {
             dm_held "$marker"
 
             """#
+    }
+}
+
+/// DeveloperModeConfirmation is the question asked before the administrator
+/// prompt of an app-carried update run in developer mode, which a signed
+/// build runs without one: what it installs and the developer-mode warning.
+/// Nil for any other action: the first install's review step shows the
+/// warning under its checkbox, Repair's own question carries it
+/// (`RepairConfirmation`), and an uninstall checks no signature.
+public struct DeveloperModeConfirmation: Equatable, Sendable {
+    public let title: String
+    public let message: String
+    public let proceedTitle: String
+    public let cancelTitle: String
+
+    public init?(action: CopyOutAction, payload: SemanticVersion, policy: TrustPolicy) {
+        guard policy.isDeveloper, case .update = action else { return nil }
+        title = "Update k3sm on this Mac in developer mode?"
+        message = "k3sm \(payload), the build this app carries, is installed over the k3sm on this Mac, "
+            + "and its daemons restart.\n\n" + DeveloperMode.warning
+        proceedTitle = "Update"
+        cancelTitle = "Cancel"
     }
 }

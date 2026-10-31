@@ -115,6 +115,22 @@ struct StatusPopoverPanel: View {
     }
 }
 
+/// DeveloperModeWarning is the developer-mode warning in the window's
+/// warning style: the attention glyph and amber text. The text is the fixed
+/// `DeveloperMode.warning`, never anything read from the CLI.
+struct DeveloperModeWarning: View {
+    let text: String
+
+    var body: some View {
+        Label {
+            Text(verbatim: text).font(.callout).fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: RowTone.attention.symbolName).accessibilityHidden(true)
+        }
+        .foregroundStyle(Palette.warn)
+    }
+}
+
 /// Eyebrow is a section's small-capitals title in the brand's navy, as the
 /// info popover labels its sections. The text is shown as given.
 struct Eyebrow: View {
@@ -281,6 +297,14 @@ struct FirstRunView: View {
         return VStack(alignment: .leading, spacing: 10) {
             Text(verbatim: review.title).font(.headline)
             numbered(review.lines)
+            if model.isDeveloperBuild {
+                Toggle("Developer mode", isOn: $model.developerModeChecked)
+                    .disabled(model.running)
+                    .help(Help.FirstRun.developerMode)
+                if model.developerModeChecked {
+                    DeveloperModeWarning(text: DeveloperMode.warning)
+                }
+            }
             if let command = review.terminalCommand {
                 Text(verbatim: command)
                     .font(.system(.callout, design: .monospaced))
@@ -479,6 +503,9 @@ struct StatusView: View {
                         Text(verbatim: reason).font(.callout).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    if let warning = model.developerModeWarning {
+                        DeveloperModeWarning(text: warning)
+                    }
                 }
             } else {
                 LifecycleSection(model: model)
@@ -516,7 +543,7 @@ struct StatusView: View {
     private var showsBuildNotes: Bool {
         if case .unavailable = model.lifecycleSupport { return true }
         if case .disabled = model.availability { return true }
-        return false
+        return model.developerModeWarning != nil
     }
 
     /// The two versions as cards (`AppVersion.versionCards`): the installed

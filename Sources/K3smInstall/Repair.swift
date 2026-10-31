@@ -119,7 +119,9 @@ public struct RepairConfirmation: Equatable, Sendable {
         + "(uninstall, then install the role this Mac should have), and, on a control plane, when its arguments record names no admin "
         + "kubeconfig, or the owner of that kubeconfig cannot be read or is root (run the install again from Terminal with --user)."
 
-    public init(payload: SemanticVersion, role: NodeRole?) {
+    /// `developerMode` (the root step runs under `TrustPolicy.developer`)
+    /// adds `DeveloperMode.warning` as the message's last paragraph.
+    public init(payload: SemanticVersion, role: NodeRole?, developerMode: Bool = false) {
         title = "Repair k3sm on this Mac?"
         let keeps: String
         switch role {
@@ -130,6 +132,7 @@ public struct RepairConfirmation: Equatable, Sendable {
         message = "k3sm \(payload), the release this app carries, is installed again over the k3sm on this Mac: "
             + "its command, its helpers, its daemons and the k3sm link, and the daemons restart.\n\n"
             + keeps + "\n\n" + Self.refusals
+            + (developerMode ? "\n\n" + DeveloperMode.warning : "")
         proceedTitle = "Repair"
         cancelTitle = "Cancel"
     }

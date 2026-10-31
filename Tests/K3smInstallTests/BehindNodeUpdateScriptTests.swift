@@ -299,7 +299,7 @@ struct BehindNodeUpdateScriptTests {
             let end = rest.range(of: "\n    }\n") ?? (rest.endIndex..<rest.endIndex)
             return String(rest[..<end.lowerBound])
         }
-        let driver = try body("private func updateDriver(_ teamID: TeamID) -> UpdateDriver {")
+        let driver = try body("private func updateDriver(_ policy: TrustPolicy) -> UpdateDriver {")
         #expect(driver.contains("readStatus: { await self.readFullReport() },"), "\(driver)")
         #expect(try body("func readFullReport() async -> StatusReport? {").trimmingCharacters(in: .whitespacesAndNewlines)
             == "await fullRead()")

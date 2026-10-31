@@ -73,8 +73,9 @@ prompt as the menu:
 | status unreadable | Refresh, and Open Logs |
 
 While the step runs, the panel shows its progress, and it ends on a plain
-"Done" or "Failed" line with the step's own message. A build that is not
-Developer ID signed cannot run the administrator step, so its panel shows the
+"Done" or "Failed" line with the step's own message. Outside developer mode
+(see [Developer mode](#developer-mode)), a build that is not Developer ID
+signed cannot run the administrator step, so its panel shows the
 exact Terminal command instead (`sudo k3sm start`, `sudo k3sm restart`, or the
 install for an update or a repair: the k3sm the app carries when it has one,
 else the install script pinned to the app's release), with Copy Command and
@@ -112,9 +113,10 @@ short guided first run, one step at a time, with the steps listed across its top
    to the join step, since tokens expire in minutes and a fresh one is needed).
 
 Installing, updating and uninstalling need an administrator account and a
-release build of the app. A build from source pins no Developer ID team, so
-it shows status but keeps these actions disabled and says why. Its first run
-ends at the review, which shows the exact Terminal commands for the chosen
+release build of the app, or a build from source in developer mode (see
+[Developer mode](#developer-mode)). Outside developer mode, a build from
+source pins no Developer ID team, so it shows status but keeps these actions
+disabled and says why, and its first run ends at the review, which shows the exact Terminal commands for the chosen
 path with Copy Command and **Install in Terminal**. Install in Terminal writes
 those commands to a script in a private folder and opens it in a new Terminal
 window, where `sudo` asks for your password; the app itself runs nothing as
@@ -783,8 +785,8 @@ window. Then come the actions:
   it cannot tell whether any node has joined, it says so and warns anyway.
 - **Restart k3sm** restarts the k3sm daemons; pods keep running.
 
-  Stop and Restart appear only on a release build of the app with a k3sm that
-  supports them (see below); otherwise the menu does not show them.
+  Stop and Restart appear only on a release build of the app, or a build from
+  source in developer mode, with a k3sm that supports them (see below); otherwise the menu does not show them.
 - **Live Status in Terminal** opens a Terminal window, titled k3sm status
   (live), that runs `k3sm status -o wide --watch=2s`: the full status, redrawn
   every 2 seconds. Press Control-C to stop it; the window then says it stopped.
@@ -842,7 +844,7 @@ These actions need a k3sm release that has `k3sm stop` (any release after
 0.1.7). With an older k3sm, or one that fails those checks, the menu does not
 show them and the window says why; `sudo k3sm stop` and `sudo k3sm start` work
 in Terminal either way. Like installing, they need an administrator account
-and a release build of the app.
+and a release build of the app, or a build from source in developer mode.
 
 ## Settings
 
@@ -1066,8 +1068,10 @@ cancelled, then offers **Dismiss**. If abort could not release a node, the
 CLI's message names it and the panel stays as it was.
 
 Like Stop and Restart, Update, Cancel and Abort need an administrator account and
-a release build of the app. A build from source shows them disabled, with
-the reason as their help text.
+a release build of the app. Outside developer mode, a build from source shows
+them disabled, with the reason as their help text. In developer mode it runs
+Update, Cancel and Abort of the managed update, but never the update to the
+version set the app carries, which needs a Developer ID build.
 
 ### A node behind the server
 
@@ -1228,8 +1232,8 @@ which role this Mac has (both missing, or both present), when the installed
 release is newer than the app's or its version cannot be read or is not a
 release, when a worker's node credential is no longer valid (rejoin it
 instead), or when the installed command is signed by another team. The app itself does not offer Repair when nothing is installed or the
-installed k3sm is newer. A build that is not Developer ID signed shows the
-install script to run in Terminal instead.
+installed k3sm is newer. Outside developer mode, a build that is not
+Developer ID signed shows the install script to run in Terminal instead.
 
 ## Uninstalling
 
@@ -1352,11 +1356,45 @@ commit's first 12 hex digits, plus `+dirty` for a modified tree, for example
 checkout gets `v0.0.0-unknown`. The About panel, Settings > General, the
 status popover's version cards and `k3sm-mcp` show that version; a release
 build (`--version x.y.z`) shows `x.y.z`. A short version of `0.0.0` is no
-release, so a development build carries no payload release: it offers no
-install, update or repair from its payload, its guided steps give the
-install script to run in Terminal, and the popover's second version card
-shows the pseudo-version marked "development build" instead of comparing the
-installed release with the app's.
+release, so a development build carries no payload release. Outside
+developer mode it offers no install, update or repair from its payload and
+its guided steps give the install script to run in Terminal. Either way, the
+popover's second version card shows the pseudo-version marked "development
+build" instead of comparing the installed release with the app's.
+
+### Developer mode
+
+Developer mode lets a build of the app from source install, update, repair
+and run k3sm through the administrator step, so a k3sm built from source can
+be tried the way a release is. It stops the signature checks: the app no
+longer checks who signed itself or the k3sm it installs and runs as root.
+Anyone who can replace those files gets root, so use it only on a Mac you
+build k3sm on.
+
+- Only a development build offers it. A Developer ID signed release never
+  enters developer mode and ignores everything below.
+- It is chosen at the first install: the review step of a development build
+  has a **Developer mode** checkbox, off by default and never remembered.
+  Checked, and with a k3sm in the app's payload (`hack/build-app.sh
+  --payload <staged-tree>`), the review offers the administrator step instead
+  of Install in Terminal and shows the warning under the checkbox. The
+  administrator prompt says the step runs with signature checks off, and the
+  install runs `k3sm install --developer-mode on`.
+- k3sm records the choice as a root-owned file, `/Library/k3sm.developer-mode`.
+  The app reads it at each status read; while it is a root-owned regular
+  file that only root can write, the window's strip shows a **Developer mode**
+  badge and the app runs Start, Stop, Restart, the managed update, Repair,
+  the update from its payload and Uninstall. Every one of those steps checks
+  the file again as root first and runs nothing if it is gone.
+- Each step still checks that the installed k3sm and its directories are
+  root-owned and not writable by others, and that the staged copy of the app
+  has an intact signature; it checks no Developer ID requirement.
+- The app names the payload by its own pseudo-version. k3sm still refuses
+  an older k3sm over a newer one and the app shows that refusal; the app
+  never passes `--allow-downgrade`, which stays a flag to run in Terminal.
+- Installing a signed release of k3sm turns developer mode off, and so does
+  `sudo <tree>/k3sm install --developer-mode off` from a staged k3sm tree.
+  Uninstalling k3sm removes the file.
 
 `hack/release/README.md` describes the release signing order. The bundle id
 is `io.k3sm.app`, and the app logs to the unified log under the same

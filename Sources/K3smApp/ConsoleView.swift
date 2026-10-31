@@ -220,8 +220,9 @@ struct ConsoleContent: View {
     }
 }
 
-/// ConsoleStrip is the row above the tab: the tab strip, the tab's search
-/// field (on a tab with rows to search), the details button that shows or
+/// ConsoleStrip is the row above the tab: the tab strip, the Developer mode
+/// badge while the developer-mode marker counts on a developer build, the
+/// tab's search field (on a tab with rows to search), the details button that shows or
 /// collapses the inspector, the tour button, the info button that opens the
 /// status panel, and the gear that opens Settings. A tab's bulk actions are
 /// on the tab's own header row (`TabHeader`), not here.
@@ -239,6 +240,16 @@ struct ConsoleStrip: View {
             TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
                 .tourTarget(.tabs, app.tour)
             Spacer()
+            if app.developerModeOn, app.isDeveloperBuild {
+                Text(verbatim: "Developer mode")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Palette.warn)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .overlay(Capsule().stroke(Palette.warn, lineWidth: 1))
+                    .fixedSize()
+                    .help(Help.Strip.developerMode)
+            }
             switch app.section {
             case .workloads:
                 if app.workloadsView == .pods {

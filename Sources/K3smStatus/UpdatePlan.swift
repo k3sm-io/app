@@ -37,6 +37,14 @@ public enum UpdatePath: Equatable, Sendable {
     /// digest its sealed `payload.release` records.
     case bundled(tag: String)
 
+    /// Whether only a build that pins a Developer ID team can run the path,
+    /// even in developer mode: the roll to the version set this app
+    /// carries is bound to a Developer ID requirement.
+    public var needsDeveloperID: Bool {
+        if case .bundled = self { return true }
+        return false
+    }
+
     /// The status item's menu title, which names the release.
     public var menuTitle: String {
         switch self {
@@ -260,6 +268,9 @@ public struct UpdatePlanFacts: Equatable, Sendable {
     public var joinTargetReadable: Bool
     /// Whether this build of the app has no Team ID pin.
     public var developerBuild: Bool
+    /// Whether a developer build runs in developer mode (the marker counts),
+    /// so it can run the checked root step; a pinned build ignores it.
+    public var developerMode: Bool
     /// Why no root step may start now (another change runs, no administrator
     /// rights), nil when one may.
     public var refusal: String?
@@ -298,7 +309,7 @@ public struct UpdatePlanFacts: Equatable, Sendable {
 
     public init(role: NodeRole?, installed: SemanticVersion?, payload: SemanticVersion?,
                 managed: ManagedUpdateState = .nothingNewer, workers: Int? = nil, controlPlane: SemanticVersion? = nil,
-                joinTargetReadable: Bool = true, developerBuild: Bool = false,
+                joinTargetReadable: Bool = true, developerBuild: Bool = false, developerMode: Bool = false,
                 refusal: String? = nil, managedRefusal: String? = nil,
                 catchUp: ClusterCatchUp? = nil, listedBehind: [String] = [],
                 payloadTag: String? = nil, payloadRecord: Bool = false, notReady: [String]? = nil,
@@ -311,6 +322,7 @@ public struct UpdatePlanFacts: Equatable, Sendable {
         self.controlPlane = controlPlane
         self.joinTargetReadable = joinTargetReadable
         self.developerBuild = developerBuild
+        self.developerMode = developerMode
         self.refusal = refusal
         self.managedRefusal = managedRefusal
         self.catchUp = catchUp
@@ -328,14 +340,14 @@ public struct UpdatePlanFacts: Equatable, Sendable {
     /// versions, the node list (and each node's Ready condition), and the
     /// app's own payload tag and whether its payload record is present.
     public init(report: StatusReport?, progress: UpdateProgress, installed: SemanticVersion?, payload: SemanticVersion?,
-                nodes: [ClusterNode]?, joinTargetReadable: Bool, developerBuild: Bool,
+                nodes: [ClusterNode]?, joinTargetReadable: Bool, developerBuild: Bool, developerMode: Bool = false,
                 refusal: String?, managedRefusal: String?,
                 payloadTag: String? = nil, payloadRecord: Bool = false) {
         self.init(role: report.flatMap(NodeRole.detect(in:)), installed: installed, payload: payload,
                   managed: ManagedUpdateState(report: report, progress: progress),
                   workers: report?.workers?.count,
                   controlPlane: nodes?.filter(\.controlPlane).compactMap(NodeVersions.tagged).max(),
-                  joinTargetReadable: joinTargetReadable, developerBuild: developerBuild,
+                  joinTargetReadable: joinTargetReadable, developerBuild: developerBuild, developerMode: developerMode,
                   refusal: refusal, managedRefusal: managedRefusal,
                   catchUp: ClusterCatchUp.decide(report: report),
                   listedBehind: nodes.map { list in
@@ -401,7 +413,8 @@ public enum UpdatePlan: Equatable, Sendable {
     ///     install with no release: blocked; otherwise none.
     ///
     /// A path found in 3 or 4 is then blocked when this build cannot run the
-    /// root step, or cannot now, or (a worker's payload) lacks the address
+    /// root step (a developer build outside developer mode, or in it for the
+    /// version set's roll, which only a Developer ID build runs), or cannot now, or (a worker's payload) lacks the address
     /// its worker joins, or (the version set's roll) a node is not Ready or
     /// unknown, a node is ahead of the set, or the payload record is missing.
     public static func decide(_ facts: UpdatePlanFacts) -> UpdatePlan {
@@ -450,7 +463,7 @@ public enum UpdatePlan: Equatable, Sendable {
             }
             return .none
         }
-        if facts.developerBuild { return .blocked(.appDeveloperBuild(path)) }
+        if facts.developerBuild, !facts.developerMode || path.needsDeveloperID { return .blocked(.appDeveloperBuild(path)) }
         if let refusal = facts.refusal { return .blocked(.refused(refusal, path)) }
         switch path {
         case .managed(let tag):

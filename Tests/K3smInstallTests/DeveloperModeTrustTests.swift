@@ -364,4 +364,55 @@ struct DeveloperModeTrustTests {
         #expect(result.status == LifecycleExit.refusedBinary, "stderr: \(result.stderr)")
         #expect(!result.stderr.contains(InstalledCLIChainTests.accepted))
     }
+
+    // MARK: what keeps a Developer ID requirement
+
+    /// `BundledRollPlan` and `AppUpdateTrust` take no `TrustPolicy`: this
+    /// row calls the only initializer and function they have, which take a
+    /// `TeamID`. A `TrustPolicy` overload would be a second way in, and a
+    /// test that fails to compile is no test, so the row pins the shape by
+    /// use: adding a policy parameter breaks these calls.
+    @Test("the version set's roll and the app's own update keep a TeamID")
+    func developerModeTrustTableKeepsTeamID() throws {
+        let plan = try BundledRollPlan(bundlePath: "/Applications/k3sm.app", release: ReleaseTag("v0.2.0")!, teamID: Self.team)
+        #expect(BundledRollScriptBuilder.render(plan: plan).text.contains(DesignatedRequirement.developerID(teamID: Self.team)))
+        #expect(AppUpdateTrust.appRequirement(teamID: Self.team).contains(Self.team.description))
+    }
+
+    // MARK: the screens' questions
+
+    @Test("Repair's question carries the warning only in developer mode")
+    func developerModeRepairConfirmation() {
+        let version = SemanticVersion("0.0.0-0.20261031000000-abcdef012345")!
+        #expect(!RepairConfirmation(payload: version, role: .server).message.contains(DeveloperMode.warning))
+        #expect(RepairConfirmation(payload: version, role: .server, developerMode: true).message.hasSuffix(DeveloperMode.warning))
+    }
+
+    @Test("an update in developer mode asks first, with the warning; nothing else does")
+    func developerModeUpdateConfirmation() throws {
+        let version = SemanticVersion("0.0.0-0.20261031000000-abcdef012345")!
+        let q = try #require(DeveloperModeConfirmation(action: .update(.server), payload: version, policy: .developer))
+        #expect(q.message.contains(DeveloperMode.warning))
+        #expect(q.message.contains(version.description))
+        #expect(DeveloperModeConfirmation(action: .update(.server), payload: version, policy: .developerID(Self.team)) == nil)
+        for action: CopyOutAction in [.startServer, .repair, .uninstall(purge: false), .uninstall(purge: true)] {
+            #expect(DeveloperModeConfirmation(action: action, payload: version, policy: .developer) == nil, "\(action)")
+        }
+    }
+
+    @Test("Repair runs on a developer build only in developer mode, from the build's pseudo-version")
+    func developerModeRepairPolicy() {
+        let build = AppVersion(shortVersion: "0.0.0", buildVersion: "v0.0.0-0.20261031000000-abcdef012345")
+        let off = DeveloperModeChoice.payload(release: nil, build: build, pinned: false, developerMode: false, payloadCLI: true)
+        let on = DeveloperModeChoice.payload(release: nil, build: build, pinned: false, developerMode: true, payloadCLI: true)
+        let state = HealthState.cliMissing
+        #expect(RepairPolicy.refusal(health: state, rootStep: DeveloperModeChoice.rootStep(pinned: false, developerMode: false),
+                                     payload: off) == .noRootStep)
+        #expect(RepairPolicy.refusal(health: state, rootStep: DeveloperModeChoice.rootStep(pinned: false, developerMode: true),
+                                     payload: on) == nil)
+        // Developer mode without a payload k3sm still has nothing to repair from.
+        let bare = DeveloperModeChoice.payload(release: nil, build: build, pinned: false, developerMode: true, payloadCLI: false)
+        #expect(RepairPolicy.refusal(health: state, rootStep: true, payload: bare) == .payloadUnknown)
+    }
 }
+

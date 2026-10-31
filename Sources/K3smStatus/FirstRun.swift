@@ -65,7 +65,8 @@ public enum FirstRunStep: String, CaseIterable, Equatable, Sendable {
 
 /// FirstRunReview is the review step: a title, what will happen, and either
 /// the button that asks for an administrator (the checked root step) or, in a
-/// developer build, Install in Terminal with the exact commands it runs.
+/// developer build outside developer mode, Install in Terminal with the exact
+/// commands it runs.
 public struct FirstRunReview: Equatable, Sendable {
     public let title: String
     /// What will happen, in order.
@@ -166,8 +167,8 @@ public struct FirstRunFinish: Equatable, Sendable {
 /// | start | choose, review, install, finished |
 /// | join | choose, join, review, install, finished |
 ///
-/// A developer build (no Team ID pin) cannot run the checked root step, so
-/// its review step offers Install in Terminal instead: a fixed script
+/// A developer build (no Team ID pin) cannot run the checked root step
+/// outside developer mode, so its review step offers Install in Terminal instead: a fixed script
 /// (`TerminalScript`) opened in Terminal, where `sudo` asks for the password.
 /// The flow stays on the review, re-reading the health check
 /// (`InstallWatch`), and moves to the finished step once k3sm is up.
@@ -224,10 +225,15 @@ public enum FirstRunFlow {
     /// both are nil for a start. `developerBuild` is a build with no Team ID
     /// pin; `payload` the release the app carries, and `payloadCLI` its
     /// k3sm, when the bundle holds one, which a developer build installs
-    /// in place of a download.
+    /// in place of a download. `developerMode` is the review's Developer
+    /// mode checkbox, which only a developer build shows: on, with a payload
+    /// k3sm and a version to install it as (`DeveloperModeChoice.payload`),
+    /// the review offers the checked root step, as a signed build's does;
+    /// off, or without them, Install in Terminal as before. A signed build
+    /// ignores it.
     public static func review(path: FirstRunPath, server: String?, serverArgument: String?,
                               developerBuild: Bool, payload: SemanticVersion?,
-                              payloadCLI: TerminalScript.Payload? = nil) -> FirstRunReview {
+                              payloadCLI: TerminalScript.Payload? = nil, developerMode: Bool = false) -> FirstRunReview {
         let release = GuidedSteps.releasePin(payload).map { "k3sm \($0)" } ?? "k3sm"
         var lines: [String]
         switch path {
@@ -244,7 +250,7 @@ public enum FirstRunFlow {
             ]
         }
         lines.append("Pods on one Mac share one trust domain. Run untrusted workloads in the vm runtime class.")
-        guard developerBuild else {
+        if !developerBuild || rootStepInDeveloperMode(developerMode: developerMode, payload: payload, payloadCLI: payloadCLI) {
             lines.append(promptLine)
             return FirstRunReview(title: "Review and install", lines: lines,
                                   installButton: path == .join ? "Join Cluster…" : "Start Cluster…",
@@ -264,6 +270,13 @@ public enum FirstRunFlow {
                               terminalCommand: terminalCommand(path: path, serverArgument: serverArgument, payload: payload,
                                                                payloadCLI: payloadCLI),
                               terminalButton: script == nil ? nil : terminalButton, terminalScript: script)
+    }
+
+    /// Whether a developer build's review offers the checked root step: in
+    /// developer mode, with a payload k3sm and the version it installs as.
+    public static func rootStepInDeveloperMode(developerMode: Bool, payload: SemanticVersion?,
+                                               payloadCLI: TerminalScript.Payload?) -> Bool {
+        developerMode && payload != nil && payloadCLI != nil
     }
 
     /// The exact Terminal commands a developer build shows: the payload's
