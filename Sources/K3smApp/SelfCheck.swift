@@ -112,6 +112,10 @@ enum SelfCheck {
     /// marker is checked again with the CLI; `installedCLITrust(team:)` when
     /// this build runs no root step.
     static func installedCLITrust(policy: TrustPolicy?, team: TeamID?) -> InstalledCLITrust {
+        // The nil-policy fallback (a developer build outside developer mode)
+        // checks the paths only. It is for unprivileged reads alone and must
+        // never gate a root step: every root step takes a `TrustPolicy` and
+        // runs its own checks as root.
         policy.map { InstalledCLI.trust(policy: $0) } ?? InstalledCLI.trust(team: team)
     }
 

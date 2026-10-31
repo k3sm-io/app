@@ -82,10 +82,16 @@ struct RootScriptGoldenTests {
         out.append(("update-apply-all-options.sh",
                      LifecycleScriptBuilder.renderUpdateApply(teamID: team, options: allOptions, release: release).text))
         // Developer mode (`TrustPolicy.developer`): the preamble's marker
-        // check, an update's copy-out (marker check, intact-signature staged
-        // copy) and a first install's (its `--developer-mode on`).
+        // check and every copy-out shape. A first install (start, join)
+        // passes `--developer-mode on` and checks no marker; an update, a
+        // repair and both uninstalls check the marker before the
+        // intact-signature staged copy and pass no flag.
         out.append(("developer-preamble.sh", InstalledCLIPreamble.render(policy: .developer, cliPath: K3smCLI.path)))
-        for (name, action) in [("update-server", CopyOutAction.update(.server)), ("start-server", .startServer)] {
+        let developerActions: [(String, CopyOutAction)] = [
+            ("update-server", .update(.server)), ("start-server", .startServer), ("join", .join(studio)),
+            ("repair", .repair), ("uninstall", .uninstall(purge: false)), ("uninstall-purge", .uninstall(purge: true)),
+        ]
+        for (name, action) in developerActions {
             let dev = try! CopyOutPlan(bundlePath: bundle, payloadVersion: version, policy: .developer, user: user, action: action)
             out.append(("developer-copy-out-\(name).sh", RootScriptBuilder.render(dev).text))
         }

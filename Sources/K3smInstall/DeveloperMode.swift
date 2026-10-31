@@ -32,7 +32,7 @@ public enum DeveloperMode {
     public static let markerPath = "/Library/k3sm.developer-mode"
 
     /// The fixed warning shown wherever developer mode is offered or on.
-    public static let warning = "Developer mode: k3sm will not verify who signed this app or the k3sm it installs and runs as root. Anyone who can replace those files gets root. Use it only on a Mac you build k3sm on. Only `sudo k3sm install --developer-mode off`, or an update to a release whose every program is signed by one Developer ID team, turns it off."
+    public static let warning = "Developer mode: k3sm will not verify who signed this app or the k3sm it installs and runs as root. Anyone who can replace those files gets root. Use it only on a Mac you build k3sm on. `sudo k3sm install --developer-mode off` turns it off, and so does installing a release signed with a Developer ID; reinstalling a build from source does not."
 
     /// The exit status of a root step that found the marker missing or
     /// failing a check (`LifecycleExit.developerModeMissing`).

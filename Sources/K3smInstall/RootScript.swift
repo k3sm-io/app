@@ -117,7 +117,7 @@ public enum RootScriptBuilder {
         let q = ShellQuote.quote
         let staged = stagedBundle
         let text = stagedCopy(bundlePath: plan.bundlePath, stagingTemplate: plan.stagingTemplate,
-                              policy: plan.policy) + markerCheck(plan) + #"""
+                              designatedRequirement: plan.policy.requirementClause, beforeCopy: markerCheck(plan)) + #"""
             k3sm=\#(staged)/\#(q(CopyOutPlan.payloadCLI))
             \#(actionLines(plan, q: q))
             """#
@@ -125,8 +125,9 @@ public enum RootScriptBuilder {
     }
 
     /// In developer mode, the marker check every copy-out but the first
-    /// install makes before it runs the staged CLI: an update, a repair or
-    /// an uninstall runs only while developer mode is on. The first install
+    /// install makes before it stages anything (`stagedCopy`'s `beforeCopy`,
+    /// right after the log is set up): an update, a repair or an uninstall
+    /// copies nothing and runs nothing unless developer mode is on. The first install
     /// (`.startServer`, `.join`) has no marker yet; the administrator prompt
     /// and its `--developer-mode on` are its authorization. Under the
     /// Developer ID policy, nothing.
@@ -161,7 +162,11 @@ public enum RootScriptBuilder {
     /// `stagedCopy(bundlePath:stagingTemplate:policy:)` with the requirement
     /// itself: nil (developer mode) runs `codesign --verify --strict --deep`
     /// with no `-R`, which proves the signature is intact, not who made it.
-    static func stagedCopy(bundlePath: String, stagingTemplate: String, designatedRequirement: String?) -> String {
+    /// `beforeCopy` (shell lines ending in a newline, or "") runs once the
+    /// log and its exit trap are set up, before the staging root is touched:
+    /// the developer-mode marker check, so a refusal copies nothing.
+    static func stagedCopy(bundlePath: String, stagingTemplate: String, designatedRequirement: String?,
+                           beforeCopy: String = "") -> String {
         let q = ShellQuote.quote
         let staged = stagedBundle
         let verify: String
@@ -206,7 +211,7 @@ public enum RootScriptBuilder {
             }
             trap finish EXIT
             trap 'exit 130' HUP INT TERM
-            root=\#(q(CopyOutPlan.stagingRoot))
+            \#(beforeCopy)root=\#(q(CopyOutPlan.stagingRoot))
             if [ -L "$root" ]; then
             	echo 'copy-out: refused: the staging root is a symlink'
             	exit \#(CopyOutExit.refusedPath)

@@ -1398,10 +1398,12 @@ build k3sm on.
   an older k3sm over a newer one and the app shows that refusal; the app
   never passes `--allow-downgrade`, which stays a flag to run in Terminal.
 - `sudo <tree>/k3sm install --developer-mode off` from a staged k3sm tree
-  turns developer mode off. An update turns it off only when every program
-  in it carries the Developer ID signature of one team, the installed
-  k3sm's team when it has one; any other update, a plain `k3sm install`
-  included, keeps it on. Uninstalling k3sm removes the file.
+  turns developer mode off, and so does installing a signed release: a
+  plain `sudo k3sm install` with a Developer ID signed k3sm, or an update
+  through the app whose every program carries the Developer ID signature
+  of one team (the installed k3sm's team when it has one). Reinstalling an
+  ad-hoc signed or Apple Development build from source leaves it on.
+  Uninstalling k3sm removes the file.
 
 `hack/release/README.md` describes the release signing order. The bundle id
 is `io.k3sm.app`, and the app logs to the unified log under the same
