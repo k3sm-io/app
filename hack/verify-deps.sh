@@ -75,13 +75,13 @@ check_manifest() {
 		url="$(printf '%s' "$chunk" | sed -n 's/.*url:[[:space:]]*"\([^"]*\)".*/\1/p')"
 		sha="$(awk -v u="$url" '$1 == u && $2 ~ /^[0-9a-f]{40}$/ && NF >= 3 {print $2; exit}' "$allow")"
 		if [ -z "$sha" ]; then fail "$label: $url is not in hack/deps.allow (or has no 40-hex revision and reason)"; bad=1; continue; fi
-		if printf '%s' "$chunk" | grep -Eq 'from:|branch:|upToNext|\.\.[.<]'; then
+		if grep -Eq 'from:|branch:|upToNext|\.\.[.<]' <<<"$chunk"; then
 			fail "$url: pin by .revision(\"<sha>\") or exact:, not from:, branch: or a range"; bad=1; continue
 		fi
 		rev="$(printf '%s' "$chunk" | sed -nE 's/.*revision(:[[:space:]]*|\()"([0-9a-f]{40})".*/\2/p')"
 		if [ -n "$rev" ]; then
 			[ "$rev" = "$sha" ] || { fail "$url: .revision $rev differs from the allowed $sha"; bad=1; }
-		elif ! printf '%s' "$chunk" | grep -Eq 'exact:'; then
+		elif ! grep -Eq 'exact:' <<<"$chunk"; then
 			fail "$url: not pinned by .revision(\"<40-hex sha>\") or exact:"; bad=1
 		fi
 		if [ ! -f "$root/Package.resolved" ]; then
@@ -124,7 +124,8 @@ check() {
 	if [ -d "$root/hack" ]; then
 		while IFS= read -r -d '' f; do
 			[ "$(basename "$f")" != verify-deps.sh ] || continue
-			if grep -Ev '^[[:space:]]*#' "$f" | grep -Eq "$dl"; then
+			code="$(grep -Ev '^[[:space:]]*#' "$f" || true)"
+			if grep -Eq "$dl" <<<"$code"; then
 				{ grep -Eq 'shasum -a 256 -c|sha256sum -c' "$f" \
 					|| { grep -Eq 'shasum -a 256|sha256sum|dgst -sha256' "$f" && grep -Eq '\[\[? .*[^!=]=?=[^=~]' "$f"; }; } \
 					|| { fail "${f#"$root"/}: downloads without a sha256 verification"; bad=1; }

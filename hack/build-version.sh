@@ -41,7 +41,7 @@ top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || unknown
 [ "$(cd "$top" && pwd -P)" = "$dir" ] || unknown
 sha="$(git -C "$dir" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null)" || unknown
 ct="$(git -C "$dir" log -1 --format=%ct HEAD 2>/dev/null)" || unknown
-printf '%s\n' "$ct" | grep -Eqx '[0-9]+' || unknown
+grep -Eqx '[0-9]+' <<<"$ct" || unknown
 when="$(TZ=UTC date -r "$ct" +%Y%m%d%H%M%S)"
 
 # release_tags <checkout>: the release tags reachable from its HEAD, without v.

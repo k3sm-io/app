@@ -306,7 +306,7 @@ for key in CFBundleShortVersionString CFBundleVersion; do
 		|| { echo "FAIL: a development build's $key is not 0.0.0"; exit 1; }
 done
 devver="$(plutil -extract K3smBuildVersion raw "$dplist" 2>/dev/null || true)"
-printf '%s\n' "$devver" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+-0\.[0-9]{14}-[0-9a-f]{12}(\+dirty)?' \
+grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+-0\.[0-9]{14}-[0-9a-f]{12}(\+dirty)?' <<<"$devver" \
 	|| { echo "FAIL: a development build's K3smBuildVersion is not a pseudo-version: '$devver'"; exit 1; }
 [ "$devver" = "$(bash hack/build-version.sh)" ] \
 	|| { echo "FAIL: K3smBuildVersion '$devver' is not this checkout's pseudo-version"; exit 1; }

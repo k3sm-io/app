@@ -134,12 +134,12 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$OUTARG" ] || usage
 
-if ! printf '%s\n' "$VERSION" | grep -Eqx '(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})'; then
+if ! grep -Eqx '(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})' <<<"$VERSION"; then
 	echo "build-app: refused: --version must be x.y.z (digits only), got: $VERSION" >&2
 	exit 2
 fi
 
-if [ -n "$TEAM_ID" ] && ! printf '%s\n' "$TEAM_ID" | grep -Eqx '[A-Z0-9]{10}'; then
+if [ -n "$TEAM_ID" ] && ! grep -Eqx '[A-Z0-9]{10}' <<<"$TEAM_ID"; then
 	echo "build-app: refused: --team-id must be ten uppercase letters or digits, got: $TEAM_ID" >&2
 	exit 2
 fi

@@ -311,7 +311,8 @@ rehearsal_app_problems() {
 	if grep -q '^Authority=' <<<"$info"; then
 		echo "    the rehearsal k3sm.app is signed by a certificate authority, not ad-hoc"; rc=1
 	fi
-	if grep '^TeamIdentifier=' <<<"$info" | grep -vqx 'TeamIdentifier=not set'; then
+	teamline="$(grep '^TeamIdentifier=' <<<"$info" || true)"
+	if [ -n "$teamline" ] && grep -vqx 'TeamIdentifier=not set' <<<"$teamline"; then
 		echo "    the rehearsal k3sm.app's signature names a Team ID: $(grep '^TeamIdentifier=' <<<"$info" | head -1)"; rc=1
 	fi
 	if [ ! -f "$exe" ]; then

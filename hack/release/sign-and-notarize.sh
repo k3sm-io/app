@@ -320,7 +320,7 @@ app="$1"
 dmg="$2"
 identity="$3"
 team="$4"
-printf '%s\n' "$team" | grep -Eqx '[A-Z0-9]{10}' || { echo "sign-and-notarize: not a Team ID: $team" >&2; exit 2; }
+grep -Eqx '[A-Z0-9]{10}' <<<"$team" || { echo "sign-and-notarize: not a Team ID: $team" >&2; exit 2; }
 [ -d "$app/Contents/MacOS" ] && [ ! -L "$app" ] || { echo "sign-and-notarize: not an app bundle: $app" >&2; exit 2; }
 case "$dmg" in *.dmg) ;; *) echo "sign-and-notarize: the output must end in .dmg: $dmg" >&2; exit 2 ;; esac
 

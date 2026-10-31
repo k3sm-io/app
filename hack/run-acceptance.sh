@@ -204,7 +204,8 @@ FAKE
 	for f in hack/acceptance/B*.sh; do
 		grep -qF "app_test_results \"\$tmp\"" "$f" \
 			|| { echo "SELF-TEST FAIL: $f does not read the suite through app_test_results"; exit 1; }
-		if grep -E '^[[:space:]]*swift test' "$f" | grep -vq -- '--filter StartFakeCLITests'; then
+		swiftlines="$(grep -E '^[[:space:]]*swift test' "$f" || true)"
+		if [ -n "$swiftlines" ] && grep -vq -- '--filter StartFakeCLITests' <<<"$swiftlines"; then
 			echo "SELF-TEST FAIL: $f runs swift test itself"; exit 1
 		fi
 	done
