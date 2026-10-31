@@ -38,6 +38,31 @@ public enum InstalledCLI {
         }
     }
 
+    /// The check the app makes before a privileged path under `policy`.
+    /// Under `.developerID` it is `trust(team:)` for that team. Under
+    /// `.developer` the paths are checked the same way, and the signature
+    /// check is replaced by the developer-mode marker
+    /// (`DeveloperMode.isOn`, read fresh): with the marker gone or failing
+    /// its checks, the verdict is the signature refusal, as for a binary
+    /// that fails the Developer ID requirement. The MCP server and every
+    /// read path keep `trust(team:)`.
+    public static func trust(policy: TrustPolicy) -> InstalledCLITrust {
+        trust(policy: policy, cliPath: K3smCLI.path, owners: [0], marker: { pathFacts(DeveloperMode.markerPath) })
+    }
+
+    /// `trust(policy:)` for a CLI at `cliPath` with every path owned by one
+    /// of `owners`, the marker's facts from `marker`. Only the tests pass
+    /// anything but `K3smCLI.path`, root and the real marker.
+    static func trust(policy: TrustPolicy, cliPath: String, owners: Set<UInt32>,
+                      marker: () -> InstalledCLITrust.PathFacts?) -> InstalledCLITrust {
+        trust(cliPath: cliPath, owners: owners) { path in
+            switch policy {
+            case .developerID(let team): return binarySignatureValid(path: path, team: team)
+            case .developer: return DeveloperMode.isOn(facts: marker())
+            }
+        }
+    }
+
     /// The check on a CLI at `cliPath` with every path owned by one of
     /// `owners`; `signatureValid` gets the resolved binary. Only the tests
     /// pass anything but `K3smCLI.path` and root.
