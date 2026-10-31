@@ -196,16 +196,34 @@ public enum PrivilegedAvailability: Equatable, Sendable {
     /// Decides availability. Privileged actions need a Team ID to pin, the
     /// app's own signature to satisfy the designated requirement, and a user
     /// in the admin group; the first failing check names the reason.
-    public static func evaluate(teamID: TeamID?, signatureValid: Bool, userIsAdmin: Bool) -> PrivilegedAvailability {
+    ///
+    /// `developerMode` (the developer-mode marker counts, or the first-run
+    /// choice is on) matters only to a build that pins no team: there it
+    /// stands in for the pin and the signature, and an administrator is
+    /// still required (`warning(teamID:developerMode:)` is then the warning
+    /// to show). A pinned build ignores it and keeps the rule above, so a
+    /// release is never enabled by the marker.
+    public static func evaluate(teamID: TeamID?, signatureValid: Bool, userIsAdmin: Bool, developerMode: Bool) -> PrivilegedAvailability {
         guard teamID != nil else {
-            return .disabled(reason: "This build of k3sm is not Developer ID signed, so it cannot install or change k3sm.")
+            guard developerMode else {
+                return .disabled(reason: "This build of k3sm is not Developer ID signed, so it cannot install or change k3sm.")
+            }
+            return userIsAdmin ? .enabled : .disabled(reason: adminReason)
         }
         guard signatureValid else {
             return .disabled(reason: "This copy of k3sm failed its signature check. Download it again.")
         }
         guard userIsAdmin else {
-            return .disabled(reason: "Installing or changing k3sm needs an administrator account.")
+            return .disabled(reason: adminReason)
         }
         return .enabled
+    }
+
+    static let adminReason = "Installing or changing k3sm needs an administrator account."
+
+    /// The warning that goes with `evaluate`'s verdict: `DeveloperMode.warning`
+    /// when a build that pins no team runs in developer mode, else nil.
+    public static func warning(teamID: TeamID?, developerMode: Bool) -> String? {
+        teamID == nil && developerMode ? DeveloperMode.warning : nil
     }
 }

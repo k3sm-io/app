@@ -274,18 +274,18 @@ public struct LANDriver: Sendable {
         case ran(PrivilegedOutcome, String, confirmed: LANSetting)
     }
 
-    let teamID: TeamID
+    let policy: TrustPolicy
     let readStatus: @Sendable () async -> StatusReport?
     let confirm: @MainActor @Sendable (LifecycleConfirmation) async -> Bool
     let runner: any PrivilegedRunner
 
     public init(
-        teamID: TeamID,
+        policy: TrustPolicy,
         readStatus: @escaping @Sendable () async -> StatusReport?,
         confirm: @escaping @MainActor @Sendable (LifecycleConfirmation) async -> Bool,
         runner: any PrivilegedRunner
     ) {
-        self.teamID = teamID
+        self.policy = policy
         self.readStatus = readStatus
         self.confirm = confirm
         self.runner = runner
@@ -318,7 +318,7 @@ public struct LANDriver: Sendable {
         guard verb.isLAN, let fixed = LifecycleScriptBuilder.FixedVerb(verb) else {
             return .refused("\(verb.title) is not a LAN access verb. Nothing was changed.")
         }
-        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(fixed, teamID: teamID), input: nil)
+        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.render(fixed, policy: policy), input: nil)
         let after = await readStatus()
         let confirmed = after.map { $0.hasLANSwitch ? $0.network.setting : .unknown } ?? .unknown
         return .ran(run.outcome, LANOutcome.text(run, verb: verb, confirmed: confirmed), confirmed: confirmed)

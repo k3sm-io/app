@@ -117,7 +117,7 @@ struct LANScriptTests {
     func lifecycleRefuses(_ verb: LifecycleVerb) async {
         #expect(LifecyclePrecondition.check(verb, expected: .running, live: .running) != .proceed)
         let runner = RecordingRunner()
-        let driver = LifecycleDriver(teamID: Self.team, readStatus: { Reports.running }, confirm: { _ in true }, runner: runner)
+        let driver = LifecycleDriver(policy: .developerID(Self.team), readStatus: { Reports.running }, confirm: { _ in true }, runner: runner)
         guard case .refused = await driver.perform(verb, expected: .running) else {
             Issue.record("the lifecycle driver ran a LAN verb")
             return
@@ -322,7 +322,7 @@ struct LANDriverTests {
     static let team = TeamID("ABCDE12345")!
 
     static func driver(_ reads: StatusSequence, runner: LANRunner, answer: Bool, asked: Questions? = nil) -> LANDriver {
-        LANDriver(teamID: team, readStatus: { reads.next() }, confirm: { c in
+        LANDriver(policy: .developerID(team), readStatus: { reads.next() }, confirm: { c in
             asked?.append(c)
             return answer
         }, runner: runner)

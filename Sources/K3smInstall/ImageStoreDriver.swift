@@ -39,7 +39,7 @@ public struct ImageStoreDriver: Sendable {
         case ran(PrivilegedOutcome, String)
     }
 
-    let teamID: TeamID
+    let policy: TrustPolicy
     let runner: any PrivilegedRunner
     let confirm: @MainActor @Sendable (_ question: Question) async -> Bool
 
@@ -51,9 +51,9 @@ public struct ImageStoreDriver: Sendable {
         public let verbTitle: String
     }
 
-    public init(teamID: TeamID, runner: any PrivilegedRunner,
+    public init(policy: TrustPolicy, runner: any PrivilegedRunner,
                 confirm: @escaping @MainActor @Sendable (_ question: Question) async -> Bool) {
-        self.teamID = teamID
+        self.policy = policy
         self.runner = runner
         self.confirm = confirm
     }
@@ -107,7 +107,7 @@ public struct ImageStoreDriver: Sendable {
     /// deleted by it; an output that does not read is refused, not guessed at.
     public func previewPrune(scope: ImageStoreScope) async -> Result {
         guard let node = scope.node else { return .refused(ImageStoreScope.unknownNodeText) }
-        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.renderImage(.pruneDryRun, teamID: teamID), input: nil)
+        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.renderImage(.pruneDryRun, policy: policy), input: nil)
         guard run.outcome == .succeeded else { return Self.classify(run, verb: .pruneDryRun, node: node) }
         if run.outputTruncated { return .refused(ImageStoreText.previewTruncated) }
         switch ImagePrune.parse(run.output ?? "") {
@@ -123,7 +123,7 @@ public struct ImageStoreDriver: Sendable {
     }
 
     private func run(_ verb: LifecycleScriptBuilder.ImageVerb, node: String, role: NodeRole? = nil) async -> Result {
-        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.renderImage(verb, teamID: teamID), input: nil)
+        let run = await runner.runAsRootReportingError(LifecycleScriptBuilder.renderImage(verb, policy: policy), input: nil)
         return Self.classify(run, verb: verb, node: node, role: role)
     }
 

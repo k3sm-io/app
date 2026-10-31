@@ -452,7 +452,7 @@ struct CopyJoinDriverTests {
         let logs = LogLines()
         let reads = StatusSequence(reports)
         let driver = JoinCommandDriver(
-            teamID: team, readStatus: { reads.next() }, availability: { availability },
+            policy: .developerID(team), readStatus: { reads.next() }, availability: { availability },
             addresses: FixedAddresses(all: addresses), runner: runner, clipboard: clip, log: { logs.append($0) })
         return Rig(driver: driver, pb: pb, runner: runner, logs: logs, reads: reads)
     }

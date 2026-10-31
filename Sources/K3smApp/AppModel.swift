@@ -1656,7 +1656,7 @@ final class AppModel: ObservableObject {
 
     private func updateDriver(_ teamID: TeamID) -> UpdateDriver {
         UpdateDriver(
-            teamID: teamID,
+            policy: .developerID(teamID),
             readStatus: { await self.readFullReport() },
             confirm: { Self.confirm($0) },
             confirmApply: { Self.confirmApply($0) },
@@ -1887,7 +1887,7 @@ final class AppModel: ObservableObject {
             running = true
             outcomeMessage = nil
             let driver = LANDriver(
-                teamID: teamID,
+                policy: .developerID(teamID),
                 readStatus: { await self.readFullReport() },
                 confirm: { Self.confirm($0) },
                 runner: runner)
@@ -1955,7 +1955,7 @@ final class AppModel: ObservableObject {
     private func joinDriver(teamID: TeamID) -> JoinCommandDriver {
         if let d = joinDriverInstance { return d }
         let d = JoinCommandDriver(
-            teamID: teamID,
+            policy: .developerID(teamID),
             readStatus: { [weak self] in await self?.readFullReport() },
             availability: { [weak self] in self?.availability ?? .disabled(reason: "k3sm is quitting.") },
             addresses: joinAddresses,
@@ -2001,7 +2001,7 @@ final class AppModel: ObservableObject {
             lifecycleRun += 1
             let run = lifecycleRun
             let driver = LifecycleDriver(
-                teamID: teamID,
+                policy: .developerID(teamID),
                 readStatus: { await self.readFullReport() },
                 confirm: { Self.confirm($0) },
                 runner: runner,

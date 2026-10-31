@@ -102,7 +102,7 @@ enum SelfCheck {
     static func availability() -> PrivilegedAvailability {
         let team = teamID()
         let valid = team.map { signatureValid(team: $0) } ?? false
-        return PrivilegedAvailability.evaluate(teamID: team, signatureValid: valid, userIsAdmin: userIsAdmin())
+        return PrivilegedAvailability.evaluate(teamID: team, signatureValid: valid, userIsAdmin: userIsAdmin(), developerMode: false)
     }
 
     /// Whether the app will run the installed CLI as root, or ask it which

@@ -41,7 +41,7 @@ struct PrivilegedAvailabilityTests {
     @Test("evaluate", arguments: cases)
     func evaluate(_ c: Case) {
         let got = PrivilegedAvailability.evaluate(
-            teamID: c.team ? TeamID("ABCDE12345") : nil, signatureValid: c.signature, userIsAdmin: c.admin)
+            teamID: c.team ? TeamID("ABCDE12345") : nil, signatureValid: c.signature, userIsAdmin: c.admin, developerMode: false)
         switch got {
         case .enabled:
             #expect(c.enabled)

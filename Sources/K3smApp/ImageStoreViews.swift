@@ -55,7 +55,7 @@ final class ImageStoreModel: ObservableObject {
     }
 
     private func driver() -> ImageStoreDriver? {
-        teamID.map { ImageStoreDriver(teamID: $0, runner: runner, confirm: { Self.confirm($0) }) }
+        teamID.map { ImageStoreDriver(policy: .developerID($0), runner: runner, confirm: { Self.confirm($0) }) }
     }
 
     func openPull() {

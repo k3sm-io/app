@@ -130,6 +130,13 @@ public enum LifecycleExit {
     public static let refusedBinary: Int32 = 100
     /// The installed binary failed the Developer ID requirement. Nothing ran.
     public static let signatureRejected: Int32 = 101
+    /// Developer mode (`TrustPolicy.developer`): the marker at
+    /// `DeveloperMode.markerPath` is missing, or it or a folder above it
+    /// fails the checks the CLI gets, so developer mode is off. Nothing ran.
+    /// It sits above the version set's roll (`BundledRollExit`, 102 to 105)
+    /// and below nothing else the app's root steps choose; the copy-out
+    /// (`CopyOutExit`, 64 to 77) exits with it too.
+    public static let developerModeMissing: Int32 = 110
 }
 
 /// LifecycleScriptBuilder renders the root script behind a lifecycle verb.
@@ -139,14 +146,16 @@ public enum LifecycleExit {
 /// group or other writable, not symlinks (but for the versioned chain
 /// `InstalledCLIPreamble` accepts) and carry no ACL, and that the CLI satisfies the
 /// Developer ID requirement built from the compiled Team ID. A developer
-/// build has no Team ID, so it can render no lifecycle script at all.
+/// build has no Team ID, so it renders a lifecycle script only in developer
+/// mode (`TrustPolicy.developer`), where the developer-mode marker is
+/// required in place of the signature.
 public enum LifecycleScriptBuilder {
     /// The fixed reason every app-run verb records (`--reason`).
     public static let reason = "from the k3sm app"
 
     /// FixedVerb is every verb whose argv is a compile-time constant: all of
     /// them but the apply, which carries the release the user confirmed and
-    /// is rendered only by `renderUpdateApply(teamID:options:release:)`. So no
+    /// is rendered only by `renderUpdateApply(policy:options:release:)`. So no
     /// path can render an apply without its release.
     public enum FixedVerb: String, CaseIterable, Hashable, Sendable {
         case stop, start, restart
@@ -193,20 +202,31 @@ public enum LifecycleScriptBuilder {
     }
 
     /// Renders the script for a fixed verb's CLI at `K3smCLI.path`.
+    public static func render(_ verb: FixedVerb, policy: TrustPolicy) -> RootScript {
+        render(verb.verb, argv: arguments(for: verb), policy: policy, cliPath: K3smCLI.path)
+    }
+
+    /// `render(_:policy:)` under the Developer ID requirement for `teamID`.
     public static func render(_ verb: FixedVerb, teamID: TeamID) -> RootScript {
-        render(verb.verb, argv: arguments(for: verb), teamID: teamID, cliPath: K3smCLI.path)
+        render(verb, policy: .developerID(teamID))
     }
 
     /// Renders the apply's script, pinned to `release`, with `options`
     /// (the defaults add no flag). `UpdateDriver.apply` is its one caller.
+    public static func renderUpdateApply(policy: TrustPolicy, options: UpdateOptions, release: ReleaseTag) -> RootScript {
+        render(.updateApply, argv: updateApplyArguments(options: options, release: release), policy: policy, cliPath: K3smCLI.path)
+    }
+
+    /// `renderUpdateApply(policy:options:release:)` under the Developer ID
+    /// requirement for `teamID`.
     public static func renderUpdateApply(teamID: TeamID, options: UpdateOptions, release: ReleaseTag) -> RootScript {
-        render(.updateApply, argv: updateApplyArguments(options: options, release: release), teamID: teamID, cliPath: K3smCLI.path)
+        renderUpdateApply(policy: .developerID(teamID), options: options, release: release)
     }
 
     /// Renders a fixed verb's script for a CLI at `cliPath`. Only the tests
     /// pass another path, to prove the refusals against real directories.
     static func render(_ verb: FixedVerb, teamID: TeamID, cliPath: String) -> RootScript {
-        render(verb.verb, argv: arguments(for: verb), teamID: teamID, cliPath: cliPath)
+        render(verb.verb, argv: arguments(for: verb), policy: .developerID(teamID), cliPath: cliPath)
     }
 
     /// ImageVerb is every `k3sm image` verb the Images tab runs as root: pull
@@ -262,22 +282,31 @@ public enum LifecycleScriptBuilder {
     /// Renders an image verb's script for the CLI at `K3smCLI.path`: the
     /// same checks as every lifecycle verb, then the one CLI line. It is the
     /// only script that asks for its standard output back (`capturesOutput`).
+    public static func renderImage(_ verb: ImageVerb, policy: TrustPolicy) -> RootScript {
+        renderImage(verb, policy: policy, cliPath: K3smCLI.path)
+    }
+
+    /// `renderImage(_:policy:)` under the Developer ID requirement for `teamID`.
     public static func renderImage(_ verb: ImageVerb, teamID: TeamID) -> RootScript {
-        renderImage(verb, teamID: teamID, cliPath: K3smCLI.path)
+        renderImage(verb, policy: .developerID(teamID))
     }
 
     static func renderImage(_ verb: ImageVerb, teamID: TeamID, cliPath: String) -> RootScript {
-        render(prompt: verb.prompt, argv: imageArguments(verb), teamID: teamID, cliPath: cliPath, capturesOutput: true)
+        renderImage(verb, policy: .developerID(teamID), cliPath: cliPath)
     }
 
-    private static func render(_ verb: LifecycleVerb, argv words: [String], teamID: TeamID, cliPath: String) -> RootScript {
-        render(prompt: verb.prompt, argv: words, teamID: teamID, cliPath: cliPath)
+    static func renderImage(_ verb: ImageVerb, policy: TrustPolicy, cliPath: String) -> RootScript {
+        render(prompt: verb.prompt, argv: imageArguments(verb), policy: policy, cliPath: cliPath, capturesOutput: true)
     }
 
-    private static func render(prompt: String, argv words: [String], teamID: TeamID, cliPath: String,
+    private static func render(_ verb: LifecycleVerb, argv words: [String], policy: TrustPolicy, cliPath: String) -> RootScript {
+        render(prompt: verb.prompt, argv: words, policy: policy, cliPath: cliPath)
+    }
+
+    private static func render(prompt: String, argv words: [String], policy: TrustPolicy, cliPath: String,
                                capturesOutput: Bool = false) -> RootScript {
         let argv = words.map(ShellQuote.quote).joined(separator: " ")
-        let text = InstalledCLIPreamble.render(teamID: teamID, cliPath: cliPath) + "exec \"$k3sm\" \(argv)\n"
+        let text = InstalledCLIPreamble.render(policy: policy, cliPath: cliPath) + "exec \"$k3sm\" \(argv)\n"
         return RootScript(text: text, prompt: prompt, readsInput: false, usesStagingLock: false, capturesOutput: capturesOutput)
     }
 }
@@ -317,15 +346,36 @@ public enum InstalledCLIPreamble {
 
     /// The preamble text, ending in a newline.
     public static func render(teamID: TeamID, cliPath: String) -> String {
-        render(cliPath: cliPath, requirement: DesignatedRequirement.developerID(teamID: teamID), owners: [0])
+        render(policy: .developerID(teamID), cliPath: cliPath)
+    }
+
+    /// The preamble text under `policy`, ending in a newline. Under
+    /// `.developerID` it is exactly `render(teamID:cliPath:)`. Under
+    /// `.developer` it first requires the developer-mode marker
+    /// (`DeveloperMode.shellCheck`, refusing with
+    /// `LifecycleExit.developerModeMissing`), keeps every path check on the
+    /// CLI, and runs no `codesign` check.
+    ///
+    /// Residual under `.developer`: no signature binds the exec to the bytes
+    /// checked, so a swap of `/Library/k3sm` between the check and the exec
+    /// is not caught. Every folder above it is root-owned, so only root can
+    /// make that swap; it crosses no privilege boundary.
+    public static func render(policy: TrustPolicy, cliPath: String) -> String {
+        switch policy {
+        case .developerID(let team):
+            return render(cliPath: cliPath, requirement: DesignatedRequirement.developerID(teamID: team), owners: [0])
+        case .developer:
+            return render(cliPath: cliPath, requirement: nil, owners: [0], markerCheck: DeveloperMode.shellCheck())
+        }
     }
 
     /// The preamble for a CLI at `cliPath`, checked against the code
-    /// signing `requirement`, with every checked path owned by one of
-    /// `owners`. Only the tests pass anything but root and the Developer ID
-    /// requirement, to run the checks against a layout in a temporary
-    /// directory as this user.
-    static func render(cliPath: String, requirement: String, owners: [UInt32]) -> String {
+    /// signing `requirement` (none when nil), with every checked path owned
+    /// by one of `owners`, and `markerCheck` (the developer-mode marker's
+    /// lines, or nothing) run before the CLI's checks. Only the tests pass
+    /// anything but root and the policy's own values, to run the checks
+    /// against a layout in a temporary directory as this user.
+    static func render(cliPath: String, requirement: String?, owners: [UInt32], markerCheck: String = "") -> String {
         let q = ShellQuote.quote
         let all = checkedPaths(cliPath: cliPath)
         let ancestors = all.dropLast().map(q).joined(separator: " ")
@@ -333,12 +383,18 @@ public enum InstalledCLIPreamble {
         let name = String(cliPath.split(separator: "/").last ?? "")
         let layout = dir == "/" ? "" : dir
         let ownerTest = owners.map { "! -user \($0)" }.joined(separator: " ")
-        let requirement = "-R=" + requirement
         let versionCheck = VersionDirectoryName.shellLines.joined(separator: "\n\t")
-        return #"""
-            set -eu
-            umask 077
-            cd /
+        let signature = requirement.map { requirement in
+            #"""
+                if ! /usr/bin/codesign --verify --strict \#(q("-R=" + requirement)) "$k3sm"; then
+                	echo 'k3sm app: refused: the installed k3sm is not signed by the k3sm Developer ID' >&2
+                	exit \#(LifecycleExit.signatureRejected)
+                fi
+
+                """#
+        } ?? ""
+        let head = "set -eu\numask 077\ncd /\n"
+        return head + markerCheck + #"""
             k3sm=\#(q(cliPath))
             refuse() {
             	echo "k3sm app: refused: $1" >&2
@@ -388,12 +444,8 @@ public enum InstalledCLIPreamble {
             if [ ! -e "$k3sm" ]; then refuse "$k3sm does not exist"; fi
             check "$k3sm"
             if [ ! -f "$k3sm" ]; then refuse "$k3sm is not a regular file"; fi
-            if ! /usr/bin/codesign --verify --strict \#(q(requirement)) "$k3sm"; then
-            	echo 'k3sm app: refused: the installed k3sm is not signed by the k3sm Developer ID' >&2
-            	exit \#(LifecycleExit.signatureRejected)
-            fi
 
-            """#
+            """# + signature
     }
 }
 
@@ -419,6 +471,10 @@ public enum LifecycleOutcome {
         return leftoverClasses.filter { n & $0.bit != 0 }.map(\.name)
     }
 
+    /// The sentence for `LifecycleExit.developerModeMissing`.
+    public static let developerModeMissingText =
+        "Developer mode was turned off, so nothing ran. Install a build from source again to turn it on."
+
     public static func text(_ outcome: PrivilegedOutcome, verb: LifecycleVerb) -> String {
         switch outcome {
         case .succeeded:
@@ -442,6 +498,8 @@ public enum LifecycleOutcome {
                 return "The installed k3sm at \(K3smCLI.path), or a folder above it, is not owned by root or is writable by others, so nothing was run."
             case LifecycleExit.signatureRejected:
                 return "The installed k3sm is not signed by the k3sm Developer ID, so nothing was run."
+            case LifecycleExit.developerModeMissing:
+                return developerModeMissingText
             case LifecycleExit.needsRoot:
                 return "k3sm did not run as root, so nothing was done."
             case LifecycleExit.usage:

@@ -69,7 +69,7 @@ struct LifecycleDriverTests {
     static func driver(_ reads: StatusSequence, runner: RecordingRunner, answer: Bool,
                        asked: Questions? = nil) -> LifecycleDriver {
         LifecycleDriver(
-            teamID: team,
+            policy: .developerID(team),
             readStatus: { reads.next() },
             confirm: { c in
                 asked?.append(c)
@@ -222,7 +222,7 @@ struct TrustedCLITests {
         let cli = TrustedCLI<StatusReport?>(check: { trust.next() }, execute: { args in runs.record(args); return Reports.running })
         let runner = RecordingRunner()
         let driver = LifecycleDriver(
-            teamID: TeamID("ABCDE12345")!,
+            policy: .developerID(TeamID("ABCDE12345")!),
             readStatus: {
                 if case .ran(let report) = await cli.run(K3smCLI.reportArguments) { return report }
                 return nil
