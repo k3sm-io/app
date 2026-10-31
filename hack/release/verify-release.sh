@@ -444,7 +444,7 @@ EOF
 		k3sm_01.2.3_darwin_arm64.dmg k3sm_1.2.3_darwin_arm64.dmg.dmg k3sm_1.2.3_darwin_arm64-signed.dmg; do
 		expect "name: $n is refused" 1 "" parse_image_name "$n"
 	done
-	sigcase() { local kind; kind="$(printf '%b\n' "$2" | signature_kind)"; grep -qx -- "$1" <<<"$kind"; }
+	sigcase() { local kind; kind="$(printf '%b\n' "$2" | signature_kind)" || return 1; grep -qx -- "$1" <<<"$kind"; }
 	expect "signature: ad-hoc" 0 "" sigcase adhoc 'Executable=x\nSignature=adhoc\nTeamIdentifier=not set'
 	expect "signature: Developer ID with its team" 0 "" sigcase developer-id:ABCDE12345 \
 		'Authority=Developer ID Application: Example (ABCDE12345)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTeamIdentifier=ABCDE12345'
