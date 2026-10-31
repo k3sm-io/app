@@ -364,6 +364,24 @@ final class AppModel: ObservableObject {
     /// The background update check's loop (`startUpdateCheck`).
     private var updateCheckTask: Task<Void, Never>?
     @Published private(set) var availability: PrivilegedAvailability
+    /// The first run's Developer mode checkbox, shown on a developer build's
+    /// review step, off by default. It lives here only: it is never written
+    /// to the preferences, never read from them or from a restored window,
+    /// so every launch starts with it off.
+    @Published var developerModeChecked = false {
+        didSet { if developerModeChecked != oldValue { evaluateAvailability() } }
+    }
+    /// Whether the developer-mode marker counts (`DeveloperMode.isOn`),
+    /// read again with each refresh. Only a developer build acts on it.
+    @Published private(set) var developerModeOn = false {
+        didSet { if developerModeOn != oldValue { evaluateAvailability() } }
+    }
+    /// `lstat` of the developer-mode marker at the last refresh.
+    private var developerModeMarker: InstalledCLITrust.PathFacts?
+    /// Whether this build's own signature satisfies its pin, checked once.
+    private let selfSignatureValid: Bool
+    /// Whether the user is an administrator, checked once.
+    private let userIsAdmin: Bool
     @Published var loginItemNeedsApproval = false
     @Published private(set) var running = false
     @Published private(set) var logTail = ""
@@ -497,18 +515,18 @@ final class AppModel: ObservableObject {
         self.workloads = WorkloadsModel(environment: environment)
         self.statusStream = StatusStream(launcher: CLIStream(environment: environment), clock: WatchSystemClock())
         self.actions = ActionRunner(environment: environment, teamID: teamID)
-        self.imageStore = ImageStoreModel(teamID: teamID, runner: runner)
+        self.imageStore = ImageStoreModel(runner: runner)
         self.user = SelfCheck.consoleUser()
         self.payloadVersion = SelfCheck.payloadVersion()
         self.payloadTag = AppVersion.payloadTag(info: Bundle.main.infoDictionary)
         self.payloadRecord = Self.hasPayloadRecord(bundlePath: Bundle.main.bundlePath)
         self.appVersion = SelfCheck.appVersion()
         self.payloadCLI = SelfCheck.payloadCLI()
-        var availability = SelfCheck.availability()
-        if availability == .enabled, user == nil {
-            availability = .disabled(reason: "k3sm could not read a non-root account name for this user, so it cannot install k3sm.")
-        }
-        self.availability = availability
+        self.selfSignatureValid = teamID.map { SelfCheck.signatureValid(team: $0) } ?? false
+        self.userIsAdmin = SelfCheck.userIsAdmin()
+        self.availability = Self.availability(teamID: teamID, signatureValid: selfSignatureValid, userIsAdmin: userIsAdmin,
+                                              developerMode: false, user: user)
+        imageStore.policy = { [weak self] in self?.trustPolicy }
         // The shared node list follows the selected tab's cadence.
         workloads.nodeList.interval = { [weak self] _ in
             guard let self else { return PollSchedule.fastInterval }
@@ -606,7 +624,74 @@ final class AppModel: ObservableObject {
 
     /// Whether a privileged step may start now.
     private var canRunPrivileged: Bool {
-        !running && availability == .enabled && payloadVersion != nil
+        !running && availability == .enabled && rootPayload != nil
+    }
+
+    /// The window's availability (`PrivilegedAvailability.evaluate`), with a
+    /// user the app could not name refused.
+    private static func availability(teamID: TeamID?, signatureValid: Bool, userIsAdmin: Bool, developerMode: Bool,
+                                     user: ConsoleUser?) -> PrivilegedAvailability {
+        let availability = PrivilegedAvailability.evaluate(
+            teamID: teamID, signatureValid: signatureValid, userIsAdmin: userIsAdmin, developerMode: developerMode)
+        if availability == .enabled, user == nil {
+            return .disabled(reason: "k3sm could not read a non-root account name for this user, so it cannot install k3sm.")
+        }
+        return availability
+    }
+
+    /// Decides availability again after the developer-mode facts changed.
+    private func evaluateAvailability() {
+        let next = Self.availability(teamID: teamID, signatureValid: selfSignatureValid, userIsAdmin: userIsAdmin,
+                                     developerMode: developerModeActive, user: user)
+        if next != availability { availability = next }
+    }
+
+    /// Whether a developer build runs in developer mode: the marker counts,
+    /// or the first run's checkbox is on. A pinned build never does.
+    var developerModeActive: Bool {
+        teamID == nil && (developerModeOn || developerModeChecked)
+    }
+
+    /// The developer-mode warning the window shows while the mode is on or
+    /// checked (`PrivilegedAvailability.warning`), nil otherwise.
+    var developerModeWarning: String? {
+        PrivilegedAvailability.warning(teamID: teamID, developerMode: developerModeActive)
+    }
+
+    /// Whether this is a developer build, which shows the Developer mode checkbox.
+    var isDeveloperBuild: Bool { teamID == nil }
+
+    /// What every root step after the first install checks the installed CLI
+    /// and the staged bundle against (`TrustPolicy.current`): the pin, or in
+    /// a developer build the marker; nil when this build runs none.
+    var trustPolicy: TrustPolicy? {
+        TrustPolicy.current(pin: teamID, marker: developerModeMarker)
+    }
+
+    /// The first install's policy: the pin, or `.developer` on a developer
+    /// build with the checkbox on, since no marker exists before it.
+    private var firstInstallPolicy: TrustPolicy? {
+        if let teamID { return .developerID(teamID) }
+        return developerModeChecked ? .developer : nil
+    }
+
+    /// The version the first install installs the payload as
+    /// (`DeveloperModeChoice.payload`, with the checkbox as the mode).
+    private var firstRunPayload: SemanticVersion? {
+        DeveloperModeChoice.payload(release: payloadVersion, build: appVersion, pinned: teamID != nil,
+                                    developerMode: developerModeChecked, payloadCLI: payloadCLI != nil)
+    }
+
+    /// The version an update, a repair or an uninstall runs the payload as
+    /// (`DeveloperModeChoice.payload`, with the marker as the mode).
+    private var rootPayload: SemanticVersion? {
+        DeveloperModeChoice.payload(release: payloadVersion, build: appVersion, pinned: teamID != nil,
+                                    developerMode: developerModeOn, payloadCLI: payloadCLI != nil)
+    }
+
+    /// Whether a root step after the first install may run on this build.
+    private var rootStep: Bool {
+        DeveloperModeChoice.rootStep(pinned: teamID != nil, developerMode: trustPolicy != nil)
     }
 
     /// The join address the paste gave, when it is valid.
@@ -627,14 +712,15 @@ final class AppModel: ObservableObject {
     var firstRunReview: FirstRunReview {
         let address = choice == .join ? joinAddress : nil
         return FirstRunFlow.review(path: choice, server: address?.description, serverArgument: address?.argument,
-                                   developerBuild: teamID == nil, payload: payloadVersion, payloadCLI: payloadCLI)
+                                   developerBuild: teamID == nil, payload: firstRunPayload, payloadCLI: payloadCLI,
+                                   developerMode: developerModeChecked)
     }
 
     /// Why the review step's install button is disabled, nil when it can run.
     var firstRunInstallDisabledReason: String? {
         if running { return "Another change is running." }
         if case .disabled(let reason) = availability { return reason }
-        if payloadVersion == nil { return "This build of the app carries no k3sm release, so it cannot install one." }
+        if firstRunPayload == nil { return "This build of the app carries no k3sm release, so it cannot install one." }
         if choice == .join && !joinReady { return "Paste the address and token first." }
         return nil
     }
@@ -798,8 +884,9 @@ final class AppModel: ObservableObject {
         var joinTargetReadable = true
         if case .failure = joinTarget { joinTargetReadable = false }
         return UpdatePlanFacts(
-            report: lanReport ?? report, progress: updateProgress, installed: installedVersion, payload: payloadVersion,
+            report: lanReport ?? report, progress: updateProgress, installed: installedVersion, payload: rootPayload,
             nodes: workloads.nodes, joinTargetReadable: joinTargetReadable, developerBuild: teamID == nil,
+            developerMode: developerModeOn,
             refusal: refusal, managedRefusal: managedRefusal,
             payloadTag: payloadTag, payloadRecord: payloadRecord)
     }
@@ -846,7 +933,7 @@ final class AppModel: ObservableObject {
     /// Whether a lifecycle verb may start now. It needs no payload: it runs
     /// the installed CLI, never the app's copy.
     var canRunLifecycle: Bool {
-        !running && availability == .enabled && teamID != nil && lifecycleSupport == .available
+        !running && availability == .enabled && trustPolicy != nil && lifecycleSupport == .available
     }
 
     /// The banner and guided panel for the current health state
@@ -855,7 +942,7 @@ final class AppModel: ObservableObject {
     /// Terminal command instead.
     var guidedPlan: GuidedPlan? {
         health.flatMap {
-            GuidedSteps.plan(for: $0, rootStep: teamID != nil, role: role, payload: payloadVersion, payloadCLI: payloadCLI)
+            GuidedSteps.plan(for: $0, rootStep: rootStep, role: role, payload: rootPayload, payloadCLI: payloadCLI)
         }
     }
 
@@ -887,7 +974,7 @@ final class AppModel: ObservableObject {
 
     /// Why Repair cannot run now (`RepairPolicy`), nil when it can.
     var repairRefusal: RepairRefusal? {
-        RepairPolicy.refusal(health: health, rootStep: teamID != nil, payload: payloadVersion)
+        RepairPolicy.refusal(health: health, rootStep: rootStep, payload: rootPayload)
     }
 
     /// Opens the guided panel for the current state.
@@ -926,12 +1013,13 @@ final class AppModel: ObservableObject {
         case .update:
             performUpdate(finished: finish)
         case .repair:
-            guard let payloadVersion else {
+            guard let payload = rootPayload else {
                 finish(false, RepairRefusal.payloadUnknown.text)
                 return
             }
             // No: nothing ran, and the panel goes back to idle.
-            guard Self.confirmRepair(RepairConfirmation(payload: payloadVersion, role: role)) else {
+            let confirmation = RepairConfirmation(payload: payload, role: role, developerMode: trustPolicy?.isDeveloper == true)
+            guard Self.confirmRepair(confirmation) else {
                 finish(nil, "")
                 return
             }
@@ -968,6 +1056,9 @@ final class AppModel: ObservableObject {
             }
         }
         let files = await Task.detached { SelfCheck.installFiles() }.value
+        let marker = await Task.detached { InstalledCLI.pathFacts(DeveloperMode.markerPath) }.value
+        developerModeMarker = marker
+        developerModeOn = DeveloperMode.isOn(facts: marker)
         var trust: HealthFacts.CLITrust = .unchecked
         var read: StatusReport?
         if !files.rootExists { reportRecovery.reset() }
@@ -1498,7 +1589,7 @@ final class AppModel: ObservableObject {
     /// step, with the update options as stored at the click, guarded by the
     /// check `target` names.
     private func applyManagedUpdate(tag: String, target: UpdateTarget, finished: ((Bool?, String) -> Void)?) {
-        guard let teamID else {
+        guard let policy = trustPolicy else {
             finished?(false, UpdateBlock.managedDeveloperBuild)
             return
         }
@@ -1509,7 +1600,7 @@ final class AppModel: ObservableObject {
             running = true
             outcomeMessage = nil
             updateProgress.applyStarted()
-            let result = await updateDriver(teamID).apply(tag: tag, target: target, options: options)
+            let result = await updateDriver(policy).apply(tag: tag, target: target, options: options)
             running = false
             finishUpdate(result, title: LifecycleVerb.updateApply.title)
             switch result {
@@ -1600,7 +1691,7 @@ final class AppModel: ObservableObject {
     /// checked root step.
     func cancelUpdate() {
         guard updateProgress.canCancel, !running else { return }
-        guard let teamID else {
+        guard let policy = trustPolicy else {
             Self.alert(title: "k3sm cannot cancel the update from the app", text: UpdateOffer.developerBuildReason)
             return
         }
@@ -1610,7 +1701,7 @@ final class AppModel: ObservableObject {
         }
         Task {
             running = true
-            let result = await updateDriver(teamID).cancel()
+            let result = await updateDriver(policy).cancel()
             running = false
             finishUpdate(result, title: LifecycleVerb.updateCancel.title)
             log.notice("update cancel finished")
@@ -1622,7 +1713,7 @@ final class AppModel: ObservableObject {
     /// root step: while a roll runs, or after it failed.
     func abortUpdate() {
         guard updateProgress.canAbort, !running else { return }
-        guard let teamID else {
+        guard let policy = trustPolicy else {
             Self.alert(title: "k3sm cannot abort the update from the app", text: UpdateOffer.developerBuildReason)
             return
         }
@@ -1632,7 +1723,7 @@ final class AppModel: ObservableObject {
         }
         Task {
             running = true
-            let result = await updateDriver(teamID).abort()
+            let result = await updateDriver(policy).abort()
             running = false
             if case .ran(_, .succeeded, _) = result { updateProgress.abortFinished(succeeded: true) }
             finishUpdate(result, title: LifecycleVerb.updateAbort.title)
@@ -1648,15 +1739,15 @@ final class AppModel: ObservableObject {
 
     /// Whether the panel's Cancel and Abort can be clicked, and why not.
     var updateActionReason: String? {
-        if teamID == nil { return UpdateOffer.developerBuildReason }
+        if trustPolicy == nil { return UpdateOffer.developerBuildReason }
         if case .disabled(let reason) = availability { return reason }
         if running { return "Another change is running." }
         return nil
     }
 
-    private func updateDriver(_ teamID: TeamID) -> UpdateDriver {
+    private func updateDriver(_ policy: TrustPolicy) -> UpdateDriver {
         UpdateDriver(
-            policy: .developerID(teamID),
+            policy: policy,
             readStatus: { await self.readFullReport() },
             confirm: { Self.confirm($0) },
             confirmApply: { Self.confirmApply($0) },
@@ -1787,7 +1878,7 @@ final class AppModel: ObservableObject {
     /// signature checks the lifecycle script makes; a developer build has no
     /// Team ID to check against and offers no lifecycle verb.
     func refreshLifecycleSupport() async {
-        guard teamID != nil else {
+        guard trustPolicy != nil else {
             lifecycleSupport = .unavailable(note: LifecycleSupport.developerBuildNote)
             return
         }
@@ -1857,7 +1948,7 @@ final class AppModel: ObservableObject {
         var blocked: String?
         if running {
             blocked = "Another change is running."
-        } else if teamID == nil {
+        } else if trustPolicy == nil {
             blocked = "This build of k3sm is not Developer ID signed, so it cannot change this setting. Use `sudo k3sm network lan on` or `off` in Terminal."
         } else if case .disabled(let reason) = availability {
             blocked = reason
@@ -1878,7 +1969,7 @@ final class AppModel: ObservableObject {
     func performLAN(_ verb: LifecycleVerb) {
         guard verb.isLAN, !running else { return }
         let toggle = lanToggle()
-        guard toggle.enabled, toggle.clickVerb == verb, let teamID else {
+        guard toggle.enabled, toggle.clickVerb == verb, let policy = trustPolicy else {
             Self.alert(title: "k3sm cannot change this setting now", text: toggle.disabledReason ?? "Nothing was changed.")
             return
         }
@@ -1887,7 +1978,7 @@ final class AppModel: ObservableObject {
             running = true
             outcomeMessage = nil
             let driver = LANDriver(
-                policy: .developerID(teamID),
+                policy: policy,
                 readStatus: { await self.readFullReport() },
                 confirm: { Self.confirm($0) },
                 runner: runner)
@@ -1923,7 +2014,7 @@ final class AppModel: ObservableObject {
     /// prompt. Only the result note reaches the model; the token never does.
     func copyJoinCommand() {
         guard !running else { return }
-        guard let teamID else {
+        guard let policy = trustPolicy else {
             Self.alert(title: "k3sm cannot create a join token", text: "This build of k3sm is not Developer ID signed. Use `sudo k3sm token create` in Terminal.")
             return
         }
@@ -1931,7 +2022,7 @@ final class AppModel: ObservableObject {
         // step, so a second click before the Task starts finds it running.
         running = true
         outcomeMessage = nil
-        let driver = joinDriver(teamID: teamID)
+        let driver = joinDriver(policy: policy)
         Task {
             let result = await driver.perform()
             running = false
@@ -1950,19 +2041,22 @@ final class AppModel: ObservableObject {
 
     /// The one Copy Join Command driver, made on first use and kept, so its
     /// single-flight claim spans every click.
-    private var joinDriverInstance: JoinCommandDriver?
+    private var joinDriverInstance: (policy: TrustPolicy, driver: JoinCommandDriver)?
 
-    private func joinDriver(teamID: TeamID) -> JoinCommandDriver {
-        if let d = joinDriverInstance { return d }
+    /// The kept driver, made again only when the policy changed (developer
+    /// mode turned on or off), which no click in flight sees: a click
+    /// claims `running` first.
+    private func joinDriver(policy: TrustPolicy) -> JoinCommandDriver {
+        if let kept = joinDriverInstance, kept.policy == policy { return kept.driver }
         let d = JoinCommandDriver(
-            policy: .developerID(teamID),
+            policy: policy,
             readStatus: { [weak self] in await self?.readFullReport() },
             availability: { [weak self] in self?.availability ?? .disabled(reason: "k3sm is quitting.") },
             addresses: joinAddresses,
             runner: runner,
             clipboard: joinClipboard,
             log: { message in log.notice("\(message, privacy: .public)") })
-        joinDriverInstance = d
+        joinDriverInstance = (policy, d)
         return d
     }
 
@@ -1984,7 +2078,7 @@ final class AppModel: ObservableObject {
             if lifecycleSupport == nil {
                 await refreshLifecycleSupport()
             }
-            guard canRunLifecycle, let teamID else {
+            guard canRunLifecycle, let policy = trustPolicy else {
                 var why = "k3sm cannot \(verb.rawValue) k3sm from the app."
                 if case .unavailable(let note) = lifecycleSupport {
                     why = note
@@ -2001,7 +2095,7 @@ final class AppModel: ObservableObject {
             lifecycleRun += 1
             let run = lifecycleRun
             let driver = LifecycleDriver(
-                policy: .developerID(teamID),
+                policy: policy,
                 readStatus: { await self.readFullReport() },
                 confirm: { Self.confirm($0) },
                 runner: runner,
@@ -2099,6 +2193,18 @@ final class AppModel: ObservableObject {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
+    /// Asks the developer-mode update's question, with its warning.
+    private static func confirmDeveloperMode(_ c: DeveloperModeConfirmation) -> Bool {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = c.title
+        alert.informativeText = c.message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: c.proceedTitle)
+        alert.addButton(withTitle: c.cancelTitle)
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     /// Asks the apply's question: the release, every option that is not the
     /// default, and, when it offers one, the downgrade checkbox, off each
     /// time the question opens.
@@ -2136,7 +2242,8 @@ final class AppModel: ObservableObject {
     /// copy-out root step), on the install step, and moves to the finished
     /// step when it ends. A success has already refreshed onto the console.
     func firstRunInstall() {
-        guard firstRunStep == .review, firstRunInstallDisabledReason == nil, teamID != nil else { return }
+        guard firstRunStep == .review, firstRunInstallDisabledReason == nil, firstInstallPolicy != nil,
+              firstRunReview.installButton != nil else { return }
         let action: CopyOutAction
         var input: Data?
         switch choice {
@@ -2166,14 +2273,21 @@ final class AppModel: ObservableObject {
     /// `finished`, when given, hears whether the copy-out succeeded and the
     /// outcome's sentence (the guided panel's progress line).
     private func start(_ action: CopyOutAction, input: Data?, finished: ((Bool?, String) -> Void)? = nil) {
-        guard let teamID, let user, let payloadVersion else {
+        let policy = action.isFirstInstall ? firstInstallPolicy : trustPolicy
+        let payload = action.isFirstInstall ? firstRunPayload : rootPayload
+        guard let policy, let user, let payload else {
             finished?(false, UpdateBlock.roleUnknownText)
+            return
+        }
+        if let question = DeveloperModeConfirmation(action: action, payload: payload, policy: policy),
+           !Self.confirmDeveloperMode(question) {
+            finished?(nil, "")
             return
         }
         let plan: CopyOutPlan
         do {
             plan = try CopyOutPlan(
-                bundlePath: Bundle.main.bundlePath, payloadVersion: payloadVersion, teamID: teamID, user: user, action: action)
+                bundlePath: Bundle.main.bundlePath, payloadVersion: payload, policy: policy, user: user, action: action)
         } catch {
             outcomeMessage = "k3sm cannot run from \(Bundle.main.bundlePath). Move it to the Applications folder."
             finished?(false, outcomeMessage ?? "")

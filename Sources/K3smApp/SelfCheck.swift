@@ -98,13 +98,6 @@ enum SelfCheck {
         return groups.prefix(Int(filled)).contains(adminGID)
     }
 
-    /// Evaluates every check into the window's availability.
-    static func availability() -> PrivilegedAvailability {
-        let team = teamID()
-        let valid = team.map { signatureValid(team: $0) } ?? false
-        return PrivilegedAvailability.evaluate(teamID: team, signatureValid: valid, userIsAdmin: userIsAdmin(), developerMode: false)
-    }
-
     /// Whether the app will run the installed CLI as root, or ask it which
     /// verbs it has: `InstalledCLI.trust`, the check the MCP server makes too.
     /// A developer build pins no team, so it checks the paths only; it offers
