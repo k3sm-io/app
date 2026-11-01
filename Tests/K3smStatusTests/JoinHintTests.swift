@@ -27,7 +27,10 @@ struct JoinHintTests {
         let dir = ProcessInfo.processInfo.environment["K3SM_DIR"].map { URL(fileURLWithPath: $0) }
             ?? root.deletingLastPathComponent().appending(path: "k3sm")
         let file = dir.appending(path: "cmd/k3sm/install.go")
-        guard FileManager.default.fileExists(atPath: file.path) else { return [] }
+        guard FileManager.default.fileExists(atPath: file.path) else {
+            Issue.record("k3sm sibling missing at \(dir.path): set K3SM_DIR")
+            return []
+        }
         let source = try String(contentsOf: file, encoding: .utf8)
         let start = try #require(source.range(of: "flag.NewFlagSet(\"install\""))
         var names = Set<String>()
