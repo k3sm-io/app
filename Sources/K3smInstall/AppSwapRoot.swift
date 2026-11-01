@@ -48,6 +48,18 @@ public enum AppSwapRootExit {
     /// The helper was not run as root, from a root-owned copy, with exactly
     /// `--admin-swap`.
     public static let refusedInvocation: Int32 = 119
+    /// The installed bundle's tree is not root-owned, or holds an entry that
+    /// is a symlink, a special file, a hard link, setuid, setgid, group or
+    /// other writable, or flagged; or root's floor record
+    /// (`AppSwapRoot.floorRecord`) exists but is not a root-owned 0600
+    /// regular file holding one release tag. Nothing was copied or renamed.
+    public static let targetUntrusted: Int32 = 115
+    /// A swap had to be undone (the target was replaced between the check and
+    /// the rename, or the swapped bundle failed verification) and the undo
+    /// rename failed: the copy of the staged bundle is live at the target and
+    /// the bundle that came out is kept in root's work directory. The log
+    /// names both.
+    public static let undoFailed: Int32 = 116
 }
 
 /// AppSwapRoot is every fixed fact of the administrator path for the app
@@ -93,6 +105,14 @@ public enum AppSwapRoot {
     /// The root-owned 0700 directory the replaced bundle moves to, named
     /// `k3sm-<tag>.previous`. The next root step's sweep removes it.
     public static let previousRoot = CopyOutPlan.stagingRoot + "/app-previous"
+    /// Root's record of the highest release this path has installed: a
+    /// root-owned 0600 regular file holding one release tag and a newline
+    /// (`v1.2.3\n`), written only after a swap is verified. The version floor
+    /// is the higher of it and the installed bundle's tag, so a bundle placed
+    /// at the target by anyone who can write `/Applications` cannot lower it.
+    /// It sits beside the staging root, not in it, because every root step
+    /// sweeps the staging root when it starts.
+    public static let floorRecord = "/Library/k3sm.app-floor"
     /// The device whose owner is the console user.
     public static let consoleDevice = "/dev/console"
 

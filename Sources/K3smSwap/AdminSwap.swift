@@ -29,22 +29,45 @@ public struct AdminSwapLocations: Equatable, Sendable {
     public let workRoot: String
     /// The root-owned 0700 directory the replaced bundle moves to.
     public let previousRoot: String
+    /// Root's record of the highest release it has installed
+    /// (`AppSwapRoot.floorRecord`): owned by `owner`, mode 0600.
+    public let floorRecord: String
     /// The owner the work and previous directories, and every copy before it
     /// takes the target's owner, must have: root.
     public let owner: uid_t
     public let group: gid_t
 
-    public init(target: String, workRoot: String, previousRoot: String, owner: uid_t, group: gid_t) {
+    public init(target: String, workRoot: String, previousRoot: String, floorRecord: String, owner: uid_t, group: gid_t) {
         self.target = target
         self.workRoot = workRoot
         self.previousRoot = previousRoot
+        self.floorRecord = floorRecord
         self.owner = owner
         self.group = group
     }
 
     /// The shipped locations.
     public static let standard = AdminSwapLocations(target: AppSwapRoot.target, workRoot: AppSwapRoot.workRoot,
-                                                    previousRoot: AppSwapRoot.previousRoot, owner: 0, group: 0)
+                                                    previousRoot: AppSwapRoot.previousRoot,
+                                                    floorRecord: AppSwapRoot.floorRecord, owner: 0, group: 0)
+}
+
+/// TreeInspector reads one entry of a tree without following a symlink. The
+/// engine checks the target's tree through it; tests inject one that reports
+/// another owner, since a test cannot chown a file to root.
+public protocol TreeInspector: Sendable {
+    /// `fstatat(dirFD, name, AT_SYMLINK_NOFOLLOW)`, or nil when it fails.
+    func status(at dirFD: Int32, _ name: String) -> stat?
+}
+
+/// SystemTreeInspector is the real `TreeInspector`.
+public struct SystemTreeInspector: TreeInspector {
+    public init() {}
+
+    public func status(at dirFD: Int32, _ name: String) -> stat? {
+        var st = stat()
+        return fstatat(dirFD, name, &st, AT_SYMLINK_NOFOLLOW) == 0 ? st : nil
+    }
 }
 
 /// ConsoleAccount is the user logged in at the console.
@@ -121,9 +144,16 @@ public struct SystemSessionRelauncher: SessionRelauncher {
 ///    real directory with no symlink above it.
 /// 2. The target is the constant `locations.target`: its parent resolves to
 ///    itself, it is a real directory opened by descriptor, and its identity,
-///    owner, group and mode are recorded. The installed bundle verifies
-///    (without a tag requirement) and gives the floor, its own
-///    `K3smPayloadTag` or short version.
+///    owner, group and mode are recorded. Its whole tree must be root's
+///    (`locations.owner`) and pass `isSafeTree`, so a bundle put there by
+///    anyone who can write `/Applications` (the admin group can) is refused
+///    before anything is copied. The installed bundle verifies (without a
+///    tag requirement). The floor is the higher of root's own record
+///    (`locations.floorRecord`, the highest tag this path has installed) and
+///    the installed bundle's `K3smPayloadTag` or short version; with no
+///    record, the floor is the installed bundle's, which the ownership check
+///    has just made root's. A record that exists but is not a root-owned
+///    0600 regular file holding one release tag refuses the run.
 /// 3. The work directory is root's own 0700 directory on the target's volume
 ///    (`statfs` `f_fsid` equal), on a volume that can swap two names in one
 ///    step. The staged bundle is copied into a fresh directory in it (`ditto`
@@ -144,8 +174,12 @@ public struct SystemSessionRelauncher: SessionRelauncher {
 /// 6. After the rename the bundle that came out must be the one recorded
 ///    and the one that went in must be the copy; otherwise (the target was
 ///    replaced between the check and the rename) the same two names are
-///    swapped back and the run is refused. The target is verified again.
-/// 7. The old bundle moves to `previousRoot` as `k3sm-<tag>.previous`, the
+///    swapped back and the run is refused. The target is verified again, and
+///    a failure swaps back too. An undo whose rename fails exits
+///    `undoFailed`, logs which bundle is live, and keeps the bundle that came
+///    out in root's work directory.
+/// 7. Root's floor record is replaced with the new tag (a 0600 file written
+///    durably), the old bundle moves to `previousRoot` as `k3sm-<tag>.previous`, the
 ///    work directory is emptied, and the app is relaunched in the console
 ///    session (`SessionRelauncher`).
 ///
@@ -157,14 +191,17 @@ public struct AdminSwapEngine: Sendable {
     public let console: any ConsoleSession
     public let relauncher: any SessionRelauncher
     public let locations: AdminSwapLocations
+    public let inspector: any TreeInspector
 
     public init(verifier: any BundleVerifier, renamer: any Renamer, console: any ConsoleSession,
-                relauncher: any SessionRelauncher, locations: AdminSwapLocations) {
+                relauncher: any SessionRelauncher, locations: AdminSwapLocations,
+                inspector: any TreeInspector = SystemTreeInspector()) {
         self.verifier = verifier
         self.renamer = renamer
         self.console = console
         self.relauncher = relauncher
         self.locations = locations
+        self.inspector = inspector
     }
 
     /// Whether `path` is absolute with no empty, `.` or `..` component.
@@ -225,15 +262,24 @@ public struct AdminSwapEngine: Sendable {
         guard fstatat(parentFD, name, &targetStat, AT_SYMLINK_NOFOLLOW) == 0, (targetStat.st_mode & S_IFMT) == S_IFDIR,
               let original = FileIdentity.of(dirFD: parentFD, name: name)
         else { return AppSwapRootExit.targetRefused }
+        guard Self.isSafeTree(at: parentFD, name, owner: locations.owner, inspector: inspector) else {
+            SwapLog.logger.error("admin swap: the installed bundle's tree is not root's alone")
+            return AppSwapRootExit.targetUntrusted
+        }
         let targetVolume = Self.fsid(parentPath)
         guard targetVolume != nil, SwapVolume.supportsRenameSwap(path: parentPath) == true else {
             return AppSwapRootExit.volumeRefused
         }
 
-        // The floor, from the installed bundle itself.
+        // The floor: root's record, and the installed bundle, now known root's.
+        guard let recorded = readFloorRecord() else {
+            SwapLog.logger.error("admin swap: root's floor record is not a root-owned 0600 file holding one release tag")
+            return AppSwapRootExit.targetUntrusted
+        }
         guard let installed = InstalledRelease.read(bundleAt: target),
               let installedCode = try? verifier.verify(bundleAt: target, requireTag: false), installedCode.identity == original
         else { return AppSwapRootExit.verificationFailed }
+        let floor = recorded.map { max($0, installed.version) } ?? installed.version
 
         // The staged bundle, derived, never read from a request.
         let staged = account.stagedBundle
@@ -256,11 +302,12 @@ public struct AdminSwapEngine: Sendable {
         defer { close(workFD) }
         guard Self.sameVolume(Self.fsid(locations.workRoot), targetVolume) else { return AppSwapRootExit.volumeRefused }
         var made: [String] = []
+        var kept: String?
         defer {
             // `ditto` keeps a staged file's flags, so the copy can hold a
             // `uchg` file that would keep its directory from ever being
             // removed; the user flags are cleared first.
-            for dirName in made {
+            for dirName in made where dirName != kept {
                 Self.clearUserLockingFlags(locations.workRoot + "/" + dirName)
                 FileOps.removeTree(at: workFD, dirName)
             }
@@ -268,7 +315,7 @@ public struct AdminSwapEngine: Sendable {
 
         // Copies the staged bundle into a fresh directory, gives it the
         // target's owner and mode, and verifies it twice.
-        func copyIn() -> (fd: Int32, bundle: VerifiedBundle)? {
+        func copyIn() -> (fd: Int32, bundle: VerifiedBundle, dirName: String)? {
             let dirName = FileOps.randomName(length: 12)
             guard mkdirat(workFD, dirName, 0o700) == 0 else { return nil }
             made.append(dirName)
@@ -278,13 +325,13 @@ public struct AdminSwapEngine: Sendable {
                   Self.chownTree(at: fd, AppSwapRoot.bundleName, owner: locations.owner, group: locations.group),
                   Self.sameVolume(Self.fsid(copyPath), targetVolume)
             else { close(fd); return nil }
-            guard let first = verifiedNewer(copyPath, fd: fd, installed: installed),
+            guard let first = verifiedNewer(copyPath, fd: fd, floor: floor),
                   Self.chownTree(at: fd, AppSwapRoot.bundleName, owner: targetStat.st_uid, group: targetStat.st_gid),
                   fchmodat(fd, AppSwapRoot.bundleName, targetStat.st_mode & 0o7777, AT_SYMLINK_NOFOLLOW) == 0,
-                  let second = verifiedNewer(copyPath, fd: fd, installed: installed),
+                  let second = verifiedNewer(copyPath, fd: fd, floor: floor),
                   second.cdhash == first.cdhash, second.identity == first.identity
             else { close(fd); return nil }
-            return (fd, second)
+            return (fd, second, dirName)
         }
 
         guard var copy = copyIn() else { return AppSwapRootExit.verificationFailed }
@@ -315,16 +362,27 @@ public struct AdminSwapEngine: Sendable {
               FileIdentity.of(dirFD: parentFD, name: name) == copy.bundle.identity
         else {
             // The target changed between the check and the rename: undo it.
-            _ = renamer.swap(fromDir: copy.fd, from: AppSwapRoot.bundleName, toDir: parentFD, to: name)
-            FileOps.fullSync(parentFD)
+            guard undo(copy: copy, parentFD: parentFD, name: name) else {
+                kept = copy.dirName
+                return AppSwapRootExit.undoFailed
+            }
             return AppSwapRootExit.targetRefused
         }
         guard let post = try? verifier.verify(bundleAt: target, requireTag: true), post.identity == copy.bundle.identity,
               post.cdhash == copy.bundle.cdhash
         else {
-            _ = renamer.swap(fromDir: copy.fd, from: AppSwapRoot.bundleName, toDir: parentFD, to: name)
-            FileOps.fullSync(parentFD)
+            guard undo(copy: copy, parentFD: parentFD, name: name) else {
+                kept = copy.dirName
+                return AppSwapRootExit.undoFailed
+            }
             return AppSwapRootExit.verificationFailed
+        }
+
+        // Root records the release it installed; the floor never comes from
+        // the target alone again. A failed write is logged and the swap
+        // stands: the next run's floor is the new bundle, which is root's.
+        if let tag = copy.bundle.tag, !writeFloorRecord(tag) {
+            SwapLog.logger.error("admin swap: root's floor record could not be written")
         }
 
         // The old bundle leaves Applications for root's previous directory.
@@ -343,14 +401,69 @@ public struct AdminSwapEngine: Sendable {
         return 0
     }
 
+    /// Swaps the target and root's copy back after a swap that must not
+    /// stand, and returns whether the undo rename succeeded. On a failure it
+    /// logs which bundle is live: root's copy of the staged bundle at the
+    /// target, the bundle that came out in root's work directory.
+    private func undo(copy: (fd: Int32, bundle: VerifiedBundle, dirName: String), parentFD: Int32, name: String) -> Bool {
+        let result = renamer.swap(fromDir: copy.fd, from: AppSwapRoot.bundleName, toDir: parentFD, to: name)
+        FileOps.fullSync(parentFD)
+        guard result == 0 else {
+            let tag = copy.bundle.tag ?? "untagged"
+            let kept = locations.workRoot + "/" + copy.dirName + "/" + AppSwapRoot.bundleName
+            SwapLog.logger.error("""
+                admin swap: the undo failed with errno \(result, privacy: .public): root's copy of the staged bundle \
+                (\(tag, privacy: .public)) is live at \(locations.target, privacy: .public), and the bundle that came out \
+                is kept at \(kept, privacy: .public)
+                """)
+            return false
+        }
+        return true
+    }
+
     /// Verifies the copy at `path` and returns it when it is the bundle in
-    /// `fd`, carries a tag, and that tag is strictly above `installed`.
-    private func verifiedNewer(_ path: String, fd: Int32, installed: InstalledRelease) -> VerifiedBundle? {
+    /// `fd`, carries a tag, and that tag is strictly above `floor`.
+    private func verifiedNewer(_ path: String, fd: Int32, floor: SemanticVersion) -> VerifiedBundle? {
         guard let verified = try? verifier.verify(bundleAt: path, requireTag: true),
               verified.identity == FileIdentity.of(dirFD: fd, name: AppSwapRoot.bundleName),
-              let version = verified.version, version > installed.version
+              let version = verified.version, version > floor
         else { return nil }
         return verified
+    }
+
+    /// The largest floor record read.
+    static let floorRecordLimit = 128
+
+    /// Root's floor record: `.some(nil)` when there is none, `.some(version)`
+    /// for a record that is a regular file owned by `locations.owner`, mode
+    /// 0600, one link, in a directory with no symlink above it that is
+    /// `locations.owner`'s and writable by no group or other user, holding
+    /// one release tag and a newline. Anything else is nil: refused.
+    private func readFloorRecord() -> SemanticVersion?? {
+        let path = locations.floorRecord
+        let parent = (path as NSString).deletingLastPathComponent
+        var dir = stat()
+        guard Self.resolvesToItself(parent), lstat(parent, &dir) == 0, (dir.st_mode & S_IFMT) == S_IFDIR,
+              dir.st_uid == locations.owner, dir.st_mode & 0o022 == 0
+        else { return nil }
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return errno == ENOENT ? .some(nil) : nil }
+        guard st.st_nlink == 1,
+              let data = FileOps.read(path, check: .init(owner: locations.owner, mode: 0o600, limit: Self.floorRecordLimit)),
+              let text = String(data: data, encoding: .utf8), text.hasSuffix("\n"),
+              let version = AppVersion.releaseTagVersion(String(text.dropLast()))
+        else { return nil }
+        return .some(version)
+    }
+
+    /// Replaces root's floor record with `tag` and a newline, 0600, durably.
+    private func writeFloorRecord(_ tag: String) -> Bool {
+        let path = locations.floorRecord
+        let parent = (path as NSString).deletingLastPathComponent
+        guard SwapTag.isReleaseTag(tag), Self.resolvesToItself(parent), let fd = FileOps.openDirectory(parent) else { return false }
+        defer { close(fd) }
+        return FileOps.replaceDurably(dirFD: fd, name: (path as NSString).lastPathComponent, data: Data((tag + "\n").utf8),
+                                      mode: 0o600)
     }
 
     /// Opens `path`, creating it 0700 when missing, and returns its
@@ -382,23 +495,24 @@ public struct AdminSwapEngine: Sendable {
     /// Whether `name` in `dirFD`, and everything under it, is a regular file
     /// or a directory, not setuid or setgid, not group or other writable,
     /// carrying none of `userLockingFlags` or `systemLockingFlags`, and, for
-    /// a regular file, with one link only. Nothing is followed.
+    /// a regular file, with one link only; and, when `owner` is given, owned
+    /// by it. Nothing is followed; `inspector` reads each entry.
     ///
     /// The link count refuses every hard link, inside the tree or to a file
     /// outside it: root's copy is made by `ditto` into a fresh directory, so
     /// a count above one there is a link `ditto` kept between two staged
     /// files, and a release bundle has none.
-    static func isSafeTree(at dirFD: Int32, _ name: String) -> Bool {
-        var st = stat()
-        guard fstatat(dirFD, name, &st, AT_SYMLINK_NOFOLLOW) == 0, st.st_mode & 0o6022 == 0,
-              st.st_flags & (userLockingFlags | systemLockingFlags) == 0
+    static func isSafeTree(at dirFD: Int32, _ name: String, owner: uid_t? = nil,
+                           inspector: any TreeInspector = SystemTreeInspector()) -> Bool {
+        guard let st = inspector.status(at: dirFD, name), st.st_mode & 0o6022 == 0,
+              st.st_flags & (userLockingFlags | systemLockingFlags) == 0, owner.map({ st.st_uid == $0 }) ?? true
         else { return false }
         switch st.st_mode & S_IFMT {
         case S_IFREG: return st.st_nlink == 1
         case S_IFDIR:
             guard let fd = FileOps.openDirectory(at: dirFD, name) else { return false }
             defer { close(fd) }
-            return FileOps.entries(fd).allSatisfy { isSafeTree(at: fd, $0) }
+            return FileOps.entries(fd).allSatisfy { isSafeTree(at: fd, $0, owner: owner, inspector: inspector) }
         default: return false
         }
     }

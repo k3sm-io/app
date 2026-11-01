@@ -217,6 +217,72 @@ import K3smStatus
         }
     }
 
+    enum Untrusted: String, CaseIterable, Sendable, CustomTestStringConvertible {
+        case userOwnedTree
+        case groupWritableEntry
+        case olderTargetBelowRootFloor
+        case floorRecordNotPrivate
+
+        var testDescription: String { rawValue }
+    }
+
+    @Test("a target tree that is not root's, or a target below root's own floor, is refused before anything is copied",
+          arguments: Untrusted.allCases)
+    func appSwapRefusesNonRootOwnedTarget(_ untrusted: Untrusted) throws {
+        let s = AdminScratch()
+        defer { s.cleanUp() }
+        s.install(tag: "v1.0.0")
+        s.stage(tag: "v1.1.0")
+        let before = (identity(s.target), identity(s.staged))
+        switch untrusted {
+        case .userOwnedTree:
+            // The target's tree reads as another account's: what a bundle
+            // put there by whoever can write Applications looks like to root.
+            let inspector = OwnerOverride(prefix: s.target, owner: getuid() + 1)
+            #expect(s.engine(inspector: inspector).run() == AppSwapRootExit.targetUntrusted)
+        case .groupWritableEntry:
+            try #require(chmod(s.target + "/Contents/Resources", 0o775) == 0)
+            #expect(s.engine().run() == AppSwapRootExit.targetUntrusted)
+        case .olderTargetBelowRootFloor:
+            // Root installed v1.2.0; an older genuine release now sits at the
+            // target, and the staged bundle is above it but below root's floor.
+            s.writeFloor("v1.2.0\n")
+            #expect(s.engine().run() == AppSwapRootExit.verificationFailed)
+        case .floorRecordNotPrivate:
+            s.writeFloor("v0.1.0\n", mode: 0o644)
+            #expect(s.engine().run() == AppSwapRootExit.targetUntrusted)
+        }
+        #expect((identity(s.target), identity(s.staged)) == before)
+        #expect(s.tag(at: s.target) == "v1.0.0" && s.relaunched.isEmpty)
+        s.expectNothingLeft()
+    }
+
+    @Test("an undo whose rename fails is reported as such, with the bundle that came out kept")
+    func appSwapUndoFailureIsReported() throws {
+        let s = AdminScratch()
+        defer { s.cleanUp() }
+        s.install(tag: "v1.0.0")
+        s.stage(tag: "v1.1.0")
+        let moved = s.root + "/Moved"
+        try FileManager.default.createDirectory(atPath: moved, withIntermediateDirectories: true)
+        let decoy = s.root + "/Decoy/k3sm.app"
+        s.makeBundle(at: decoy, tag: "v0.5.0")
+        let decoyID = identity(decoy)
+        // The first swap races a replacement of the target; the second, the
+        // undo, fails.
+        let renamer = ReplacingRenamer(target: s.target, movedTo: moved + "/k3sm.app", replacement: decoy, failUndo: EIO)
+        #expect(s.engine(renamer: renamer).run() == AppSwapRootExit.undoFailed)
+        #expect(renamer.swaps == 2)
+        // Root's copy of the staged bundle is live at the target; the bundle
+        // that came out is kept in root's work directory, not removed.
+        #expect(s.tag(at: s.target) == "v1.1.0" && identity(s.target) != identity(s.staged))
+        let work = try FileManager.default.contentsOfDirectory(atPath: s.workRoot)
+        #expect(work.count == 1)
+        #expect(work.map { identity(s.workRoot + "/" + $0 + "/k3sm.app") } == [decoyID])
+        #expect(s.relaunched.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: s.floorRecord) == false, "a failed undo records no floor")
+    }
+
     @Test("a newer staged bundle is copied, verified, given the target's owner and mode, swapped, and relaunched")
     func swapsAndRelaunches() throws {
         let s = AdminScratch()
@@ -233,6 +299,9 @@ import K3smStatus
         #expect(identity(s.previousRoot + "/k3sm-v1.0.0.previous") == original)
         #expect(s.tag(at: s.staged) == "v1.1.0", "the staged bundle is left for the app to remove")
         #expect(s.relaunched == [s.account])
+        // Root records the release it installed, 0600.
+        #expect(FileManager.default.contents(atPath: s.floorRecord) == Data("v1.1.0\n".utf8))
+        #expect(lstat(s.floorRecord, &st) == 0 && st.st_mode & 0o7777 == 0o600 && st.st_uid == getuid())
         s.expectNothingLeft()
     }
 
@@ -381,21 +450,25 @@ private final class ReplacingRenamer: Renamer, @unchecked Sendable {
     let target: String
     let movedTo: String
     let replacement: String
+    /// The errno the second swap, the engine's undo, fails with; nil to run it.
+    let failUndo: Int32?
     private let count = Mutex<Int>(0)
 
-    init(target: String, movedTo: String, replacement: String) {
+    init(target: String, movedTo: String, replacement: String, failUndo: Int32? = nil) {
         self.target = target
         self.movedTo = movedTo
         self.replacement = replacement
+        self.failUndo = failUndo
     }
 
     var swaps: Int { count.withLock { $0 } }
 
     func swap(fromDir: Int32, from: String, toDir: Int32, to: String) -> Int32 {
-        let first = count.withLock { n -> Bool in n += 1; return n == 1 }
-        if first {
+        let n = count.withLock { n -> Int in n += 1; return n }
+        if n == 1 {
             precondition(rename(target, movedTo) == 0 && rename(replacement, target) == 0)
         }
+        if n == 2, let failUndo { return failUndo }
         return SystemRenamer().swap(fromDir: fromDir, from: from, toDir: toDir, to: to)
     }
 
@@ -419,6 +492,22 @@ private final class FailingRenamer: Renamer, @unchecked Sendable {
 
     func move(fromDir: Int32, from: String, toDir: Int32, to: String) -> Int32 {
         SystemRenamer().move(fromDir: fromDir, from: from, toDir: toDir, to: to)
+    }
+}
+
+/// OwnerOverride reports `owner` for every entry at or under `prefix`: a
+/// tree another account owns, which a test cannot make by chown.
+private struct OwnerOverride: TreeInspector {
+    let prefix: String
+    let owner: uid_t
+
+    func status(at dirFD: Int32, _ name: String) -> stat? {
+        guard var st = SystemTreeInspector().status(at: dirFD, name) else { return nil }
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        let got = buffer.withUnsafeMutableBufferPointer { fcntl(dirFD, F_GETPATH, $0.baseAddress!) }
+        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) + "/" + name
+        if got == 0, path == prefix || path.hasPrefix(prefix + "/") { st.st_uid = owner }
+        return st
     }
 }
 
@@ -450,6 +539,7 @@ private final class AdminScratch: @unchecked Sendable {
     let home: String
     let workRoot: String
     let previousRoot: String
+    var floorRecord: String { root + "/app-floor" }
     let relauncher = RecordingRelauncher()
     var applications: String { root + "/Applications" }
     var target: String { applications + "/k3sm.app" }
@@ -473,13 +563,21 @@ private final class AdminScratch: @unchecked Sendable {
     }
 
     var locations: AdminSwapLocations {
-        AdminSwapLocations(target: target, workRoot: workRoot, previousRoot: previousRoot, owner: getuid(), group: getgid())
+        AdminSwapLocations(target: target, workRoot: workRoot, previousRoot: previousRoot, floorRecord: floorRecord,
+                           owner: getuid(), group: getgid())
     }
 
-    func engine(renamer: any Renamer = SystemRenamer(), console: (any ConsoleSession)? = nil) -> AdminSwapEngine {
+    func engine(renamer: any Renamer = SystemRenamer(), console: (any ConsoleSession)? = nil,
+                inspector: any TreeInspector = SystemTreeInspector()) -> AdminSwapEngine {
         AdminSwapEngine(verifier: StaticCodeVerifier(requirement: fixtureRequirement, runningTeam: AppSwapRootTests.team),
                         renamer: renamer, console: console ?? FixedConsole(owner: account), relauncher: relauncher,
-                        locations: locations)
+                        locations: locations, inspector: inspector)
+    }
+
+    /// Writes root's floor record as this account, which stands in for root.
+    func writeFloor(_ text: String, mode: mode_t = 0o600) {
+        precondition(FileManager.default.createFile(atPath: floorRecord, contents: Data(text.utf8)))
+        precondition(chmod(floorRecord, mode) == 0)
     }
 
     func makeBundle(at path: String, tag: String, executable: String = AdminFixtures.app) {
