@@ -69,10 +69,12 @@ struct AppSwapRootScriptRunTests {
         #expect(AppSwapRootScriptBuilder.render(teamID: Self.team)
             == AppSwapRootScriptBuilder.render(teamID: Self.team, root: .system, owner: 0))
         #expect(ScriptRoot.system.prefix.isEmpty)
-        for bad in ["", "relative", "/trailing/", "/two words", "/it's", "/$(id)", "/a\nb", "/semi;colon"] {
+        for bad in ["", "/", "relative", "/trailing/", "/two words", "/it's", "/$(id)", "/a\nb", "/semi;colon",
+                    "/.", "/..", "/a/./b", "/a/../b", "/a/..", "/a//b"] {
             #expect(ScriptRoot(prefix: bad) == nil, "\(bad)")
         }
         #expect(ScriptRoot(prefix: "/private/var/folders/ab/x_y-1.z/T") != nil)
+        #expect(ScriptRoot(prefix: "/a/.hidden/..dots/b...") != nil)
     }
 
     @Test("an untouched installed bundle passes every check and its copy's helper runs as root with --admin-swap")

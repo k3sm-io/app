@@ -113,6 +113,7 @@ public struct RootScript: Hashable, Sendable {
 /// this account, with stub tools under the prefix. It is internal, so no
 /// caller outside the module (the app, the helper) can render a re-rooted
 /// script, and the public renderers always use `system`.
+// Internal on purpose: a public init would let a caller re-root a root script.
 struct ScriptRoot: Sendable, Equatable {
     /// The prefix put before every absolute path.
     let prefix: String
@@ -123,11 +124,14 @@ struct ScriptRoot: Sendable, Equatable {
     private init(unchecked prefix: String) { self.prefix = prefix }
 
     /// A scratch root, or nil unless `prefix` is an absolute path of letters,
-    /// digits, `/`, `.`, `_` and `-` only, with no trailing slash, so it
-    /// needs no quoting where the scripts write a tool's path bare.
+    /// digits, `/`, `.`, `_` and `-` only, with no trailing slash, no empty
+    /// segment and no `.` or `..` segment, so it needs no quoting where the
+    /// scripts write a tool's path bare and names one directory as written.
     init?(prefix: String) {
         let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_/.-")
         guard prefix.hasPrefix("/"), !prefix.hasSuffix("/"), prefix.allSatisfy(allowed.contains) else { return nil }
+        let segments = prefix.dropFirst().split(separator: "/", omittingEmptySubsequences: false)
+        guard !segments.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else { return nil }
         self.prefix = prefix
     }
 

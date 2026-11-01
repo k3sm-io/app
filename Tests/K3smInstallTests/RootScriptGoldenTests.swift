@@ -95,6 +95,12 @@ struct RootScriptGoldenTests {
             let dev = try! CopyOutPlan(bundlePath: bundle, payloadVersion: version, policy: .developer, user: user, action: action)
             out.append(("developer-copy-out-\(name).sh", RootScriptBuilder.render(dev).text))
         }
+        // The version set's roll, which shares the staged copy: a release
+        // tag and a release candidate.
+        for (name, tag) in [("bundled-roll.sh", release), ("bundled-roll-rc.sh", ReleaseTag("v0.3.0-rc.1")!)] {
+            let roll = try! BundledRollPlan(bundlePath: bundle, release: tag, teamID: team)
+            out.append((name, BundledRollScriptBuilder.render(plan: roll).text))
+        }
         return out
     }
 
