@@ -48,7 +48,8 @@
 #   6. k3sm.app: bundle id io.k3sm.app (io.k3sm.app.rehearsal for a rehearsal),
 #      CFBundleShortVersionString and CFBundleVersion equal to the version's
 #      core (1.2.3 for 1.2.3-rc.1), no K3smTeamID key in Info.plist, and
-#      codesign --verify --strict --deep passes
+#      codesign --verify --strict --deep passes, and no file in the bundle
+#      has more than one link: the administrator swap refuses a hard link
 #   7. a release app is signed by the image's Developer ID team, verifies
 #      against its requirement with --deep, passes stapler validate, and
 #      holds exactly that Team ID as its compiled pin; a rehearsal app is
@@ -154,7 +155,7 @@ team_stamps() {
 # app_problems <app> <tag> <kind> <team>: the mounted app, as step 6 and 7 of
 # the header. <team> is the image's Developer ID team (release) or empty.
 app_problems() {
-	local app="$1" tag="$2" kind="$3" team="$4" rc=0 plist want v key bundle info sig exe
+	local app="$1" tag="$2" kind="$3" team="$4" rc=0 plist want v key bundle info sig exe linked
 	plist="$app/Contents/Info.plist"
 	exe="$app/Contents/MacOS/k3sm-app"
 	if [ -L "$app" ] || [ ! -d "$app" ] || [ ! -f "$plist" ]; then echo "    no app bundle at k3sm.app"; return 1; fi
@@ -172,6 +173,8 @@ app_problems() {
 	fi
 	codesign --verify --strict --deep "$app" >/dev/null 2>&1 ||
 		{ echo "    codesign --verify --strict --deep rejects k3sm.app"; rc=1; }
+	linked="$(find "$app" -type f -links +1 -print 2>/dev/null | head -n 1)"
+	[ -z "$linked" ] || { echo "    k3sm.app holds a hard link (${linked#"$app"/}); the administrator swap refuses one"; rc=1; }
 	info="$(codesign -dv "$app" 2>&1 || true)"
 	sig="$(signature_kind <<<"$info")"
 	[ -f "$exe" ] || { echo "    k3sm.app has no Contents/MacOS/k3sm-app"; return 1; }
@@ -522,6 +525,14 @@ EOF
 		verify_image "$T/notdmg/$rname" "$(sums_for "$T/notdmg/$rname")" ""
 	expect "--team-id on a rehearsal image fails" 1 "is a rehearsal image with none" \
 		verify_image "$good" "$(sums_for "$good")" ABCDE12345
+
+	echo "the bundle's files (no image)"
+	expect "a bundle with no hard link passes the app checks" 0 "" app_problems "$app" "$tag" rehearsal ""
+	fixture_app "$T/hardlink" "$REHEARSAL_BUNDLE_ID" "$ver"
+	ln "$T/hardlink/k3sm.app/Contents/Resources/notes.txt" "$T/hardlink/k3sm.app/Contents/Resources/notes-link.txt"
+	codesign --force --sign - --timestamp=none "$T/hardlink/k3sm.app" >/dev/null 2>&1
+	expect "a signed bundle holding a hard link fails" 1 "holds a hard link (Contents/Resources/notes" \
+		app_problems "$T/hardlink/k3sm.app" "$tag" rehearsal ""
 
 	echo "the Developer ID branch (fake codesign, spctl and stapler; real hdiutil)"
 	local F="$T/fakes" relimg="$T/release/$rel" relsums

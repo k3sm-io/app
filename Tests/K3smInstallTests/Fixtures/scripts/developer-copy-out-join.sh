@@ -18,7 +18,7 @@ exec >> "$log" 2>&1
 stage=
 finish() {
 	status=$?
-	if [ -n "$stage" ]; then /bin/rm -rf "$stage"; fi
+	if [ -n "$stage" ]; then /usr/bin/chflags -R nouchg,nouappnd "$stage" 2>/dev/null || true; /bin/rm -rf "$stage"; fi
 	echo "copy-out: exit $status"
 }
 trap finish EXIT
