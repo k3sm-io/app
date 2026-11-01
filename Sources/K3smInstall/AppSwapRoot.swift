@@ -152,21 +152,33 @@ public enum AppSwapRootScriptBuilder {
     /// The administrator prompt. Fixed text.
     public static let prompt = "k3sm wants to replace k3sm.app in Applications with the update it downloaded and verified."
 
-    /// The script for the team this build pins.
+    /// The script for the team this build pins: the shipped paths, root as
+    /// the owner.
     public static func render(teamID: TeamID) -> RootScript {
+        render(teamID: teamID, root: .system, owner: 0)
+    }
+
+    /// The script with every absolute path under `root` and `owner` in place
+    /// of root. Internal: only the tests render it over a scratch root, to
+    /// run it as this account with stub tools; `render(teamID:)` is the one
+    /// the app can call.
+    static func render(teamID: TeamID, root: ScriptRoot, owner: UInt32) -> RootScript {
         let q = ShellQuote.quote
+        let r = root
         let helper = RootScriptBuilder.stagedBundle + "/" + q(AppSwapRoot.helperPath)
-        let text = RootScriptBuilder.stagedCopy(bundlePath: AppSwapRoot.target, stagingTemplate: AppSwapRoot.stagingTemplate,
+        let check = targetCheck(applications: r(AppSwapRoot.applicationsDirectory), target: r(AppSwapRoot.target),
+                                floorRecord: r(AppSwapRoot.floorRecord), owner: owner, root: r)
+        let text = RootScriptBuilder.stagedCopy(bundlePath: r(AppSwapRoot.target), stagingTemplate: r(AppSwapRoot.stagingTemplate),
                                                 designatedRequirement: AppUpdateTrust.appRequirement(teamID: teamID),
-                                                beforeCopy: targetCheck)
-            + floorCompare + #"""
+                                                beforeCopy: check, root: r)
+            + floorCompare(root: r) + #"""
             helper=\#(helper)
             if [ -L "$helper" ] || [ ! -f "$helper" ]; then
             	echo 'app-swap: refused: the installed helper is missing or not a regular file'
             	exit \#(AppSwapRootExit.helperRejected)
             fi
-            /bin/chmod 0500 "$helper"
-            if ! /usr/bin/codesign --verify --strict \#(q("-R=" + AppUpdateTrust.helperRequirement(teamID: teamID))) "$helper"; then
+            \#(r("/bin/chmod")) 0500 "$helper"
+            if ! \#(r("/usr/bin/codesign")) --verify --strict \#(q("-R=" + AppUpdateTrust.helperRequirement(teamID: teamID))) "$helper"; then
             	echo 'app-swap: refused: the installed helper is not signed by the k3sm Developer ID'
             	exit \#(AppSwapRootExit.helperRejected)
             fi
@@ -201,20 +213,22 @@ public enum AppSwapRootScriptBuilder {
     /// The helper checks the target again, by descriptor, before and after
     /// the swap. `applications`, `target`, `floorRecord` and `owner` are the
     /// shipped constants and root; tests render it over scratch paths.
-    static func targetCheck(applications: String, target: String, floorRecord: String, owner: UInt32) -> String {
+    static func targetCheck(applications: String, target: String, floorRecord: String, owner: UInt32,
+                            root: ScriptRoot = .system) -> String {
         let q = ShellQuote.quote
-        return tagRank + #"""
+        let r = root
+        return tagRank(root: r) + #"""
             apps=\#(q(applications))
             target=\#(q(target))
             if [ -L "$apps" ] || [ ! -d "$apps" ] || [ -L "$target" ] || [ ! -d "$target" ]; then
             	echo 'app-swap: refused: Applications or k3sm.app in it is a symlink or not a folder'
             	exit \#(AppSwapRootExit.targetRefused)
             fi
-            if [ "$(/usr/bin/stat -f %u "$target")" != \#(owner) ]; then
+            if [ "$(\#(r("/usr/bin/stat")) -f %u "$target")" != \#(owner) ]; then
             	echo 'app-swap: refused: k3sm.app in Applications is not owned by root'
             	exit \#(AppSwapRootExit.targetUntrusted)
             fi
-            if ! bad=$(/usr/bin/find "$target" \( ! -user \#(owner) -o -perm +022 -o -acl -o ! \( -type f -o -type d \) -o \( -type f -links +1 \) \) -print -quit); then
+            if ! bad=$(\#(r("/usr/bin/find")) "$target" \( ! -user \#(owner) -o -perm +022 -o -acl -o ! \( -type f -o -type d \) -o \( -type f -links +1 \) \) -print -quit); then
             	echo 'app-swap: refused: k3sm.app in Applications could not be read'
             	exit \#(AppSwapRootExit.targetUntrusted)
             fi
@@ -225,12 +239,12 @@ public enum AppSwapRootScriptBuilder {
             record=\#(q(floorRecord))
             floor=
             if [ -e "$record" ] || [ -L "$record" ]; then
-            	if [ -L "$record" ] || [ ! -f "$record" ] || [ "$(/usr/bin/stat -f '%u %Lp %l' "$record")" != '\#(owner) 600 1' ] || [ "$(/usr/bin/stat -f %z "$record")" -gt \#(floorRecordLimit) ]; then
+            	if [ -L "$record" ] || [ ! -f "$record" ] || [ "$(\#(r("/usr/bin/stat")) -f '%u %Lp %l' "$record")" != '\#(owner) 600 1' ] || [ "$(\#(r("/usr/bin/stat")) -f %z "$record")" -gt \#(floorRecordLimit) ]; then
             		echo 'app-swap: refused: the floor record is not a root-owned 0600 file'
             		exit \#(AppSwapRootExit.targetUntrusted)
             	fi
-            	tag=$(/bin/cat "$record")
-            	if [ "$(/usr/bin/stat -f %z "$record")" != "$((${#tag} + 1))" ] || ! tagrank > /dev/null; then
+            	tag=$(\#(r("/bin/cat")) "$record")
+            	if [ "$(\#(r("/usr/bin/stat")) -f %z "$record")" != "$((${#tag} + 1))" ] || ! tagrank > /dev/null; then
             		echo 'app-swap: refused: the floor record does not hold one release tag'
             		exit \#(AppSwapRootExit.targetUntrusted)
             	fi
@@ -253,10 +267,15 @@ public enum AppSwapRootScriptBuilder {
     /// N one to four digits, no leading zero). The engine's floor rule is
     /// `SemanticVersion`'s order; `appSwapScriptTagRankAgreesWithTheEngine`
     /// pins that the two accept the same tags and order them alike.
-    static let tagRank = #"""
+    static let tagRank = tagRank(root: .system)
+
+    /// `tagRank` with its tool under `root`.
+    static func tagRank(root: ScriptRoot) -> String {
+        let r = root
+        return #"""
         tagrank() {
         	case $tag in ''|*[!0-9a-z.-]*) return 1 ;; esac
-        	printf '%s\n' "$tag" | /usr/bin/grep -Eqx 'v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-rc\.(0|[1-9][0-9]{0,3}))?' || return 1
+        	printf '%s\n' "$tag" | \#(r("/usr/bin/grep")) -Eqx 'v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-rc\.(0|[1-9][0-9]{0,3}))?' || return 1
         	core=${tag#v}
         	rc=99999
         	case $core in *-rc.*) rc=${core#*-rc.}; core=${core%%-*} ;; esac
@@ -266,26 +285,33 @@ public enum AppSwapRootScriptBuilder {
         }
 
         """#
+    }
 
     /// After the installed bundle's copy verifies, and before its helper
     /// runs: with a floor record, the copy's `K3smPayloadTag` must be a
     /// release tag at or above it (`targetUntrusted`), so an older release
     /// put back at the target never has its helper run as root. The engine
     /// then requires the staged bundle strictly above the higher of the two.
-    static let floorCompare = #"""
+    static let floorCompare = floorCompare(root: .system)
+
+    /// `floorCompare` with its tools under `root`.
+    static func floorCompare(root: ScriptRoot) -> String {
+        let r = root
+        return #"""
         if [ -n "$floor" ]; then
         	tag=$floor
         	floorrank=$(tagrank)
-        	tag=$(/usr/bin/plutil -extract K3smPayloadTag raw -o - "$stage"/\#(ShellQuote.quote(CopyOutPlan.stagedBundleName))/'Contents/Info.plist' 2>/dev/null) || tag=
+        	tag=$(\#(r("/usr/bin/plutil")) -extract K3smPayloadTag raw -o - "$stage"/\#(ShellQuote.quote(CopyOutPlan.stagedBundleName))/'Contents/Info.plist' 2>/dev/null) || tag=
         	if ! installedrank=$(tagrank); then
         		echo 'app-swap: refused: the installed k3sm.app carries no release tag'
         		exit \#(AppSwapRootExit.targetUntrusted)
         	fi
-        	if [ "$(/usr/bin/awk -v a="$installedrank" -v b="$floorrank" 'BEGIN { print ("" a < "" b) }')" != 0 ]; then
+        	if [ "$(\#(r("/usr/bin/awk")) -v a="$installedrank" -v b="$floorrank" 'BEGIN { print ("" a < "" b) }')" != 0 ]; then
         		echo 'app-swap: refused: the installed k3sm.app is older than the release root installed last'
         		exit \#(AppSwapRootExit.targetUntrusted)
         	fi
         fi
 
         """#
+    }
 }
