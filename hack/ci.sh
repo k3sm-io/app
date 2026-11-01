@@ -264,6 +264,24 @@ big="$tmp/AppIcon.iconset/icon_512x512@2x.png"
 	&& [ "$(sips -g pixelHeight "$big" | awk '/pixelHeight/ {print $2}')" = 1024 ] \
 	|| { echo "FAIL: the 512x512@2x icon is not 1024x1024"; exit 1; }
 echo "    ok (app icon)"
+# The accent colour Info.plist names (NSAccentColorName) is a colour the
+# bundled Assets.car holds, so the bundle never names a set it lacks.
+car="$tmp/out/k3sm.app/Contents/Resources/Assets.car"
+[ -f "$car" ] || { echo "FAIL: the bundle has no Contents/Resources/Assets.car"; exit 1; }
+accent="$(plutil -extract NSAccentColorName raw "$tmp/out/k3sm.app/Contents/Info.plist")" \
+	|| { echo "FAIL: Info.plist has no NSAccentColorName"; exit 1; }
+/usr/bin/assetutil --info "$car" > "$tmp/assets.json" \
+	|| { echo "FAIL: assetutil cannot read the bundle's Assets.car"; exit 1; }
+found=
+i=1
+while name="$(plutil -extract "$i.Name" raw "$tmp/assets.json" 2>/dev/null)"; do
+	if [ "$name" = "$accent" ] && [ "$(plutil -extract "$i.AssetType" raw "$tmp/assets.json" 2>/dev/null)" = Color ]; then
+		found=1
+	fi
+	i=$((i + 1))
+done
+[ -n "$found" ] || { echo "FAIL: Info.plist NSAccentColorName '$accent' names no colour in the bundle's Assets.car"; exit 1; }
+echo "    ok (accent colour)"
 # The read-only MCP server: in the bundle, signed and sealed with it, and
 # answering on stdio. Only initialize and tools/list are sent, so nothing
 # runs the CLI and no call is logged.
