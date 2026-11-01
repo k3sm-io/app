@@ -30,6 +30,13 @@ struct BuildVersionTests {
     /// Runs a program with only the environment given, returning its stdout.
     @discardableResult
     static func run(_ program: String, _ args: [String], env: [String: String] = [:]) throws -> String {
+        try runCapturing(program, args, env: env).stdout
+    }
+
+    /// Like `run`, also returning stderr.
+    static func runCapturing(
+        _ program: String, _ args: [String], env: [String: String] = [:]
+    ) throws -> (stdout: String, stderr: String) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: program)
         p.arguments = args
@@ -43,12 +50,22 @@ struct BuildVersionTests {
         ].merging(env) { $1 }
         let out = Pipe()
         p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
+        let err = Pipe()
+        p.standardError = err
         try p.run()
+        // Drain stderr on its own thread so neither pipe can fill and stall the child.
+        nonisolated(unsafe) var errData = Data()
+        let done = DispatchSemaphore(value: 0)
+        Thread {
+            errData = err.fileHandleForReading.readDataToEndOfFile()
+            done.signal()
+        }.start()
         let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
+        done.wait()
         #expect(p.terminationStatus == 0, "\(program) \(args)")
-        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let trim = { (d: Data) in String(decoding: d, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) }
+        return (trim(data), trim(errData))
     }
 
     /// A repository with one commit at a fixed time; returns its 12-hex prefix.
@@ -90,5 +107,41 @@ struct BuildVersionTests {
         #expect(shown.text == sibling)
         #expect(shown.isDevelopment)
         #expect(AppVersion.payloadRelease(info: ["CFBundleShortVersionString": "0.0.0", AppVersion.buildVersionKey: sibling]) == nil)
+    }
+
+    @Test func developerBuildVersionNamesItsCoreSource() throws {
+        let script = Self.root.appending(path: "hack/build-version.sh").path
+        // (app tags, k3sm tags, the checkout the core must be named from)
+        let cases: [(app: [String], k3sm: [String], names: String)] = [
+            ([], ["v0.2.3"], "k3sm"),
+            (["v0.3.0"], ["v0.2.3"], "app"),
+            (["v0.2.3"], ["v0.2.3"], "k3sm"),
+        ]
+        for c in cases {
+            let base = FileManager.default.temporaryDirectory
+                .appending(path: "k3sm-build-version-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: base) }
+            let app = base.appending(path: "app")
+            let k3sm = base.appending(path: "k3sm")
+            _ = try Self.repo(app, tags: c.app)
+            _ = try Self.repo(k3sm, tags: c.k3sm)
+            let r = try Self.runCapturing(
+                "/bin/bash", [script, app.path], env: ["K3SM_DIR": k3sm.path])
+            let tag = c.names == "app" ? "v0.3.0" : "v0.2.3"
+            let want = c.names == "app"
+                ? "build-version: core from release tag \(tag) in this repository \(try canonical(app))"
+                : "build-version: core from release tag \(tag) in the k3sm checkout "
+            #expect(r.stderr.hasPrefix(want), "\(c.names): \(r.stderr)")
+            if c.names == "k3sm" {
+                #expect(r.stderr.hasSuffix(try canonical(k3sm)), "\(r.stderr)")
+            }
+        }
+    }
+
+    /// The physical path, as the script's `pwd -P` prints it (/var is /private/var).
+    private func canonical(_ u: URL) throws -> String {
+        let p = try #require(realpath(u.path, nil))
+        defer { free(p) }
+        return String(cString: p)
     }
 }
