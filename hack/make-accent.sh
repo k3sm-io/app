@@ -6,9 +6,12 @@
 # make-accent.sh --check <committed.car>
 #
 # Compiles the app's accent colour (Resources/Assets.car): one colour set,
-# AccentColor, with the two values Palette.navy in Sources/K3smApp spells:
-# the navy #011389 in light and #7d97ff in dark, the pair the strip's
-# icons, the Pods chip and the Settings eyebrows already use. The brighter
+# AccentColor, with the two values Palette.controlAccent in Sources/K3smApp
+# spells: the navy #011389 in light and #4a69ec in dark. The dark value is
+# darker than the navy's marks (#7d97ff), because AppKit draws white text on
+# a filled accent: white is 4.64:1 on #4a69ec (2.71:1 on #7d97ff), and the
+# fill is 3.59:1 on the #1e1e1e window and 3.13:1 on a table's alternate
+# row (AccentContrastTests measures every pair). The brighter
 # Palette.accent (#022ffb) stays a mark colour: on a filled control it reads
 # as a second blue beside the navy. Info.plist names the set
 # (NSAccentColorName), so every accent-coloured control in the app, the
@@ -49,7 +52,7 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/Accent.xcassets/AccentColor.colorset" "$work/out"
 printf '%s\n' '{"info":{"author":"xcode","version":1}}' > "$work/Accent.xcassets/Contents.json"
 cat > "$work/Accent.xcassets/AccentColor.colorset/Contents.json" <<'JSON'
-{"colors":[{"color":{"color-space":"srgb","components":{"alpha":"1.000","blue":"0x89","green":"0x13","red":"0x01"}},"idiom":"universal"},{"appearances":[{"appearance":"luminosity","value":"dark"}],"color":{"color-space":"srgb","components":{"alpha":"1.000","blue":"0xFF","green":"0x97","red":"0x7D"}},"idiom":"universal"}],"info":{"author":"xcode","version":1}}
+{"colors":[{"color":{"color-space":"srgb","components":{"alpha":"1.000","blue":"0x89","green":"0x13","red":"0x01"}},"idiom":"universal"},{"appearances":[{"appearance":"luminosity","value":"dark"}],"color":{"color-space":"srgb","components":{"alpha":"1.000","blue":"0xEC","green":"0x69","red":"0x4A"}},"idiom":"universal"}],"info":{"author":"xcode","version":1}}
 JSON
 actool="$(xcrun --find actool 2>/dev/null || true)"
 [ -n "$actool" ] || { echo "make-accent: actool not found; it ships with Xcode (xcode-select -s /Applications/Xcode.app)" >&2; exit 1; }
