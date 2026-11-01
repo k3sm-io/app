@@ -178,11 +178,17 @@ app_problems() {
 	# The administrator swap refuses a hard link (AdminSwapEngine.isSafeTree,
 	# Sources/K3smSwap/AdminSwap.swift). A find that cannot read the whole
 	# tree proves nothing, so its failure is a failure here too.
-	if linked="$(find "$app" -type f -links +1 -print 2>&1)"; then
-		[ -z "$linked" ] || { echo "    k3sm.app holds a hard link (${linked%%$'\n'*}); the administrator swap refuses one"; rc=1; }
-	else
-		echo "    find could not check k3sm.app for hard links:"; printf '%s\n' "$linked" | sed 's/^/      /'; rc=1
+	# Stdout (the linked files) and stderr (find's own words) stay apart: a
+	# warning on a find that succeeded must not read as a hard link, and a
+	# find that wrote to stderr or failed has not proven the tree clean.
+	local ferr find_rc=0
+	ferr="$(mktemp)"
+	linked="$(find "$app" -type f -links +1 -print 2>"$ferr")" || find_rc=$?
+	if [ "$find_rc" != 0 ] || [ -s "$ferr" ]; then
+		echo "    find could not check k3sm.app for hard links (exit $find_rc):"; sed 's/^/      /' "$ferr"; rc=1
 	fi
+	rm -f "$ferr"
+	[ -z "$linked" ] || { echo "    k3sm.app holds a hard link (${linked%%$'\n'*}); the administrator swap refuses one"; rc=1; }
 	info="$(codesign -dv "$app" 2>&1 || true)"
 	sig="$(signature_kind <<<"$info")"
 	[ -f "$exe" ] || { echo "    k3sm.app has no Contents/MacOS/k3sm-app"; return 1; }
@@ -541,12 +547,30 @@ EOF
 	codesign --force --sign - --timestamp=none "$T/hardlink/k3sm.app" >/dev/null 2>&1
 	expect "a signed bundle holding a hard link fails" 1 "holds a hard link (.*/Contents/Resources/notes" \
 		app_problems "$T/hardlink/k3sm.app" "$tag" rehearsal ""
-	fixture_app "$T/unreadable" "$REHEARSAL_BUNDLE_ID" "$ver"
-	mkdir "$T/unreadable/k3sm.app/Contents/Resources/locked"
-	chmod 000 "$T/unreadable/k3sm.app/Contents/Resources/locked"
-	expect "a bundle with an unreadable directory fails the hard-link check" 1 "find could not check k3sm.app for hard links" \
-		app_problems "$T/unreadable/k3sm.app" "$tag" rehearsal ""
-	chmod 700 "$T/unreadable/k3sm.app/Contents/Resources/locked"
+	if [ "$(id -u)" = 0 ]; then
+		echo "  skip: the chmod 000 fixture is readable by root; the stub-find cases below cover the same branch"
+	else
+		fixture_app "$T/unreadable" "$REHEARSAL_BUNDLE_ID" "$ver"
+		mkdir "$T/unreadable/k3sm.app/Contents/Resources/locked"
+		chmod 000 "$T/unreadable/k3sm.app/Contents/Resources/locked"
+		expect "a bundle with an unreadable directory fails the hard-link check" 1 "find could not check k3sm.app for hard links" \
+			app_problems "$T/unreadable/k3sm.app" "$tag" rehearsal ""
+		chmod 700 "$T/unreadable/k3sm.app/Contents/Resources/locked"
+	fi
+	mkdir -p "$T/findstub"
+	cat >"$T/findstub/find" <<'STUB'
+#!/usr/bin/env bash
+echo "find: simulated warning" >&2
+[ -z "${FAKE_FIND_RC:-}" ] || exit "$FAKE_FIND_RC"
+exec /usr/bin/find "$@"
+STUB
+	chmod +x "$T/findstub/find"
+	stubbed() { (PATH="$T/findstub:$PATH" "$@"); }
+	expect "a find that warns on stderr but succeeds fails, not as a hard link" 1 "find could not check k3sm.app for hard links (exit 0)" \
+		stubbed app_problems "$app" "$tag" rehearsal ""
+	if grep -q "holds a hard link" "$T/out"; then bad "a stderr warning was reported as a hard link"; else ok "a stderr warning is not reported as a hard link"; fi
+	FAKE_FIND_RC=3 expect "a find that warns and exits non-zero fails the hard-link check" 1 "find could not check k3sm.app for hard links (exit 3)" \
+		stubbed app_problems "$app" "$tag" rehearsal ""
 
 	echo "the Developer ID branch (fake codesign, spctl and stapler; real hdiutil)"
 	local F="$T/fakes" relimg="$T/release/$rel" relsums
