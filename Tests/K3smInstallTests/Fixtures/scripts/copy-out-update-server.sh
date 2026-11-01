@@ -53,6 +53,27 @@ if ! /usr/bin/codesign --verify --strict --deep '-R=anchor apple generic and cer
 	echo 'copy-out: refused: the app is not signed by the k3sm Developer ID'
 	exit 77
 fi
+tagrank() {
+	case $tag in ''|*[!0-9a-z.-]*) return 1 ;; esac
+	printf '%s\n' "$tag" | /usr/bin/grep -Eqx 'v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-rc\.(0|[1-9][0-9]{0,3}))?' || return 1
+	core=${tag#v}
+	rc=99999
+	case $core in *-rc.*) rc=${core#*-rc.}; core=${core%%-*} ;; esac
+	major=${core%%.*}
+	rest=${core#*.}
+	printf '%09d%09d%09d%05d\n' "$major" "${rest%%.*}" "${rest#*.}" "$rc"
+}
+record='/Library/k3sm.app-floor'
+if [ ! -e "$record" ] && [ ! -L "$record" ]; then
+	tag=$(/usr/bin/plutil -extract K3smPayloadTag raw -o - "$stage"/'k3sm.app'/'Contents/Info.plist' 2>/dev/null) || tag=
+	if tagrank > /dev/null; then
+		printf '%s\n' "$tag" > "$stage"/'app-floor'
+		/usr/sbin/chown 0 "$stage"/'app-floor'
+		/bin/chmod 0600 "$stage"/'app-floor'
+		/bin/mv -f "$stage"/'app-floor' "$record"
+		echo "copy-out: recorded $tag as the app release floor"
+	fi
+fi
 k3sm="$stage"/'k3sm.app'/'Contents/Resources/payload/k3sm'
 echo 'copy-out: running k3sm install (update)'
 "$k3sm" 'install' '--from-staging' "$stage" '--user' 'alice'

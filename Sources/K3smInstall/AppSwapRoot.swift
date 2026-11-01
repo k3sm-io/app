@@ -210,6 +210,13 @@ public enum AppSwapRootScriptBuilder {
     ///   one release tag and a newline (`targetUntrusted`). Its tag is kept
     ///   in `$floor`, empty when there is no record, for `floorCompare`.
     ///
+    /// These checks are a subset of the engine's (`isSafeTree`): they do not
+    /// look for setuid or setgid bits or file flags. The staged copy's own
+    /// check after the copy (`find -perm +6022`, `refusedTree`) and the
+    /// engine cover those. The record's checks rest on `/Library`, its
+    /// parent, being root's and not writable by others; a record moved
+    /// elsewhere needs that parent check here too.
+    ///
     /// The helper checks the target again, by descriptor, before and after
     /// the swap. `applications`, `target`, `floorRecord` and `owner` are the
     /// shipped constants and root; tests render it over scratch paths.
