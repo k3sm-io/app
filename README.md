@@ -1354,7 +1354,8 @@ after the latest `vX.Y.Z` release tag (or `v0.0.0`), the commit time in UTC
 and the commit's first 12 hex digits, plus `+dirty` for a modified tree, for
 example `v0.2.4-0.20261016221530-2eda966a1b2c`. The app's releases carry
 k3sm's tags, so the tag is the highest one reachable in this checkout or in
-the k3sm checkout beside it (`K3SM_DIR`, else `../k3sm`). The version ranks
+the k3sm checkout beside it (`K3SM_DIR`, else `../k3sm`; the build reads
+its tags and nothing else from it). The version ranks
 above that release and below every release candidate and release of the
 next patch. The bundle versions stay `0.0.0` because macOS takes digits only
 there. A copy of the source outside a git checkout gets `v0.0.0-unknown`. The About panel, Settings > General, the

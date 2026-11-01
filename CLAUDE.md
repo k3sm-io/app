@@ -3,7 +3,8 @@
 The k3sm macOS app (SwiftPM package `K3smApp`): the menu bar status item, the window, and the
 installer that puts k3sm on a Mac. It is a leaf. Its state comes only from `k3sm status -o json`
 (and the `k3sm status daemons -o json` probe), the machine interface the k3sm CLI documents. Its
-edges are that JSON and the `k3sm kubectl` read path. It imports no code from any other k3sm
+edges are that JSON, the `k3sm kubectl` read path, and the sibling k3sm checkout's release tags
+(`K3SM_DIR`, else `../k3sm`), which `hack/build-version.sh` reads to name a development build. It imports no code from any other k3sm
 repository and takes no package dependency (`hack/deps.allow` lists none).
 
 > User-facing behavior: `README.md`. Source map: `docs/ARCHITECTURE.md`. Release signing: `hack/release/README.md`.

@@ -51,19 +51,27 @@ release_tags() {
 		| sed 's/^v//' || true
 }
 
+highest() { grep -v '^$' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 || true; }
+
 k3sm="${K3SM_DIR:-$dir/../k3sm}"
-tags="$(release_tags "$dir")"
+app_latest="$(release_tags "$dir" | highest)"
+k3sm_latest=""
 if [ -d "$k3sm" ]; then
 	k3sm="$(cd "$k3sm" && pwd -P)"
 	ktop="$(git -C "$k3sm" rev-parse --show-toplevel 2>/dev/null || true)"
 	if [ -n "$ktop" ] && [ "$(cd "$ktop" && pwd -P)" = "$k3sm" ]; then
-		tags="$(printf '%s\n%s\n' "$tags" "$(release_tags "$k3sm")")"
+		k3sm_latest="$(release_tags "$k3sm" | highest)"
 	fi
 fi
 
 base=v0.0.0
-latest="$(printf '%s\n' "$tags" | grep -v '^$' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 || true)"
+latest="$(printf '%s\n%s\n' "$app_latest" "$k3sm_latest" | highest)"
 if [ -n "$latest" ]; then
+	if [ "$latest" = "$k3sm_latest" ]; then
+		echo "build-version: core from release tag v$latest in the k3sm checkout $k3sm" >&2
+	else
+		echo "build-version: core from release tag v$latest in this repository $dir" >&2
+	fi
 	IFS=. read -r major minor patch <<<"$latest"
 	base="v$major.$minor.$((patch + 1))"
 fi

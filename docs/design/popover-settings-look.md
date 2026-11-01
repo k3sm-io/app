@@ -86,7 +86,7 @@ view renders what it is given:
 | release build, installed the same | INSTALLED 0.1.9 | THIS APP 0.1.9 · up to date |
 | release build, installed newer | INSTALLED 0.2.0 | THIS APP 0.1.9 · an older release |
 | release build, installed unknown | INSTALLED unknown | THIS APP 0.1.9 |
-| development build (no release carried) | INSTALLED 0.1.8 | THIS APP v0.0.0-0.2026…-910af952ea03 · development build |
+| development build (no release carried) | INSTALLED 0.1.8 | THIS APP v0.2.4-0.2026…-910af952ea03 · development build |
 | binary outside a bundle | INSTALLED 0.1.8 | THIS APP unknown |
 
 The eyebrows are `VersionCard.installedEyebrow` and `VersionCard.appEyebrow`, stored as shown

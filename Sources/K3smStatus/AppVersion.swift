@@ -64,7 +64,7 @@ public struct AppVersion: Equatable, Sendable {
     }
 
     /// One line naming the app and its version: "k3sm.app v1.2.3",
-    /// "k3sm.app v0.0.0-0.20261016221530-2eda966a1b2c", "k3sm.app unknown".
+    /// "k3sm.app v0.2.4-0.20261016221530-2eda966a1b2c", "k3sm.app unknown".
     public var title: String {
         guard let text else { return "k3sm.app unknown" }
         return "k3sm.app " + (text.hasPrefix("v") ? text : "v" + text)
@@ -160,7 +160,7 @@ public struct AppVersion: Equatable, Sendable {
     /// The status popover's version line. With a payload release it compares
     /// the installed release with it ("this app carries 1.2.3, a newer
     /// release"); without one it names the installed release and the app
-    /// itself ("Installed: 0.1.8 · k3sm.app v0.0.0-0.20261017002053-910af952ea03").
+    /// itself ("Installed: 0.1.8 · k3sm.app v0.2.4-0.20261017002053-910af952ea03").
     public func versionLine(installed: SemanticVersion?, payload: SemanticVersion?) -> String {
         let shown = installed?.description ?? "unknown"
         guard let payload else { return "Installed: \(shown) · \(title)" }
