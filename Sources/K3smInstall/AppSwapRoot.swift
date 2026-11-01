@@ -159,7 +159,7 @@ public enum AppSwapRootScriptBuilder {
         let text = RootScriptBuilder.stagedCopy(bundlePath: AppSwapRoot.target, stagingTemplate: AppSwapRoot.stagingTemplate,
                                                 designatedRequirement: AppUpdateTrust.appRequirement(teamID: teamID),
                                                 beforeCopy: targetCheck)
-            + #"""
+            + floorCompare + #"""
             helper=\#(helper)
             if [ -L "$helper" ] || [ ! -f "$helper" ]; then
             	echo 'app-swap: refused: the installed helper is missing or not a regular file'
@@ -177,19 +177,115 @@ public enum AppSwapRootScriptBuilder {
         return RootScriptBuilder.stagedStep(text: text, prompt: prompt, readsInput: false)
     }
 
-    /// The target check, before anything is copied: `/Applications` and the
-    /// target must be real directories, not symlinks. The helper checks
-    /// again, by descriptor, before and after the swap.
-    static let targetCheck: String = {
+    /// The target check, before anything is copied, at the shipped paths
+    /// with root as the owner.
+    static let targetCheck = targetCheck(applications: AppSwapRoot.applicationsDirectory, target: AppSwapRoot.target,
+                                         floorRecord: AppSwapRoot.floorRecord, owner: 0)
+
+    /// The target check, before anything is copied. Run by root, as a layer
+    /// the installed bundle's own version cannot skip, since its helper is
+    /// what runs next:
+    ///
+    /// - `/Applications` and the target must be real directories, not
+    ///   symlinks (`targetRefused`);
+    /// - the target must be `owner`'s, and no entry of its tree may be
+    ///   another account's, group or other writable, carry an ACL, or be
+    ///   anything but a regular file or a directory, nor a file with more
+    ///   than one link: `isSafeTree`'s rules, the engine's own check
+    ///   (`targetUntrusted`);
+    /// - root's floor record, when present, must be a regular file, not a
+    ///   symlink, `owner`'s, mode 0600, one link, at most 128 bytes, and hold
+    ///   one release tag and a newline (`targetUntrusted`). Its tag is kept
+    ///   in `$floor`, empty when there is no record, for `floorCompare`.
+    ///
+    /// The helper checks the target again, by descriptor, before and after
+    /// the swap. `applications`, `target`, `floorRecord` and `owner` are the
+    /// shipped constants and root; tests render it over scratch paths.
+    static func targetCheck(applications: String, target: String, floorRecord: String, owner: UInt32) -> String {
         let q = ShellQuote.quote
-        return #"""
-            apps=\#(q(AppSwapRoot.applicationsDirectory))
-            target=\#(q(AppSwapRoot.target))
+        return tagRank + #"""
+            apps=\#(q(applications))
+            target=\#(q(target))
             if [ -L "$apps" ] || [ ! -d "$apps" ] || [ -L "$target" ] || [ ! -d "$target" ]; then
             	echo 'app-swap: refused: Applications or k3sm.app in it is a symlink or not a folder'
             	exit \#(AppSwapRootExit.targetRefused)
             fi
+            if [ "$(/usr/bin/stat -f %u "$target")" != \#(owner) ]; then
+            	echo 'app-swap: refused: k3sm.app in Applications is not owned by root'
+            	exit \#(AppSwapRootExit.targetUntrusted)
+            fi
+            if ! bad=$(/usr/bin/find "$target" \( ! -user \#(owner) -o -perm +022 -o -acl -o ! \( -type f -o -type d \) -o \( -type f -links +1 \) \) -print -quit); then
+            	echo 'app-swap: refused: k3sm.app in Applications could not be read'
+            	exit \#(AppSwapRootExit.targetUntrusted)
+            fi
+            if [ -n "$bad" ]; then
+            	echo 'app-swap: refused: k3sm.app holds an entry not owned by root, writable by group or others, with an ACL, or not a plain file or folder'
+            	exit \#(AppSwapRootExit.targetUntrusted)
+            fi
+            record=\#(q(floorRecord))
+            floor=
+            if [ -e "$record" ] || [ -L "$record" ]; then
+            	if [ -L "$record" ] || [ ! -f "$record" ] || [ "$(/usr/bin/stat -f '%u %Lp %l' "$record")" != '\#(owner) 600 1' ] || [ "$(/usr/bin/stat -f %z "$record")" -gt \#(floorRecordLimit) ]; then
+            		echo 'app-swap: refused: the floor record is not a root-owned 0600 file'
+            		exit \#(AppSwapRootExit.targetUntrusted)
+            	fi
+            	tag=$(/bin/cat "$record")
+            	if [ "$(/usr/bin/stat -f %z "$record")" != "$((${#tag} + 1))" ] || ! tagrank > /dev/null; then
+            		echo 'app-swap: refused: the floor record does not hold one release tag'
+            		exit \#(AppSwapRootExit.targetUntrusted)
+            	fi
+            	floor=$tag
+            fi
 
             """#
-    }()
+    }
+
+    /// The largest floor record the script reads, the engine's
+    /// `AdminSwapEngine.floorRecordLimit`.
+    static let floorRecordLimit = 128
+
+    /// The shell function `tagrank`: prints a sortable rank of the release
+    /// tag in `$tag` (MAJOR, MINOR and PATCH as nine digits each, then the
+    /// release candidate number as five, 99999 for a release, so a release
+    /// ranks above its candidates), or fails when `$tag` is not a release tag
+    /// (`AppVersion.releaseTagVersion`'s grammar: `v` then three numbers of
+    /// one to nine digits with no leading zero, and an optional `-rc.N` with
+    /// N one to four digits, no leading zero). The engine's floor rule is
+    /// `SemanticVersion`'s order; `appSwapScriptTagRankAgreesWithTheEngine`
+    /// pins that the two accept the same tags and order them alike.
+    static let tagRank = #"""
+        tagrank() {
+        	case $tag in ''|*[!0-9a-z.-]*) return 1 ;; esac
+        	printf '%s\n' "$tag" | /usr/bin/grep -Eqx 'v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-rc\.(0|[1-9][0-9]{0,3}))?' || return 1
+        	core=${tag#v}
+        	rc=99999
+        	case $core in *-rc.*) rc=${core#*-rc.}; core=${core%%-*} ;; esac
+        	major=${core%%.*}
+        	rest=${core#*.}
+        	printf '%09d%09d%09d%05d\n' "$major" "${rest%%.*}" "${rest#*.}" "$rc"
+        }
+
+        """#
+
+    /// After the installed bundle's copy verifies, and before its helper
+    /// runs: with a floor record, the copy's `K3smPayloadTag` must be a
+    /// release tag at or above it (`targetUntrusted`), so an older release
+    /// put back at the target never has its helper run as root. The engine
+    /// then requires the staged bundle strictly above the higher of the two.
+    static let floorCompare = #"""
+        if [ -n "$floor" ]; then
+        	tag=$floor
+        	floorrank=$(tagrank)
+        	tag=$(/usr/bin/plutil -extract K3smPayloadTag raw -o - "$stage"/\#(ShellQuote.quote(CopyOutPlan.stagedBundleName))/'Contents/Info.plist' 2>/dev/null) || tag=
+        	if ! installedrank=$(tagrank); then
+        		echo 'app-swap: refused: the installed k3sm.app carries no release tag'
+        		exit \#(AppSwapRootExit.targetUntrusted)
+        	fi
+        	if [ "$(/usr/bin/awk -v a="$installedrank" -v b="$floorrank" 'BEGIN { print ("" a < "" b) }')" != 0 ]; then
+        		echo 'app-swap: refused: the installed k3sm.app is older than the release root installed last'
+        		exit \#(AppSwapRootExit.targetUntrusted)
+        	fi
+        fi
+
+        """#
 }

@@ -32,16 +32,65 @@ import K3smStatus
     // MARK: the root script
 
     static let goldenTargetCheck = #"""
+        tagrank() {
+        	case $tag in ''|*[!0-9a-z.-]*) return 1 ;; esac
+        	printf '%s\n' "$tag" | /usr/bin/grep -Eqx 'v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-rc\.(0|[1-9][0-9]{0,3}))?' || return 1
+        	core=${tag#v}
+        	rc=99999
+        	case $core in *-rc.*) rc=${core#*-rc.}; core=${core%%-*} ;; esac
+        	major=${core%%.*}
+        	rest=${core#*.}
+        	printf '%09d%09d%09d%05d\n' "$major" "${rest%%.*}" "${rest#*.}" "$rc"
+        }
         apps='/Applications'
         target='/Applications/k3sm.app'
         if [ -L "$apps" ] || [ ! -d "$apps" ] || [ -L "$target" ] || [ ! -d "$target" ]; then
         	echo 'app-swap: refused: Applications or k3sm.app in it is a symlink or not a folder'
         	exit 120
         fi
+        if [ "$(/usr/bin/stat -f %u "$target")" != 0 ]; then
+        	echo 'app-swap: refused: k3sm.app in Applications is not owned by root'
+        	exit 115
+        fi
+        if ! bad=$(/usr/bin/find "$target" \( ! -user 0 -o -perm +022 -o -acl -o ! \( -type f -o -type d \) -o \( -type f -links +1 \) \) -print -quit); then
+        	echo 'app-swap: refused: k3sm.app in Applications could not be read'
+        	exit 115
+        fi
+        if [ -n "$bad" ]; then
+        	echo 'app-swap: refused: k3sm.app holds an entry not owned by root, writable by group or others, with an ACL, or not a plain file or folder'
+        	exit 115
+        fi
+        record='/Library/k3sm.app-floor'
+        floor=
+        if [ -e "$record" ] || [ -L "$record" ]; then
+        	if [ -L "$record" ] || [ ! -f "$record" ] || [ "$(/usr/bin/stat -f '%u %Lp %l' "$record")" != '0 600 1' ] || [ "$(/usr/bin/stat -f %z "$record")" -gt 128 ]; then
+        		echo 'app-swap: refused: the floor record is not a root-owned 0600 file'
+        		exit 115
+        	fi
+        	tag=$(/bin/cat "$record")
+        	if [ "$(/usr/bin/stat -f %z "$record")" != "$((${#tag} + 1))" ] || ! tagrank > /dev/null; then
+        		echo 'app-swap: refused: the floor record does not hold one release tag'
+        		exit 115
+        	fi
+        	floor=$tag
+        fi
 
         """#
 
     static let goldenTail = #"""
+        if [ -n "$floor" ]; then
+        	tag=$floor
+        	floorrank=$(tagrank)
+        	tag=$(/usr/bin/plutil -extract K3smPayloadTag raw -o - "$stage"/'k3sm.app'/'Contents/Info.plist' 2>/dev/null) || tag=
+        	if ! installedrank=$(tagrank); then
+        		echo 'app-swap: refused: the installed k3sm.app carries no release tag'
+        		exit 115
+        	fi
+        	if [ "$(/usr/bin/awk -v a="$installedrank" -v b="$floorrank" 'BEGIN { print ("" a < "" b) }')" != 0 ]; then
+        		echo 'app-swap: refused: the installed k3sm.app is older than the release root installed last'
+        		exit 115
+        	fi
+        fi
         helper="$stage"/'k3sm.app'/'Contents/Helpers/k3sm-app-update'
         if [ -L "$helper" ] || [ ! -f "$helper" ]; then
         	echo 'app-swap: refused: the installed helper is missing or not a regular file'
@@ -222,6 +271,11 @@ import K3smStatus
         case groupWritableEntry
         case olderTargetBelowRootFloor
         case floorRecordNotPrivate
+        case symlinkEntry
+        case hardLinkEntry
+        case aclEntry
+        case floorRecordNoNewline
+        case floorRecordOverLongTag
 
         var testDescription: String { rawValue }
     }
@@ -251,10 +305,141 @@ import K3smStatus
         case .floorRecordNotPrivate:
             s.writeFloor("v0.1.0\n", mode: 0o644)
             #expect(s.engine().run() == AppSwapRootExit.targetUntrusted)
+        case .symlinkEntry:
+            try FileManager.default.createSymbolicLink(atPath: s.target + "/Contents/Resources/link", withDestinationPath: "/etc/passwd")
+            #expect(s.engine().run() == AppSwapRootExit.targetUntrusted)
+        case .hardLinkEntry:
+            try #require(link(s.target + "/Contents/Info.plist", s.root + "/outside-link") == 0)
+            #expect(s.engine().run() == AppSwapRootExit.targetUntrusted)
+        case .aclEntry:
+            try #require(run("/bin/chmod", ["+a", "everyone allow read", s.target + "/Contents/Info.plist"]) == 0)
+            #expect(s.engine().run() == AppSwapRootExit.targetUntrusted)
+        case .floorRecordNoNewline:
+            s.writeFloor("v0.1.0")
+            #expect(s.engine().run() == AppSwapRootExit.targetUntrusted)
+        case .floorRecordOverLongTag:
+            s.writeFloor("v0.1.0-" + String(repeating: "a", count: 200) + "\n")
+            #expect(s.engine().run() == AppSwapRootExit.targetUntrusted)
         }
         #expect((identity(s.target), identity(s.staged)) == before)
         #expect(s.tag(at: s.target) == "v1.0.0" && s.relaunched.isEmpty)
         s.expectNothingLeft()
+    }
+
+    // MARK: the root script's own target and floor checks, run over scratch trees
+
+    enum ShellTarget: String, CaseIterable, Sendable, CustomTestStringConvertible {
+        case good
+        case userOwnedTop
+        case groupWritableEntry
+        case symlinkEntry
+        case hardLinkEntry
+        case aclEntry
+        case goodRecord
+        case recordNotPrivate
+        case recordNoNewline
+        case recordOverLongTag
+        case recordTwoLines
+        case recordSymlink
+
+        var testDescription: String { rawValue }
+    }
+
+    @Test("the root script refuses a target tree that is not root's alone, and a floor record that is not root's own, before the copy",
+          arguments: ShellTarget.allCases)
+    func appSwapScriptRefusesUntrustedTarget(_ c: ShellTarget) throws {
+        let w = ShellScratch()
+        defer { w.cleanUp() }
+        var owner = getuid()
+        switch c {
+        case .good: break
+        case .userOwnedTop: owner = getuid() + 1
+        case .groupWritableEntry: try #require(chmod(w.target + "/Contents/Resources", 0o775) == 0)
+        case .symlinkEntry:
+            try FileManager.default.createSymbolicLink(atPath: w.target + "/Contents/Resources/link", withDestinationPath: "/etc/passwd")
+        case .hardLinkEntry: try #require(link(w.target + "/Contents/Info.plist", w.root + "/outside-link") == 0)
+        case .aclEntry: try #require(run("/bin/chmod", ["+a", "everyone allow read", w.target + "/Contents/MacOS/k3sm-app"]) == 0)
+        case .goodRecord: w.writeRecord("v1.0.0\n")
+        case .recordNotPrivate: w.writeRecord("v1.0.0\n", mode: 0o644)
+        case .recordNoNewline: w.writeRecord("v1.0.0")
+        case .recordOverLongTag: w.writeRecord("v1.0.0-" + String(repeating: "a", count: 200) + "\n")
+        case .recordTwoLines: w.writeRecord("v1.0.0\nv1.0.0\n")
+        case .recordSymlink:
+            w.writeRecord("v1.0.0\n", at: w.root + "/real-record")
+            try FileManager.default.createSymbolicLink(atPath: w.record, withDestinationPath: w.root + "/real-record")
+        }
+        let result = try shell(["-c", "set -eu\n" + w.targetCheck(owner: owner) + "echo \"floor=$floor\"\n"])
+        switch c {
+        case .good: #expect(result.status == 0 && result.output == "floor=\n", "\(result)")
+        case .goodRecord: #expect(result.status == 0 && result.output == "floor=v1.0.0\n", "\(result)")
+        default: #expect(result.status == AppSwapRootExit.targetUntrusted, "\(result)")
+        }
+    }
+
+    struct FloorCase: CustomTestStringConvertible, Sendable {
+        let record: String?
+        let installed: String?
+        let accept: Bool
+        var testDescription: String { "record \(record ?? "none"), installed \(installed ?? "untagged")" }
+    }
+
+    @Test("the root script runs the installed helper only when the installed copy's tag is not below root's floor",
+          arguments: [
+              FloorCase(record: nil, installed: "v1.0.0", accept: true),
+              FloorCase(record: nil, installed: nil, accept: true),
+              FloorCase(record: "v1.0.0", installed: "v1.0.0", accept: true),
+              FloorCase(record: "v1.0.0-rc.2", installed: "v1.0.0", accept: true),
+              FloorCase(record: "v1.2.0", installed: "v1.0.0", accept: false),
+              FloorCase(record: "v1.0.0", installed: "v1.0.0-rc.9", accept: false),
+              FloorCase(record: "v1.0.10", installed: "v1.0.9", accept: false),
+              FloorCase(record: "v1.0.0", installed: nil, accept: false),
+          ])
+    func appSwapScriptComparesTheInstalledTagWithTheFloor(_ c: FloorCase) throws {
+        let w = ShellScratch()
+        defer { w.cleanUp() }
+        if let record = c.record { w.writeRecord(record + "\n") }
+        let stage = w.root + "/stage"
+        let info: [String: Any] = c.installed.map { ["K3smPayloadTag": $0] } ?? ["CFBundleIdentifier": "io.k3sm.app"]
+        try FileManager.default.createDirectory(atPath: stage + "/k3sm.app/Contents", withIntermediateDirectories: true)
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: URL(fileURLWithPath: stage + "/k3sm.app/Contents/Info.plist"))
+        let text = "set -eu\n" + w.targetCheck(owner: getuid()) + "stage=" + ShellQuote.quote(stage) + "\n"
+            + AppSwapRootScriptBuilder.floorCompare + "echo passed\n"
+        let result = try shell(["-c", text])
+        if c.accept {
+            #expect(result.status == 0 && result.output == "passed\n", "\(result)")
+        } else {
+            #expect(result.status == AppSwapRootExit.targetUntrusted, "\(result)")
+        }
+    }
+
+    @Test("the script's tag rank accepts exactly the engine's release tags and orders them as the engine does")
+    func appSwapScriptTagRankAgreesWithTheEngine() throws {
+        let tags = ["v0.0.0", "v0.1.0", "v0.2.3", "v1.0.0-rc.0", "v1.0.0-rc.1", "v1.0.0-rc.2", "v1.0.0-rc.10", "v1.0.0-rc.9999",
+                    "v1.0.0", "v1.0.1", "v1.0.9", "v1.0.10", "v1.1.0", "v1.10.0", "v2.0.0", "v999999999.999999999.999999999",
+                    // Not release tags.
+                    "1.0.0", "v1.0", "v1.0.0.0", "v01.0.0", "v1.0.0-rc.01", "v1.0.0-rc.10000", "v1.0.0-beta.1", "v1.0.0-rc",
+                    "v1.0.0+build", "v1234567890.0.0", "v1.0.0 ", "v1.0.0\nv1.0.0", "", "v1.0.0-rc.1.2"]
+        #expect(AppSwapRootScriptBuilder.floorRecordLimit == AdminSwapEngine.floorRecordLimit)
+        var text = AppSwapRootScriptBuilder.tagRank
+        for tag in tags {
+            text += "tag=" + ShellQuote.quote(tag) + "\nif rank=$(tagrank); then echo \"$rank\"; else echo bad; fi\n"
+        }
+        let result = try shell(["-c", text])
+        try #require(result.status == 0)
+        let ranks = result.output.split(separator: "\n", omittingEmptySubsequences: false).dropLast().map(String.init)
+        try #require(ranks.count == tags.count, "\(result.output)")
+        var valid: [(SemanticVersion, String)] = []
+        for (tag, rank) in zip(tags, ranks) {
+            let version = AppVersion.releaseTagVersion(tag)
+            #expect((rank != "bad") == (version != nil), "\(tag): \(rank)")
+            if let version, rank != "bad" { valid.append((version, rank)) }
+        }
+        for (a, ra) in valid {
+            for (b, rb) in valid {
+                #expect((ra < rb) == (a < b), "\(a) \(b)")
+            }
+        }
     }
 
     @Test("an undo whose rename fails is reported as such, with the bundle that came out kept")
@@ -508,6 +693,42 @@ private struct OwnerOverride: TreeInspector {
         let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) + "/" + name
         if got == 0, path == prefix || path.hasPrefix(prefix + "/") { st.st_uid = owner }
         return st
+    }
+
+    func hasExtendedACL(at dirFD: Int32, _ name: String) -> Bool? { SystemTreeInspector().hasExtendedACL(at: dirFD, name) }
+}
+
+/// ShellScratch is a scratch Applications folder holding an unsigned bundle
+/// tree and a floor record path, for running the root script's checks as
+/// this account, which stands in for root.
+private final class ShellScratch: @unchecked Sendable {
+    let root: String
+    var applications: String { root + "/Applications" }
+    var target: String { applications + "/k3sm.app" }
+    var record: String { root + "/app-floor" }
+
+    init() {
+        root = realPath(NSTemporaryDirectory()) + "/k3sm-adminswap-sh-" + UUID().uuidString.prefix(8)
+        let fm = FileManager.default
+        try? fm.createDirectory(atPath: target + "/Contents/MacOS", withIntermediateDirectories: true)
+        try? fm.createDirectory(atPath: target + "/Contents/Resources", withIntermediateDirectories: true)
+        fm.createFile(atPath: target + "/Contents/Info.plist", contents: Data("plist".utf8))
+        fm.createFile(atPath: target + "/Contents/MacOS/k3sm-app", contents: Data("app".utf8))
+    }
+
+    func cleanUp() {
+        run("/bin/chmod", ["-R", "u+rwx", root])
+        try? FileManager.default.removeItem(atPath: root)
+    }
+
+    func targetCheck(owner: uid_t) -> String {
+        AppSwapRootScriptBuilder.targetCheck(applications: applications, target: target, floorRecord: record, owner: owner)
+    }
+
+    func writeRecord(_ text: String, mode: mode_t = 0o600, at path: String? = nil) {
+        let path = path ?? record
+        precondition(FileManager.default.createFile(atPath: path, contents: Data(text.utf8)))
+        precondition(chmod(path, mode) == 0)
     }
 }
 

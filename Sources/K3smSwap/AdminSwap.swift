@@ -58,6 +58,9 @@ public struct AdminSwapLocations: Equatable, Sendable {
 public protocol TreeInspector: Sendable {
     /// `fstatat(dirFD, name, AT_SYMLINK_NOFOLLOW)`, or nil when it fails.
     func status(at dirFD: Int32, _ name: String) -> stat?
+    /// Whether the regular file or directory `name` in `dirFD` carries an
+    /// extended ACL with at least one entry; nil when it cannot be read.
+    func hasExtendedACL(at dirFD: Int32, _ name: String) -> Bool?
 }
 
 /// SystemTreeInspector is the real `TreeInspector`.
@@ -67,6 +70,19 @@ public struct SystemTreeInspector: TreeInspector {
     public func status(at dirFD: Int32, _ name: String) -> stat? {
         var st = stat()
         return fstatat(dirFD, name, &st, AT_SYMLINK_NOFOLLOW) == 0 ? st : nil
+    }
+
+    /// Opens `name` without following a symlink (the caller has already
+    /// refused anything but a regular file or a directory) and reads its
+    /// `ACL_TYPE_EXTENDED` ACL: none is `ENOENT`.
+    public func hasExtendedACL(at dirFD: Int32, _ name: String) -> Bool? {
+        let fd = openat(dirFD, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        guard let acl = acl_get_fd_np(fd, ACL_TYPE_EXTENDED) else { return errno == ENOENT ? false : nil }
+        defer { acl_free(UnsafeMutableRawPointer(acl)) }
+        var entry: acl_entry_t?
+        return acl_get_entry(acl, ACL_FIRST_ENTRY.rawValue, &entry) == 0
     }
 }
 
@@ -176,7 +192,7 @@ public struct SystemSessionRelauncher: SessionRelauncher {
 ///    replaced between the check and the rename) the same two names are
 ///    swapped back and the run is refused. The target is verified again, and
 ///    a failure swaps back too. An undo whose rename fails exits
-///    `undoFailed`, logs which bundle is live, and keeps the bundle that came
+///    `undoFailed`, logs which bundle is believed live, and keeps the bundle that came
 ///    out in root's work directory.
 /// 7. Root's floor record is replaced with the new tag (a 0600 file written
 ///    durably), the old bundle moves to `previousRoot` as `k3sm-<tag>.previous`, the
@@ -403,7 +419,7 @@ public struct AdminSwapEngine: Sendable {
 
     /// Swaps the target and root's copy back after a swap that must not
     /// stand, and returns whether the undo rename succeeded. On a failure it
-    /// logs which bundle is live: root's copy of the staged bundle at the
+    /// logs which bundle is believed live: root's copy of the staged bundle at the
     /// target, the bundle that came out in root's work directory.
     private func undo(copy: (fd: Int32, bundle: VerifiedBundle, dirName: String), parentFD: Int32, name: String) -> Bool {
         let result = renamer.swap(fromDir: copy.fd, from: AppSwapRoot.bundleName, toDir: parentFD, to: name)
@@ -411,10 +427,13 @@ public struct AdminSwapEngine: Sendable {
         guard result == 0 else {
             let tag = copy.bundle.tag ?? "untagged"
             let kept = locations.workRoot + "/" + copy.dirName + "/" + AppSwapRoot.bundleName
+            let copyID = copy.bundle.identity
+            let now = FileIdentity.of(dirFD: parentFD, name: name).map { "\($0.volume) inode \($0.ino)" } ?? "nothing"
             SwapLog.logger.error("""
                 admin swap: the undo failed with errno \(result, privacy: .public): root's copy of the staged bundle \
-                (\(tag, privacy: .public)) is live at \(locations.target, privacy: .public), and the bundle that came out \
-                is kept at \(kept, privacy: .public)
+                (\(tag, privacy: .public), \(copyID.volume, privacy: .public) inode \(copyID.ino, privacy: .public)) is \
+                believed live at \(locations.target, privacy: .public), which now holds \(now, privacy: .public); the bundle \
+                that came out is believed kept at \(kept, privacy: .public)
                 """)
             return false
         }
@@ -431,7 +450,8 @@ public struct AdminSwapEngine: Sendable {
         return verified
     }
 
-    /// The largest floor record read.
+    /// The largest floor record read. The root script reads the same bound,
+    /// `AppSwapRootScriptBuilder.floorRecordLimit`; a test pins them equal.
     static let floorRecordLimit = 128
 
     /// Root's floor record: `.some(nil)` when there is none, `.some(version)`
@@ -495,7 +515,8 @@ public struct AdminSwapEngine: Sendable {
     /// Whether `name` in `dirFD`, and everything under it, is a regular file
     /// or a directory, not setuid or setgid, not group or other writable,
     /// carrying none of `userLockingFlags` or `systemLockingFlags`, and, for
-    /// a regular file, with one link only; and, when `owner` is given, owned
+    /// a regular file, with one link only; with no extended ACL (one that
+    /// cannot be read counts as present); and, when `owner` is given, owned
     /// by it. Nothing is followed; `inspector` reads each entry.
     ///
     /// The link count refuses every hard link, inside the tree or to a file
@@ -507,7 +528,9 @@ public struct AdminSwapEngine: Sendable {
         guard let st = inspector.status(at: dirFD, name), st.st_mode & 0o6022 == 0,
               st.st_flags & (userLockingFlags | systemLockingFlags) == 0, owner.map({ st.st_uid == $0 }) ?? true
         else { return false }
-        switch st.st_mode & S_IFMT {
+        let type = st.st_mode & S_IFMT
+        guard type == S_IFREG || type == S_IFDIR, inspector.hasExtendedACL(at: dirFD, name) == false else { return false }
+        switch type {
         case S_IFREG: return st.st_nlink == 1
         case S_IFDIR:
             guard let fd = FileOps.openDirectory(at: dirFD, name) else { return false }
