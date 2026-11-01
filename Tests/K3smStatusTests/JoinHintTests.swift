@@ -20,16 +20,37 @@ import Testing
 @testable import K3smStatus
 
 struct JoinHintTests {
-    /// The flags `k3sm install` declares, scraped from the CLI source.
-    static func installFlags() throws -> Set<String> {
+    /// The k3sm checkout the CLI source is read from: K3SM_DIR when set, else
+    /// the sibling next to this repository.
+    static func siblingDirectory(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let dir = ProcessInfo.processInfo.environment["K3SM_DIR"].map { URL(fileURLWithPath: $0) }
-            ?? root.deletingLastPathComponent().appending(path: "k3sm")
+        return environment["K3SM_DIR"].map { URL(fileURLWithPath: $0) } ?? root.deletingLastPathComponent().appending(path: "k3sm")
+    }
+
+    /// Whether the cross-check runs: a caller who set K3SM_DIR asked for it, so
+    /// it runs and fails by name when the source is missing; with no K3SM_DIR it
+    /// runs only when the sibling checkout is there, and is skipped otherwise.
+    static var crossCheckEnabled: Bool {
+        ProcessInfo.processInfo.environment["K3SM_DIR"] != nil
+            || FileManager.default.fileExists(atPath: siblingDirectory().appending(path: "cmd/k3sm/install.go").path)
+    }
+
+    struct SiblingMissing: Error {}
+
+    /// What the known-issue closures saw; one test, one thread at a time.
+    final class Seen: @unchecked Sendable {
+        var messages: [String] = []
+        var threw = false
+    }
+
+    /// The flags `k3sm install` declares, scraped from the CLI source in `dir`.
+    /// A missing source is recorded by name and thrown, so the caller stops there.
+    static func installFlags(in dir: URL = siblingDirectory()) throws -> Set<String> {
         let file = dir.appending(path: "cmd/k3sm/install.go")
         guard FileManager.default.fileExists(atPath: file.path) else {
             Issue.record("k3sm sibling missing at \(dir.path): set K3SM_DIR")
-            return []
+            throw SiblingMissing()
         }
         let source = try String(contentsOf: file, encoding: .utf8)
         let start = try #require(source.range(of: "flag.NewFlagSet(\"install\""))
@@ -73,7 +94,23 @@ struct JoinHintTests {
             .filter { $0.offset % 2 == 1 }.map { String($0.element) }
     }
 
-    @Test("every join command the app can show runs as written or is labelled as text to paste")
+    @Test("a K3SM_DIR without the install source fails by name and stops")
+    func joinHintMissingSiblingIsNamed() throws {
+        let empty = FileManager.default.temporaryDirectory.appending(path: "k3sm-empty-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: empty) }
+        let seen = Seen()
+        withKnownIssue {
+            do { _ = try Self.installFlags(in: empty) } catch { seen.threw = true }
+        } matching: { issue in
+            seen.messages += issue.comments.map(\.rawValue)
+            return true
+        }
+        #expect(seen.messages == ["k3sm sibling missing at \(empty.path): set K3SM_DIR"])
+        #expect(seen.threw, "installFlags returned instead of throwing")
+    }
+
+    @Test("every join command the app can show runs as written or is labelled as text to paste", .enabled(if: crossCheckEnabled))
     func joinCommandHintIsRunnable() throws {
         let flags = try Self.installFlags()
         let errors: [JoinPasteError] = [.empty, .tooLong, .unsafeCharacter, .unbalancedQuote, .notAJoinCommand, .missingServer,
