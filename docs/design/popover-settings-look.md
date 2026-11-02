@@ -11,7 +11,7 @@ The info popover and the Settings window take the k3sm look in three parts, one 
 2. **Settings**: eyebrows over the groups, the app's version beside a 16 pt mark in the
    window's corner in place of the "Version" group, and one `.tint` across the panes.
 3. **An app accent colour** through `NSAccentColorName`, from a committed one-colour asset
-   catalog (`Assets.car`), light #011389 and dark #7d97ff, the `Palette.navy` pair.
+   catalog (`Assets.car`), light #011389 and dark #4a69ec, the `Palette.controlAccent` pair.
 
 ## Scope
 
@@ -42,8 +42,10 @@ Out of scope:
    lands together with `hack/make-accent.sh`, reviewed the way `Resources/AppIcon.icns` and
    `hack/make-icon.sh` are: running the script reproduces the committed file. It uses only tools
    that ship with Xcode or the Command Line Tools. The accent pair in the catalog (light
-   #011389, dark #7d97ff) is `Palette.navy`, the colour of the strip's icons, the Pods chip and
-   the eyebrows; the brighter `Palette.accent` (#022ffb) is a mark colour and reads neon on a
+   #011389, dark #4a69ec) is `Palette.controlAccent`: the navy of the strip's icons, the Pods
+   chip and the eyebrows in light, and in dark a deeper blue of the navy's hue, since the
+   navy's dark #7d97ff carries the white label AppKit draws on a filled control at only 2.71:1
+   (#4a69ec: 4.64:1, and 3.59:1 on the window); the brighter `Palette.accent` (#022ffb) is a mark colour and reads neon on a
    filled control beside them, so it stays on the hairlines. A user-chosen system accent still
    wins.
 4. **No dependency.** `Package.swift`, `hack/verify-deps.sh` and `hack/deps.allow` are not
@@ -150,9 +152,9 @@ secondary text colour, selectable as before. It is plain text with its label, so
 help tag either.
 
 **The one tint.** `SettingsWindowController.view(for:)` wraps every pane's root view in
-`.tint(Palette.navy)`, so the checkboxes and the segmented Appearance picker in every pane
-draw in the navy (light #011389, dark #7d97ff) rather than the system accent, the same navy
-as the eyebrows above them. The first cut used `Palette.accent` (#022ffb); on a filled
+`.tint(Palette.controlAccent)`, so the checkboxes and the segmented Appearance picker in every
+pane draw in the catalog's accent (light #011389, dark #4a69ec) rather than the system accent,
+the navy of the eyebrows above them in light and a deeper blue of its hue in dark. The first cut used `Palette.accent` (#022ffb); on a filled
 segment and a row of checkboxes beside navy eyebrows it read as a second, brighter blue, so
 the tint is the navy and the corner mark keeps the accent. The toolbar's selected pane is
 drawn by AppKit in the system accent and does not follow this tint; part 3 is what changes

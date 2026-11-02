@@ -25,8 +25,8 @@ import Testing
 /// copies into the bundle before signing. hack/make-accent.sh is its source,
 /// but its --check needs Xcode's actool. These tests tie the binary to the
 /// script with assetutil, which ships with macOS: the catalog holds exactly
-/// the script's two AccentColor colours and nothing else, and Palette.navy
-/// spells the same pair. The script's colour-set JSON is the one source of
+/// the script's two AccentColor colours and nothing else, and
+/// Palette.controlAccent spells the same pair. The script's colour-set JSON is the one source of
 /// the pair; nothing here repeats the values.
 @Suite(.enabled(if: AccentCatalog.hasAssetutil, "needs /usr/bin/assetutil, which ships with macOS"))
 struct AccentCatalogTests {
@@ -67,10 +67,10 @@ struct AccentCatalogTests {
         #expect(try AccentCatalog.problems(catalog: bogus, expected: pair).contains { $0.contains("assetutil") })
     }
 
-    @Test func paletteNavyMatchesTheScript() throws {
+    @Test func paletteControlAccentMatchesTheScript() throws {
         let pair = try AccentCatalog.scriptPair()
-        #expect(AccentCatalog.hex(Palette.navy, appearance: .aqua) == pair.light)
-        #expect(AccentCatalog.hex(Palette.navy, appearance: .darkAqua) == pair.dark)
+        #expect(AccentCatalog.hex(Palette.controlAccent, appearance: .aqua) == pair.light)
+        #expect(AccentCatalog.hex(Palette.controlAccent, appearance: .darkAqua) == pair.dark)
     }
 }
 

@@ -35,6 +35,13 @@ enum Palette {
     /// Rules between the console's columns and rows.
     static let line = Color(nsColor: .separatorColor)
     static let navy = adaptive(light: 0x011389, dark: 0x7d97ff)          // icons and native marks; 12.4:1 / 4.67:1 on tint
+    /// The accent filled controls take (the catalog's AccentColor, from
+    /// hack/make-accent.sh): the navy in light, and in dark a deeper blue of
+    /// the same hue, since AppKit labels a filled accent in white. White is
+    /// 14.43:1 / 4.64:1 on it; the fill is 14.43:1 / 3.59:1 on the window and
+    /// at least 3.13:1 on a table's rows. `navy`'s #7d97ff would carry white
+    /// at 2.71:1.
+    static let controlAccent = adaptive(light: 0x011389, dark: 0x4a69ec)
     /// The k3sm blue as an accent on the system surfaces: `blue` itself in
     /// light (7.49:1 on white, 6.34:1 on #ececec) and the navy's dark value
     /// in dark (6.15:1 on #1e1e1e, 4.73:1 on #323232), where #022ffb would
