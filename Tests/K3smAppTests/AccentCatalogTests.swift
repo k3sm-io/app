@@ -28,8 +28,13 @@ import Testing
 /// the script's two AccentColor colours and nothing else, and
 /// Palette.controlAccent spells the same pair. The script's colour-set JSON is the one source of
 /// the pair; nothing here repeats the values.
-@Suite(.enabled(if: AccentCatalog.hasAssetutil, "needs /usr/bin/assetutil, which ships with macOS"))
-struct AccentCatalogTests {
+/// The suite needs /usr/bin/assetutil, which ships with macOS; without it
+/// the suite fails rather than skips.
+@Suite struct AccentCatalogTests {
+    @Test func assetutilIsPresent() {
+        #expect(AccentCatalog.hasAssetutil, "needs \(AccentCatalog.assetutil), which ships with macOS")
+    }
+
     @Test func accentCatalogHoldsOnlyTheAccentColour() throws {
         let pair = try AccentCatalog.scriptPair()
         let problems = try AccentCatalog.problems(catalog: AccentCatalog.committed, expected: pair)
@@ -37,30 +42,34 @@ struct AccentCatalogTests {
     }
 
     /// The check is not vacuous: a catalog with one component changed, a
-    /// catalog full of other assets, and a file that is no catalog all fail.
-    @Test func tamperedCatalogsFail() throws {
+    /// catalog of other assets, an oversized file and a file that is no
+    /// catalog all fail. The two catalogs are committed under
+    /// Tests/Fixtures/accent, written by hack/make-accent-fixtures.sh from
+    /// make-accent.sh's colour set, so nothing here reads a system file or
+    /// looks inside the catalog's bytes.
+    @Test func tamperedCatalogsFailWithoutSystemFixtures() throws {
         let pair = try AccentCatalog.scriptPair()
+
+        // One component wrong and nothing else: exactly one problem, the light
+        // colour's components.
+        let wrong = try AccentCatalog.problems(catalog: AccentCatalog.fixture("wrong-colour.car"), expected: pair)
+        #expect(wrong.count == 1)
+        #expect(wrong.first?.hasPrefix("AccentColor any components are ") == true)
+
+        // Another app's catalog: a data asset, another colour name, no accent.
+        let foreign = try AccentCatalog.problems(catalog: AccentCatalog.fixture("foreign.car"), expected: pair)
+        #expect(foreign.contains("rendition Notes is not a colour: Data"))
+        #expect(foreign.contains("colour Brand is not AccentColor"))
+        #expect(foreign.contains("no AccentColor any rendition"))
+        #expect(foreign.contains("no AccentColor dark rendition"))
+
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("accent-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        // The light blue component (0x89 / 255) is stored as a double; change it.
-        var bytes = try Data(contentsOf: AccentCatalog.committed)
-        var blue = Double(pair.light & 0xff) / 255
-        let needle = withUnsafeBytes(of: &blue) { Data($0) }
-        let at = try #require(bytes.range(of: needle), "the light blue component is not in the catalog as a double")
-        var other = 0.6
-        bytes.replaceSubrange(at, with: withUnsafeBytes(of: &other) { Data($0) })
-        let wrong = dir.appendingPathComponent("wrong.car")
-        try bytes.write(to: wrong)
-        #expect(try AccentCatalog.problems(catalog: wrong, expected: pair).contains { $0.contains("components") })
-
-        // A system app's catalog: images, other names, far over the size cap.
-        let foreign = URL(fileURLWithPath: "/System/Applications/Calculator.app/Contents/Resources/Assets.car")
-        try #require(FileManager.default.fileExists(atPath: foreign.path))
-        let foreignProblems = try AccentCatalog.problems(catalog: foreign, expected: pair)
-        #expect(foreignProblems.contains { $0.contains("not a colour") })
-        #expect(foreignProblems.contains { $0.contains("bytes") })
+        let big = dir.appendingPathComponent("big.car")
+        try Data(count: AccentCatalog.maxBytes).write(to: big)
+        #expect(try AccentCatalog.problems(catalog: big, expected: pair).contains { $0.contains("bytes, not under") })
 
         let bogus = dir.appendingPathComponent("bogus.car")
         try Data("not a catalog\n".utf8).write(to: bogus)
@@ -85,6 +94,7 @@ enum AccentCatalog {
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     static var committed: URL { root.appendingPathComponent("Resources/Assets.car") }
     static var script: URL { root.appendingPathComponent("hack/make-accent.sh") }
+    static func fixture(_ name: String) -> URL { root.appendingPathComponent("Tests/Fixtures/accent/\(name)") }
 
     struct Pair: Equatable { var light: UInt32; var dark: UInt32 }
 
