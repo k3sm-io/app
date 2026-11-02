@@ -273,6 +273,11 @@ public final class DirectoryChangeSource: ChangeSource, @unchecked Sendable {
         queue.sync { stopOnQueue() }
     }
 
+    /// How many times the first path has been armed, for tests that wait on
+    /// the watcher re-arming instead of sleeping. Read-only; no production
+    /// code reads it.
+    var armCount: Int { queue.sync { watches.first?.generation ?? 0 } }
+
     private func stopOnQueue() {
         for watch in watches { Self.cancel(watch) }
         watches = []
