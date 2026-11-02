@@ -92,13 +92,13 @@ struct RepairUnresolvableTests {
     }
 
     /// The mark as a failed Repair with the refusal in its log leaves it.
-    static func refusedMark() -> UnresolvableRepairMark {
-        var mark = UnresolvableRepairMark()
+    static func refusedMark() -> UnresolvableInstallMark {
+        var mark = UnresolvableInstallMark()
         mark.rootStepFinished(.failed(exitStatus: 1), action: .repair, log: refusedLog)
         return mark
     }
 
-    static func offered(_ mark: UnresolvableRepairMark, _ health: HealthState = .cliMissing) -> Bool {
+    static func offered(_ mark: UnresolvableInstallMark, _ health: HealthState = .cliMissing) -> Bool {
         RepairPolicy.refusal(health: health, rootStep: true, payload: v020, unresolvable: mark.isSet) == nil
     }
 
@@ -122,8 +122,87 @@ struct RepairUnresolvableTests {
         var mark = Self.refusedMark()
         mark.stateRead(.partlyRunning(down: ["io.k3sm.agent"]))
         #expect(!Self.offered(mark, .partlyRunning(down: ["io.k3sm.agent"])))
-        mark.userRefreshed()
+        mark.refreshed(.guidedPanel)
         #expect(Self.offered(mark, .partlyRunning(down: ["io.k3sm.agent"])))
+    }
+
+    @Test("a cancelled repair offers repair again")
+    func cancelledRepairClearsTheMark() {
+        var mark = Self.refusedMark()
+        mark.rootStepFinished(.cancelled, action: .repair, log: Self.refusedLog)
+        #expect(!mark.isSet && Self.offered(mark))
+        var update = Self.refusedMark()
+        update.rootStepFinished(.couldNotStart, action: .update(.server), log: Self.refusedLog)
+        #expect(!update.isSet, "an Update that never ran says nothing about the install")
+    }
+
+    /// Logs that come close to the refusal and are not it.
+    static let nearMisses: [String] = {
+        let log: String = refusedLog
+        let phrase: String = UnresolvableInstall.recoveryPhrase
+        var logs: [String] = []
+        // The case changed.
+        logs.append(log.replacingOccurrences(of: "repair the install", with: "Repair the install"))
+        logs.append(log.uppercased())
+        // Another install URL.
+        logs.append(log.replacingOccurrences(of: "https://k3sm.io/install.sh", with: "https://k3sm.example/install.sh"))
+        // The tail window cut the line's start, or the log stops inside it.
+        let refusalLine: Substring = log.drop { $0 != "\n" }.dropFirst()
+        logs.append(String(refusalLine.dropFirst(40)))
+        logs.append(String(log.dropLast(20)))
+        logs.append(String(log.dropLast()))
+        // The phrase alone, under another prefix, with more after it, or with no cause.
+        logs.append(phrase + "\n")
+        logs.append("k3sm update: install: x; " + phrase + "\n")
+        logs.append("echo k3sm install: install: x; " + phrase + "\n")
+        logs.append("k3sm install: install: x; " + phrase + " now\n")
+        logs.append("k3sm install: install: ; " + phrase + "\n")
+        return logs
+    }()
+
+    @Test("near-miss logs are not the refusal", arguments: nearMisses)
+    func nearMissLogsDoNotSetTheMark(_ log: String) {
+        let failed = PrivilegedOutcome.failed(exitStatus: 1)
+        #expect(!UnresolvableInstall.refused(failed, action: .repair, log: log))
+        #expect(!UnresolvableInstall.refused(failed, action: .update(.server), log: log))
+        var mark = UnresolvableInstallMark()
+        mark.rootStepFinished(failed, action: .repair, log: log)
+        #expect(!mark.isSet)
+    }
+
+    static let recoveryPhrase = UnresolvableInstall.recoveryPhrase
+
+    @Test("a development build's payload shows the unpinned install command", arguments: [
+        SemanticVersion("0.0.0"), nil,
+    ])
+    func developmentPayloadShowsTheUnpinnedCommand(_ payload: SemanticVersion?) {
+        for action: CopyOutAction in [.repair, .update(.server)] {
+            let text = UnresolvableInstall.sentence(for: action, payload: payload)
+            #expect(text.contains("curl -fsSL https://k3sm.io/install.sh | sh, then click Refresh."))
+            #expect(!text.contains("K3SM_INSTALL_VERSION"))
+        }
+        #expect(RepairRefusal.installedUnresolvable(payload: payload).text
+            == UnresolvableInstall.sentence(for: .repair, payload: payload))
+    }
+
+    @Test("an unreadable status clears the mark and no read keeps it")
+    func stateReadOnUnreadableAndNil() {
+        var mark = Self.refusedMark()
+        mark.stateRead(nil)
+        #expect(mark.isSet)
+        mark.stateRead(.statusUnreadable)
+        #expect(!mark.isSet)
+    }
+
+    @Test("only a refresh the user asked for lifts the hold", arguments: RefreshSource.allCases)
+    func refreshSourcesThatLiftTheHold(_ source: RefreshSource) {
+        var mark = Self.refusedMark()
+        mark.refreshed(source)
+        let user: [RefreshSource] = [.guidedPanel, .menu, .popover, .firstRunCheckAgain]
+        #expect(source.liftsUnresolvableHold == user.contains(source))
+        #expect(mark.isSet == !user.contains(source))
+        // The read right after the refused step never lifts it.
+        #expect(!RefreshSource.afterRootStep.liftsUnresolvableHold)
     }
 
     @Test("a successful root step offers repair again", arguments: [
