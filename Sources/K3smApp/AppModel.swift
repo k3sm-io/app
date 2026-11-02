@@ -1063,6 +1063,7 @@ final class AppModel: ObservableObject {
     /// the full report, and the installed version and the lifecycle verbs
     /// keep their last read (an explicit refresh reads them again).
     func refresh(streamed: StatusReport? = nil) async {
+        unresolvableMark.refreshed(.bareRefresh)
         refreshesInFlight += 1
         defer {
             refreshesInFlight -= 1

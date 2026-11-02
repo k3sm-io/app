@@ -194,6 +194,17 @@ struct RepairUnresolvableTests {
         #expect(!mark.isSet)
     }
 
+    @Test("the bare refresh is an app-made read and never lifts the hold")
+    func bareRefreshKeepsTheHold() {
+        #expect(!RefreshSource.bareRefresh.liftsUnresolvableHold)
+        var mark = UnresolvableInstallMark()
+        mark.rootStepFinished(UpdateUnresolvableTests.failed, action: .update(.server),
+                              log: UpdateUnresolvableTests.refusedLog, state: nil)
+        #expect(mark.isSet)
+        mark.refreshed(.bareRefresh)
+        #expect(mark.isSet)
+    }
+
     @Test("only a refresh the user asked for lifts the hold", arguments: RefreshSource.allCases)
     func refreshSourcesThatLiftTheHold(_ source: RefreshSource) {
         var mark = Self.refusedMark()

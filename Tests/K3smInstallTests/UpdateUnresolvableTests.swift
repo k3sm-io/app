@@ -119,9 +119,15 @@ struct UpdateUnresolvableTests {
         return nil
     }
 
-    @Test("the recovery phrase and its line match the k3sm source", .enabled(if: k3smDirectory != nil))
+    /// Whether the caller named a k3sm checkout. With K3SM_DIR set the canary
+    /// must run and fail when the source cannot be read; only a bare run with
+    /// no K3SM_DIR and no sibling checkout skips it.
+    static var k3smDirectoryNamed: Bool { ProcessInfo.processInfo.environment["K3SM_DIR"] != nil }
+
+    @Test("the recovery phrase and its line match the k3sm source",
+          .enabled(if: k3smDirectory != nil || k3smDirectoryNamed))
     func recoveryPhraseMatchesTheK3smSource() throws {
-        let dir = try #require(Self.k3smDirectory)
+        let dir = try #require(Self.k3smDirectory, "K3SM_DIR is set but pkg/install/fromstaging.go is not readable there")
         let staging = try String(contentsOf: dir.appending(path: "pkg/install/fromstaging.go"), encoding: .utf8)
         let main = try String(contentsOf: dir.appending(path: "cmd/k3sm/main.go"), encoding: .utf8)
         let phrase = try #require(Self.goConstant("installedUnresolvableRecovery", in: staging),

@@ -173,6 +173,11 @@ public enum RefreshSource: CaseIterable, Sendable {
     /// refusal's sentence ends on the user's Refresh, after the install
     /// script; a read the app makes on its own, the one right after the
     /// refused step above all, never lifts it.
+    /// What a bare `refresh()` is: a read the app makes on its own, so it
+    /// never lifts the hold. A change of this default is a change of the
+    /// decision, and `RepairUnresolvableTests` pins it.
+    public static let bareRefresh: RefreshSource = .automatic
+
     public var liftsUnresolvableHold: Bool {
         switch self {
         case .guidedPanel, .menu, .popover, .firstRunCheckAgain: return true
