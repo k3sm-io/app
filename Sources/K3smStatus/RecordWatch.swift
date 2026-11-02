@@ -210,6 +210,8 @@ public final class DirectoryChangeSource: ChangeSource, @unchecked Sendable {
     private var watches: [PathWatch] = []
     private var continuation: AsyncStream<RecordChange>.Continuation?
     private var lastHeld: Bool?
+    /// How many `.changed` this source has yielded since it was made.
+    private var changes = 0
 
     private final class PathWatch {
         enum State {
@@ -278,6 +280,50 @@ public final class DirectoryChangeSource: ChangeSource, @unchecked Sendable {
     /// code reads it.
     var armCount: Int { queue.sync { watches.first?.generation ?? 0 } }
 
+    /// How many `.changed` the source has yielded, counted on the queue as
+    /// each is yielded, so a test that has seen a re-arm through `armCount`
+    /// knows every change that arm yielded. Read-only; no production code
+    /// reads it.
+    var changeCount: Int { queue.sync { changes } }
+
+    /// Runs the event handler of the path at `index` as a kqueue event
+    /// would, for tests: `generation` defaults to the path's current one,
+    /// and an older one is the late event of a cancelled source. No
+    /// production code calls it.
+    func deliver(_ events: DispatchSource.FileSystemEvent, toPath index: Int, generation: Int? = nil) {
+        queue.sync {
+            guard watches.indices.contains(index) else { return }
+            let watch = watches[index]
+            let waiting: Bool
+            switch watch.state {
+            case .watching: waiting = false
+            case .waiting: waiting = true
+            case .unheld: return
+            }
+            receive(events, for: watch, generation: generation ?? watch.generation, waiting: waiting)
+        }
+    }
+
+    /// One event from the source armed at `generation`: dropped when the path
+    /// has been armed since. On a waiting path any event arms again; on a
+    /// watched one an entry event is a change and an event on the directory
+    /// itself arms again.
+    private func receive(_ events: DispatchSource.FileSystemEvent, for watch: PathWatch, generation: Int, waiting: Bool) {
+        guard watch.generation == generation else { return }
+        if !waiting, events.isDisjoint(with: [.delete, .rename, .revoke]) {
+            yieldChanged()
+        } else {
+            arm(watch, announce: true)
+            publishHeld()
+        }
+    }
+
+    private func yieldChanged() {
+        guard let continuation else { return }
+        changes += 1
+        continuation.yield(.changed)
+    }
+
     private func stopOnQueue() {
         for watch in watches { Self.cancel(watch) }
         watches = []
@@ -304,38 +350,32 @@ public final class DirectoryChangeSource: ChangeSource, @unchecked Sendable {
                 return
             }
             let source = makeSource(fd: fd, mask: [.write, .delete, .rename, .revoke]) { [weak self, weak watch] events in
-                guard let self, let watch, watch.generation == generation else { return }
-                if events.isDisjoint(with: [.delete, .rename, .revoke]) {
-                    self.continuation?.yield(.changed)
-                } else {
-                    self.arm(watch, announce: true)
-                    self.publishHeld()
-                }
+                guard let self, let watch else { return }
+                self.receive(events, for: watch, generation: generation, waiting: false)
             }
             watch.state = .watching(source, Identity(device: Int64(info.st_dev), inode: UInt64(info.st_ino)))
-            if announce { continuation?.yield(.changed) }
+            if announce { yieldChanged() }
             return
         }
         guard errno == ENOENT, let ancestor = Self.nearestAncestor(of: resolved) else {
             watch.state = .unheld
-            if announce, wasWatching { continuation?.yield(.changed) }
+            if announce, wasWatching { yieldChanged() }
             return
         }
         let parentFD = open(ancestor, O_EVTONLY | O_NOFOLLOW | O_DIRECTORY)
         guard parentFD >= 0 else {
             watch.state = .unheld
-            if announce, wasWatching { continuation?.yield(.changed) }
+            if announce, wasWatching { yieldChanged() }
             return
         }
         // Any event on the ancestor may be the path, or a nearer ancestor,
         // appearing: arm again and see.
-        let source = makeSource(fd: parentFD, mask: [.write, .link, .delete, .rename, .revoke]) { [weak self, weak watch] _ in
-            guard let self, let watch, watch.generation == generation else { return }
-            self.arm(watch, announce: true)
-            self.publishHeld()
+        let source = makeSource(fd: parentFD, mask: [.write, .link, .delete, .rename, .revoke]) { [weak self, weak watch] events in
+            guard let self, let watch else { return }
+            self.receive(events, for: watch, generation: generation, waiting: true)
         }
         watch.state = .waiting(source)
-        if announce, wasWatching { continuation?.yield(.changed) }
+        if announce, wasWatching { yieldChanged() }
     }
 
     private func makeSource(fd: Int32, mask: DispatchSource.FileSystemEvent,
