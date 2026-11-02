@@ -265,9 +265,14 @@ big="$tmp/AppIcon.iconset/icon_512x512@2x.png"
 	|| { echo "FAIL: the 512x512@2x icon is not 1024x1024"; exit 1; }
 echo "    ok (app icon)"
 # The accent colour Info.plist names (NSAccentColorName) is a colour the
-# bundled Assets.car holds, so the bundle never names a set it lacks.
+# bundled Assets.car holds, so the bundle never names a set it lacks, and the
+# bundled catalog is the committed one AccentCatalogTests checked. assetutil
+# ships with macOS; without it the gate fails, never skips.
+[ -x /usr/bin/assetutil ] || { echo "FAIL: /usr/bin/assetutil is missing; the accent catalog cannot be checked"; exit 1; }
 car="$tmp/out/k3sm.app/Contents/Resources/Assets.car"
 [ -f "$car" ] || { echo "FAIL: the bundle has no Contents/Resources/Assets.car"; exit 1; }
+cmp -s Resources/Assets.car "$car" \
+	|| { echo "FAIL: the bundle's Contents/Resources/Assets.car differs from the committed Resources/Assets.car"; exit 1; }
 accent="$(plutil -extract NSAccentColorName raw "$tmp/out/k3sm.app/Contents/Info.plist")" \
 	|| { echo "FAIL: Info.plist has no NSAccentColorName"; exit 1; }
 /usr/bin/assetutil --info "$car" > "$tmp/assets.json" \
