@@ -249,6 +249,16 @@ struct RecordWatchTests {
         return counter.reads
     }
 
+    /// Polls `condition` every 20 ms for up to 5 s and returns whether it
+    /// held. The condition reads a counter the watcher's own queue keeps, so
+    /// the wait ends on the watcher's work, not on a guess at its timing.
+    private static func wait(_ condition: () -> Bool) async throws -> Bool {
+        for _ in 0..<250 where !condition() {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return condition()
+    }
+
     private static func waitHeld(_ trigger: ReportTrigger, _ want: Bool = true) async throws {
         for _ in 0..<100 where trigger.held != want {
             try await Task.sleep(for: .milliseconds(20))
@@ -310,12 +320,12 @@ struct RecordWatchTests {
         #expect(armed >= 1)
         #expect(!trigger.held, "a missing path is not held: the timer stays at the fallback")
         try FileManager.default.createDirectory(atPath: dir.path("data"), withIntermediateDirectories: false)
-        // Wait for the watcher to re-arm onto the nearer ancestor.
-        for _ in 0..<250 where source.armCount == armed {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        #expect(source.armCount > armed, "the watcher re-armed when the nearer ancestor appeared")
-        await settle()
+        // Wait for the watcher to re-arm onto the nearer ancestor. armCount
+        // and changeCount are read on the watcher's queue, so once the re-arm
+        // shows, every change it yielded shows too.
+        let rearmed = try await Self.wait { source.armCount > armed }
+        #expect(rearmed, "the watcher did not re-arm within 5 s of the nearer ancestor appearing")
+        #expect(source.changeCount == 0, "a nearer ancestor appearing is not a change")
         #expect(counter.reads == 0, "a nearer ancestor appearing is not a change")
         try FileManager.default.createDirectory(atPath: status, withIntermediateDirectories: false)
         #expect(try await Self.reads(counter, reaching: 1) == 1)
@@ -323,6 +333,65 @@ struct RecordWatchTests {
         try Data("{}".utf8).write(to: URL(fileURLWithPath: status + "/mesh-claims.json"))
         #expect(try await Self.reads(counter, reaching: 2) == 2)
         trigger.stop()
+    }
+
+    @Test("armCount counts the first path's arms: one per ancestor transition, none for a stale event")
+    func armCountTracksFirstPathOnly() async throws {
+        // An empty watch list reads 0, before and after start.
+        let empty = DirectoryChangeSource(paths: [])
+        #expect(empty.armCount == 0)
+        _ = empty.start()
+        #expect(empty.armCount == 0)
+        empty.deliver(.delete, toPath: 0)
+        #expect(empty.armCount == 0)
+        empty.stop()
+        #expect(DirectoryChangeSource(paths: ["/nonexistent"]).armCount == 0, "nothing is armed before start")
+
+        // One arm per ancestor transition, through a three-level late path.
+        let dir = try TempDir()
+        let deep = dir.path("a/b/c")
+        let other = dir.path("other")
+        try FileManager.default.createDirectory(atPath: other, withIntermediateDirectories: false)
+        let source = DirectoryChangeSource(paths: [deep, other])
+        _ = source.start()
+        #expect(source.armCount == 1, "start arms the first path once")
+        var count = 1
+        for step in ["a", "a/b", "a/b/c"] {
+            try FileManager.default.createDirectory(atPath: dir.path(step), withIntermediateDirectories: false)
+            let moved = try await Self.wait { source.armCount != count }
+            #expect(moved, "no re-arm within 5 s of \(step) appearing")
+            #expect(source.armCount == count + 1, "\(step) appearing re-arms the first path exactly once")
+            count += 1
+        }
+        // An entry written in the watched path is a change, not an arm.
+        try Data("{}".utf8).write(to: URL(fileURLWithPath: deep + "/services.json"))
+        let changed = try await Self.wait { source.changeCount >= 2 }
+        #expect(changed, "no change within 5 s of an entry written")
+        #expect(source.armCount == count, "an entry event does not re-arm")
+
+        // A stale generation's event is dropped: no arm, no change.
+        let changes = source.changeCount
+        source.deliver(.delete, toPath: 0, generation: count - 1)
+        source.deliver(.write, toPath: 0, generation: count - 1)
+        #expect(source.armCount == count, "a cancelled source's late event does not re-arm")
+        #expect(source.changeCount == changes, "a cancelled source's late event is not a change")
+        // The current generation's directory event re-arms once.
+        source.deliver(.delete, toPath: 0)
+        #expect(source.armCount == count + 1)
+        count += 1
+
+        // The second path's arms are not counted.
+        source.deliver(.delete, toPath: 1)
+        source.deliver(.revoke, toPath: 1)
+        source.recheck()
+        #expect(source.armCount == count, "the second path's arms do not move armCount")
+        let before = source.changeCount
+        try FileManager.default.removeItem(atPath: other)
+        let gone = try await Self.wait { source.changeCount > before }
+        #expect(gone, "no change within 5 s of the second path removed")
+        #expect(source.armCount == count, "the second path going does not move armCount")
+        source.stop()
+        #expect(source.armCount == 0, "stop empties the watch list")
     }
 
     @Test("a directory removed and recreated is armed again")
