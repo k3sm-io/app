@@ -149,11 +149,30 @@ public enum RootScriptBuilder {
         let q = ShellQuote.quote
         let staged = stagedBundle
         let text = stagedCopy(bundlePath: plan.bundlePath, stagingTemplate: plan.stagingTemplate,
-                              designatedRequirement: plan.policy.requirementClause, beforeCopy: markerCheck(plan)) + #"""
+                              designatedRequirement: plan.policy.requirementClause, beforeCopy: markerCheck(plan))
+            + floorSeed(plan) + #"""
             k3sm=\#(staged)/\#(q(CopyOutPlan.payloadCLI))
             \#(actionLines(plan, q: q))
-            """#
-        return stagedStep(text: text + "\n", prompt: plan.action.prompt(policy: plan.policy), readsInput: plan.action.readsToken)
+            """# + "\n" + floorReset(plan)
+        return stagedStep(text: text, prompt: plan.action.prompt(policy: plan.policy), readsInput: plan.action.readsToken)
+    }
+
+    /// Root's floor record for the app swap (`AppSwapFloor`): an install,
+    /// update or repair seeds it, after the signature check and before the
+    /// staged k3sm runs, only under the Developer ID policy (a copy checked
+    /// only for an intact signature could carry any tag) and only from the
+    /// bundle at the swap's own target, whose release it records.
+    static func floorSeed(_ plan: CopyOutPlan) -> String {
+        if case .uninstall = plan.action { return "" }
+        guard !plan.policy.isDeveloper, plan.bundlePath == AppSwapRoot.target else { return "" }
+        return AppSwapFloor.seed
+    }
+
+    /// An uninstall removes the floor record once `k3sm uninstall` has
+    /// succeeded, so a later install of an older release is not refused.
+    static func floorReset(_ plan: CopyOutPlan) -> String {
+        guard case .uninstall = plan.action else { return "" }
+        return AppSwapFloor.reset
     }
 
     /// In developer mode, the marker check every copy-out but the first

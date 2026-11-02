@@ -56,3 +56,8 @@ fi
 k3sm="$stage"/'k3sm.app'/'Contents/Resources/payload/k3sm'
 echo 'copy-out: running k3sm uninstall'
 "$k3sm" 'uninstall' '--purge' '--yes' '--user' 'alice'
+record='/Library/k3sm.app-floor'
+if [ -e "$record" ] || [ -L "$record" ]; then
+	/bin/rm -f "$record"
+	echo 'copy-out: removed the app release floor record'
+fi

@@ -1251,6 +1251,19 @@ not pass sudo's environment. The same command works in a terminal:
 sudo k3sm uninstall --purge --yes
 ```
 
+An install, an update or a repair from the `k3sm.app` in `/Applications`
+also writes `/Library/k3sm.app-floor`, a root-owned file holding the release
+tag of that app. It is the lowest release of `k3sm.app` the administrator
+step for replacing the app accepts, so an older release put back in
+`/Applications` is not run as root. The app's uninstall removes it once
+`k3sm uninstall` succeeds. `sudo k3sm uninstall` in a terminal leaves it, and
+then an older release of the app cannot be installed over it by that step; an
+administrator removes it with:
+
+```sh
+sudo rm -f /Library/k3sm.app-floor
+```
+
 Dragging `k3sm.app` to the Trash removes only the app. k3sm keeps running,
 because the cluster does not depend on its front end. To remove k3sm itself,
 use the app's uninstall action before deleting the app, or run
