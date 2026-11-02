@@ -107,6 +107,38 @@ public struct RootScript: Hashable, Sendable {
     }
 }
 
+/// ScriptRoot is where a root script's absolute paths start: `system`, the
+/// empty prefix, in every shipped script, so the text is exactly the paths
+/// as written; a scratch directory only in the tests that run a script as
+/// this account, with stub tools under the prefix. It is internal, so no
+/// caller outside the module (the app, the helper) can render a re-rooted
+/// script, and the public renderers always use `system`.
+// Internal on purpose: a public init would let a caller re-root a root script.
+struct ScriptRoot: Sendable, Equatable {
+    /// The prefix put before every absolute path.
+    let prefix: String
+
+    /// The shipped root: no prefix.
+    static let system = ScriptRoot(unchecked: "")
+
+    private init(unchecked prefix: String) { self.prefix = prefix }
+
+    /// A scratch root, or nil unless `prefix` is an absolute path of letters,
+    /// digits, `/`, `.`, `_` and `-` only, with no trailing slash, no empty
+    /// segment and no `.` or `..` segment, so it needs no quoting where the
+    /// scripts write a tool's path bare and names one directory as written.
+    init?(prefix: String) {
+        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_/.-")
+        guard prefix.hasPrefix("/"), !prefix.hasSuffix("/"), prefix.allSatisfy(allowed.contains) else { return nil }
+        let segments = prefix.dropFirst().split(separator: "/", omittingEmptySubsequences: false)
+        guard !segments.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else { return nil }
+        self.prefix = prefix
+    }
+
+    /// `path` under this root.
+    func callAsFunction(_ path: String) -> String { prefix + path }
+}
+
 /// RootScriptBuilder renders the root shell script for a copy-out plan:
 /// set up the log, sweep stale staging entries, copy the bundle with no
 /// extended attributes, refuse unsafe entries, chown to root, verify the
@@ -166,20 +198,21 @@ public enum RootScriptBuilder {
     /// log and its exit trap are set up, before the staging root is touched:
     /// the developer-mode marker check, so a refusal copies nothing.
     static func stagedCopy(bundlePath: String, stagingTemplate: String, designatedRequirement: String?,
-                           beforeCopy: String = "") -> String {
+                           beforeCopy: String = "", root: ScriptRoot = .system) -> String {
         let q = ShellQuote.quote
+        let r = root
         let staged = stagedBundle
         let verify: String
         if let designatedRequirement {
             verify = #"""
-                if ! /usr/bin/codesign --verify --strict --deep \#(q("-R=" + designatedRequirement)) \#(staged); then
+                if ! \#(r("/usr/bin/codesign")) --verify --strict --deep \#(q("-R=" + designatedRequirement)) \#(staged); then
                 	echo 'copy-out: refused: the app is not signed by the k3sm Developer ID'
                 	exit \#(CopyOutExit.signatureRejected)
                 fi
                 """#
         } else {
             verify = #"""
-                if ! /usr/bin/codesign --verify --strict --deep \#(staged); then
+                if ! \#(r("/usr/bin/codesign")) --verify --strict --deep \#(staged); then
                 	echo 'copy-out: refused: the app signature is not intact'
                 	exit \#(CopyOutExit.signatureRejected)
                 fi
@@ -189,53 +222,53 @@ public enum RootScriptBuilder {
             set -eu
             umask 077
             cd /
-            logdir=\#(q(CopyOutPlan.logDirectory))
-            log=\#(q(CopyOutPlan.logPath))
+            logdir=\#(q(r(CopyOutPlan.logDirectory)))
+            log=\#(q(r(CopyOutPlan.logPath)))
             if [ -L "$logdir" ] || [ -L "$log" ]; then
             	echo 'copy-out: refused: the log path is a symlink' >&2
             	exit \#(CopyOutExit.refusedPath)
             fi
-            /bin/mkdir -p "$logdir"
-            /usr/sbin/chown root:admin "$logdir"
-            /bin/chmod 0750 "$logdir"
-            /bin/rm -f "$log"
+            \#(r("/bin/mkdir")) -p "$logdir"
+            \#(r("/usr/sbin/chown")) root:admin "$logdir"
+            \#(r("/bin/chmod")) 0750 "$logdir"
+            \#(r("/bin/rm")) -f "$log"
             : > "$log"
-            /usr/sbin/chown root:admin "$log"
-            /bin/chmod 0640 "$log"
+            \#(r("/usr/sbin/chown")) root:admin "$log"
+            \#(r("/bin/chmod")) 0640 "$log"
             exec >> "$log" 2>&1
             stage=
             finish() {
             	status=$?
-            	if [ -n "$stage" ]; then /usr/bin/chflags -R nouchg,nouappnd "$stage" 2>/dev/null || true; /bin/rm -rf "$stage"; fi
+            	if [ -n "$stage" ]; then \#(r("/usr/bin/chflags")) -R nouchg,nouappnd "$stage" 2>/dev/null || true; \#(r("/bin/rm")) -rf "$stage"; fi
             	echo "copy-out: exit $status"
             }
             trap finish EXIT
             trap 'exit 130' HUP INT TERM
-            \#(beforeCopy)root=\#(q(CopyOutPlan.stagingRoot))
+            \#(beforeCopy)root=\#(q(r(CopyOutPlan.stagingRoot)))
             if [ -L "$root" ]; then
             	echo 'copy-out: refused: the staging root is a symlink'
             	exit \#(CopyOutExit.refusedPath)
             fi
-            /bin/mkdir -p "$root"
-            /usr/sbin/chown root:wheel "$root"
-            /bin/chmod 0700 "$root"
+            \#(r("/bin/mkdir")) -p "$root"
+            \#(r("/usr/sbin/chown")) root:wheel "$root"
+            \#(r("/bin/chmod")) 0700 "$root"
             echo 'copy-out: sweeping stale staging entries'
             # rm cannot remove a file flagged uchg or uappnd, which a user can set
             # on a staged file and ditto keeps; under set -eu that would wedge every
             # later root step. Clear them first; a failure falls through to rm.
-            /usr/bin/find "$root" -mindepth 1 -maxdepth 1 -exec /usr/bin/chflags -R nouchg,nouappnd {} + || true
-            /usr/bin/find "$root" -mindepth 1 -maxdepth 1 -exec /bin/rm -rf {} +
-            stage=$(/usr/bin/mktemp -d \#(q(stagingTemplate)))
-            /usr/sbin/chown root:wheel "$stage"
-            /bin/chmod 0700 "$stage"
+            \#(r("/usr/bin/find")) "$root" -mindepth 1 -maxdepth 1 -exec \#(r("/usr/bin/chflags")) -R nouchg,nouappnd {} + || true
+            \#(r("/usr/bin/find")) "$root" -mindepth 1 -maxdepth 1 -exec \#(r("/bin/rm")) -rf {} +
+            stage=$(\#(r("/usr/bin/mktemp")) -d \#(q(stagingTemplate)))
+            \#(r("/usr/sbin/chown")) root:wheel "$stage"
+            \#(r("/bin/chmod")) 0700 "$stage"
             echo 'copy-out: copying the app bundle'
-            /usr/bin/ditto --norsrc --noextattr --noqtn --noacl \#(q(bundlePath)) \#(staged)
-            bad=$(/usr/bin/find \#(staged) \( ! \( -type f -o -type d \) -o -perm +6022 \) -print | /usr/bin/head -n 1)
+            \#(r("/usr/bin/ditto")) --norsrc --noextattr --noqtn --noacl \#(q(bundlePath)) \#(staged)
+            bad=$(\#(r("/usr/bin/find")) \#(staged) \( ! \( -type f -o -type d \) -o -perm +6022 \) -print | \#(r("/usr/bin/head")) -n 1)
             if [ -n "$bad" ]; then
             	echo "copy-out: refused: $bad is a symlink, a special file, setuid or setgid, or writable by group or others"
             	exit \#(CopyOutExit.refusedTree)
             fi
-            /usr/sbin/chown -R root:wheel \#(staged)
+            \#(r("/usr/sbin/chown")) -R root:wheel \#(staged)
             echo 'copy-out: verifying the signature'
             \#(verify)
 

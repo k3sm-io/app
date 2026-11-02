@@ -192,8 +192,10 @@ struct DeveloperModeTrustTests {
     @Test("every .developerID render equals its golden byte for byte")
     func developerModeTrustTableDeveloperIDGoldens() throws {
         let renders = Self.policyRenders()
-        // The goldens' developer-mode renders (`developer-*`) are checked by the golden suite itself.
-        #expect(Set(renders.map(\.name)) == Set(RootScriptGoldenTests.renders().map(\.name).filter { !$0.hasPrefix("developer-") }))
+        // The goldens' developer-mode renders (`developer-*`) are checked by the golden suite itself, and so
+        // is the version set's roll (`bundled-roll*`), which takes a Team ID and has no policy API.
+        #expect(Set(renders.map(\.name)) == Set(RootScriptGoldenTests.renders().map(\.name)
+            .filter { !$0.hasPrefix("developer-") && !$0.hasPrefix("bundled-roll") }))
         for (name, text) in renders {
             let expected = try RootScriptGoldenTests.fixture(name)
             if let d = RootScriptGoldenTests.diff(expected: expected, actual: text) {
