@@ -168,7 +168,7 @@ final class MainMenu: NSObject, NSMenuItemValidation {
 
     @objc private func refresh(_ sender: Any?) {
         Task {
-            await model.userRefresh()
+            await model.refresh(from: .menu)
             await model.refreshTabs()
         }
     }

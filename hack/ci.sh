@@ -117,6 +117,12 @@ run_suite() {
 	# Without a checkout K3SM_DIR stays as the caller left it, so the tests
 	# that need one skip as they always have; ci.sh's own K3SM_DIR is never
 	# changed, since later stages read whether the caller set it.
+	# A K3SM_DIR the caller set must name a readable checkout: the drift
+	# canary fails on it rather than skipping, and the run refuses it here.
+	if [ -n "${K3SM_DIR:-}" ] && [ ! -r "$K3SM_DIR/pkg/install/fromstaging.go" ]; then
+		echo "FAIL: K3SM_DIR=$K3SM_DIR has no readable pkg/install/fromstaging.go"
+		exit 1
+	fi
 	if [ -d "$k3sm_dir/cmd/k3sm" ]; then
 		env_args=("K3SM_DIR=$(cd "$k3sm_dir" && pwd)")
 	fi

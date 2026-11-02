@@ -385,11 +385,12 @@ final class AppModel: ObservableObject {
     @Published private(set) var running = false
     @Published private(set) var logTail = ""
     @Published private(set) var outcomeMessage: String?
-    /// Whether the last Repair ended on k3sm's refusal of an installed k3sm
-    /// that does not resolve (`UnresolvableInstall`): Repair is then not
-    /// offered again (`RepairPolicy`) until the user's Refresh, a root step
-    /// that succeeds, or a state Repair is not offered for.
-    @Published private(set) var unresolvableMark = UnresolvableRepairMark()
+    /// Whether the last Repair or Update ended on k3sm's refusal of an
+    /// installed k3sm that does not resolve (`UnresolvableInstall`): neither
+    /// is offered again (`RepairPolicy`, the update plan's refusal) until a
+    /// refresh the user asked for, a root step that succeeds, or a changed
+    /// state (`UnresolvableInstallMark`).
+    @Published private(set) var unresolvableMark = UnresolvableInstallMark()
     /// The first run's path (start or join) and its step (`FirstRunFlow`).
     @Published var choice: FirstRunPath = .start
     @Published private(set) var firstRunStep: FirstRunStep = .choose {
@@ -800,9 +801,10 @@ final class AppModel: ObservableObject {
     /// next flight starts when it returns; otherwise a plain refresh.
     func checkAgain() {
         guard installWatch != nil else {
-            Task { await refresh() }
+            Task { await refresh(from: .firstRunCheckAgain) }
             return
         }
+        unresolvableMark.refreshed(.firstRunCheckAgain)
         if installWatch?.checkNow(now: Self.uptime) == true {
             Task { await runInstallCheck() }
         }
@@ -881,6 +883,8 @@ final class AppModel: ObservableObject {
             refusal = "Another change is running."
         } else if case .disabled(let reason) = availability {
             refusal = reason
+        } else if let why = unresolvableMark.updateRefusal(payload: rootPayload) {
+            refusal = why
         }
         let managedRefusal = lanTrustRefusal.map {
             "The app will not run the installed k3sm as root: \($0). Use `sudo k3sm update apply` in Terminal."
@@ -976,10 +980,11 @@ final class AppModel: ObservableObject {
         return nil
     }
 
-    /// The user's Refresh: it lifts the unresolvable-install hold on
-    /// Repair (`UnresolvableRepairMark`), then reads the state again.
-    func userRefresh() async {
-        unresolvableMark.userRefreshed()
+    /// A refresh `source` asked for: the unresolvable-install hold
+    /// (`UnresolvableInstallMark`) is lifted only when the source says so
+    /// (`RefreshSource.liftsUnresolvableHold`), then the state is read again.
+    func refresh(from source: RefreshSource) async {
+        unresolvableMark.refreshed(source)
         await refresh()
     }
 
@@ -1037,7 +1042,7 @@ final class AppModel: ObservableObject {
             start(.repair, input: nil, finished: finish)
         case .refresh:
             Task {
-                await userRefresh()
+                await refresh(from: .guidedPanel)
                 if health == .statusUnreadable {
                     finish(false, HealthState.statusUnreadable.line ?? "")
                 } else {
@@ -1058,6 +1063,7 @@ final class AppModel: ObservableObject {
     /// the full report, and the installed version and the lifecycle verbs
     /// keep their last read (an explicit refresh reads them again).
     func refresh(streamed: StatusReport? = nil) async {
+        unresolvableMark.refreshed(.bareRefresh)
         refreshesInFlight += 1
         defer {
             refreshesInFlight -= 1
@@ -2323,7 +2329,7 @@ final class AppModel: ObservableObject {
             tail.cancel()
             guard let self else { return }
             self.logTail = Self.readLog()
-            self.unresolvableMark.rootStepFinished(outcome, action: plan.action, log: self.logTail)
+            self.unresolvableMark.rootStepFinished(outcome, action: plan.action, log: self.logTail, state: self.health)
             let text = OutcomeSummary.text(outcome, plan: plan, log: self.logTail)
             self.outcomeMessage = text
             self.running = false
