@@ -385,6 +385,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var running = false
     @Published private(set) var logTail = ""
     @Published private(set) var outcomeMessage: String?
+    /// Whether the last Repair ended on k3sm's refusal of an installed k3sm
+    /// that does not resolve (`UnresolvableInstall`): Repair is then not
+    /// offered again (`RepairPolicy`) while the state stays repairable.
+    @Published private(set) var repairUnresolvable = false
     /// The first run's path (start or join) and its step (`FirstRunFlow`).
     @Published var choice: FirstRunPath = .start
     @Published private(set) var firstRunStep: FirstRunStep = .choose {
@@ -973,7 +977,7 @@ final class AppModel: ObservableObject {
 
     /// Why Repair cannot run now (`RepairPolicy`), nil when it can.
     var repairRefusal: RepairRefusal? {
-        RepairPolicy.refusal(health: health, rootStep: rootStep, payload: rootPayload)
+        RepairPolicy.refusal(health: health, rootStep: rootStep, payload: rootPayload, unresolvable: repairUnresolvable)
     }
 
     /// Opens the guided panel for the current state.
@@ -1081,6 +1085,7 @@ final class AppModel: ObservableObject {
         let state = HealthClassifier.classify(HealthFacts(
             installRootExists: files.rootExists, cliPresent: files.cliPresent, cliTrust: trust, report: read,
             payloadVersion: payloadVersion, installedVersion: files.rootExists ? installedVersion : nil))
+        if !state.repairable, repairUnresolvable { repairUnresolvable = false }
         if state != health { health = state }
         // While the install watch runs, the first run holds the content pane
         // until the watch decides k3sm is up, so a half-started install does
@@ -2310,7 +2315,10 @@ final class AppModel: ObservableObject {
             tail.cancel()
             guard let self else { return }
             self.logTail = Self.readLog()
-            let text = OutcomeSummary.text(outcome, action: plan.action)
+            if case .repair = plan.action {
+                self.repairUnresolvable = UnresolvableInstall.refused(outcome, action: plan.action, log: self.logTail)
+            }
+            let text = OutcomeSummary.text(outcome, plan: plan, log: self.logTail)
             self.outcomeMessage = text
             self.running = false
             log.notice("copy-out finished")
