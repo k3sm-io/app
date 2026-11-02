@@ -385,6 +385,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var running = false
     @Published private(set) var logTail = ""
     @Published private(set) var outcomeMessage: String?
+    /// Whether the last Repair ended on k3sm's refusal of an installed k3sm
+    /// that does not resolve (`UnresolvableInstall`): Repair is then not
+    /// offered again (`RepairPolicy`) until the user's Refresh, a root step
+    /// that succeeds, or a state Repair is not offered for.
+    @Published private(set) var unresolvableMark = UnresolvableRepairMark()
     /// The first run's path (start or join) and its step (`FirstRunFlow`).
     @Published var choice: FirstRunPath = .start
     @Published private(set) var firstRunStep: FirstRunStep = .choose {
@@ -971,9 +976,16 @@ final class AppModel: ObservableObject {
         return nil
     }
 
+    /// The user's Refresh: it lifts the unresolvable-install hold on
+    /// Repair (`UnresolvableRepairMark`), then reads the state again.
+    func userRefresh() async {
+        unresolvableMark.userRefreshed()
+        await refresh()
+    }
+
     /// Why Repair cannot run now (`RepairPolicy`), nil when it can.
     var repairRefusal: RepairRefusal? {
-        RepairPolicy.refusal(health: health, rootStep: rootStep, payload: rootPayload)
+        RepairPolicy.refusal(health: health, rootStep: rootStep, payload: rootPayload, unresolvable: unresolvableMark.isSet)
     }
 
     /// Opens the guided panel for the current state.
@@ -1025,7 +1037,7 @@ final class AppModel: ObservableObject {
             start(.repair, input: nil, finished: finish)
         case .refresh:
             Task {
-                await refresh()
+                await userRefresh()
                 if health == .statusUnreadable {
                     finish(false, HealthState.statusUnreadable.line ?? "")
                 } else {
@@ -1081,6 +1093,7 @@ final class AppModel: ObservableObject {
         let state = HealthClassifier.classify(HealthFacts(
             installRootExists: files.rootExists, cliPresent: files.cliPresent, cliTrust: trust, report: read,
             payloadVersion: payloadVersion, installedVersion: files.rootExists ? installedVersion : nil))
+        if unresolvableMark.isSet { unresolvableMark.stateRead(state) }
         if state != health { health = state }
         // While the install watch runs, the first run holds the content pane
         // until the watch decides k3sm is up, so a half-started install does
@@ -2310,7 +2323,8 @@ final class AppModel: ObservableObject {
             tail.cancel()
             guard let self else { return }
             self.logTail = Self.readLog()
-            let text = OutcomeSummary.text(outcome, action: plan.action)
+            self.unresolvableMark.rootStepFinished(outcome, action: plan.action, log: self.logTail)
+            let text = OutcomeSummary.text(outcome, plan: plan, log: self.logTail)
             self.outcomeMessage = text
             self.running = false
             log.notice("copy-out finished")

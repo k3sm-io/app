@@ -34,6 +34,11 @@ public enum RepairRefusal: Equatable, Sendable {
     case installedNewer
     /// The state is not a half-installed one (`HealthState.repairable`).
     case notHalfInstalled
+    /// The last Repair was refused because the installed k3sm does not
+    /// resolve to a binary of its install tree (`UnresolvableInstall`), so
+    /// running Repair again cannot work: the install script repairs it.
+    /// `payload` is the release the app carries, which the script pins.
+    case installedUnresolvable(payload: SemanticVersion?)
 
     /// The line shown as the disabled Repair button's help tag, and as the
     /// panel's failure line when Repair is clicked anyway.
@@ -51,6 +56,11 @@ public enum RepairRefusal: Equatable, Sendable {
             return "The installed k3sm is newer than this app's, and Repair never installs an older release."
         case .notHalfInstalled:
             return "Repair is for a k3sm whose command is missing or untrusted, or whose daemons are partly down."
+        case .installedUnresolvable(let payload):
+            return "The installed k3sm command does not lead to a k3sm in its install tree, so Repair cannot run it. "
+                + "Repair the install with the install script in Terminal, "
+                + GuidedSteps.installScriptCommand(version: payload)
+                + ", then click Refresh."
         }
     }
 }
@@ -62,17 +72,79 @@ public enum RepairRefusal: Equatable, Sendable {
 /// verified, then the staged CLI run), so the trust path is the existing one.
 public enum RepairPolicy {
     /// nil when Repair may run, else why not. The order is the contract: the
-    /// root step and the payload first, then the state.
-    public static func refusal(health: HealthState?, rootStep: Bool, payload: SemanticVersion?) -> RepairRefusal? {
+    /// root step and the payload first, then the state. `unresolvable` is
+    /// whether the last Repair ended on k3sm's unresolvable-install refusal
+    /// (`UnresolvableInstall.refused`); it holds only while the state is
+    /// still a repairable one, so a Mac the install script has repaired
+    /// offers Repair again when it next needs it.
+    public static func refusal(health: HealthState?, rootStep: Bool, payload: SemanticVersion?,
+                               unresolvable: Bool = false) -> RepairRefusal? {
         guard rootStep else { return .noRootStep }
         guard payload != nil else { return .payloadUnknown }
         guard let health else { return .healthUnknown }
-        if health.repairable { return nil }
+        if health.repairable { return unresolvable ? .installedUnresolvable(payload: payload) : nil }
         switch health {
         case .notInstalled: return .notInstalled
         case .versionMismatch(_, _, .older): return .installedNewer
         default: return .notHalfInstalled
         }
+    }
+}
+
+/// UnresolvableInstall recognises k3sm's refusal of `install --from-staging`
+/// when the installed k3sm's entry point does not resolve to a binary of its
+/// install tree (a dangling compat link, a loop, or a target outside the
+/// tree). k3sm keeps refusing that install, so Repair, which runs it, cannot
+/// work, and the refusal itself names the install script as the repair.
+///
+/// The copy-out log is the CLI's output, untrusted: it is only searched for
+/// the phrase, and the user sees the app's own sentence
+/// (`RepairRefusal.installedUnresolvable`), never the log's text.
+public enum UnresolvableInstall {
+    /// The recovery k3sm appends to the refusal, verbatim (k3sm
+    /// `pkg/install` `installedUnresolvableRecovery`, printed on stderr as
+    /// `install: <cause>; <recovery>`).
+    public static let recoveryPhrase = "repair the install with the install script, "
+        + "curl -fsSL https://k3sm.io/install.sh | sh "
+        + "(K3SM_INSTALL_VERSION=vX.Y.Z after the pipe pins a release), then update again"
+
+    /// Whether a finished root step for `action` was a Repair that k3sm
+    /// refused with the unresolvable-install recovery in `log`.
+    public static func refused(_ outcome: PrivilegedOutcome, action: CopyOutAction, log: String) -> Bool {
+        guard case .repair = action, case .failed = outcome else { return false }
+        return log.contains(recoveryPhrase)
+    }
+}
+
+/// UnresolvableRepairMark is whether the app holds Repair back after k3sm's
+/// unresolvable-install refusal (`RepairPolicy.refusal`'s `unresolvable`).
+/// A failed Repair with the refusal in its log sets it; a Repair that failed
+/// otherwise clears it. It clears on the user's Refresh (the step the
+/// refusal's sentence ends on), on any root step that succeeds, and on a
+/// state Repair is not offered for.
+public struct UnresolvableRepairMark: Equatable, Sendable {
+    public private(set) var isSet = false
+
+    public init() {}
+
+    /// A copy-out root step (install, join, update, repair, uninstall)
+    /// finished with `outcome`, leaving `log`.
+    public mutating func rootStepFinished(_ outcome: PrivilegedOutcome, action: CopyOutAction, log: String) {
+        if outcome == .succeeded {
+            isSet = false
+        } else if case .repair = action {
+            isSet = UnresolvableInstall.refused(outcome, action: action, log: log)
+        }
+    }
+
+    /// The user asked for a Refresh (the guided panel, the menu or the popover).
+    public mutating func userRefreshed() {
+        isSet = false
+    }
+
+    /// A health check read `state`.
+    public mutating func stateRead(_ state: HealthState) {
+        if !state.repairable { isSet = false }
     }
 }
 

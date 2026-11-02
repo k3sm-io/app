@@ -17,6 +17,17 @@ limitations under the License.
 /// OutcomeSummary turns a finished root step into the one sentence the window
 /// shows under the log.
 public enum OutcomeSummary {
+    /// The sentence for `plan`'s finished step, read beside the copy-out log
+    /// it left: a Repair k3sm refused because the installed k3sm cannot
+    /// resolve names the install script (`UnresolvableInstall`); every other
+    /// outcome is `text(_:action:)`'s.
+    public static func text(_ outcome: PrivilegedOutcome, plan: CopyOutPlan, log: String) -> String {
+        if UnresolvableInstall.refused(outcome, action: plan.action, log: log) {
+            return RepairRefusal.installedUnresolvable(payload: plan.payloadVersion).text
+        }
+        return text(outcome, action: plan.action)
+    }
+
     public static func text(_ outcome: PrivilegedOutcome, action: CopyOutAction) -> String {
         switch outcome {
         case .succeeded:
