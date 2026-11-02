@@ -37,7 +37,10 @@ import K3smStatus
 /// is on, the status item's icon carries a small dot. While the menu is open
 /// and its full status read runs past `Waiting.debounce`, the icon's wings
 /// beat (`Waiting.menuFrame`), badges and all, on a timer that also fires
-/// while the menu tracks.
+/// while the menu tracks. Otherwise the icon mirrors the wordmark's beat
+/// (`AppModel.flap`, as the Dock does), so the two beat together while the
+/// console is up, and a pointer entering the icon asks for a beat under the
+/// mark's own hover rule.
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private static let autosaveName = "io.k3sm.app.status"
@@ -79,6 +82,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var framesBegan: TimeInterval?
     private var frameTimer: Timer?
     private var wingAngle = 0.0
+    /// The wordmark butterfly's hinge angle (`AppModel.flap`), mirrored on
+    /// the icon the way the Dock mirrors it, so the two beat together while
+    /// the console is up; the waiting frames take precedence while they play.
+    private var flapAngle = 0.0
+    private var flapObservation: AnyCancellable?
     /// The last report the poller or the menu's full read returned, which
     /// Copy Join Command is gated on (the role is in the full read).
     private var joinReport: StatusReport?
@@ -93,6 +101,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         super.init()
         menu.autoenablesItems = false
         menu.delegate = self
+        flapObservation = model.flap.$angle.removeDuplicates().sink { [weak self] angle in
+            MainActor.assumeIsolated { self?.mirrorFlap(angle) }
+        }
         for line in [clusterItem, thisMacItem] {
             line.isEnabled = false
             menu.addItem(line)
@@ -181,7 +192,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     /// Shows the degraded mark and the LAN dot on the icon.
     private func updateIcon() {
-        item?.button?.image = Self.icon(degraded: degraded, lan: model.lanToggle().showsIndicator, wingAngle: wingAngle)
+        let angle = wingAngle != 0 ? wingAngle : flapAngle
+        item?.button?.image = Self.icon(degraded: degraded, lan: model.lanToggle().showsIndicator, wingAngle: angle)
     }
 
     /// Adds an item with its catalog help tag as its tooltip; the update
@@ -278,6 +290,24 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func menuDidClose(_ menu: NSMenu) {
         menuOpen = false
         stepFrames()
+    }
+
+    // MARK: the wordmark's beat
+
+    /// Draws the icon at the wordmark's hinge angle, so a beat in the window
+    /// (timed, or started by a hover on the mark) shows on the icon too.
+    private func mirrorFlap(_ angle: Double) {
+        guard angle != flapAngle else { return }
+        flapAngle = angle
+        updateIcon()
+    }
+
+    /// The pointer entering the icon asks the wordmark for a beat, under the
+    /// same rule as a hover on the mark (`Flap.hoverStartsBeat`), so both
+    /// beat together or neither does. The button sends this for the tracking
+    /// area `insert` adds.
+    @objc func mouseEntered(with event: NSEvent) {
+        model.flap.poke()
     }
 
     // MARK: waiting animation
@@ -379,6 +409,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         item.isVisible = true
         item.menu = menu
         self.item = item
+        if let button = item.button {
+            button.addTrackingArea(NSTrackingArea(
+                rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
+        }
         updateIcon()
         visibilityObservation = item.observe(\.isVisible, options: [.new]) { [weak self] item, _ in
             let visible = item.isVisible
