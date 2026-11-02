@@ -303,12 +303,19 @@ struct RecordWatchTests {
     func realLateDirectory() async throws {
         let dir = try TempDir()
         let status = dir.path("data/status")
-        let (trigger, _, counter) = Self.real(status)
+        let (trigger, source, counter) = Self.real(status)
         trigger.start()
-        try await Task.sleep(for: .milliseconds(100))
+        // start() arms synchronously: the watcher is on the nearest ancestor.
+        let armed = source.armCount
+        #expect(armed >= 1)
         #expect(!trigger.held, "a missing path is not held: the timer stays at the fallback")
         try FileManager.default.createDirectory(atPath: dir.path("data"), withIntermediateDirectories: false)
-        try await Task.sleep(for: .milliseconds(100))
+        // Wait for the watcher to re-arm onto the nearer ancestor.
+        for _ in 0..<250 where source.armCount == armed {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(source.armCount > armed, "the watcher re-armed when the nearer ancestor appeared")
+        await settle()
         #expect(counter.reads == 0, "a nearer ancestor appearing is not a change")
         try FileManager.default.createDirectory(atPath: status, withIntermediateDirectories: false)
         #expect(try await Self.reads(counter, reaching: 1) == 1)
