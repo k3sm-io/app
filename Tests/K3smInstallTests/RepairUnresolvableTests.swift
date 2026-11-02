@@ -90,4 +90,50 @@ struct RepairUnresolvableTests {
         let signature = PrivilegedOutcome.failed(exitStatus: CopyOutExit.signatureRejected)
         #expect(OutcomeSummary.text(signature, plan: plan, log: Self.otherLog).contains("signature check"))
     }
+
+    /// The mark as a failed Repair with the refusal in its log leaves it.
+    static func refusedMark() -> UnresolvableRepairMark {
+        var mark = UnresolvableRepairMark()
+        mark.rootStepFinished(.failed(exitStatus: 1), action: .repair, log: refusedLog)
+        return mark
+    }
+
+    static func offered(_ mark: UnresolvableRepairMark, _ health: HealthState = .cliMissing) -> Bool {
+        RepairPolicy.refusal(health: health, rootStep: true, payload: v020, unresolvable: mark.isSet) == nil
+    }
+
+    @Test("the refusal holds repair back until something changes")
+    func refusalSetsTheMark() {
+        var mark = Self.refusedMark()
+        #expect(mark.isSet && !Self.offered(mark))
+        // A still-repairable state read keeps it; another Repair failure for another reason clears it.
+        mark.stateRead(.partlyRunning(down: ["io.k3sm.agent"]))
+        #expect(mark.isSet)
+        mark.rootStepFinished(.failed(exitStatus: 1), action: .repair, log: Self.otherLog)
+        #expect(!mark.isSet && Self.offered(mark))
+        // A state Repair is not offered for clears it.
+        var healed = Self.refusedMark()
+        healed.stateRead(.healthy)
+        #expect(!healed.isSet)
+    }
+
+    @Test("a refresh on a still-repairable state offers repair again")
+    func refreshOffersRepairAgain() {
+        var mark = Self.refusedMark()
+        mark.stateRead(.partlyRunning(down: ["io.k3sm.agent"]))
+        #expect(!Self.offered(mark, .partlyRunning(down: ["io.k3sm.agent"])))
+        mark.userRefreshed()
+        #expect(Self.offered(mark, .partlyRunning(down: ["io.k3sm.agent"])))
+    }
+
+    @Test("a successful root step offers repair again", arguments: [
+        CopyOutAction.update(.server), .repair, .startServer,
+    ])
+    func successOffersRepairAgain(_ action: CopyOutAction) {
+        var mark = Self.refusedMark()
+        mark.rootStepFinished(.failed(exitStatus: 1), action: .uninstall(purge: false), log: "")
+        #expect(mark.isSet, "a failed non-Repair step leaves the mark")
+        mark.rootStepFinished(.succeeded, action: action, log: "")
+        #expect(Self.offered(mark))
+    }
 }

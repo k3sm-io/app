@@ -522,7 +522,7 @@ struct StatusView: View {
                     if let report = model.report {
                         allChecks(report)
                     }
-                    Button("Refresh") { Task { await model.refresh() } }
+                    Button("Refresh") { Task { await model.userRefresh() } }
                         .disabled(model.running)
                         .help(Help.Popover.refresh)
                 }

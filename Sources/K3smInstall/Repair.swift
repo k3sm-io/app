@@ -116,6 +116,38 @@ public enum UnresolvableInstall {
     }
 }
 
+/// UnresolvableRepairMark is whether the app holds Repair back after k3sm's
+/// unresolvable-install refusal (`RepairPolicy.refusal`'s `unresolvable`).
+/// A failed Repair with the refusal in its log sets it; a Repair that failed
+/// otherwise clears it. It clears on the user's Refresh (the step the
+/// refusal's sentence ends on), on any root step that succeeds, and on a
+/// state Repair is not offered for.
+public struct UnresolvableRepairMark: Equatable, Sendable {
+    public private(set) var isSet = false
+
+    public init() {}
+
+    /// A copy-out root step (install, join, update, repair, uninstall)
+    /// finished with `outcome`, leaving `log`.
+    public mutating func rootStepFinished(_ outcome: PrivilegedOutcome, action: CopyOutAction, log: String) {
+        if outcome == .succeeded {
+            isSet = false
+        } else if case .repair = action {
+            isSet = UnresolvableInstall.refused(outcome, action: action, log: log)
+        }
+    }
+
+    /// The user asked for a Refresh (the guided panel, the menu or the popover).
+    public mutating func userRefreshed() {
+        isSet = false
+    }
+
+    /// A health check read `state`.
+    public mutating func stateRead(_ state: HealthState) {
+        if !state.repairable { isSet = false }
+    }
+}
+
 /// RepairConfirmation is the question asked before Repair's administrator
 /// prompt: what Repair does, what it keeps for this Mac's role, and when k3sm
 /// refuses it. Fixed text, but for the release the app carries, which is the
