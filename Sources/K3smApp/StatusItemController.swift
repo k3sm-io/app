@@ -37,7 +37,10 @@ import K3smStatus
 /// is on, the status item's icon carries a small dot. While the menu is open
 /// and its full status read runs past `Waiting.debounce`, the icon's wings
 /// beat (`Waiting.menuFrame`), badges and all, on a timer that also fires
-/// while the menu tracks.
+/// while the menu tracks. Otherwise the icon mirrors the wordmark's beat
+/// (`AppModel.flap`, as the Dock does), so the two beat together while the
+/// console is up, and a pointer entering the icon asks for a beat under the
+/// mark's own hover rule.
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private static let autosaveName = "io.k3sm.app.status"
@@ -79,6 +82,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var framesBegan: TimeInterval?
     private var frameTimer: Timer?
     private var wingAngle = 0.0
+    /// The wordmark butterfly's hinge angle (`AppModel.flap`), mirrored on
+    /// the icon the way the Dock mirrors it, so the two beat together while
+    /// the console is up; the waiting frames take precedence while they play.
+    private var flapAngle = 0.0
+    private var flapObservation: AnyCancellable?
+    /// Whether the waiting frames are playing now (`Waiting.menuAnimates`);
+    /// they take precedence over the wordmark's angle while they do.
+    private var waitingPlaying = false
     /// The last report the poller or the menu's full read returned, which
     /// Copy Join Command is gated on (the role is in the full read).
     private var joinReport: StatusReport?
@@ -93,6 +104,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         super.init()
         menu.autoenablesItems = false
         menu.delegate = self
+        flapObservation = model.flap.$angle.removeDuplicates().sink { [weak self] angle in
+            MainActor.assumeIsolated { self?.mirrorFlap(angle) }
+        }
         for line in [clusterItem, thisMacItem] {
             line.isEnabled = false
             menu.addItem(line)
@@ -181,7 +195,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     /// Shows the degraded mark and the LAN dot on the icon.
     private func updateIcon() {
-        item?.button?.image = Self.icon(degraded: degraded, lan: model.lanToggle().showsIndicator, wingAngle: wingAngle)
+        let angle = Self.shownAngle(waitingPlaying: waitingPlaying, waiting: wingAngle, flap: flapAngle)
+        item?.button?.image = Self.icon(degraded: degraded, lan: model.lanToggle().showsIndicator, wingAngle: angle)
     }
 
     /// Adds an item with its catalog help tag as its tooltip; the update
@@ -280,6 +295,38 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         stepFrames()
     }
 
+    // MARK: the wordmark's beat
+
+    /// Draws the icon at the wordmark's hinge angle, so a beat in the window
+    /// (timed, or started by a hover on the mark) shows on the icon too.
+    private func mirrorFlap(_ angle: Double) {
+        guard angle != flapAngle else { return }
+        flapAngle = angle
+        updateIcon()
+    }
+
+    /// shownAngle is the wing angle the icon draws: the waiting frame while
+    /// the waiting frames play, otherwise the wordmark's angle. Pure, so the
+    /// precedence is tested without a status item on screen.
+    nonisolated static func shownAngle(waitingPlaying: Bool, waiting: Double, flap: Double) -> Double {
+        waitingPlaying ? waiting : flap
+    }
+
+    /// The pointer entering the icon asks the wordmark for a beat, under the
+    /// same rule as a hover on the mark (`Flap.hoverStartsBeat`), so both
+    /// beat together or neither does. The button sends this for the tracking
+    /// area `insert` adds. The owner is an `NSObject`, not an `NSResponder`,
+    /// so the two methods carry their Objective-C selectors explicitly:
+    /// AppKit sends `mouseEntered:` and `mouseExited:` by name, and a method
+    /// Swift would export as `mouseEnteredWith:` is never called.
+    @objc(mouseEntered:) func mouseEntered(with event: NSEvent) {
+        model.flap.poke()
+    }
+
+    /// The exit does nothing, but the tracking area asks for exits, so the
+    /// owner answers the message rather than logging an unrecognized selector.
+    @objc(mouseExited:) func mouseExited(with event: NSEvent) {}
+
     // MARK: waiting animation
 
     /// Starts the frame timer in the common modes, so it fires while the
@@ -313,8 +360,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 frameTimer = nil
             }
         }
-        if angle != wingAngle {
+        if angle != wingAngle || animates != waitingPlaying {
             wingAngle = angle
+            waitingPlaying = animates
             updateIcon()
         }
     }
@@ -379,6 +427,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         item.isVisible = true
         item.menu = menu
         self.item = item
+        if let button = item.button {
+            button.addTrackingArea(NSTrackingArea(
+                rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
+        }
         updateIcon()
         visibilityObservation = item.observe(\.isVisible, options: [.new]) { [weak self] item, _ in
             let visible = item.isVisible
