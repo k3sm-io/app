@@ -87,6 +87,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// the console is up; the waiting frames take precedence while they play.
     private var flapAngle = 0.0
     private var flapObservation: AnyCancellable?
+    /// Whether the waiting frames are playing now (`Waiting.menuAnimates`);
+    /// they take precedence over the wordmark's angle while they do.
+    private var waitingPlaying = false
     /// The last report the poller or the menu's full read returned, which
     /// Copy Join Command is gated on (the role is in the full read).
     private var joinReport: StatusReport?
@@ -192,7 +195,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     /// Shows the degraded mark and the LAN dot on the icon.
     private func updateIcon() {
-        let angle = wingAngle != 0 ? wingAngle : flapAngle
+        let angle = Self.shownAngle(waitingPlaying: waitingPlaying, waiting: wingAngle, flap: flapAngle)
         item?.button?.image = Self.icon(degraded: degraded, lan: model.lanToggle().showsIndicator, wingAngle: angle)
     }
 
@@ -302,13 +305,27 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         updateIcon()
     }
 
+    /// shownAngle is the wing angle the icon draws: the waiting frame while
+    /// the waiting frames play, otherwise the wordmark's angle. Pure, so the
+    /// precedence is tested without a status item on screen.
+    nonisolated static func shownAngle(waitingPlaying: Bool, waiting: Double, flap: Double) -> Double {
+        waitingPlaying ? waiting : flap
+    }
+
     /// The pointer entering the icon asks the wordmark for a beat, under the
     /// same rule as a hover on the mark (`Flap.hoverStartsBeat`), so both
     /// beat together or neither does. The button sends this for the tracking
-    /// area `insert` adds.
-    @objc func mouseEntered(with event: NSEvent) {
+    /// area `insert` adds. The owner is an `NSObject`, not an `NSResponder`,
+    /// so the two methods carry their Objective-C selectors explicitly:
+    /// AppKit sends `mouseEntered:` and `mouseExited:` by name, and a method
+    /// Swift would export as `mouseEnteredWith:` is never called.
+    @objc(mouseEntered:) func mouseEntered(with event: NSEvent) {
         model.flap.poke()
     }
+
+    /// The exit does nothing, but the tracking area asks for exits, so the
+    /// owner answers the message rather than logging an unrecognized selector.
+    @objc(mouseExited:) func mouseExited(with event: NSEvent) {}
 
     // MARK: waiting animation
 
@@ -343,8 +360,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 frameTimer = nil
             }
         }
-        if angle != wingAngle {
+        if angle != wingAngle || animates != waitingPlaying {
             wingAngle = angle
+            waitingPlaying = animates
             updateIcon()
         }
     }
