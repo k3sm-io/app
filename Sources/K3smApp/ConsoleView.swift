@@ -53,19 +53,17 @@ struct ConsoleView: View {
     }
 
     /// The tab column's minimum width: the larger of what the window floor
-    /// leaves and what the strip needs, which while the panel is collapsed
-    /// includes clearing the window buttons (`windowButtonsEdge`).
-    static func contentMinWidth(panelCollapsed: Bool = false, windowButtonsEdge: Double? = nil) -> CGFloat {
-        CGFloat(TabStripLayout.columnMinimumWidth(strip: TabStripLayout.stripMinimumWidth(
-            strip: stripMinWidth(), panelCollapsed: panelCollapsed, windowButtonsEdge: windowButtonsEdge)))
+    /// leaves and what the strip needs.
+    static func contentMinWidth() -> CGFloat {
+        CGFloat(TabStripLayout.columnMinimumWidth(strip: stripMinWidth()))
     }
 
-    /// The window's minimum size: the panel's minimum, or nothing while it
-    /// is collapsed, the tab column's minimum, and the inspector's minimum
-    /// while it is shown.
-    static func minSize(inspectorShown: Bool, panelCollapsed: Bool, windowButtonsEdge: Double? = nil) -> CGSize {
+    /// The window's minimum size: the panel's width (its rail width while
+    /// collapsed, else its minimum), the tab column's minimum, and the
+    /// inspector's minimum while it is shown.
+    static func minSize(inspectorShown: Bool, panelCollapsed: Bool) -> CGSize {
         let width = TabStripLayout.windowMinimumWidth(strip: stripMinWidth(), inspectorShown: inspectorShown,
-                                                      panelCollapsed: panelCollapsed, windowButtonsEdge: windowButtonsEdge)
+                                                      panelCollapsed: panelCollapsed)
         return CGSize(width: CGFloat(width), height: minHeight)
     }
 
@@ -74,8 +72,7 @@ struct ConsoleView: View {
         // The inspector and the log pane follow the tabs: while the set-up
         // flow fills the content pane neither shows.
         let tabs = app.pane.stripShown
-        let size = Self.minSize(inspectorShown: app.inspectorShown && tabs, panelCollapsed: app.consolePanelCollapsed,
-                                windowButtonsEdge: app.windowButtonsEdge)
+        let size = Self.minSize(inspectorShown: app.inspectorShown && tabs, panelCollapsed: app.consolePanelCollapsed)
         // Only before the first layout does the content's width reach the split.
         let estimate = PanelLayout.naturalWidth(regions: panel.layoutRegions, measured: app.consolePanelMeasured)
         ConsoleSplit(
@@ -83,8 +80,7 @@ struct ConsoleView: View {
             range: app.consolePanelWidth.range(estimate: estimate),
             width: app.consolePanelWidth.shown(estimate: estimate),
             collapsed: app.consolePanelCollapsed,
-            contentMinimum: Double(Self.contentMinWidth(panelCollapsed: app.consolePanelCollapsed,
-                                                        windowButtonsEdge: app.windowButtonsEdge)),
+            contentMinimum: Double(Self.contentMinWidth()),
             inspectorWidth: app.inspectorWidth,
             inspectorShown: app.inspectorShown && tabs,
             // Each pane is hosted on its own; all run under the transparent
@@ -295,10 +291,7 @@ struct ConsoleStrip: View {
             .accessibilityLabel("Settings")
             .help(Help.Strip.settings)
         }
-        // While the panel is hidden the strip starts at the window's edge,
-        // under the window buttons, and its first tab starts past them.
-        .padding(.leading, CGFloat(TabStripLayout.leadingInset(panelCollapsed: app.consolePanelCollapsed,
-                                                                windowButtonsEdge: app.windowButtonsEdge)))
+        .padding(.leading, CGFloat(TabStripLayout.leadingInset))
         .padding(.trailing, CGFloat(TabStripLayout.padding / 2)).frame(height: CGFloat(TabStripLayout.height))
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
     }

@@ -343,6 +343,13 @@ public enum ClusterDisplay {
         }
     }
 
+    /// The same pods, with the node count read the way the summary reads
+    /// it (`nodeCount(report:nodes:)`), so the This Mac tile and the rail's
+    /// pod count agree from the same three inputs.
+    public static func thisMacPods(_ pods: [Pod], report: StatusReport?, nodes: [ClusterNode]?) -> [Pod] {
+        thisMacPods(pods, report: report, nodeCount: nodeCount(report: report, nodes: nodes))
+    }
+
     /// What the pods ask of a host: their core requests and their byte
     /// requests, each summed over the pods that state one. The This Mac view
     /// draws its meters from it. A byte sum past Int64 saturates there, and

@@ -63,6 +63,36 @@ struct StackedBar: View {
     }
 }
 
+/// RailMeter is a `LoadStack` drawn upright on the rail: a 10 pt track
+/// `height` tall, the requested share as a light band rising from the
+/// bottom, the used share solid over it from the same start, and its short
+/// label under it. The same parts and colours as `StackedBar`, turned.
+struct RailMeter: View {
+    let label: String
+    let stack: LoadStack
+    var height: CGFloat = 56
+
+    var body: some View {
+        VStack(spacing: 6) {
+            GeometryReader { geo in
+                ZStack(alignment: .bottom) {
+                    if let requested = stack.requested {
+                        Rectangle().fill(Palette.loadPart(.requested)).frame(height: geo.size.height * requested)
+                    }
+                    if let used = stack.used {
+                        Rectangle().fill(Palette.loadPart(.used)).frame(height: geo.size.height * used)
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
+            }
+            .frame(width: 10, height: height)
+            .background(Palette.deep2)
+            .clipShape(Capsule())
+            Text(verbatim: label).font(.system(size: 10)).foregroundStyle(.white.opacity(0.62))
+        }
+    }
+}
+
 /// LoadKey is the one key under a block of load bars: a swatch and the
 /// word for each part the bars draw (`LoadStack.key`); nothing when none.
 struct LoadKey: View {

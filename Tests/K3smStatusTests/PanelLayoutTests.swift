@@ -20,12 +20,69 @@ import Testing
 
 @Suite("the console panel's width")
 struct PanelLayoutTests {
-    @Test("the split may collapse the panel only while the panel is already hidden")
-    func splitCannotCollapseAShownPanel() {
-        // Shown: a drag stops at the minimum and a double-click does nothing.
-        #expect(!PanelLayout.splitCanCollapse(collapsed: false))
-        // Hidden through the menu: the item stays collapsed.
-        #expect(PanelLayout.splitCanCollapse(collapsed: true))
+    @Test("a drag from the column turns to the rail inside the minimum; one from the rail opens at the minimum once pulled the disc's width, and follows the pointer past it")
+    func dragTurnsWhereItBegan() {
+        let rail = PanelLayout.railWidth
+        let minimum = PanelLayout.minimum
+        #expect(PanelLayout.openWidth == rail + PanelLayout.seamDisc)
+        #expect(PanelLayout.openWidth < minimum)
+        #expect(PanelLayout.turnWidth(fromRail: false) == minimum)
+        #expect(PanelLayout.turnWidth(fromRail: true) == PanelLayout.openWidth)
+        // From the column: the pointer from the minimum up, the rail below it.
+        #expect(PanelLayout.dragWidth(minimum + 70, fromRail: false) == minimum + 70)
+        #expect(PanelLayout.dragWidth(minimum, fromRail: false) == minimum)
+        #expect(PanelLayout.dragWidth(minimum - 1, fromRail: false) == rail)
+        #expect(PanelLayout.dragWidth(PanelLayout.openWidth, fromRail: false) == rail)
+        #expect(PanelLayout.dragWidth(rail, fromRail: false) == rail)
+        // From the rail: the rail short of the pull, the minimum from the pull to the minimum, the pointer past it.
+        #expect(PanelLayout.dragWidth(rail, fromRail: true) == rail)
+        #expect(PanelLayout.dragWidth(PanelLayout.openWidth - 1, fromRail: true) == rail)
+        #expect(PanelLayout.dragWidth(PanelLayout.openWidth, fromRail: true) == minimum)
+        #expect(PanelLayout.dragWidth(minimum - 1, fromRail: true) == minimum)
+        #expect(PanelLayout.dragWidth(minimum + 70, fromRail: true) == minimum + 70)
+        // Never between the rail and the minimum, and applying the rule again changes nothing
+        // (the seam disc's drag passes through it twice).
+        for fromRail in [false, true] {
+            for proposed in stride(from: 0.0, through: PanelLayout.ceiling, by: 0.5) {
+                let width = PanelLayout.dragWidth(proposed, fromRail: fromRail)
+                #expect(width == rail || width >= minimum, "\(proposed) from \(fromRail ? "the rail" : "the column")")
+                #expect(PanelLayout.dragWidth(width, fromRail: fromRail) == width, "\(proposed)")
+            }
+        }
+        // A position that is not a number leaves the divider where the drag began.
+        #expect(PanelLayout.dragWidth(.nan, fromRail: true) == rail)
+        #expect(PanelLayout.dragWidth(.infinity, fromRail: false) == minimum)
+    }
+
+    @Test("another divider's drag leaves the panel its minimum while open, and the rail while pinned there")
+    func heldWidth() {
+        #expect(PanelLayout.heldWidth(collapsed: false) == PanelLayout.minimum)
+        #expect(PanelLayout.heldWidth(collapsed: true) == PanelLayout.railWidth)
+        #expect(PanelLayout.heldWidth(collapsed: false) > PanelLayout.turnWidth(fromRail: true), "the open panel's floor is past the pull that would open it, so a squeeze never reads as a slip")
+    }
+
+    @Test("the panel is a rail below its minimum; a drop there rests at the rail, from the minimum on at the drop")
+    func droppedWidthDecidesAtTheMinimum() {
+        #expect(PanelLayout.shouldSnapToRail(width: PanelLayout.railWidth))
+        #expect(PanelLayout.shouldSnapToRail(width: PanelLayout.minimum - 1))
+        #expect(!PanelLayout.shouldSnapToRail(width: PanelLayout.minimum))
+        #expect(PanelLayout.droppedWidth(PanelLayout.railWidth) == nil)
+        #expect(PanelLayout.droppedWidth(PanelLayout.openWidth) == nil)
+        #expect(PanelLayout.droppedWidth(PanelLayout.minimum - 1) == nil)
+        #expect(PanelLayout.droppedWidth(PanelLayout.minimum) == PanelLayout.minimum)
+        #expect(PanelLayout.droppedWidth(PanelLayout.minimum + 70) == PanelLayout.minimum + 70)
+        // A width that is not a number keeps the panel on screen, at its minimum.
+        #expect(!PanelLayout.shouldSnapToRail(width: .nan))
+        #expect(PanelLayout.droppedWidth(.nan) == PanelLayout.minimum)
+        #expect(PanelLayout.droppedWidth(-.infinity) == PanelLayout.minimum)
+    }
+
+    @Test("the seam disc fits inside the rail and reaches past the divider's hairline on both sides")
+    func seamDiscFitsTheRail() {
+        #expect(PanelLayout.seamDisc == 28)
+        #expect(PanelLayout.seamDisc < PanelLayout.railWidth)
+        #expect(PanelLayout.seamReach > TabStripLayout.dividerWidth)
+        #expect(2 * PanelLayout.seamReach < PanelLayout.seamDisc)
     }
 
     private static func node(_ name: String, thisMac: Bool = false) -> ClusterNodeRow {
