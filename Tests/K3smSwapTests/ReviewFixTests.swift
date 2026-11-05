@@ -182,7 +182,7 @@ struct ReviewFixTests {
         try FileManager.default.createDirectory(atPath: fat, withIntermediateDirectories: true)
         #expect(hdiutil(["create", "-quiet", "-size", "8m", "-fs", "MS-DOS", "-volname", "K3SMFAT", work + "/fat.dmg"]) == 0)
         #expect(hdiutil(["attach", "-quiet", "-nobrowse", "-noautoopen", "-mountpoint", fat, work + "/fat.dmg"]) == 0)
-        defer { hdiutil(["detach", "-quiet", "-force", fat]) }
+        defer { #expect(detachFixtureVolume(fat)) }
         #expect(SwapVolume.supportsRenameSwap(path: fat) == false)
         #expect(SwapVolume.supportsRenameSwap(path: NSTemporaryDirectory()) == true)
         let fatPaths = SwapPaths(home: work, applicationsRoots: [fat])
@@ -196,7 +196,7 @@ struct ReviewFixTests {
         try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
         #expect(hdiutil(["create", "-quiet", "-size", "40m", "-fs", "APFS", "-volname", "k3smhome", work + "/home.dmg"]) == 0)
         #expect(hdiutil(["attach", "-quiet", "-nobrowse", "-noautoopen", "-mountpoint", home, work + "/home.dmg"]) == 0)
-        defer { hdiutil(["detach", "-quiet", "-force", home]) }
+        defer { #expect(detachFixtureVolume(home)) }
         let s = Scratch(home: home)
         try? JournalStore(paths: s.paths).prepare()
         s.install(tag: "v1.0.0")

@@ -277,7 +277,7 @@ struct SwapEngineTests {
         let mount = SwapPaths.stagingDirectory(target: s.target, name: name)
         try FileManager.default.createDirectory(atPath: mount, withIntermediateDirectories: true)
         #expect(run("/usr/bin/hdiutil", ["attach", "-quiet", "-nobrowse", "-noautoopen", "-mountpoint", mount, image]) == 0)
-        defer { run("/usr/bin/hdiutil", ["detach", "-quiet", "-force", mount]) }
+        defer { #expect(detachFixtureVolume(mount)) }
         var fs = statfs(), tfs = statfs()
         statfs(mount, &fs)
         statfs(s.applications, &tfs)

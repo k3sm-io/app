@@ -41,6 +41,20 @@ func run(_ path: String, _ arguments: [String]) -> Int32 {
     return process.terminationStatus
 }
 
+/// Detaches a fixture volume, retrying while it is busy, and says whether it
+/// went. A caller expects the result, so a volume that stays attached fails the
+/// test instead of staying mounted unnoticed. Nothing here runs if the test
+/// process is killed.
+func detachFixtureVolume(_ mount: String) -> Bool {
+    for wait: UInt32 in [0, 1, 2] {
+        sleep(wait)
+        if run("/usr/bin/hdiutil", ["detach", "-quiet", "-force", mount]) == 0 {
+            return true
+        }
+    }
+    return false
+}
+
 /// FixtureBinaries compiles fixture-app.c once per test run, for the
 /// fixtures' team and for another team.
 enum FixtureBinaries {

@@ -1248,12 +1248,26 @@ struct MountedVolume {
         image = dir + "/volume.dmg"
         mount = mountPoint ?? dir + "/mnt"
         try #require(run("/usr/bin/hdiutil", ["create", "-quiet", "-size", "40m", "-fs", "APFS", "-volname", name, image]) == 0)
-        try #require(run("/usr/bin/hdiutil", ["attach", "-quiet", "-nobrowse", "-noautoopen", "-mountpoint", mount] + (honoursOwners ? ["-owners", "on"] : []) + [image]) == 0)
+        let attached = run("/usr/bin/hdiutil", ["attach", "-quiet", "-nobrowse", "-noautoopen", "-mountpoint", mount] + (honoursOwners ? ["-owners", "on"] : []) + [image])
+        if attached != 0 {
+            // An attach can report a failure after it mounted, and the caller's
+            // detach never runs when this initializer throws.
+            run("/usr/bin/hdiutil", ["detach", "-quiet", "-force", mount])
+        }
+        try #require(attached == 0)
     }
 
+    /// Detaches, retrying while the volume is busy. A volume that stays attached
+    /// fails the test and keeps its directory, instead of staying mounted unnoticed.
     func detach() {
-        run("/usr/bin/hdiutil", ["detach", "-quiet", "-force", mount])
-        try? FileManager.default.removeItem(atPath: (image as NSString).deletingLastPathComponent)
+        for wait: UInt32 in [0, 1, 2] {
+            sleep(wait)
+            if run("/usr/bin/hdiutil", ["detach", "-quiet", "-force", mount]) == 0 {
+                try? FileManager.default.removeItem(atPath: (image as NSString).deletingLastPathComponent)
+                return
+            }
+        }
+        Issue.record("hdiutil could not detach \(mount); run: hdiutil detach -force \(mount)")
     }
 }
 

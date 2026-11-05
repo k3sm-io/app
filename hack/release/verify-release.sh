@@ -182,7 +182,7 @@ app_problems() {
 	# warning on a find that succeeded must not read as a hard link, and a
 	# find that wrote to stderr or failed has not proven the tree clean.
 	local ferr find_rc=0
-	ferr="$(mktemp)"
+	ferr="$(mktemp "${TMPDIR:-/tmp}/verify-release-find.XXXXXX")"
 	linked="$(find "$app" -type f -links +1 -print 2>"$ferr")" || find_rc=$?
 	if [ "$find_rc" != 0 ] || [ -s "$ferr" ]; then
 		echo "    find could not check k3sm.app for hard links (exit $find_rc):"; sed 's/^/      /' "$ferr"; rc=1
@@ -228,21 +228,64 @@ root_problems() {
 	return "$rc"
 }
 
+# temp_dir <name>: a fresh private directory under TMPDIR. A bare `mktemp -d`
+# does not do this on macOS: it reads _CS_DARWIN_USER_TEMP_DIR first and uses
+# TMPDIR only when that is unavailable, so it always lands in the system temp
+# folder, whatever a caller exported.
+temp_dir() {
+	local root="${TMPDIR:-/tmp}"
+	mktemp -d "${root%/}/$1.XXXXXX"
+}
+
+# detach_retrying <mount-point>: detach, forcing and retrying while the volume
+# is busy, as it can be for a moment after a mount or under load.
+detach_retrying() {
+	local wait
+	hdiutil detach -quiet "$1" >/dev/null 2>&1 && return 0
+	for wait in 0 1 2; do
+		sleep "$wait"
+		hdiutil detach -quiet -force "$1" >/dev/null 2>&1 && return 0
+	done
+	return 1
+}
+
 # image_problems <image> <checksums> <team-pin>: every check of the header.
 # Prints every problem; zero only when all pass. It is a subshell so its EXIT
 # trap (the detach) is its own.
+#
+# The mount point is a child of a private work dir, never a direct child of a
+# temp root: each mount and unmount makes Finder sync the mount point's parent,
+# and a temp folder holds tens of thousands of entries.
 image_problems() (
 	local img="$1" sums="$2" pin="$3" rc=0 parsed tag kind team="" info sig
-	mnt="" attached=0
+	work="" mnt="" attached=0 attaching=0
+	# is_mounted: something other than the work dir's volume is at the mount point.
+	is_mounted() {
+		[ -d "$mnt" ] && [ "$(stat -f %d "$mnt")" != "$(stat -f %d "$work")" ]
+	}
+	# detach looks at the mount point as well as at attached, because the flag
+	# can be wrong: a signal during hdiutil attach, or an attach that reports a
+	# failure after it mounted, leaves a volume the flag never heard of. After a
+	# signal the mount can still be on its way, so it waits for it briefly. It
+	# removes only with rmdir, and keeps both directories when the volume stays:
+	# nothing here may recurse into a mounted image.
 	detach() {
-		[ -n "$mnt" ] || return 0
-		if [ "$attached" = 1 ] && ! hdiutil detach -quiet "$mnt" >/dev/null 2>&1 && ! hdiutil detach -quiet -force "$mnt" >/dev/null 2>&1; then
+		local wait
+		[ -n "$work" ] || return 0
+		if [ "$attaching" = 1 ]; then
+			for wait in 1 2 3; do
+				is_mounted && break
+				sleep 1
+			done
+		fi
+		if { [ "$attached" = 1 ] || is_mounted; } && ! detach_retrying "$mnt"; then
 			echo "    hdiutil could not detach the image at $mnt; run: hdiutil detach -force $mnt"
-			attached=0 mnt=""
+			attached=0 attaching=0 work="" mnt=""
 			return 1
 		fi
 		rmdir "$mnt" 2>/dev/null || true
-		attached=0 mnt=""
+		rmdir "$work" 2>/dev/null || true
+		attached=0 attaching=0 work="" mnt=""
 	}
 	trap 'detach || exit 1' EXIT
 	trap 'detach; exit 129' HUP
@@ -272,13 +315,17 @@ image_problems() (
 		echo "    --team-id $pin names a team, but $(basename "$img") is a rehearsal image with none"; exit 1
 	fi
 
-	mnt="$(mktemp -d)"
-	chmod 700 "$mnt"
+	work="$(temp_dir verify-release)"
+	chmod 700 "$work"
+	mnt="$work/mnt"
+	mkdir -m 700 "$mnt"
+	attaching=1
 	if ! hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$img" >/dev/null 2>&1; then
+		attaching=0
 		echo "    hdiutil cannot attach the image read-only"
 		exit 1
 	fi
-	attached=1
+	attaching=0 attached=1
 	root_problems "$mnt" || rc=1
 	app_problems "$mnt/k3sm.app" "$tag" "$kind" "$team" || rc=1
 	detach || rc=1
@@ -307,7 +354,7 @@ fetch() {
 # file from <base-url>/ into a fresh private directory, verify, remove it.
 verify_tag() (
 	local tag="$1" base="$2" pin="$3" d img sums
-	d="$(mktemp -d)"
+	d="$(temp_dir verify-release-dl)"
 	chmod 700 "$d"
 	trap 'rm -rf "$d"' EXIT
 	img="$(image_name "$tag")"
@@ -378,7 +425,7 @@ stable_problems() {
 # alias redirect into a private directory, then decide.
 verify_stable() (
 	local repo="$1" d tag problems loc
-	d="$(mktemp -d)"
+	d="$(temp_dir verify-release-dl)"
 	chmod 700 "$d"
 	trap 'rm -rf "$d"' EXIT
 	fetch "https://api.github.com/repos/$repo/releases/latest" "$d/release.json" ||
@@ -399,12 +446,40 @@ verify_stable() (
 )
 
 # ---- self-test ----------------------------------------------------------------------
+# mount_parent_problem <mount-point>: fail when the mount point is a direct child
+# of a temp root (the system temp folder, TMPDIR or /tmp).
+mount_parent_problem() {
+	local parent root
+	parent="$(dirname "$1")"
+	parent="${parent#/private}"
+	for root in "$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)" "${TMPDIR:-}" /tmp; do
+		[ -n "$root" ] || continue
+		root="${root%/}"
+		root="${root#/private}"
+		if [ "$parent" = "$root" ]; then
+			echo "$1 is directly under a temp root"
+			return 1
+		fi
+	done
+}
+
+# detach_fixture_images <dir>: detach any image attached from under <dir>. A
+# self-test that ended early must not leave its fixture attached after its
+# EXIT trap has deleted the image file.
+detach_fixture_images() {
+	local info dev
+	info="$(hdiutil info 2>/dev/null)" || return 0
+	while IFS= read -r dev; do
+		hdiutil detach -quiet -force "$dev" >/dev/null 2>&1 || echo "verify-release: could not detach the fixture at $dev; run: hdiutil detach -force $dev" >&2
+	done < <(awk -v dir="$1/" '/^image-path/ { inside = index($0, dir) > 0 } inside && /^\/dev\/disk/ { print $1; inside = 0 }' <<<"$info")
+}
+
 # shellcheck disable=SC2016 # each case's assertion is a single-quoted string for eval
 self_test() {
 	local given="${1:-}" T passes=0 fails=0 rc ver tag app good
-	T="$(mktemp -d)"
+	T="$(temp_dir verify-release-selftest)"
 	SELFTEST_TMP="$T"
-	trap 'rm -rf "$SELFTEST_TMP"' EXIT
+	trap 'detach_fixture_images "$SELFTEST_TMP"; rm -rf "$SELFTEST_TMP"' EXIT
 	ok() { echo "  ok   $1"; passes=$((passes + 1)); }
 	bad() { echo "  FAIL $1"; fails=$((fails + 1)); sed 's/^/       /' "$T/out" 2>/dev/null || true; }
 	# expect <name> <want-rc> <grep-pattern> <command...>
@@ -472,6 +547,40 @@ EOF
 		'Authority=Apple Development: Example (ABCDE12345)\nTeamIdentifier=ABCDE12345'
 	expect "signature: unsigned" 0 "" sigcase unsigned 'x: code object is not signed at all'
 
+	# Every attach and detach of the cases below passes through here, so the
+	# mount points can be checked afterwards and a lying attach or a busy volume
+	# can be staged on the real image.
+	hdiutil() {
+		local a m="" n
+		case "$1" in
+		attach)
+			for a in "$@"; do
+				[ "$m" != next ] || m="$a"
+				[ "$a" != -mountpoint ] || m=next
+			done
+			printf '%s\n' "$m" >>"$T/mounts"
+			command hdiutil "$@" || return $?
+			[ ! -e "$T/attach-lies" ] || return 1
+			;;
+		detach)
+			n="$(cat "$T/detach-busy" 2>/dev/null || echo 0)"
+			if [ "$n" -gt 0 ]; then
+				echo "$((n - 1))" >"$T/detach-busy"
+				return 16
+			fi
+			command hdiutil "$@"
+			;;
+		*) command hdiutil "$@" ;;
+		esac
+	}
+	# fixture_attached: an image from this self-test is still attached. Read the
+	# list whole: grep -q would end the pipe early, and under pipefail hdiutil's
+	# SIGPIPE would read as "not found".
+	fixture_attached() {
+		local attached_now
+		attached_now="$(hdiutil info)"
+		grep -F "$T/" <<<"$attached_now" >"$T/out"
+	}
 	echo "the images (hdiutil, no network)"
 	if [ -n "$given" ]; then
 		[ -d "$given/Contents" ] || die "--self-test: not an app bundle: $given"
@@ -539,6 +648,24 @@ EOF
 		verify_image "$T/notdmg/$rname" "$(sums_for "$T/notdmg/$rname")" ""
 	expect "--team-id on a rehearsal image fails" 1 "is a rehearsal image with none" \
 		verify_image "$good" "$(sums_for "$good")" ABCDE12345
+	: >"$T/attach-lies"
+	expect "an attach that fails after mounting reports it" 1 "cannot attach the image" verify_image "$good" "$(sums_for "$good")" ""
+	rm -f "$T/attach-lies"
+	if fixture_attached; then
+		bad "an attach that fails after mounting leaves nothing attached"
+		detach_fixture_images "$T"
+	else
+		ok "an attach that fails after mounting leaves nothing attached"
+	fi
+	echo 2 >"$T/detach-busy"
+	expect "a volume busy at detach still passes, by a retry" 0 "^verify-release: ok" verify_image "$good" "$(sums_for "$good")" ""
+	rm -f "$T/detach-busy"
+	if fixture_attached; then
+		bad "a volume busy at detach is left detached"
+		detach_fixture_images "$T"
+	else
+		ok "a volume busy at detach is left detached"
+	fi
 
 	echo "the bundle's files (no image)"
 	expect "a bundle with no hard link passes the app checks" 0 "" app_problems "$app" "$tag" rehearsal ""
@@ -638,6 +765,7 @@ EOF
 	cp "$relimg" "$S/badsum/$rel"
 	printf '%s  %s\n' "$(printf 'f%.0s' $(seq 64))" "$rel" >"$S/badsum/$(checksums_name "$tag")"
 	fetched() { (CURL_PROTO='=file' TMPDIR="$T/dl" "$@"); }
+	env_tmpdir_case() { (TMPDIR="$T/dl/" mount_parent_problem "$T/dl/tmp.x"); }
 	mkdir -p "$T/dl"
 	expect "a release downloaded and verified passes" 0 "^verify-release: ok $rel" signed fetched verify_tag "$tag" "file://$S/ok" ""
 	expect "a release without a disk image fails" 1 "cannot download .*$rel" fetched verify_tag "$tag" "file://$S/none" ""
@@ -689,11 +817,28 @@ EOF
 	expect "release JSON that does not parse fails" 1 "does not parse" stable_problems "$DEFAULT_REPO" "$V/bad.json" "$V/good.txt" "$good_loc"
 	expect "the CLI refuses --stable-url with a tag" 2 "" bash "$0" --stable-url v1.2.3
 
-	# Read the list whole: grep -q would end the pipe early, and under pipefail
-	# hdiutil's SIGPIPE would read as "not found".
-	local attached_now
-	attached_now="$(hdiutil info)"
-	if grep -F "$T" <<<"$attached_now" >"$T/out"; then
+	echo "the mount points"
+	local systemp
+	systemp="$(getconf DARWIN_USER_TEMP_DIR)"
+	expect "a mount point directly in the system temp folder fails the shape check" 1 "directly under a temp root" mount_parent_problem "${systemp}tmp.x"
+	expect "the same under its /private path" 1 "directly under a temp root" mount_parent_problem "/private${systemp}tmp.x"
+	expect "a mount point directly in TMPDIR fails the shape check" 1 "directly under a temp root" env_tmpdir_case
+	expect "a mount point in a work dir passes the shape check" 0 "" mount_parent_problem "${systemp}work.x/mnt"
+	local m mounts=0 shape=0 left=0
+	: >"$T/out"
+	while IFS= read -r m; do
+		mounts=$((mounts + 1))
+		mount_parent_problem "$m" >>"$T/out" || shape=$((shape + 1))
+		if [ -e "$(dirname "$m")" ]; then
+			echo "$m: its work dir is still there" >>"$T/out"
+			left=$((left + 1))
+		fi
+	done <"$T/mounts"
+	if [ "$mounts" -gt 0 ] && [ "$shape" = 0 ]; then ok "no real mount point ($mounts) is a direct child of a temp root"; else echo "$mounts mounts" >>"$T/out"; bad "no real mount point is a direct child of a temp root"; fi
+	if [ "$mounts" -gt 0 ] && [ "$left" = 0 ]; then ok "every mount point and work dir is removed"; else bad "every mount point and work dir is removed"; fi
+	if grep -qF "$T/dl/" "$T/mounts"; then ok "the mount point follows TMPDIR"; else cp "$T/mounts" "$T/out"; bad "the mount point follows TMPDIR"; fi
+
+	if fixture_attached; then
 		bad "no fixture image is left attached"
 	else
 		ok "no fixture image is left attached"
