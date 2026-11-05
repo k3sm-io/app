@@ -62,12 +62,14 @@ func adminSwap() -> Never {
         refuseRoot("this helper does not satisfy the helper requirement")
     }
     let requirement = AppUpdateTrust.appRequirement(teamID: team)
+    AdminSwapEngine.setDescriptorLimit()
     let engine = AdminSwapEngine(
         verifier: StaticCodeVerifier(requirement: requirement, runningTeam: team),
         renamer: SystemRenamer(),
         console: SystemConsoleSession(),
         relauncher: SystemSessionRelauncher(),
-        locations: .standard)
+        locations: .standard,
+        installedCopy: String(path.dropLast(AppSwapRoot.helperPath.count + 1)))
     exit(engine.run())
 }
 if arguments == [AppSwapRoot.argument] { adminSwap() }

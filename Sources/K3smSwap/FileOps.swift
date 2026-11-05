@@ -237,44 +237,63 @@ enum FileOps {
         guard (st.st_mode & S_IFMT) == S_IFDIR else { return true }
         guard let fd = openDirectory(at: dirFD, name) else { return false }
         defer { close(fd) }
-        return entries(fd).allSatisfy { isPrivateTree(at: fd, $0) }
+        guard let names = entries(fd) else { return false }
+        return names.allSatisfy { isPrivateTree(at: fd, $0) }
     }
 
     /// Removes `name` from `dirFD`: a file is unlinked, a directory is
     /// emptied entry by entry through descriptors (never following a
     /// symlink, so nothing outside it is touched) and then removed. Returns
-    /// whether `name` is gone.
+    /// whether `name` is gone. A directory that cannot be listed is left, and
+    /// the removal reports failure.
     @discardableResult
     static func removeTree(at dirFD: Int32, _ name: String) -> Bool {
         var st = stat()
         guard fstatat(dirFD, name, &st, AT_SYMLINK_NOFOLLOW) == 0 else { return errno == ENOENT }
         guard (st.st_mode & S_IFMT) == S_IFDIR else { return unlinkat(dirFD, name, 0) == 0 }
         guard let fd = openDirectory(at: dirFD, name) else { return false }
-        for entry in entries(fd) {
+        guard let names = entries(fd) else {
+            close(fd)
+            return false
+        }
+        for entry in names {
             removeTree(at: fd, entry)
         }
         close(fd)
         return unlinkat(dirFD, name, AT_REMOVEDIR) == 0
     }
 
-    /// The names in the open directory `fd`, without `.` and `..`. The
-    /// descriptor stays open and owned by the caller.
-    static func entries(_ fd: Int32) -> [String] {
+    /// The names in the open directory `fd`, without `.` and `..`, or nil when
+    /// the directory could not be read to its end: an empty list always means an
+    /// empty directory. Each walk holds a descriptor per level and this takes one
+    /// more, so a walk at its descriptor limit gets nil here. The descriptor stays
+    /// open and owned by the caller.
+    static func entries(_ fd: Int32) -> [String]? {
         let dupFD = dup(fd)
-        guard dupFD >= 0, let dir = fdopendir(dupFD) else {
-            if dupFD >= 0 { close(dupFD) }
-            return []
+        guard dupFD >= 0 else { return nil }
+        guard let dir = fdopendir(dupFD) else {
+            close(dupFD)
+            return nil
         }
         defer { closedir(dir) }
         rewinddir(dir)
+        return names(of: dir)
+    }
+
+    /// The names `next` gives for `dir`, or nil when it ends with an error:
+    /// `readdir` returns nil for both, and only `errno` tells them apart.
+    /// `next` is for tests.
+    static func names(of dir: UnsafeMutablePointer<DIR>,
+                      next: (UnsafeMutablePointer<DIR>) -> UnsafeMutablePointer<dirent>? = { readdir($0) }) -> [String]? {
         var names: [String] = []
-        while let entry = readdir(dir) {
+        while true {
+            errno = 0
+            guard let entry = next(dir) else { return errno == 0 ? names : nil }
             let name = withUnsafePointer(to: entry.pointee.d_name) {
                 $0.withMemoryRebound(to: CChar.self, capacity: Int(entry.pointee.d_namlen) + 1) { String(cString: $0) }
             }
             if name != "." && name != ".." { names.append(name) }
         }
-        return names
     }
 
     /// A random name of `length` ASCII letters and digits, from

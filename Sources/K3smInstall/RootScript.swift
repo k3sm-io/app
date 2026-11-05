@@ -217,7 +217,7 @@ public enum RootScriptBuilder {
     /// log and its exit trap are set up, before the staging root is touched:
     /// the developer-mode marker check, so a refusal copies nothing.
     static func stagedCopy(bundlePath: String, stagingTemplate: String, designatedRequirement: String?,
-                           beforeCopy: String = "", root: ScriptRoot = .system) -> String {
+                           beforeCopy: String = "", root: ScriptRoot = .system, owner: UInt32 = 0) -> String {
         let q = ShellQuote.quote
         let r = root
         let staged = stagedBundle
@@ -275,8 +275,20 @@ public enum RootScriptBuilder {
             # rm cannot remove a file flagged uchg or uappnd, which a user can set
             # on a staged file and ditto keeps; under set -eu that would wedge every
             # later root step. Clear them first; a failure falls through to rm.
-            \#(r("/usr/bin/find")) "$root" -mindepth 1 -maxdepth 1 -exec \#(r("/usr/bin/chflags")) -R nouchg,nouappnd {} + || true
-            \#(r("/usr/bin/find")) "$root" -mindepth 1 -maxdepth 1 -exec \#(r("/bin/rm")) -rf {} +
+            # An entry holding anything not root's is left for the swap helper, which
+            # walks it by descriptor: its former owner may still hold descriptors in
+            # it. find -x only reads, follows no symlink and stays on this volume, and
+            # chflags -x and rm -x stay on it too. What rm cannot remove, such as a busy
+            # mount point, stops nothing after it: the next sweep tries again.
+            for entry in "$root"/* "$root"/.[!.]* "$root"/..?*; do
+            	if [ ! -e "$entry" ] && [ ! -L "$entry" ]; then continue; fi
+            	if ! left=$(\#(r("/usr/bin/find")) -x "$entry" ! -user \#(owner) -print -quit) || [ -n "$left" ]; then
+            		echo "copy-out: left for the swap helper: ${entry##*/} holds an entry not owned by root"
+            		continue
+            	fi
+            	\#(r("/usr/bin/chflags")) -R -x nouchg,nouappnd "$entry" || true
+            	\#(r("/bin/rm")) -rfx "$entry" || echo "copy-out: could not remove ${entry##*/}; the next sweep tries again"
+            done
             stage=$(\#(r("/usr/bin/mktemp")) -d \#(q(stagingTemplate)))
             \#(r("/usr/sbin/chown")) root:wheel "$stage"
             \#(r("/bin/chmod")) 0700 "$stage"

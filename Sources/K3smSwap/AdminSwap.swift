@@ -151,6 +151,29 @@ public struct SystemSessionRelauncher: SessionRelauncher {
     }
 }
 
+/// OldBundleOutcome is what became of a bundle another account owned, once a
+/// swap has replaced it. The swap stands in all three.
+public enum OldBundleOutcome: Equatable, Sendable {
+    /// Every entry is root's, so nothing that account holds open can change it.
+    case handedOver
+    /// The hand-over failed, for instance against an owner working to make it
+    /// fail, and the tree was removed by descriptor instead.
+    case removedAfterFailedHandOver
+    /// The hand-over and the removal both failed. What is left is in root's
+    /// work directory; the shell sweep will not touch it, and the next swap
+    /// tries again at its start.
+    case leftInWorkDirectory
+
+    /// The fixed line the outcome logs. It names no path from the tree.
+    public var logLine: String {
+        switch self {
+        case .handedOver: "admin swap: the old bundle is root's"
+        case .removedAfterFailedHandOver: "admin swap: the swap stands; the old bundle could not be made root's and was removed"
+        case .leftInWorkDirectory: "admin swap: the swap stands; the old bundle could not be made root's or removed and is in root's work directory until the next swap"
+        }
+    }
+}
+
 /// AdminSwapEngine is the root half of the administrator path, run only by
 /// the installed bundle's helper from its verified root-owned copy
 /// (`AppSwapRootScriptBuilder`). It reads no request file and takes no path:
@@ -160,16 +183,21 @@ public struct SystemSessionRelauncher: SessionRelauncher {
 ///    real directory with no symlink above it.
 /// 2. The target is the constant `locations.target`: its parent resolves to
 ///    itself, it is a real directory opened by descriptor, and its identity,
-///    owner, group and mode are recorded. Its whole tree must be root's
-///    (`locations.owner`) and pass `isSafeTree`, so a bundle put there by
-///    anyone who can write `/Applications` (the admin group can) is refused
-///    before anything is copied. The installed bundle verifies (without a
-///    tag requirement). The floor is the higher of root's own record
-///    (`locations.floorRecord`, the highest tag this path has installed) and
-///    the installed bundle's `K3smPayloadTag` or short version; with no
-///    record, the floor is the installed bundle's, which the ownership check
-///    has just made root's. A record that exists but is not a root-owned
-///    0600 regular file holding one release tag refuses the run.
+///    owner, group and mode are recorded. Its whole tree must pass
+///    `isSafeTree`, so a tree with a writable, linked or flagged entry is
+///    refused before anything is copied. The installed bundle verifies
+///    (without a tag requirement). The floor is the higher of root's own
+///    record (`locations.floorRecord`, the highest tag this path has
+///    installed) and the installed bundle's `K3smPayloadTag` or short
+///    version; with no record, the floor is the installed bundle's, when its
+///    tree is root's (`locations.owner`) alone. A tree that is not, which is
+///    what a release dragged from the disk image is, can be changed by anyone
+///    who can write `/Applications` (the admin group can). So the engine reads
+///    what it is from `installedCopy`, the verified root-owned copy it runs
+///    from, not from that tree, and it needs the record, which the root
+///    script seeds first; with no copy or no record the run is refused. A
+///    record that exists but is not a root-owned 0600 regular file holding
+///    one release tag refuses the run.
 /// 3. The work directory is root's own 0700 directory on the target's volume
 ///    (`statfs` `f_fsid` equal), on a volume that can swap two names in one
 ///    step. The staged bundle is copied into a fresh directory in it (`ditto`
@@ -181,8 +209,12 @@ public struct SystemSessionRelauncher: SessionRelauncher {
 ///    root, checked to be on the target's volume, and verified there: the
 ///    requirement, the bundle id, the team stamp, and a `K3smPayloadTag`
 ///    strictly above the installed one.
-/// 4. The copy takes the target's owner and group and its top directory the
-///    target's mode, and is verified again (the same cdhash).
+/// 4. The copy takes the target's owner, group and top directory mode when
+///    the target's tree is root's alone, and root's and 0755 otherwise
+///    (`copyAttributes`), and is verified again (the same cdhash).
+///    This is how a bundle an account dragged to `/Applications` becomes
+///    root's: never by a chown in place, but by the verified copy replacing
+///    it, so the next run finds a tree that is root's alone.
 /// 5. Right before the rename the target's identity is read again; then
 ///    `renameatx_np(RENAME_SWAP)` relative to the two directory descriptors.
 ///    `EXDEV` makes one fresh copy, verifies it and retries once; `ENOTSUP`
@@ -195,9 +227,16 @@ public struct SystemSessionRelauncher: SessionRelauncher {
 ///    `undoFailed`, logs which bundle is believed live, and keeps the bundle that came
 ///    out in root's work directory.
 /// 7. Root's floor record is replaced with the new tag (a 0600 file written
-///    durably), the old bundle moves to `previousRoot` as `k3sm-<tag>.previous`, the
+///    durably), the old bundle is made root's if it was not (`handOverTree`) and
+///    moves to `previousRoot` as `k3sm-<tag>.previous` (a walk that fails removes
+///    it by descriptor instead, `settleOldBundle`, and the swap still succeeds), the
 ///    work directory is emptied, and the app is relaunched in the console
 ///    session (`SessionRelauncher`).
+///
+/// Before all of this, what an earlier run left in the work directory (a
+/// crash, an undo that failed, a tree it could not remove) is finished by
+/// descriptor (`finishLeftovers`). The root script's sweep runs first and
+/// leaves any tree that is not root's alone for this.
 ///
 /// Only two names are ever renamed: the constant target and the entry of a
 /// directory this engine made inside root's work directory.
@@ -208,10 +247,15 @@ public struct AdminSwapEngine: Sendable {
     public let relauncher: any SessionRelauncher
     public let locations: AdminSwapLocations
     public let inspector: any TreeInspector
+    /// The verified root-owned copy of the installed bundle this helper runs
+    /// from. What the engine knows of an installed bundle that is not root's
+    /// alone comes from it, never from the tree at the target.
+    public let installedCopy: String?
 
     public init(verifier: any BundleVerifier, renamer: any Renamer, console: any ConsoleSession,
                 relauncher: any SessionRelauncher, locations: AdminSwapLocations,
-                inspector: any TreeInspector = SystemTreeInspector()) {
+                inspector: any TreeInspector = SystemTreeInspector(), installedCopy: String? = nil) {
+        self.installedCopy = installedCopy
         self.verifier = verifier
         self.renamer = renamer
         self.console = console
@@ -264,6 +308,7 @@ public struct AdminSwapEngine: Sendable {
 
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     private func swap() -> Int32 {
+        finishLeftovers()
         guard let account = console.account() else { return AppSwapRootExit.noConsoleUser }
 
         // The target, by descriptor.
@@ -278,22 +323,37 @@ public struct AdminSwapEngine: Sendable {
         guard fstatat(parentFD, name, &targetStat, AT_SYMLINK_NOFOLLOW) == 0, (targetStat.st_mode & S_IFMT) == S_IFDIR,
               let original = FileIdentity.of(dirFD: parentFD, name: name)
         else { return AppSwapRootExit.targetRefused }
-        guard Self.isSafeTree(at: parentFD, name, owner: locations.owner, inspector: inspector) else {
-            SwapLog.logger.error("admin swap: the installed bundle's tree is not root's alone")
+        guard Self.isSafeTree(at: parentFD, name, inspector: inspector) else {
+            SwapLog.logger.error("admin swap: the installed bundle's tree holds an unsafe entry")
             return AppSwapRootExit.targetUntrusted
         }
+        let rootsAlone = Self.isSafeTree(at: parentFD, name, owner: locations.owner, inspector: inspector)
         let targetVolume = Self.fsid(parentPath)
         guard targetVolume != nil, SwapVolume.supportsRenameSwap(path: parentPath) == true else {
             return AppSwapRootExit.volumeRefused
         }
 
-        // The floor: root's record, and the installed bundle, now known root's.
+        // The floor: root's record, and the installed bundle. Only a bundle
+        // known root's may be the floor by itself.
         guard let recorded = readFloorRecord() else {
             SwapLog.logger.error("admin swap: root's floor record is not a root-owned 0600 file holding one release tag")
             return AppSwapRootExit.targetUntrusted
         }
-        guard let installed = InstalledRelease.read(bundleAt: target),
-              let installedCode = try? verifier.verify(bundleAt: target, requireTag: false), installedCode.identity == original
+        guard rootsAlone || recorded != nil else {
+            SwapLog.logger.error("admin swap: the installed bundle's tree is not root's alone and root has no floor record")
+            return AppSwapRootExit.targetUntrusted
+        }
+        // What the installed bundle is. A tree not root's alone can change at
+        // any moment, so its bytes are never parsed or trusted here: the
+        // verified copy this helper runs from says what it is. Past this
+        // point the live tree is only walked, by descriptor, and renamed.
+        guard let installedPath = rootsAlone ? target : installedCopy else {
+            SwapLog.logger.error("admin swap: the installed bundle's tree is not root's alone and there is no verified copy to read")
+            return AppSwapRootExit.targetUntrusted
+        }
+        guard let installed = InstalledRelease.read(bundleAt: installedPath),
+              let installedCode = try? verifier.verify(bundleAt: installedPath, requireTag: false),
+              !rootsAlone || installedCode.identity == original
         else { return AppSwapRootExit.verificationFailed }
         let floor = recorded.map { max($0, installed.version) } ?? installed.version
 
@@ -324,13 +384,14 @@ public struct AdminSwapEngine: Sendable {
             // `uchg` file that would keep its directory from ever being
             // removed; the user flags are cleared first.
             for dirName in made where dirName != kept {
-                Self.clearUserLockingFlags(locations.workRoot + "/" + dirName)
-                FileOps.removeTree(at: workFD, dirName)
+                Self.clearUserLockingFlags(at: workFD, dirName)
+                Self.removeOnVolume(at: workFD, dirName)
             }
         }
 
-        // Copies the staged bundle into a fresh directory, gives it the
-        // target's owner and mode, and verifies it twice.
+        // Copies the staged bundle into a fresh directory, gives it its final
+        // owner and the target's mode, and verifies it twice.
+        let attributes = Self.copyAttributes(target: targetStat, rootsAlone: rootsAlone, locations: locations)
         func copyIn() -> (fd: Int32, bundle: VerifiedBundle, dirName: String)? {
             let dirName = FileOps.randomName(length: 12)
             guard mkdirat(workFD, dirName, 0o700) == 0 else { return nil }
@@ -342,8 +403,8 @@ public struct AdminSwapEngine: Sendable {
                   Self.sameVolume(Self.fsid(copyPath), targetVolume)
             else { close(fd); return nil }
             guard let first = verifiedNewer(copyPath, fd: fd, floor: floor),
-                  Self.chownTree(at: fd, AppSwapRoot.bundleName, owner: targetStat.st_uid, group: targetStat.st_gid),
-                  fchmodat(fd, AppSwapRoot.bundleName, targetStat.st_mode & 0o7777, AT_SYMLINK_NOFOLLOW) == 0,
+                  Self.chownTree(at: fd, AppSwapRoot.bundleName, owner: attributes.owner, group: attributes.group),
+                  fchmodat(fd, AppSwapRoot.bundleName, attributes.mode, AT_SYMLINK_NOFOLLOW) == 0,
                   let second = verifiedNewer(copyPath, fd: fd, floor: floor),
                   second.cdhash == first.cdhash, second.identity == first.identity
             else { close(fd); return nil }
@@ -401,13 +462,23 @@ public struct AdminSwapEngine: Sendable {
             SwapLog.logger.error("admin swap: root's floor record could not be written")
         }
 
+        // A bundle another account owned is root's before it goes further, so
+        // what that account still holds open can change nothing in it. The
+        // swap has happened and stands whatever this does.
+        if !rootsAlone {
+            let outcome = Self.settleOldBundle(at: copy.fd, AppSwapRoot.bundleName, owner: locations.owner, group: locations.group)
+            Self.report(outcome)
+            if outcome != .handedOver {
+                if outcome == .leftInWorkDirectory { kept = copy.dirName }
+                relauncher.relaunch(account)
+                return 0
+            }
+        }
+
         // The old bundle leaves Applications for root's previous directory.
         let previousName = SwapPaths.previousName(tag: installed.tag)
         if let previousFD = privateDirectory(locations.previousRoot) {
-            for entry in FileOps.entries(previousFD) {
-                Self.clearUserLockingFlags(locations.previousRoot + "/" + entry)
-                FileOps.removeTree(at: previousFD, entry)
-            }
+            Self.sweepPrevious(previousFD)
             if renamer.move(fromDir: copy.fd, from: AppSwapRoot.bundleName, toDir: previousFD, to: previousName) == 0 {
                 FileOps.fullSync(previousFD)
             }
@@ -416,6 +487,19 @@ public struct AdminSwapEngine: Sendable {
         relauncher.relaunch(account)
         return 0
     }
+
+    /// The owner, group and top directory mode root's copy ends with: the
+    /// target's when its tree is root's alone, so a swap keeps what an
+    /// administrator chose, and root's and `adoptedMode` otherwise, so the
+    /// account that dragged a release to `/Applications` decides nothing of
+    /// what replaces it.
+    static func copyAttributes(target: stat, rootsAlone: Bool, locations: AdminSwapLocations) -> (owner: uid_t, group: gid_t, mode: mode_t) {
+        rootsAlone ? (target.st_uid, target.st_gid, target.st_mode & 0o7777) : (locations.owner, locations.group, adoptedMode)
+    }
+
+    /// The top directory's mode of a copy that replaces a tree not root's
+    /// alone, whose own mode that account chose.
+    static let adoptedMode: mode_t = 0o755
 
     /// Swaps the target and root's copy back after a swap that must not
     /// stand, and returns whether the undo rename succeeded. On a failure it
@@ -517,7 +601,8 @@ public struct AdminSwapEngine: Sendable {
     /// carrying none of `userLockingFlags` or `systemLockingFlags`, and, for
     /// a regular file, with one link only; with no extended ACL (one that
     /// cannot be read counts as present); and, when `owner` is given, owned
-    /// by it. Nothing is followed; `inspector` reads each entry.
+    /// by it. Nothing is followed; `inspector` reads each entry. A directory
+    /// that cannot be listed is not safe.
     ///
     /// The link count refuses every hard link, inside the tree or to a file
     /// outside it: root's copy is made by `ditto` into a fresh directory, so
@@ -535,35 +620,330 @@ public struct AdminSwapEngine: Sendable {
         case S_IFDIR:
             guard let fd = FileOps.openDirectory(at: dirFD, name) else { return false }
             defer { close(fd) }
-            return FileOps.entries(fd).allSatisfy { isSafeTree(at: fd, $0, owner: owner, inspector: inspector) }
+            guard let names = FileOps.entries(fd) else { return false }
+            return names.allSatisfy { isSafeTree(at: fd, $0, owner: owner, inspector: inspector) }
         default: return false
         }
     }
 
     /// Whether `name` in `dirFD`, and everything under it, carries none of
-    /// `flags`. Nothing is followed; a directory that cannot be opened counts
-    /// as carrying them.
+    /// `flags`. Nothing is followed; a directory that cannot be opened or
+    /// listed counts as carrying them.
     static func isFree(of flags: UInt32, at dirFD: Int32, _ name: String) -> Bool {
         var st = stat()
         guard fstatat(dirFD, name, &st, AT_SYMLINK_NOFOLLOW) == 0, st.st_flags & flags == 0 else { return false }
         guard (st.st_mode & S_IFMT) == S_IFDIR else { return true }
         guard let fd = FileOps.openDirectory(at: dirFD, name) else { return false }
         defer { close(fd) }
-        return FileOps.entries(fd).allSatisfy { isFree(of: flags, at: fd, $0) }
+        guard let names = FileOps.entries(fd) else { return false }
+        return names.allSatisfy { isFree(of: flags, at: fd, $0) }
     }
 
-    /// Clears `userLockingFlags` on `path` and everything under it, never
-    /// following a symlink (`lchflags`), so the tree can be removed. It runs
-    /// only on trees root made inside its own 0700 directories, which no
-    /// other user can change, so the paths name what was checked. Root may
-    /// clear a user flag; the system flags are refused before the copy.
-    static func clearUserLockingFlags(_ path: String) {
-        var st = stat()
-        guard lstat(path, &st) == 0 else { return }
-        if st.st_flags & userLockingFlags != 0 { _ = lchflags(path, st.st_flags & ~userLockingFlags) }
-        guard (st.st_mode & S_IFMT) == S_IFDIR, let fd = FileOps.openDirectory(path) else { return }
+    /// Clears `userLockingFlags` on `name` in `dirFD` and everything under it,
+    /// so the tree can be removed. Root may clear a user flag; the system
+    /// flags are refused before the copy. Every step is relative to a
+    /// descriptor this walk opened, no symlink is followed, and nothing on
+    /// another volume than `dirFD`'s is touched. `beforeDescending` is for
+    /// tests: it runs with a directory's name once the directory is open and
+    /// listed.
+    ///
+    /// Returns whether the walk reached all of the tree: false when an entry
+    /// could not be read or opened, a directory could not be listed, or an entry
+    /// is on another volume. What it did not reach keeps its flags, and removing
+    /// the tree then reports the failure, so a caller that goes on to remove it
+    /// can ignore this.
+    @discardableResult
+    static func clearUserLockingFlags(at dirFD: Int32, _ name: String, beforeDescending: (String) -> Void = { _ in }) -> Bool {
+        guard let device = volume(of: dirFD) else { return false }
+        return clearUserLockingFlags(at: dirFD, name, device: device, beforeDescending: beforeDescending)
+    }
+
+    private static func clearUserLockingFlags(at dirFD: Int32, _ name: String, device: dev_t, beforeDescending: (String) -> Void) -> Bool {
+        var entry = stat()
+        guard fstatat(dirFD, name, &entry, AT_SYMLINK_NOFOLLOW) == 0 else { return errno == ENOENT }
+        guard entry.st_dev == device else { return false }
+        guard isOpenable(entry) else {
+            clearFlagsWithoutOpening(at: dirFD, name, entry)
+            return true
+        }
+        // O_SYMLINK opens a symlink itself, so its target is never reached;
+        // O_NONBLOCK keeps a replaced entry from blocking root.
+        let fd = openat(dirFD, name, O_RDONLY | O_SYMLINK | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return false }
         defer { close(fd) }
-        for entry in FileOps.entries(fd) { clearUserLockingFlags(path + "/" + entry) }
+        var st = stat()
+        guard fstat(fd, &st) == 0, st.st_dev == device else { return false }
+        if st.st_flags & userLockingFlags != 0 { _ = fchflags(fd, st.st_flags & ~userLockingFlags) }
+        guard (st.st_mode & S_IFMT) == S_IFDIR else { return true }
+        guard let names = FileOps.entries(fd) else { return false }
+        beforeDescending(name)
+        var whole = true
+        for child in names where !clearUserLockingFlags(at: fd, child, device: device, beforeDescending: beforeDescending) {
+            whole = false
+        }
+        return whole
+    }
+
+    /// Removes `name` in `dirFD` and everything under it, by descriptor,
+    /// following no symlink and not crossing onto another volume: a mount
+    /// point in the tree stays, with what is on it, and the removal reports
+    /// failure. So does a directory that cannot be listed: it is left, not
+    /// removed as if it were empty. Returns whether `name` is gone.
+    @discardableResult
+    static func removeOnVolume(at dirFD: Int32, _ name: String) -> Bool {
+        guard let device = volume(of: dirFD) else { return false }
+        return removeOnVolume(at: dirFD, name, device: device)
+    }
+
+    private static func removeOnVolume(at dirFD: Int32, _ name: String, device: dev_t) -> Bool {
+        var st = stat()
+        guard fstatat(dirFD, name, &st, AT_SYMLINK_NOFOLLOW) == 0 else { return errno == ENOENT }
+        guard st.st_dev == device else { return false }
+        guard (st.st_mode & S_IFMT) == S_IFDIR else { return unlinkat(dirFD, name, 0) == 0 }
+        guard let fd = FileOps.openDirectory(at: dirFD, name) else { return false }
+        guard let names = FileOps.entries(fd) else {
+            close(fd)
+            return false
+        }
+        for child in names { _ = removeOnVolume(at: fd, child, device: device) }
+        close(fd)
+        return unlinkat(dirFD, name, AT_REMOVEDIR) == 0
+    }
+
+    /// The device of the open directory `fd`.
+    private static func volume(of fd: Int32) -> dev_t? {
+        var st = stat()
+        return fstat(fd, &st) == 0 ? st.st_dev : nil
+    }
+
+    /// Whether the walks may open this entry: a regular file, a directory or
+    /// a symlink. A special file can have a driver behind it, and a socket
+    /// cannot be opened at all.
+    private static func isOpenable(_ entry: stat) -> Bool {
+        let type = entry.st_mode & S_IFMT
+        return type == S_IFREG || type == S_IFDIR || type == S_IFLNK
+    }
+
+    /// Clears `userLockingFlags` on an entry that is not opened, through
+    /// `setattrlistat`: relative to `dirFD`, not following a symlink.
+    private static func clearFlagsWithoutOpening(at dirFD: Int32, _ name: String, _ entry: stat) {
+        guard entry.st_flags & userLockingFlags != 0 else { return }
+        var attributes = attrlist()
+        attributes.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
+        attributes.commonattr = attrgroup_t(ATTR_CMN_FLAGS)
+        var flags = entry.st_flags & ~userLockingFlags
+        _ = setattrlistat(dirFD, name, &attributes, &flags, MemoryLayout<UInt32>.size, UInt32(FSOPT_NOFOLLOW))
+    }
+
+    /// The bundle a swap replaced, not root's alone: handed to root, or
+    /// removed by descriptor when that fails, or left where it is when that
+    /// fails too. A former owner can force a failed hand-over, so a partly
+    /// handed-over tree is never kept when it can be removed.
+    static func settleOldBundle(at dirFD: Int32, _ name: String, owner: uid_t, group: gid_t) -> OldBundleOutcome {
+        if handOverTree(at: dirFD, name, owner: owner, group: group) { return .handedOver }
+        clearUserLockingFlags(at: dirFD, name)
+        return removeOnVolume(at: dirFD, name) ? .removedAfterFailedHandOver : .leftInWorkDirectory
+    }
+
+    /// Logs an outcome, and writes it to standard error, which the root script
+    /// sends to the copy-out log.
+    private static func report(_ outcome: OldBundleOutcome) {
+        if outcome == .handedOver {
+            SwapLog.logger.notice("\(outcome.logLine, privacy: .public)")
+        } else {
+            SwapLog.logger.error("\(outcome.logLine, privacy: .public)")
+            FileHandle.standardError.write(Data((outcome.logLine + "\n").utf8))
+        }
+    }
+
+    /// Finishes what an earlier run left in the work directory. It runs after
+    /// the root script's sweep, which leaves such a tree alone unless it is
+    /// root's. A tree that cannot be finished is logged and left for the next
+    /// swap: it says nothing about this one.
+    private func finishLeftovers() {
+        guard let workFD = privateDirectory(locations.workRoot) else { return }
+        defer { close(workFD) }
+        Self.settleLeftovers(in: workFD, owner: locations.owner, group: locations.group)
+    }
+
+    /// Settles and removes every entry of the work directory `workFD`. Returns
+    /// whether it is now empty: false, having touched nothing, when it cannot
+    /// be listed.
+    @discardableResult
+    static func settleLeftovers(in workFD: Int32, owner: uid_t, group: gid_t) -> Bool {
+        guard let names = FileOps.entries(workFD) else {
+            SwapLog.logger.error("admin swap: root's work directory could not be listed; what an earlier run left stays for the next swap")
+            return false
+        }
+        var whole = true
+        for entry in names {
+            var outcome = settleOldBundle(at: workFD, entry, owner: owner, group: group)
+            if outcome == .handedOver {
+                clearUserLockingFlags(at: workFD, entry)
+                if !removeOnVolume(at: workFD, entry) { outcome = .leftInWorkDirectory }
+            }
+            if outcome == .leftInWorkDirectory {
+                whole = false
+                SwapLog.logger.error("admin swap: a tree an earlier run left in root's work directory could not be removed")
+            }
+        }
+        return whole
+    }
+
+    /// Removes every entry of root's previous directory `previousFD`, for the
+    /// bundle about to move in. Returns whether it is now empty. When it cannot
+    /// be listed nothing is removed and the failure is logged; the swap has
+    /// happened, and an older copy left in root's directory changes nothing
+    /// about it, so the caller still moves the old bundle in.
+    @discardableResult
+    static func sweepPrevious(_ previousFD: Int32) -> Bool {
+        guard let names = FileOps.entries(previousFD) else {
+            SwapLog.logger.error("admin swap: root's previous directory could not be listed; nothing was removed from it")
+            return false
+        }
+        var whole = true
+        for entry in names {
+            clearUserLockingFlags(at: previousFD, entry)
+            if !removeOnVolume(at: previousFD, entry) { whole = false }
+        }
+        return whole
+    }
+
+    /// The soft descriptor limit the helper runs with. Each level of a walk
+    /// holds one descriptor, so this bounds the depth a walk reaches. The frames
+    /// of that many levels fit the main thread's 8 MiB stack, even in an
+    /// unoptimised build, where a level of `handOverTree` takes about 2 KiB
+    /// (`AppSwapRootTreeTests`).
+    static let wantedDescriptorLimit: rlim_t = 2048
+
+    /// The soft limit to set: exactly `wanted`, or the hard limit when that is
+    /// lower. A higher soft limit is not kept, since it would stop bounding a
+    /// walk's depth.
+    static func descriptorLimit(_ current: rlimit, wanted: rlim_t = wantedDescriptorLimit) -> rlim_t {
+        min(current.rlim_max, wanted)
+    }
+
+    /// Sets this process's soft descriptor limit, from the 256 a root script
+    /// starts with or from whatever higher limit it inherited.
+    public static func setDescriptorLimit() {
+        var limit = rlimit()
+        guard getrlimit(RLIMIT_NOFILE, &limit) == 0 else { return }
+        limit.rlim_cur = descriptorLimit(limit)
+        _ = setrlimit(RLIMIT_NOFILE, &limit)
+    }
+
+    /// Makes `name` in `dirFD` and everything under it `owner`'s, top-down, so
+    /// that an account that owned the tree, and may hold descriptors inside it,
+    /// is left with nothing. Permission checks use the current owner, so a
+    /// directory that has been handed over refuses that account a new entry,
+    /// a rename or a flag through any descriptor. Each directory is handed
+    /// over before it is listed: nothing can be added behind the walk.
+    ///
+    /// Everything is by descriptor and no symlink is followed. A symlink is
+    /// handed over itself (its target is never reached), since that account
+    /// could otherwise flag it through a held descriptor and stop its removal.
+    /// A regular file or a symlink with a second link is unlinked, not changed:
+    /// the inode may be someone else's, and it is left with its owner, mode and
+    /// flags. A special file is unlinked too, unopened. A regular file's content
+    /// can still be written through a descriptor already open for writing, which
+    /// permission checks do not revisit; nothing runs or reads this tree again.
+    ///
+    /// The walk stops at a mount point: an entry on another volume than
+    /// `dirFD`'s is not changed, entered or removed, and the walk reports failure.
+    ///
+    /// Returns whether all of it was handed over: a directory that cannot be
+    /// listed is a failure, since what is under it was not reached. A failure does
+    /// not stop the walk, and what it reached stays handed over. `beforeListing` and `trace`
+    /// are for tests: the first runs with a directory's name once it is handed
+    /// over, the second with the name of each step of `handOver`.
+    static func handOverTree(at dirFD: Int32, _ name: String, owner: uid_t, group: gid_t,
+                             beforeListing: (String) -> Void = { _ in }, trace: (String) -> Void = { _ in }) -> Bool {
+        guard let device = volume(of: dirFD) else { return false }
+        return handOverTree(at: dirFD, name, owner: owner, group: group, device: device, beforeListing: beforeListing, trace: trace)
+    }
+
+    private static func handOverTree(at dirFD: Int32, _ name: String, owner: uid_t, group: gid_t, device: dev_t,
+                                     beforeListing: (String) -> Void, trace: (String) -> Void) -> Bool {
+        var entry = stat()
+        guard fstatat(dirFD, name, &entry, AT_SYMLINK_NOFOLLOW) == 0 else { return errno == ENOENT }
+        guard entry.st_dev == device else { return false }
+        guard isOpenable(entry) else {
+            clearFlagsWithoutOpening(at: dirFD, name, entry)
+            return unlinkat(dirFD, name, 0) == 0
+        }
+        let fd = openat(dirFD, name, O_RDONLY | O_SYMLINK | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var st = stat()
+        guard fstat(fd, &st) == 0, st.st_dev == device else { return false }
+        let type = st.st_mode & S_IFMT
+        if type != S_IFDIR, st.st_nlink > 1 {
+            if st.st_flags & userLockingFlags != 0 { _ = fchflags(fd, st.st_flags & ~userLockingFlags) }
+            let unlinked = unlinkat(dirFD, name, 0) == 0
+            if st.st_flags & userLockingFlags != 0 { _ = fchflags(fd, st.st_flags) }
+            return unlinked
+        }
+        guard handOver(fd, isSymlink: type == S_IFLNK, owner: owner, group: group, trace: trace) else { return false }
+        guard type == S_IFDIR else { return true }
+        beforeListing(name)
+        guard let names = FileOps.entries(fd) else { return false }
+        var whole = true
+        for child in names
+        where !handOverTree(at: fd, child, owner: owner, group: group, device: device, beforeListing: beforeListing, trace: trace) {
+            whole = false
+        }
+        return whole
+    }
+
+    /// Makes the open entry `fd` `owner`'s, in this order:
+    ///
+    /// 1. its user flags cleared, since a flagged entry refuses the rest;
+    /// 2. setuid and setgid removed, so no step leaves root owning such a file;
+    /// 3. the chown, after which its former owner can set no flag or mode;
+    /// 4. the flags again, for what was set in between;
+    /// 5. any ACL removed, so it no longer grants what the next step takes away;
+    /// 6. group and other write removed.
+    ///
+    /// A symlink has only the flags and the chown. Steps 1 to 3 are tried three
+    /// times against an owner setting flags back. Returns whether the entry
+    /// ended as asked.
+    private static func handOver(_ fd: Int32, isSymlink: Bool, owner: uid_t, group: gid_t, trace: (String) -> Void) -> Bool {
+        func clearFlags() {
+            trace("flags")
+            var st = stat()
+            if fstat(fd, &st) == 0, st.st_flags & userLockingFlags != 0 { _ = fchflags(fd, st.st_flags & ~userLockingFlags) }
+        }
+        var chowned = false
+        for _ in 0..<3 where !chowned {
+            clearFlags()
+            if !isSymlink {
+                trace("setid")
+                var st = stat()
+                if fstat(fd, &st) == 0, st.st_mode & 0o6000 != 0 { _ = fchmod(fd, st.st_mode & 0o777) }
+            }
+            trace("chown")
+            chowned = fchown(fd, owner, group) == 0
+        }
+        guard chowned else { return false }
+        clearFlags()
+        var st = stat()
+        guard fstat(fd, &st) == 0 else { return false }
+        if !isSymlink {
+            trace("acl")
+            guard removeExtendedACL(fd) else { return false }
+            trace("mode")
+            guard fchmod(fd, st.st_mode & 0o755) == 0, fstat(fd, &st) == 0, st.st_mode & 0o6022 == 0 else { return false }
+        }
+        return st.st_uid == owner && st.st_gid == group && st.st_flags & userLockingFlags == 0
+    }
+
+    /// Removes any extended ACL from the open entry `fd`.
+    private static func removeExtendedACL(_ fd: Int32) -> Bool {
+        guard let present = acl_get_fd_np(fd, ACL_TYPE_EXTENDED) else { return errno == ENOENT }
+        acl_free(UnsafeMutableRawPointer(present))
+        guard let empty = acl_init(0) else { return false }
+        defer { acl_free(UnsafeMutableRawPointer(empty)) }
+        return acl_set_fd_np(fd, empty, ACL_TYPE_EXTENDED) == 0
     }
 
     /// Sets the owner and group of `name` in `dirFD` and everything under
@@ -573,6 +953,7 @@ public struct AdminSwapEngine: Sendable {
         guard FileOps.isDirectory(at: dirFD, name) else { return true }
         guard let fd = FileOps.openDirectory(at: dirFD, name) else { return false }
         defer { close(fd) }
-        return FileOps.entries(fd).allSatisfy { chownTree(at: fd, $0, owner: owner, group: group) }
+        guard let names = FileOps.entries(fd) else { return false }
+        return names.allSatisfy { chownTree(at: fd, $0, owner: owner, group: group) }
     }
 }

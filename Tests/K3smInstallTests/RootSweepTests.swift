@@ -49,12 +49,13 @@ struct RootSweepTests {
 
         let text = RootScriptBuilder.stagedCopy(bundlePath: "/Applications/k3sm.app",
                                                 stagingTemplate: CopyOutPlan.stagingRoot + "/0.2.0.XXXXXXXX",
-                                                designatedRequirement: nil)
+                                                designatedRequirement: nil, owner: getuid())
         let rootLine = "root=" + ShellQuote.quote(CopyOutPlan.stagingRoot)
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         try #require(lines.contains(rootLine), "the script sets the staging root")
-        let sweep = lines.filter { $0.hasPrefix("/usr/bin/find \"$root\" ") }
-        try #require(sweep.count == 2, "the sweep is two find lines: the flag clear, then the removal")
+        let start = try #require(lines.firstIndex { $0.hasPrefix("for entry in \"$root\"/") }, "the sweep's loop")
+        let end = try #require(lines[start...].firstIndex(of: "done"), "the end of the sweep's loop")
+        let sweep = Array(lines[start...end])
         let script = (["set -eu", "root=" + ShellQuote.quote(root)] + sweep).joined(separator: "\n") + "\n"
 
         let run = try shell(["-c", script])

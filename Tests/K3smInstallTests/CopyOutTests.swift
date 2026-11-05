@@ -92,7 +92,7 @@ struct CopyOutTests {
         func at(_ needle: String) throws -> String.Index {
             try #require(text.range(of: needle)?.lowerBound, "missing \(needle)")
         }
-        let sweep = try at("/usr/bin/find \"$root\" -mindepth 1")
+        let sweep = try at("/usr/bin/find -x \"$entry\"")
         let copy = try at("/usr/bin/ditto --norsrc --noextattr --noqtn --noacl")
         let refuse = try at("-perm +6022")
         let chown = try at("/usr/sbin/chown -R root:wheel")
