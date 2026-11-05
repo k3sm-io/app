@@ -375,6 +375,70 @@ import K3smStatus
         return try #require(groups.prefix(Int(max(count, 0))).first { $0 != gid })
     }
 
+    @Test("the old bundle of a target another account owned reaches the previous directory handed over, a symlink planted before the swap not followed")
+    func appSwapOldForeignBundleIsHandedOverBeforeTheMove() throws {
+        let s = AdminScratch()
+        let decoy = s.root + "/decoy"
+        defer {
+            _ = chflags(decoy, 0)
+            s.cleanUp()
+        }
+        s.install(tag: "v1.0.0")
+        s.stage(tag: "v1.1.0")
+        s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
+        s.writeFloor("v1.0.0\n")
+        var before = stat()
+        try #require(lstat(s.target, &before) == 0)
+        s.group = try Self.anotherGroup(than: before.st_gid)
+        try Data("decoy".utf8).write(to: URL(fileURLWithPath: decoy))
+        try #require(chflags(decoy, UInt32(UF_IMMUTABLE)) == 0)
+        var decoyBefore = stat()
+        try #require(lstat(decoy, &decoyBefore) == 0)
+        let target = s.target
+        // The former owner, after the engine's check and before the swap.
+        let renamer = BeforeSwapRenamer {
+            _ = symlink(decoy, target + "/Contents/planted")
+            _ = chflags(target + "/Contents/Info.plist", UInt32(UF_IMMUTABLE))
+        }
+        #expect(s.engine(renamer: renamer, inspector: OwnerOverride(prefix: s.target, owner: getuid() + 1), installedCopy: s.helperCopy).run() == 0)
+        #expect(s.tag(at: s.target) == "v1.1.0")
+        let previous = s.previousRoot + "/k3sm-v1.0.0.previous"
+        var entries = [previous]
+        entries += try FileManager.default.subpathsOfDirectory(atPath: previous).map { previous + "/" + $0 }
+        #expect(entries.contains(previous + "/Contents/planted"))
+        for entry in entries {
+            var st = stat()
+            try #require(lstat(entry, &st) == 0)
+            #expect(st.st_gid == s.group && st.st_flags & UInt32(UF_IMMUTABLE) == 0, "\(entry)")
+        }
+        var decoyAfter = stat()
+        try #require(lstat(decoy, &decoyAfter) == 0)
+        #expect(decoyAfter.st_gid == decoyBefore.st_gid && decoyAfter.st_flags == decoyBefore.st_flags && decoyAfter.st_mode == decoyBefore.st_mode)
+        s.expectNothingLeft()
+    }
+
+    @Test("a walk that fails after the swap reports success, relaunches, moves nothing, and keeps the old bundle in root's work directory")
+    func appSwapFailedHandOverKeepsTheSwap() throws {
+        let s = AdminScratch()
+        defer { s.cleanUp() }
+        s.install(tag: "v1.0.0")
+        s.stage(tag: "v1.1.0")
+        s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
+        s.writeFloor("v1.0.0\n")
+        let target = s.target
+        // An entry this account cannot open, which root could: only the walk
+        // fails. The former owner's own doing, after the engine's check.
+        let renamer = BeforeSwapRenamer { _ = chmod(target + "/Contents/Info.plist", 0o000) }
+        #expect(s.engine(renamer: renamer, inspector: OwnerOverride(prefix: s.target, owner: getuid() + 1), installedCopy: s.helperCopy).run() == 0)
+        #expect(s.tag(at: s.target) == "v1.1.0")
+        #expect(s.relaunched.count == 1)
+        #expect((try? String(contentsOfFile: s.floorRecord, encoding: .utf8)) == "v1.1.0\n")
+        #expect(((try? FileManager.default.contentsOfDirectory(atPath: s.previousRoot)) ?? []).isEmpty)
+        let kept = (try? FileManager.default.contentsOfDirectory(atPath: s.workRoot)) ?? []
+        #expect(kept.count == 1, "\(kept)")
+        if let dir = kept.first { #expect(FileManager.default.fileExists(atPath: s.workRoot + "/" + dir + "/k3sm.app/Contents/MacOS/k3sm-app")) }
+    }
+
     @Test("a target another account owns does not pass its top directory's mode to root's copy; a tree root's alone keeps its own")
     func appSwapForeignTargetCopyIsMode0755() throws {
         let s = AdminScratch()
@@ -488,6 +552,22 @@ import K3smStatus
         let before = identity(s.target)
         let console = FixedConsole(owner: ConsoleAccount(uid: user.uid, home: s.home))
 
+        // The former owner holds descriptors in the bundle, and can use them now.
+        let topFD = open(s.target, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        try #require(topFD >= 0)
+        defer { close(topFD) }
+        try #require(seteuid(user.uid) == 0)
+        let heldDir = openat(topFD, "Contents", O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        let heldFile = openat(topFD, "Contents/Info.plist", O_RDONLY | O_NOFOLLOW)
+        let added = openat(heldDir, "added-before", O_CREAT | O_WRONLY, 0o644)
+        try #require(seteuid(0) == 0)
+        try #require(heldDir >= 0 && heldFile >= 0 && added >= 0, "the former owner could not use its own tree")
+        close(added)
+        defer {
+            close(heldDir)
+            close(heldFile)
+        }
+
         #expect(s.engine(console: console, installedCopy: s.helperCopy).run() == 0)
         #expect(s.tag(at: s.target) == "v1.1.0")
         #expect(identity(s.target) != before, "a chown in place would keep the identity")
@@ -502,11 +582,24 @@ import K3smStatus
             #expect(st.st_uid == 0 && st.st_gid == 0, "\(entry)")
         }
         let previous = s.previousRoot + "/k3sm-v1.0.0.previous"
-        var old = stat()
-        try #require(lstat(previous, &old) == 0)
-        #expect(old.st_uid == user.uid, "the bundle that came out keeps its owner in root's private directory")
+        var old = [previous]
+        old += try FileManager.default.subpathsOfDirectory(atPath: previous).map { previous + "/" + $0 }
+        #expect(old.contains(previous + "/Contents/added-before"))
+        for entry in old {
+            var st = stat()
+            try #require(lstat(entry, &st) == 0)
+            #expect(st.st_uid == 0 && st.st_gid == 0 && st.st_mode & 0o022 == 0, "\(entry)")
+        }
 
-        // Root walks that tree next: a symlink planted in it leads nowhere.
+        // What the former owner still holds open changes nothing now.
+        try #require(seteuid(user.uid) == 0)
+        let addedAfter = openat(heldDir, "added-after", O_CREAT | O_WRONLY, 0o644)
+        let flagged = fchflags(heldFile, UInt32(UF_IMMUTABLE))
+        let renamed = renameat(heldDir, "Info.plist", heldDir, "moved")
+        try #require(seteuid(0) == 0)
+        #expect(addedAfter < 0 && flagged != 0 && renamed != 0, "the former owner changed the tree: \(addedAfter) \(flagged) \(renamed)")
+
+        // A symlink planted in it leads nowhere when root removes it.
         try Data("decoy".utf8).write(to: URL(fileURLWithPath: decoy))
         try #require(chflags(decoy, UInt32(UF_IMMUTABLE)) == 0)
         try FileManager.default.createSymbolicLink(atPath: previous + "/Contents/planted", withDestinationPath: decoy)
@@ -919,6 +1012,26 @@ private final class ReplacingRenamer: Renamer, @unchecked Sendable {
             precondition(rename(target, movedTo) == 0 && rename(replacement, target) == 0)
         }
         if n == 2, let failUndo { return failUndo }
+        return SystemRenamer().swap(fromDir: fromDir, from: from, toDir: toDir, to: to)
+    }
+
+    func move(fromDir: Int32, from: String, toDir: Int32, to: String) -> Int32 {
+        SystemRenamer().move(fromDir: fromDir, from: from, toDir: toDir, to: to)
+    }
+}
+
+/// BeforeSwapRenamer runs `before` once, right before the first swap: what an
+/// account can do between the engine's last check and its rename.
+private final class BeforeSwapRenamer: Renamer, @unchecked Sendable {
+    private var before: (() -> Void)?
+
+    init(before: @escaping () -> Void) {
+        self.before = before
+    }
+
+    func swap(fromDir: Int32, from: String, toDir: Int32, to: String) -> Int32 {
+        before?()
+        before = nil
         return SystemRenamer().swap(fromDir: fromDir, from: from, toDir: toDir, to: to)
     }
 

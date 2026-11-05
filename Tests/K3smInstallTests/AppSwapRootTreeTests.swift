@@ -221,6 +221,119 @@ import Testing
         #expect(!Self.isImmutable(t.tree + "/Contents/moved/k3sm-app"), "the walk lost the directory it opened")
     }
 
+    /// A group this account belongs to other than the one a new file gets:
+    /// it stands in for root's, since a test cannot chown to root.
+    static func handOverGroup(_ path: String) throws -> gid_t {
+        var st = stat()
+        try #require(lstat(path, &st) == 0)
+        var groups = [gid_t](repeating: 0, count: Int(NGROUPS_MAX))
+        let count = getgroups(Int32(groups.count), &groups)
+        return try #require(groups.prefix(Int(max(count, 0))).first { $0 != st.st_gid })
+    }
+
+    static func status(_ path: String) throws -> stat {
+        var st = stat()
+        try #require(lstat(path, &st) == 0, "\(path)")
+        return st
+    }
+
+    @Test("handing a tree over changes every entry top-down: flags, group, group and other write, setuid, ACL")
+    func handOverChangesEveryEntry() throws {
+        let t = Tree()
+        defer { t.cleanUp() }
+        let file = t.tree + "/Contents/MacOS/k3sm-app"
+        let group = try Self.handOverGroup(t.tree)
+        try #require(chmod(t.tree + "/Contents", 0o775) == 0 && chmod(file, 0o4775) == 0)
+        #expect(try shell(["-c", "/bin/chmod +a 'everyone allow write' " + ShellQuote.quote(t.tree + "/Contents/MacOS")]).status == 0)
+        try #require(chflags(file, UInt32(UF_IMMUTABLE)) == 0)
+        let fd = try #require(FileOps.openDirectory(t.root))
+        defer { close(fd) }
+        #expect(AdminSwapEngine.handOverTree(at: fd, "tree", owner: getuid(), group: group))
+        for path in [t.tree, t.tree + "/Contents", t.tree + "/Contents/MacOS", file] {
+            let st = try Self.status(path)
+            #expect(st.st_gid == group && st.st_mode & 0o6022 == 0 && st.st_flags & UInt32(UF_IMMUTABLE) == 0, "\(path)")
+        }
+        let contents = try #require(FileOps.openDirectory(t.tree + "/Contents"))
+        defer { close(contents) }
+        #expect(SystemTreeInspector().hasExtendedACL(at: contents, "MacOS") == false)
+    }
+
+    @Test("a planted symlink is not followed: its target keeps its owner, group, mode and flags")
+    func handOverLeavesASymlinksTarget() throws {
+        let t = Tree()
+        let outside = t.root + "/outside"
+        defer {
+            _ = chflags(outside, 0)
+            t.cleanUp()
+        }
+        let group = try Self.handOverGroup(outside)
+        try #require(chmod(outside, 0o664) == 0 && chflags(outside, UInt32(UF_IMMUTABLE)) == 0)
+        let before = try Self.status(outside)
+        try FileManager.default.createSymbolicLink(atPath: t.tree + "/Contents/planted", withDestinationPath: outside)
+        let fd = try #require(FileOps.openDirectory(t.root))
+        defer { close(fd) }
+        #expect(AdminSwapEngine.handOverTree(at: fd, "tree", owner: getuid(), group: group))
+        let after = try Self.status(outside)
+        #expect(after.st_uid == before.st_uid && after.st_gid == before.st_gid && after.st_mode == before.st_mode && after.st_flags == before.st_flags)
+        #expect(try Self.status(t.tree + "/Contents/planted").st_gid == group, "the link itself is handed over")
+        #expect(try Self.status(t.tree + "/Contents/MacOS/k3sm-app").st_gid == group)
+    }
+
+    @Test("a hard link in the tree is unlinked: the inode, which may be someone else's, keeps its group, mode and flags")
+    func handOverUnlinksAHardLink() throws {
+        let t = Tree()
+        let outside = t.root + "/outside"
+        defer {
+            _ = chflags(outside, 0)
+            t.cleanUp()
+        }
+        let group = try Self.handOverGroup(outside)
+        try #require(link(outside, t.tree + "/Contents/linked") == 0)
+        try #require(chmod(outside, 0o664) == 0 && chflags(outside, UInt32(UF_IMMUTABLE)) == 0)
+        let before = try Self.status(outside)
+        let fd = try #require(FileOps.openDirectory(t.root))
+        defer { close(fd) }
+        #expect(AdminSwapEngine.handOverTree(at: fd, "tree", owner: getuid(), group: group))
+        var gone = stat()
+        #expect(lstat(t.tree + "/Contents/linked", &gone) != 0)
+        let after = try Self.status(outside)
+        #expect(after.st_gid == before.st_gid && after.st_mode == before.st_mode && after.st_flags == before.st_flags && after.st_nlink == 1)
+    }
+
+    @Test("a directory is handed over before it is listed, so an entry added up to that moment is walked too")
+    func handOverHandsADirectoryOverBeforeListing() throws {
+        let t = Tree()
+        defer { t.cleanUp() }
+        let group = try Self.handOverGroup(t.tree)
+        let fd = try #require(FileOps.openDirectory(t.root))
+        defer { close(fd) }
+        var seen: [String] = []
+        let whole = AdminSwapEngine.handOverTree(at: fd, "tree", owner: getuid(), group: group) { name in
+            seen.append(name)
+            guard name == "MacOS" else { return }
+            let dir = t.tree + "/Contents/MacOS"
+            #expect((try? Self.status(dir).st_gid) == group, "the directory was listed before it was handed over")
+            FileManager.default.createFile(atPath: dir + "/late", contents: Data("late".utf8))
+        }
+        #expect(whole && seen == ["tree", "Contents", "MacOS"])
+        #expect(try Self.status(t.tree + "/Contents/MacOS/late").st_gid == group)
+    }
+
+    @Test("an entry that cannot be handed over fails the walk, which still reaches the rest")
+    func handOverGoesOnAfterAFailure() throws {
+        let t = Tree()
+        defer { t.cleanUp() }
+        let group = try Self.handOverGroup(t.tree)
+        FileManager.default.createFile(atPath: t.tree + "/Contents/MacOS/unreadable", contents: Data("x".utf8))
+        FileManager.default.createFile(atPath: t.tree + "/Contents/MacOS/other", contents: Data("x".utf8))
+        try #require(chmod(t.tree + "/Contents/MacOS/unreadable", 0o000) == 0)
+        let fd = try #require(FileOps.openDirectory(t.root))
+        defer { close(fd) }
+        #expect(!AdminSwapEngine.handOverTree(at: fd, "tree", owner: getuid(), group: group))
+        #expect(try Self.status(t.tree + "/Contents/MacOS/other").st_gid == group)
+        #expect(try Self.status(t.tree + "/Contents/MacOS/k3sm-app").st_gid == group)
+    }
+
     @Test("the refused flags are uchg, uappnd, uunlnk, schg, sappnd and sunlnk, and no other")
     func flagSet() {
         #expect(AdminSwapEngine.userLockingFlags == 0x0000_0016)

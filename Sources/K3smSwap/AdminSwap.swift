@@ -204,7 +204,10 @@ public struct SystemSessionRelauncher: SessionRelauncher {
 ///    `undoFailed`, logs which bundle is believed live, and keeps the bundle that came
 ///    out in root's work directory.
 /// 7. Root's floor record is replaced with the new tag (a 0600 file written
-///    durably), the old bundle moves to `previousRoot` as `k3sm-<tag>.previous`, the
+///    durably), the old bundle is made root's if it was not (`handOverTree`) and
+///    moves to `previousRoot` as `k3sm-<tag>.previous` (a walk that fails leaves
+///    it in the work directory for the next root step's sweep, and the swap still
+///    succeeds), the
 ///    work directory is emptied, and the app is relaunched in the console
 ///    session (`SessionRelauncher`).
 ///
@@ -431,6 +434,18 @@ public struct AdminSwapEngine: Sendable {
             SwapLog.logger.error("admin swap: root's floor record could not be written")
         }
 
+        // A bundle another account owned is root's before it goes further, so
+        // what that account still holds open can change nothing in it. The
+        // swap has happened and stands whatever this does: a walk that fails
+        // keeps the bundle in root's work directory, for the next root step's
+        // sweep, and the run still succeeds.
+        guard rootsAlone || Self.handOverTree(at: copy.fd, AppSwapRoot.bundleName, owner: locations.owner, group: locations.group) else {
+            SwapLog.logger.error("admin swap: the old bundle could not be made root's; it stays in root's work directory until the next root step")
+            kept = copy.dirName
+            relauncher.relaunch(account)
+            return 0
+        }
+
         // The old bundle leaves Applications for root's previous directory.
         let previousName = SwapPaths.previousName(tag: installed.tag)
         if let previousFD = privateDirectory(locations.previousRoot) {
@@ -597,13 +612,10 @@ public struct AdminSwapEngine: Sendable {
 
     /// Clears `userLockingFlags` on `name` in `dirFD` and everything under it,
     /// so the tree can be removed. Root may clear a user flag; the system
-    /// flags are refused before the copy. The tree may be a bundle an account
-    /// dragged to `/Applications`, now in root's previous directory, and that
-    /// account can still hold a descriptor inside it and change it during
-    /// this walk. So every step is relative to a descriptor this walk opened
-    /// and no symlink is followed: what is changed is always inside the tree.
+    /// flags are refused before the copy. Every step is relative to a
+    /// descriptor this walk opened and no symlink is followed.
     /// `beforeDescending` is for tests: it runs with a directory's name once
-    /// the directory is open and listed, where such a change lands.
+    /// the directory is open and listed.
     static func clearUserLockingFlags(at dirFD: Int32, _ name: String, beforeDescending: (String) -> Void = { _ in }) {
         // O_SYMLINK opens a symlink itself, so its target is never reached;
         // O_NONBLOCK keeps a FIFO from blocking root. Failing to open leaves
@@ -618,6 +630,87 @@ public struct AdminSwapEngine: Sendable {
         let names = FileOps.entries(fd)
         beforeDescending(name)
         for entry in names { clearUserLockingFlags(at: fd, entry, beforeDescending: beforeDescending) }
+    }
+
+    /// Makes `name` in `dirFD` and everything under it `owner`'s, top-down, so
+    /// that an account that owned the tree, and may hold descriptors inside it,
+    /// is left with nothing. Permission checks use the current owner, so a
+    /// directory that has been handed over refuses that account a new entry,
+    /// a rename or a flag through any descriptor. Each directory is handed
+    /// over before it is listed: nothing can be added behind the walk.
+    ///
+    /// Everything is by descriptor and no symlink is followed. A symlink is
+    /// handed over itself (its target is never reached), since that account
+    /// could otherwise flag it through a held descriptor and stop its removal.
+    /// A regular file with a second link is unlinked, not changed: the inode
+    /// may be someone else's, and it is left with its owner, mode and flags.
+    /// So is a special file. A regular file's content can still be written
+    /// through a descriptor already open for writing, which permission checks
+    /// do not revisit; nothing runs or reads this tree again.
+    ///
+    /// Returns whether all of it was handed over. A failure does not stop the
+    /// walk, and what it reached stays handed over. `beforeListing` is for
+    /// tests: it runs with a directory's name once it is handed over.
+    static func handOverTree(at dirFD: Int32, _ name: String, owner: uid_t, group: gid_t,
+                             beforeListing: (String) -> Void = { _ in }) -> Bool {
+        var entry = stat()
+        guard fstatat(dirFD, name, &entry, AT_SYMLINK_NOFOLLOW) == 0 else { return errno == ENOENT }
+        let type = entry.st_mode & S_IFMT
+        guard type == S_IFREG || type == S_IFDIR || type == S_IFLNK else { return unlinkat(dirFD, name, 0) == 0 }
+        let fd = openat(dirFD, name, O_RDONLY | O_SYMLINK | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var st = stat()
+        guard fstat(fd, &st) == 0 else { return false }
+        if st.st_mode & S_IFMT == S_IFREG, st.st_nlink > 1 {
+            if st.st_flags & userLockingFlags != 0 { _ = fchflags(fd, st.st_flags & ~userLockingFlags) }
+            let unlinked = unlinkat(dirFD, name, 0) == 0
+            if st.st_flags & userLockingFlags != 0 { _ = fchflags(fd, st.st_flags) }
+            return unlinked
+        }
+        guard handOver(fd, owner: owner, group: group) else { return false }
+        guard st.st_mode & S_IFMT == S_IFDIR else { return true }
+        beforeListing(name)
+        var whole = true
+        for child in FileOps.entries(fd) where !handOverTree(at: fd, child, owner: owner, group: group, beforeListing: beforeListing) {
+            whole = false
+        }
+        return whole
+    }
+
+    /// Makes the open entry `fd` `owner`'s: its user flags cleared first, since
+    /// a flagged entry refuses a chown, then the chown, after which its former
+    /// owner can set no flag, then the flags again for what was set in between,
+    /// and, for anything but a symlink, group and other write, setuid, setgid
+    /// and any ACL removed. Tries three times against an owner setting flags
+    /// back, and returns whether the entry ended as asked.
+    private static func handOver(_ fd: Int32, owner: uid_t, group: gid_t) -> Bool {
+        func clearFlags() {
+            var st = stat()
+            if fstat(fd, &st) == 0, st.st_flags & userLockingFlags != 0 { _ = fchflags(fd, st.st_flags & ~userLockingFlags) }
+        }
+        var chowned = false
+        for _ in 0..<3 where !chowned {
+            clearFlags()
+            chowned = fchown(fd, owner, group) == 0
+        }
+        guard chowned else { return false }
+        clearFlags()
+        var st = stat()
+        guard fstat(fd, &st) == 0 else { return false }
+        if st.st_mode & S_IFMT != S_IFLNK {
+            guard fchmod(fd, st.st_mode & 0o755) == 0, removeExtendedACL(fd), fstat(fd, &st) == 0, st.st_mode & 0o6022 == 0 else { return false }
+        }
+        return st.st_uid == owner && st.st_gid == group && st.st_flags & userLockingFlags == 0
+    }
+
+    /// Removes any extended ACL from the open entry `fd`.
+    private static func removeExtendedACL(_ fd: Int32) -> Bool {
+        guard let present = acl_get_fd_np(fd, ACL_TYPE_EXTENDED) else { return errno == ENOENT }
+        acl_free(UnsafeMutableRawPointer(present))
+        guard let empty = acl_init(0) else { return false }
+        defer { acl_free(UnsafeMutableRawPointer(empty)) }
+        return acl_set_fd_np(fd, empty, ACL_TYPE_EXTENDED) == 0
     }
 
     /// Sets the owner and group of `name` in `dirFD` and everything under

@@ -119,38 +119,30 @@ struct AppSwapRootScriptRunTests {
         #expect((try? String(contentsOfFile: w.root + AppSwapRoot.floorRecord, encoding: .utf8)) == AppSwapRoot.minimumAdoptedRelease + "\n")
     }
 
-    @Test("every rendered sweep leaves root's previous directory to the engine, which walks it by descriptor")
-    func renderedSweepExcludesThePreviousDirectory() throws {
-        let team = Self.team
-        let plan = try CopyOutPlan(bundlePath: AppSwapRoot.target, payloadVersion: SemanticVersion("0.2.0")!, policy: .developerID(team),
-                                   user: ConsoleUser("alice")!, action: .update(.server))
-        for text in [AppSwapRootScriptBuilder.render(teamID: team).text, RootScriptBuilder.render(plan).text] {
-            let sweeps = text.split(separator: "\n").filter { $0.contains("-mindepth 1 -maxdepth 1") }
-            #expect(sweeps.count == 2, "\(sweeps)")
-            for line in sweeps { #expect(line.contains("! -name 'app-previous'"), "\(line)") }
-        }
-        #expect(AppSwapRoot.previousRoot == CopyOutPlan.stagingRoot + "/app-previous")
-    }
-
-    @Test("a root step's sweep removes a stale stage and touches nothing in root's previous directory, flagged or not")
-    func sweepLeavesThePreviousDirectory() throws {
+    @Test("the next root step's sweep finishes what a failed walk or a crash leaves in root's directories, and follows no planted symlink")
+    func sweepFinishesAKeptBundleWithoutFollowing() throws {
         let w = try SwapScriptWorld()
+        let decoy = w.root + "/decoy"
         defer {
-            _ = chflags(w.root + AppSwapRoot.previousRoot + "/k3sm-v0.9.0.previous/kept", 0)
+            _ = chflags(decoy, 0)
             w.cleanUp()
         }
+        try w.write(decoy, "decoy", mode: 0o644)
+        try #require(chflags(decoy, UInt32(UF_IMMUTABLE)) == 0)
         let staging = w.root + CopyOutPlan.stagingRoot
-        let kept = w.root + AppSwapRoot.previousRoot + "/k3sm-v0.9.0.previous/kept"
-        try FileManager.default.createDirectory(atPath: (kept as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-        try w.write(kept, "old bundle", mode: 0o644)
-        try #require(chflags(kept, UInt32(UF_IMMUTABLE)) == 0)
-        try FileManager.default.createDirectory(atPath: staging + "/stale.AAAA", withIntermediateDirectories: true)
+        for left in [staging + "/app-swap/AAAAAAAAAAAA/k3sm.app/Contents", w.root + AppSwapRoot.previousRoot + "/k3sm-v0.9.0.previous/Contents"] {
+            try FileManager.default.createDirectory(atPath: left, withIntermediateDirectories: true)
+            try w.write(left + "/flagged", "old", mode: 0o644)
+            try #require(chflags(left + "/flagged", UInt32(UF_IMMUTABLE)) == 0)
+            try FileManager.default.createSymbolicLink(atPath: left + "/planted", withDestinationPath: decoy)
+        }
         let result = try w.run()
         #expect(result.status == 0, "\(result) \(w.log())")
-        #expect(!FileManager.default.fileExists(atPath: staging + "/stale.AAAA"))
+        #expect(!FileManager.default.fileExists(atPath: staging + "/app-swap"))
+        #expect(!FileManager.default.fileExists(atPath: w.root + AppSwapRoot.previousRoot))
         var st = stat()
-        try #require(lstat(kept, &st) == 0)
-        #expect(st.st_flags & UInt32(UF_IMMUTABLE) != 0, "the sweep cleared a flag in the previous directory")
+        try #require(lstat(decoy, &st) == 0)
+        #expect(st.st_flags & UInt32(UF_IMMUTABLE) != 0, "the sweep followed a planted symlink")
     }
 
     @Test("a tree that is root's alone writes no floor record of its own in the script")

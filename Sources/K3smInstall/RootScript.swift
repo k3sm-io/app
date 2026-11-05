@@ -275,10 +275,8 @@ public enum RootScriptBuilder {
             # rm cannot remove a file flagged uchg or uappnd, which a user can set
             # on a staged file and ditto keeps; under set -eu that would wedge every
             # later root step. Clear them first; a failure falls through to rm.
-            # Root's previous directory is left out: it can hold a tree an account
-            # still has a descriptor in, and the swap engine walks it by descriptor.
-            \#(r("/usr/bin/find")) "$root" -mindepth 1 -maxdepth 1 ! -name \#(q(AppSwapRoot.previousDirectoryName)) -exec \#(r("/usr/bin/chflags")) -R nouchg,nouappnd {} + || true
-            \#(r("/usr/bin/find")) "$root" -mindepth 1 -maxdepth 1 ! -name \#(q(AppSwapRoot.previousDirectoryName)) -exec \#(r("/bin/rm")) -rf {} +
+            \#(r("/usr/bin/find")) "$root" -mindepth 1 -maxdepth 1 -exec \#(r("/usr/bin/chflags")) -R nouchg,nouappnd {} + || true
+            \#(r("/usr/bin/find")) "$root" -mindepth 1 -maxdepth 1 -exec \#(r("/bin/rm")) -rf {} +
             stage=$(\#(r("/usr/bin/mktemp")) -d \#(q(stagingTemplate)))
             \#(r("/usr/sbin/chown")) root:wheel "$stage"
             \#(r("/bin/chmod")) 0700 "$stage"
