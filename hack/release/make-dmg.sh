@@ -24,7 +24,8 @@ if [ -L "$app" ] || [ ! -d "$app/Contents/MacOS" ]; then
 	exit 1
 fi
 
-src="$(mktemp -d)"
+# Not a bare mktemp -d: on macOS that ignores TMPDIR and uses the system temp folder.
+src="$(mktemp -d "${TMPDIR:-/tmp}/make-dmg.XXXXXX")"
 trap 'rm -rf "$src"' EXIT
 /usr/bin/ditto --norsrc --noqtn "$app" "$src/k3sm.app"
 ln -s /Applications "$src/Applications"

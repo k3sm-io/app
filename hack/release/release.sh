@@ -325,19 +325,61 @@ rehearsal_app_problems() {
 	return "$rc"
 }
 
-# The private mount point of the image under check, and its cleanup.
-IMAGE_MNT="" IMAGE_ATTACHED=0
+# temp_dir <name>: a fresh private directory under TMPDIR. A bare `mktemp -d`
+# does not do this on macOS: it reads _CS_DARWIN_USER_TEMP_DIR first and uses
+# TMPDIR only when that is unavailable, so it always lands in the system temp
+# folder, whatever a caller exported.
+temp_dir() {
+	local root="${TMPDIR:-/tmp}"
+	mktemp -d "${root%/}/$1.XXXXXX"
+}
+
+# The private mount point of the image under check, and its cleanup. The mount
+# point is a child of a private work dir, never a direct child of a temp root:
+# each mount and unmount makes Finder sync the mount point's parent, and a temp
+# folder holds tens of thousands of entries.
+IMAGE_WORK="" IMAGE_MNT="" IMAGE_ATTACHED=0 IMAGE_ATTACHING=0
+# image_is_mounted: something other than the work dir's volume is at the mount point.
+image_is_mounted() {
+	[ -d "$IMAGE_MNT" ] && [ "$(stat -f %d "$IMAGE_MNT")" != "$(stat -f %d "$IMAGE_WORK")" ]
+}
+# detach_image looks at the mount point as well as at IMAGE_ATTACHED, because
+# the flag can be wrong: a signal during hdiutil attach, or an attach that
+# reports a failure after it mounted, leaves a volume the flag never heard of.
+# After a signal the mount can still be on its way, so it waits for it briefly.
+# A busy volume is forced, and retried. It removes only with rmdir, and keeps
+# both directories when the volume stays: nothing here may recurse into a
+# mounted image.
 detach_image() {
-	[ -n "$IMAGE_MNT" ] || return 0
-	if [ "$IMAGE_ATTACHED" = 1 ]; then
-		if ! hdiutil detach "$IMAGE_MNT" >/dev/null 2>&1 && ! hdiutil detach -force "$IMAGE_MNT" >/dev/null 2>&1; then
+	local wait gone=0
+	[ -n "$IMAGE_WORK" ] || return 0
+	if [ "$IMAGE_ATTACHING" = 1 ]; then
+		for wait in 1 2 3; do
+			image_is_mounted && break
+			sleep 1
+		done
+	fi
+	if [ "$IMAGE_ATTACHED" = 1 ] || image_is_mounted; then
+		if hdiutil detach "$IMAGE_MNT" >/dev/null 2>&1; then
+			gone=1
+		else
+			for wait in 0 1 2; do
+				sleep "$wait"
+				if hdiutil detach -force "$IMAGE_MNT" >/dev/null 2>&1; then
+					gone=1
+					break
+				fi
+			done
+		fi
+		if [ "$gone" = 0 ]; then
 			echo "release: could not detach the image at $IMAGE_MNT; run: hdiutil detach -force $IMAGE_MNT" >&2
-			IMAGE_MNT="" IMAGE_ATTACHED=0
+			IMAGE_WORK="" IMAGE_MNT="" IMAGE_ATTACHED=0 IMAGE_ATTACHING=0
 			return 1
 		fi
 	fi
 	rmdir "$IMAGE_MNT" 2>/dev/null || true
-	IMAGE_MNT="" IMAGE_ATTACHED=0
+	rmdir "$IMAGE_WORK" 2>/dev/null || true
+	IMAGE_WORK="" IMAGE_MNT="" IMAGE_ATTACHED=0 IMAGE_ATTACHING=0
 }
 
 # mounted_image_problems <image> <tag> <bundle-id> <manifest> <seal> <app-check>
@@ -351,18 +393,22 @@ detach_image() {
 mounted_image_problems() {
 	local img="$1" tag="$2" bundle="$3" manifest="$4" seal="$5" check="$6" rc=0 root entries
 	shift 6
-	IMAGE_MNT="$(mktemp -d)"
-	chmod 700 "$IMAGE_MNT"
+	IMAGE_WORK="$(temp_dir release-image)"
+	chmod 700 "$IMAGE_WORK"
+	IMAGE_MNT="$IMAGE_WORK/mnt"
+	mkdir -m 700 "$IMAGE_MNT"
 	trap 'detach_image || exit 1' EXIT
 	trap 'detach_image; exit 129' HUP
 	trap 'detach_image; exit 130' INT TERM
+	IMAGE_ATTACHING=1
 	if ! hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$IMAGE_MNT" "$img" >/dev/null 2>&1; then
+		IMAGE_ATTACHING=0
 		echo "    hdiutil cannot attach $img read-only"
 		detach_image || true
 		trap - EXIT HUP INT TERM
 		return 1
 	fi
-	IMAGE_ATTACHED=1
+	IMAGE_ATTACHING=0 IMAGE_ATTACHED=1
 	root="$IMAGE_MNT"
 	entries="$(cd "$root" && find . -mindepth 1 -maxdepth 1 | sed 's|^\./||' | LC_ALL=C sort)"
 	if [ -e "$root/.fseventsd" ] || [ -L "$root/.fseventsd" ]; then
@@ -637,9 +683,12 @@ self_test() {
 	local own_functions
 	own_functions="$(declare -F | awk '{print $3}')"
 	local T log fails=0 passes=0 out rc tag=v1.2.3 team=ABCDE12345 id="Developer ID Application: Example (ABCDE12345)"
-	T="$(mktemp -d)"
+	T="$(temp_dir release-selftest)"
 	SELFTEST_TMP="$T"
 	trap 'rm -rf "$SELFTEST_TMP"' EXIT
+	# Its own TMPDIR, so the mount point cases read only this run's directories.
+	mkdir "$T/tmpdir"
+	export TMPDIR="$T/tmpdir"
 	umask 022
 	log="$T/tool.log"
 	: >"$log"
@@ -964,6 +1013,10 @@ publish.sh --upload"
 	check "upload gets exactly the checked image" \
 		logged "^publish.sh --upload --version v1.2.3 --stage-dir $T/run-ok/stage --team-id $team --notes-file $T/notes.md --disk-image $img_ok\$"
 	check "the image is mounted read-only and detached" eval 'logged "^hdiutil attach -readonly" && logged "^hdiutil detach"'
+	# Each mount and unmount makes Finder sync the mount point's parent.
+	check "the mount point is in a work dir under TMPDIR, not directly in a temp folder" \
+		eval 'grep "^hdiutil attach" "$log" | grep -qE -- "-mountpoint ${TMPDIR%/}/release-image\.[^/ ]+/mnt "'
+	check "the mount point and its work dir are removed" eval '! ls -d "${TMPDIR%/}"/release-image.* >/dev/null 2>&1'
 
 	full_case rc v1.2.3-rc.1
 	REPO=example/k3sm

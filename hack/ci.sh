@@ -160,7 +160,7 @@ acceptance_stage() {
 	fi
 	if [ -z "$events" ]; then
 		echo "==> swift test (once, for every gate)"
-		suite_dir="$(mktemp -d)"
+		suite_dir="$(mktemp -d "${TMPDIR:-/tmp}/app-suite.XXXXXX")"
 		# shellcheck disable=SC2064 # the path is fixed now, on purpose
 		trap "rm -rf '$suite_dir'" EXIT
 		run_suite "$suite_dir"
@@ -243,7 +243,9 @@ echo "==> swift build"
 # treats a bare "${arr[@]}" on an empty array as unbound under set -u.
 swift build ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"}
 
-tmp="$(mktemp -d)"
+# Not a bare mktemp -d: on macOS that ignores TMPDIR and uses the system temp
+# folder, so a gate's own TMPDIR would never see this tree.
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/app-ci.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/suite"
 
