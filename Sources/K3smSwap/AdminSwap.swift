@@ -478,10 +478,7 @@ public struct AdminSwapEngine: Sendable {
         // The old bundle leaves Applications for root's previous directory.
         let previousName = SwapPaths.previousName(tag: installed.tag)
         if let previousFD = privateDirectory(locations.previousRoot) {
-            for entry in FileOps.entries(previousFD) {
-                Self.clearUserLockingFlags(at: previousFD, entry)
-                Self.removeOnVolume(at: previousFD, entry)
-            }
+            Self.sweepPrevious(previousFD)
             if renamer.move(fromDir: copy.fd, from: AppSwapRoot.bundleName, toDir: previousFD, to: previousName) == 0 {
                 FileOps.fullSync(previousFD)
             }
@@ -604,7 +601,8 @@ public struct AdminSwapEngine: Sendable {
     /// carrying none of `userLockingFlags` or `systemLockingFlags`, and, for
     /// a regular file, with one link only; with no extended ACL (one that
     /// cannot be read counts as present); and, when `owner` is given, owned
-    /// by it. Nothing is followed; `inspector` reads each entry.
+    /// by it. Nothing is followed; `inspector` reads each entry. A directory
+    /// that cannot be listed is not safe.
     ///
     /// The link count refuses every hard link, inside the tree or to a file
     /// outside it: root's copy is made by `ditto` into a fresh directory, so
@@ -622,21 +620,23 @@ public struct AdminSwapEngine: Sendable {
         case S_IFDIR:
             guard let fd = FileOps.openDirectory(at: dirFD, name) else { return false }
             defer { close(fd) }
-            return FileOps.entries(fd).allSatisfy { isSafeTree(at: fd, $0, owner: owner, inspector: inspector) }
+            guard let names = FileOps.entries(fd) else { return false }
+            return names.allSatisfy { isSafeTree(at: fd, $0, owner: owner, inspector: inspector) }
         default: return false
         }
     }
 
     /// Whether `name` in `dirFD`, and everything under it, carries none of
-    /// `flags`. Nothing is followed; a directory that cannot be opened counts
-    /// as carrying them.
+    /// `flags`. Nothing is followed; a directory that cannot be opened or
+    /// listed counts as carrying them.
     static func isFree(of flags: UInt32, at dirFD: Int32, _ name: String) -> Bool {
         var st = stat()
         guard fstatat(dirFD, name, &st, AT_SYMLINK_NOFOLLOW) == 0, st.st_flags & flags == 0 else { return false }
         guard (st.st_mode & S_IFMT) == S_IFDIR else { return true }
         guard let fd = FileOps.openDirectory(at: dirFD, name) else { return false }
         defer { close(fd) }
-        return FileOps.entries(fd).allSatisfy { isFree(of: flags, at: fd, $0) }
+        guard let names = FileOps.entries(fd) else { return false }
+        return names.allSatisfy { isFree(of: flags, at: fd, $0) }
     }
 
     /// Clears `userLockingFlags` on `name` in `dirFD` and everything under it,
@@ -646,36 +646,49 @@ public struct AdminSwapEngine: Sendable {
     /// another volume than `dirFD`'s is touched. `beforeDescending` is for
     /// tests: it runs with a directory's name once the directory is open and
     /// listed.
-    static func clearUserLockingFlags(at dirFD: Int32, _ name: String, beforeDescending: (String) -> Void = { _ in }) {
-        guard let device = volume(of: dirFD) else { return }
-        clearUserLockingFlags(at: dirFD, name, device: device, beforeDescending: beforeDescending)
+    ///
+    /// Returns whether the walk reached all of the tree: false when an entry
+    /// could not be read or opened, a directory could not be listed, or an entry
+    /// is on another volume. What it did not reach keeps its flags, and removing
+    /// the tree then reports the failure, so a caller that goes on to remove it
+    /// can ignore this.
+    @discardableResult
+    static func clearUserLockingFlags(at dirFD: Int32, _ name: String, beforeDescending: (String) -> Void = { _ in }) -> Bool {
+        guard let device = volume(of: dirFD) else { return false }
+        return clearUserLockingFlags(at: dirFD, name, device: device, beforeDescending: beforeDescending)
     }
 
-    private static func clearUserLockingFlags(at dirFD: Int32, _ name: String, device: dev_t, beforeDescending: (String) -> Void) {
+    private static func clearUserLockingFlags(at dirFD: Int32, _ name: String, device: dev_t, beforeDescending: (String) -> Void) -> Bool {
         var entry = stat()
-        guard fstatat(dirFD, name, &entry, AT_SYMLINK_NOFOLLOW) == 0, entry.st_dev == device else { return }
+        guard fstatat(dirFD, name, &entry, AT_SYMLINK_NOFOLLOW) == 0 else { return errno == ENOENT }
+        guard entry.st_dev == device else { return false }
         guard isOpenable(entry) else {
             clearFlagsWithoutOpening(at: dirFD, name, entry)
-            return
+            return true
         }
         // O_SYMLINK opens a symlink itself, so its target is never reached;
         // O_NONBLOCK keeps a replaced entry from blocking root.
         let fd = openat(dirFD, name, O_RDONLY | O_SYMLINK | O_NONBLOCK | O_CLOEXEC)
-        guard fd >= 0 else { return }
+        guard fd >= 0 else { return false }
         defer { close(fd) }
         var st = stat()
-        guard fstat(fd, &st) == 0, st.st_dev == device else { return }
+        guard fstat(fd, &st) == 0, st.st_dev == device else { return false }
         if st.st_flags & userLockingFlags != 0 { _ = fchflags(fd, st.st_flags & ~userLockingFlags) }
-        guard (st.st_mode & S_IFMT) == S_IFDIR else { return }
-        let names = FileOps.entries(fd)
+        guard (st.st_mode & S_IFMT) == S_IFDIR else { return true }
+        guard let names = FileOps.entries(fd) else { return false }
         beforeDescending(name)
-        for child in names { clearUserLockingFlags(at: fd, child, device: device, beforeDescending: beforeDescending) }
+        var whole = true
+        for child in names where !clearUserLockingFlags(at: fd, child, device: device, beforeDescending: beforeDescending) {
+            whole = false
+        }
+        return whole
     }
 
     /// Removes `name` in `dirFD` and everything under it, by descriptor,
     /// following no symlink and not crossing onto another volume: a mount
     /// point in the tree stays, with what is on it, and the removal reports
-    /// failure. Returns whether `name` is gone.
+    /// failure. So does a directory that cannot be listed: it is left, not
+    /// removed as if it were empty. Returns whether `name` is gone.
     @discardableResult
     static func removeOnVolume(at dirFD: Int32, _ name: String) -> Bool {
         guard let device = volume(of: dirFD) else { return false }
@@ -688,7 +701,11 @@ public struct AdminSwapEngine: Sendable {
         guard st.st_dev == device else { return false }
         guard (st.st_mode & S_IFMT) == S_IFDIR else { return unlinkat(dirFD, name, 0) == 0 }
         guard let fd = FileOps.openDirectory(at: dirFD, name) else { return false }
-        for child in FileOps.entries(fd) { _ = removeOnVolume(at: fd, child, device: device) }
+        guard let names = FileOps.entries(fd) else {
+            close(fd)
+            return false
+        }
+        for child in names { _ = removeOnVolume(at: fd, child, device: device) }
         close(fd)
         return unlinkat(dirFD, name, AT_REMOVEDIR) == 0
     }
@@ -746,16 +763,50 @@ public struct AdminSwapEngine: Sendable {
     private func finishLeftovers() {
         guard let workFD = privateDirectory(locations.workRoot) else { return }
         defer { close(workFD) }
-        for entry in FileOps.entries(workFD) {
-            var outcome = Self.settleOldBundle(at: workFD, entry, owner: locations.owner, group: locations.group)
+        Self.settleLeftovers(in: workFD, owner: locations.owner, group: locations.group)
+    }
+
+    /// Settles and removes every entry of the work directory `workFD`. Returns
+    /// whether it is now empty: false, having touched nothing, when it cannot
+    /// be listed.
+    @discardableResult
+    static func settleLeftovers(in workFD: Int32, owner: uid_t, group: gid_t) -> Bool {
+        guard let names = FileOps.entries(workFD) else {
+            SwapLog.logger.error("admin swap: root's work directory could not be listed; what an earlier run left stays for the next swap")
+            return false
+        }
+        var whole = true
+        for entry in names {
+            var outcome = settleOldBundle(at: workFD, entry, owner: owner, group: group)
             if outcome == .handedOver {
-                Self.clearUserLockingFlags(at: workFD, entry)
-                if !Self.removeOnVolume(at: workFD, entry) { outcome = .leftInWorkDirectory }
+                clearUserLockingFlags(at: workFD, entry)
+                if !removeOnVolume(at: workFD, entry) { outcome = .leftInWorkDirectory }
             }
             if outcome == .leftInWorkDirectory {
+                whole = false
                 SwapLog.logger.error("admin swap: a tree an earlier run left in root's work directory could not be removed")
             }
         }
+        return whole
+    }
+
+    /// Removes every entry of root's previous directory `previousFD`, for the
+    /// bundle about to move in. Returns whether it is now empty. When it cannot
+    /// be listed nothing is removed and the failure is logged; the swap has
+    /// happened, and an older copy left in root's directory changes nothing
+    /// about it, so the caller still moves the old bundle in.
+    @discardableResult
+    static func sweepPrevious(_ previousFD: Int32) -> Bool {
+        guard let names = FileOps.entries(previousFD) else {
+            SwapLog.logger.error("admin swap: root's previous directory could not be listed; nothing was removed from it")
+            return false
+        }
+        var whole = true
+        for entry in names {
+            clearUserLockingFlags(at: previousFD, entry)
+            if !removeOnVolume(at: previousFD, entry) { whole = false }
+        }
+        return whole
     }
 
     /// The soft descriptor limit the helper runs with. Each level of a walk
@@ -800,8 +851,9 @@ public struct AdminSwapEngine: Sendable {
     /// The walk stops at a mount point: an entry on another volume than
     /// `dirFD`'s is not changed, entered or removed, and the walk reports failure.
     ///
-    /// Returns whether all of it was handed over. A failure does not stop the
-    /// walk, and what it reached stays handed over. `beforeListing` and `trace`
+    /// Returns whether all of it was handed over: a directory that cannot be
+    /// listed is a failure, since what is under it was not reached. A failure does
+    /// not stop the walk, and what it reached stays handed over. `beforeListing` and `trace`
     /// are for tests: the first runs with a directory's name once it is handed
     /// over, the second with the name of each step of `handOver`.
     static func handOverTree(at dirFD: Int32, _ name: String, owner: uid_t, group: gid_t,
@@ -834,8 +886,9 @@ public struct AdminSwapEngine: Sendable {
         guard handOver(fd, isSymlink: type == S_IFLNK, owner: owner, group: group, trace: trace) else { return false }
         guard type == S_IFDIR else { return true }
         beforeListing(name)
+        guard let names = FileOps.entries(fd) else { return false }
         var whole = true
-        for child in FileOps.entries(fd)
+        for child in names
         where !handOverTree(at: fd, child, owner: owner, group: group, device: device, beforeListing: beforeListing, trace: trace) {
             whole = false
         }
@@ -900,6 +953,7 @@ public struct AdminSwapEngine: Sendable {
         guard FileOps.isDirectory(at: dirFD, name) else { return true }
         guard let fd = FileOps.openDirectory(at: dirFD, name) else { return false }
         defer { close(fd) }
-        return FileOps.entries(fd).allSatisfy { chownTree(at: fd, $0, owner: owner, group: group) }
+        guard let names = FileOps.entries(fd) else { return false }
+        return names.allSatisfy { chownTree(at: fd, $0, owner: owner, group: group) }
     }
 }

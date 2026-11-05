@@ -459,11 +459,18 @@ public struct SwapEngine: Sendable {
     }
 
     /// Removes every previous copy but `keep`; only names of the previous
-    /// grammar are touched.
-    static func prunePrevious(previousFD: Int32, keep: String) {
-        for name in FileOps.entries(previousFD) where name != keep && SwapPaths.tag(ofPreviousName: name) != nil {
+    /// grammar are touched. Returns false, having removed nothing, when the
+    /// directory cannot be listed.
+    @discardableResult
+    static func prunePrevious(previousFD: Int32, keep: String) -> Bool {
+        guard let names = FileOps.entries(previousFD) else {
+            SwapLog.logger.error("swap: the previous directory could not be listed; nothing was pruned")
+            return false
+        }
+        for name in names where name != keep && SwapPaths.tag(ofPreviousName: name) != nil {
             FileOps.removeTree(at: previousFD, name)
         }
+        return true
     }
 
     /// Puts the original bundle back at the target and relaunches it. The
