@@ -458,6 +458,68 @@ import K3smStatus
         #expect(AppVersion.releaseTagVersion(Self.minimum) != nil)
     }
 
+    /// `hack/root-swap-leg.sh` is how this runs: as root, over a scratch path
+    /// only. Off unless that script armed it, so it is skipped in every
+    /// ordinary run. A real chown to uid 0 and a real `RENAME_SWAP`, which the
+    /// tests above run as this account can only stand in for.
+    @Test("root leg: a bundle a user really owns comes out owned by root through a real rename swap, and the next swap is not refused",
+          .enabled(if: AdminRootLeg.armed))
+    func appSwapRootLegRealChownAndRenameSwap() throws {
+        let scratch = realPath(try #require(AdminRootLeg.scratch))
+        for forbidden in ["/Applications", "/Library", "/System"] {
+            try #require(scratch != forbidden && !scratch.hasPrefix(forbidden + "/"), "the root leg never runs under \(forbidden)")
+        }
+        let user = try #require(AdminRootLeg.user)
+        let s = AdminScratch(base: scratch)
+        s.group = 0
+        let decoy = s.root + "/decoy"
+        defer {
+            _ = chflags(decoy, 0)
+            s.cleanUp()
+        }
+        // The floor record's parent must be root's and writable by nobody else.
+        try #require(run("/usr/sbin/chown", ["0:0", s.root]) == 0 && chmod(s.root, 0o755) == 0)
+        s.install(tag: "v1.0.0")
+        s.stage(tag: "v1.1.0")
+        s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
+        s.writeFloor("v1.0.0\n")
+        try #require(run("/usr/sbin/chown", ["-R", "\(user.uid):\(user.gid)", s.target]) == 0)
+        try #require(chmod(s.target, 0o750) == 0)
+        let before = identity(s.target)
+        let console = FixedConsole(owner: ConsoleAccount(uid: user.uid, home: s.home))
+
+        #expect(s.engine(console: console, installedCopy: s.helperCopy).run() == 0)
+        #expect(s.tag(at: s.target) == "v1.1.0")
+        #expect(identity(s.target) != before, "a chown in place would keep the identity")
+        var top = stat()
+        try #require(lstat(s.target, &top) == 0)
+        #expect(top.st_mode & 0o7777 == 0o755)
+        var entries = [s.target]
+        entries += try FileManager.default.subpathsOfDirectory(atPath: s.target).map { s.target + "/" + $0 }
+        for entry in entries {
+            var st = stat()
+            try #require(lstat(entry, &st) == 0)
+            #expect(st.st_uid == 0 && st.st_gid == 0, "\(entry)")
+        }
+        let previous = s.previousRoot + "/k3sm-v1.0.0.previous"
+        var old = stat()
+        try #require(lstat(previous, &old) == 0)
+        #expect(old.st_uid == user.uid, "the bundle that came out keeps its owner in root's private directory")
+
+        // Root walks that tree next: a symlink planted in it leads nowhere.
+        try Data("decoy".utf8).write(to: URL(fileURLWithPath: decoy))
+        try #require(chflags(decoy, UInt32(UF_IMMUTABLE)) == 0)
+        try FileManager.default.createSymbolicLink(atPath: previous + "/Contents/planted", withDestinationPath: decoy)
+        try FileManager.default.removeItem(atPath: s.staged)
+        s.stage(tag: "v1.2.0")
+        #expect(s.engine(console: console).run() == 0)
+        #expect(s.tag(at: s.target) == "v1.2.0")
+        var after = stat()
+        try #require(lstat(decoy, &after) == 0)
+        #expect(after.st_flags & UInt32(UF_IMMUTABLE) != 0)
+        #expect(!FileManager.default.fileExists(atPath: previous))
+    }
+
     static func status(uid: uid_t, gid: gid_t) -> stat {
         var st = stat()
         st.st_uid = uid
@@ -806,6 +868,19 @@ private enum AdminFixtures {
     static var otherTeam: String { directory + "/fixture-app-other-team" }
 }
 
+/// AdminRootLeg is what `hack/root-swap-leg.sh` arms: root, the scratch path
+/// it works under, and the account that ran sudo.
+private enum AdminRootLeg {
+    static var scratch: String? { ProcessInfo.processInfo.environment["K3SM_ROOT_SWAP_LEG_SCRATCH"] }
+    static var user: (uid: uid_t, gid: gid_t)? {
+        let environment = ProcessInfo.processInfo.environment
+        guard let uid = environment["SUDO_UID"].flatMap({ uid_t($0) }), uid != 0,
+              let gid = environment["SUDO_GID"].flatMap({ gid_t($0) }) else { return nil }
+        return (uid, gid)
+    }
+    static var armed: Bool { getuid() == 0 && scratch != nil && user != nil }
+}
+
 /// FixedConsole is a console owned by a given account, or by nobody.
 private struct FixedConsole: ConsoleSession {
     let owner: ConsoleAccount?
@@ -958,8 +1033,8 @@ private final class AdminScratch: @unchecked Sendable {
     var staged: String { account.stagedBundle }
     var relaunched: [ConsoleAccount] { relauncher.calls.withLock { $0 } }
 
-    init(home: String? = nil, workRoot: String? = nil) {
-        root = realPath(NSTemporaryDirectory()) + "/k3sm-adminswap-" + UUID().uuidString.prefix(8)
+    init(home: String? = nil, workRoot: String? = nil, base: String? = nil) {
+        root = (base ?? realPath(NSTemporaryDirectory())) + "/k3sm-adminswap-" + UUID().uuidString.prefix(8)
         self.home = home ?? root + "/home"
         self.workRoot = workRoot ?? root + "/work"
         previousRoot = root + "/previous"
