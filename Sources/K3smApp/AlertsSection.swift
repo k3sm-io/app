@@ -125,7 +125,7 @@ private struct UpdateCardView: View {
                 Button(card.buttonTitle) { app.performUpdate() }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                    .tint(Palette.blue)
+                    .tint(Palette.controlAccent)
                     .disabled(!card.isEnabled)
                     .help(Help.Strip.update(plan))
             }
