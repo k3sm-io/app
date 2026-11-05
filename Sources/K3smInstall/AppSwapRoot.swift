@@ -48,11 +48,13 @@ public enum AppSwapRootExit {
     /// The helper was not run as root, from a root-owned copy, with exactly
     /// `--admin-swap`.
     public static let refusedInvocation: Int32 = 119
-    /// The installed bundle's tree is not root-owned, or holds an entry that
-    /// is a symlink, a special file, a hard link, setuid, setgid, group or
-    /// other writable, or flagged; or root's floor record
-    /// (`AppSwapRoot.floorRecord`) exists but is not a root-owned 0600
-    /// regular file holding one release tag. Nothing was copied or renamed.
+    /// The installed bundle's tree holds an entry that is a symlink, a
+    /// special file, a hard link, setuid, setgid, group or other writable, or
+    /// flagged; or root's floor record (`AppSwapRoot.floorRecord`) exists but
+    /// is not a root-owned 0600 regular file holding one release tag; or the
+    /// installed bundle is older than that record, or is another account's
+    /// and carries no release tag to record. A tree another account owns is
+    /// not itself a refusal: the swap replaces it with root's copy.
     public static let targetUntrusted: Int32 = 115
     /// A swap had to be undone (the target was replaced between the check and
     /// the rename, or the swapped bundle failed verification) and the undo
@@ -139,10 +141,15 @@ public enum AppSwapRoot {
 ///     requirement (`RootScriptBuilder.stagedCopy`, the copy-out's own text:
 ///     no extended attributes, no symlink, special, setuid or writable
 ///     entry, chowned to root);
-///  3. refuses unless the copy's helper is a regular file that satisfies the
+///  3. compares the copy's release tag with root's floor, and when the
+///     target is another account's, a copy dragged from the disk image, seeds
+///     the floor from the copy (`adoption`);
+///  4. refuses unless the copy's helper is a regular file that satisfies the
 ///     helper requirement;
-///  4. runs that helper as root with `--admin-swap`, which does the swap
-///     (`AdminSwapEngine` in the swap engine) and the relaunch.
+///  5. runs that helper as root with `--admin-swap`, which does the swap
+///     (`AdminSwapEngine` in the swap engine) and the relaunch. The bundle it
+///     puts at the target is root's, whoever owned the one it replaces, so
+///     the next swap finds a tree that is root's alone.
 ///
 /// The new release's code never runs as root: the only root code is the
 /// helper of the bundle already installed. The script reads no stdin, keeps
@@ -171,7 +178,7 @@ public enum AppSwapRootScriptBuilder {
         let text = RootScriptBuilder.stagedCopy(bundlePath: r(AppSwapRoot.target), stagingTemplate: r(AppSwapRoot.stagingTemplate),
                                                 designatedRequirement: AppUpdateTrust.appRequirement(teamID: teamID),
                                                 beforeCopy: check, root: r)
-            + floorCompare(root: r) + #"""
+            + floorCompare(root: r) + adoption(record: r(AppSwapRoot.floorRecord), owner: owner, root: r) + #"""
             helper=\#(helper)
             if [ -L "$helper" ] || [ ! -f "$helper" ]; then
             	echo 'app-swap: refused: the installed helper is missing or not a regular file'
@@ -200,11 +207,14 @@ public enum AppSwapRootScriptBuilder {
     ///
     /// - `/Applications` and the target must be real directories, not
     ///   symlinks (`targetRefused`);
-    /// - the target must be `owner`'s, and no entry of its tree may be
-    ///   another account's, group or other writable, carry an ACL, or be
-    ///   anything but a regular file or a directory, nor a file with more
-    ///   than one link: `isSafeTree`'s rules, the engine's own check
-    ///   (`targetUntrusted`);
+    /// - no entry of the target's tree may be group or other writable, carry
+    ///   an ACL, or be anything but a regular file or a directory, nor a file
+    ///   with more than one link: `isSafeTree`'s rules, the engine's own
+    ///   check (`targetUntrusted`). An entry that is not `owner`'s is no
+    ///   refusal, since a release dragged from the disk image belongs to
+    ///   whoever dragged it and only its verified copy is ever run; the first
+    ///   such entry is kept in `$foreign`, empty for a tree that is `owner`'s
+    ///   alone, for `adoption`;
     /// - root's floor record, when present, must be a regular file, not a
     ///   symlink, `owner`'s, mode 0600, one link, at most 128 bytes, and hold
     ///   one release tag and a newline (`targetUntrusted`). Its tag is kept
@@ -231,16 +241,16 @@ public enum AppSwapRootScriptBuilder {
             	echo 'app-swap: refused: Applications or k3sm.app in it is a symlink or not a folder'
             	exit \#(AppSwapRootExit.targetRefused)
             fi
-            if [ "$(\#(r("/usr/bin/stat")) -f %u "$target")" != \#(owner) ]; then
-            	echo 'app-swap: refused: k3sm.app in Applications is not owned by root'
+            if ! foreign=$(\#(r("/usr/bin/find")) "$target" ! -user \#(owner) -print -quit); then
+            	echo 'app-swap: refused: k3sm.app in Applications could not be read'
             	exit \#(AppSwapRootExit.targetUntrusted)
             fi
-            if ! bad=$(\#(r("/usr/bin/find")) "$target" \( ! -user \#(owner) -o -perm +022 -o -acl -o ! \( -type f -o -type d \) -o \( -type f -links +1 \) \) -print -quit); then
+            if ! bad=$(\#(r("/usr/bin/find")) "$target" \( -perm +022 -o -acl -o ! \( -type f -o -type d \) -o \( -type f -links +1 \) \) -print -quit); then
             	echo 'app-swap: refused: k3sm.app in Applications could not be read'
             	exit \#(AppSwapRootExit.targetUntrusted)
             fi
             if [ -n "$bad" ]; then
-            	echo 'app-swap: refused: k3sm.app holds an entry not owned by root, writable by group or others, with an ACL, or not a plain file or folder'
+            	echo 'app-swap: refused: k3sm.app holds an entry writable by group or others, with an ACL, or not a plain file or folder'
             	exit \#(AppSwapRootExit.targetUntrusted)
             fi
             record=\#(q(floorRecord))
@@ -317,6 +327,27 @@ public enum AppSwapRootScriptBuilder {
         		echo 'app-swap: refused: the installed k3sm.app is older than the release root installed last'
         		exit \#(AppSwapRootExit.targetUntrusted)
         	fi
+        fi
+
+        """#
+    }
+
+    /// After `floorCompare`, and before the helper runs: when the target's
+    /// tree is another account's (`$foreign`), root's floor must exist before
+    /// the swap, because the engine then has no root-owned bundle to read one
+    /// from. So the seed writes the verified copy's tag when there is no
+    /// record (`AppSwapFloor.seed`), the same trust an install from the target
+    /// places in that copy, and a copy with no release tag to record is
+    /// refused (`targetUntrusted`). From here the tree at the target is not
+    /// read again by the script. A tree that is `owner`'s alone skips this.
+    static func adoption(record: String, owner: UInt32, root: ScriptRoot = .system) -> String {
+        #"""
+        if [ -n "$foreign" ]; then
+        \#(AppSwapFloor.seed(record: record, owner: owner, root: root))	if [ ! -f "$record" ]; then
+        		echo 'app-swap: refused: k3sm.app in Applications is not owned by root and carries no release tag'
+        		exit \#(AppSwapRootExit.targetUntrusted)
+        	fi
+        	echo 'app-swap: k3sm.app in Applications is not owned by root; the swap replaces it with a copy root owns'
         fi
 
         """#

@@ -160,16 +160,20 @@ public struct SystemSessionRelauncher: SessionRelauncher {
 ///    real directory with no symlink above it.
 /// 2. The target is the constant `locations.target`: its parent resolves to
 ///    itself, it is a real directory opened by descriptor, and its identity,
-///    owner, group and mode are recorded. Its whole tree must be root's
-///    (`locations.owner`) and pass `isSafeTree`, so a bundle put there by
-///    anyone who can write `/Applications` (the admin group can) is refused
-///    before anything is copied. The installed bundle verifies (without a
-///    tag requirement). The floor is the higher of root's own record
-///    (`locations.floorRecord`, the highest tag this path has installed) and
-///    the installed bundle's `K3smPayloadTag` or short version; with no
-///    record, the floor is the installed bundle's, which the ownership check
-///    has just made root's. A record that exists but is not a root-owned
-///    0600 regular file holding one release tag refuses the run.
+///    owner, group and mode are recorded. Its whole tree must pass
+///    `isSafeTree`, so a tree with a writable, linked or flagged entry is
+///    refused before anything is copied. The installed bundle verifies
+///    (without a tag requirement). The floor is the higher of root's own
+///    record (`locations.floorRecord`, the highest tag this path has
+///    installed) and the installed bundle's `K3smPayloadTag` or short
+///    version; with no record, the floor is the installed bundle's, when its
+///    tree is root's (`locations.owner`) alone. A tree that is not, which is
+///    what a release dragged from the disk image is, needs the record: anyone
+///    who can write `/Applications` (the admin group can) can change it, so
+///    its own tag cannot be the floor, and with no record the run is refused.
+///    The root script seeds the record from its verified copy first. A
+///    record that exists but is not a root-owned 0600 regular file holding
+///    one release tag refuses the run.
 /// 3. The work directory is root's own 0700 directory on the target's volume
 ///    (`statfs` `f_fsid` equal), on a volume that can swap two names in one
 ///    step. The staged bundle is copied into a fresh directory in it (`ditto`
@@ -181,8 +185,12 @@ public struct SystemSessionRelauncher: SessionRelauncher {
 ///    root, checked to be on the target's volume, and verified there: the
 ///    requirement, the bundle id, the team stamp, and a `K3smPayloadTag`
 ///    strictly above the installed one.
-/// 4. The copy takes the target's owner and group and its top directory the
-///    target's mode, and is verified again (the same cdhash).
+/// 4. The copy takes the target's owner and group when the target's tree is
+///    root's alone, and root's otherwise (`copyOwnership`), and its top
+///    directory the target's mode, and is verified again (the same cdhash).
+///    This is how a bundle an account dragged to `/Applications` becomes
+///    root's: never by a chown in place, but by the verified copy replacing
+///    it, so the next run finds a tree that is root's alone.
 /// 5. Right before the rename the target's identity is read again; then
 ///    `renameatx_np(RENAME_SWAP)` relative to the two directory descriptors.
 ///    `EXDEV` makes one fresh copy, verifies it and retries once; `ENOTSUP`
@@ -278,18 +286,24 @@ public struct AdminSwapEngine: Sendable {
         guard fstatat(parentFD, name, &targetStat, AT_SYMLINK_NOFOLLOW) == 0, (targetStat.st_mode & S_IFMT) == S_IFDIR,
               let original = FileIdentity.of(dirFD: parentFD, name: name)
         else { return AppSwapRootExit.targetRefused }
-        guard Self.isSafeTree(at: parentFD, name, owner: locations.owner, inspector: inspector) else {
-            SwapLog.logger.error("admin swap: the installed bundle's tree is not root's alone")
+        guard Self.isSafeTree(at: parentFD, name, inspector: inspector) else {
+            SwapLog.logger.error("admin swap: the installed bundle's tree holds an unsafe entry")
             return AppSwapRootExit.targetUntrusted
         }
+        let rootsAlone = Self.isSafeTree(at: parentFD, name, owner: locations.owner, inspector: inspector)
         let targetVolume = Self.fsid(parentPath)
         guard targetVolume != nil, SwapVolume.supportsRenameSwap(path: parentPath) == true else {
             return AppSwapRootExit.volumeRefused
         }
 
-        // The floor: root's record, and the installed bundle, now known root's.
+        // The floor: root's record, and the installed bundle. Only a bundle
+        // known root's may be the floor by itself.
         guard let recorded = readFloorRecord() else {
             SwapLog.logger.error("admin swap: root's floor record is not a root-owned 0600 file holding one release tag")
+            return AppSwapRootExit.targetUntrusted
+        }
+        guard rootsAlone || recorded != nil else {
+            SwapLog.logger.error("admin swap: the installed bundle's tree is not root's alone and root has no floor record")
             return AppSwapRootExit.targetUntrusted
         }
         guard let installed = InstalledRelease.read(bundleAt: target),
@@ -329,8 +343,9 @@ public struct AdminSwapEngine: Sendable {
             }
         }
 
-        // Copies the staged bundle into a fresh directory, gives it the
-        // target's owner and mode, and verifies it twice.
+        // Copies the staged bundle into a fresh directory, gives it its final
+        // owner and the target's mode, and verifies it twice.
+        let ownership = Self.copyOwnership(target: targetStat, rootsAlone: rootsAlone, locations: locations)
         func copyIn() -> (fd: Int32, bundle: VerifiedBundle, dirName: String)? {
             let dirName = FileOps.randomName(length: 12)
             guard mkdirat(workFD, dirName, 0o700) == 0 else { return nil }
@@ -342,7 +357,7 @@ public struct AdminSwapEngine: Sendable {
                   Self.sameVolume(Self.fsid(copyPath), targetVolume)
             else { close(fd); return nil }
             guard let first = verifiedNewer(copyPath, fd: fd, floor: floor),
-                  Self.chownTree(at: fd, AppSwapRoot.bundleName, owner: targetStat.st_uid, group: targetStat.st_gid),
+                  Self.chownTree(at: fd, AppSwapRoot.bundleName, owner: ownership.owner, group: ownership.group),
                   fchmodat(fd, AppSwapRoot.bundleName, targetStat.st_mode & 0o7777, AT_SYMLINK_NOFOLLOW) == 0,
                   let second = verifiedNewer(copyPath, fd: fd, floor: floor),
                   second.cdhash == first.cdhash, second.identity == first.identity
@@ -415,6 +430,14 @@ public struct AdminSwapEngine: Sendable {
         }
         relauncher.relaunch(account)
         return 0
+    }
+
+    /// The owner and group root's copy ends with: the target's when its tree
+    /// is root's alone, so a swap keeps what an administrator chose, and root's
+    /// otherwise, so the account that dragged a release to `/Applications`
+    /// owns nothing of what replaces it.
+    static func copyOwnership(target: stat, rootsAlone: Bool, locations: AdminSwapLocations) -> (owner: uid_t, group: gid_t) {
+        rootsAlone ? (target.st_uid, target.st_gid) : (locations.owner, locations.group)
     }
 
     /// Swaps the target and root's copy back after a swap that must not

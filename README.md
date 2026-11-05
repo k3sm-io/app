@@ -1255,8 +1255,10 @@ An install, an update or a repair from the `k3sm.app` in `/Applications`
 also writes `/Library/k3sm.app-floor`, a root-owned file holding the release
 tag of that app. It is the lowest release of `k3sm.app` the administrator
 step for replacing the app accepts, so an older release put back in
-`/Applications` is not run as root. The app's uninstall removes it once
-`k3sm uninstall` succeeds. `sudo k3sm uninstall` in a terminal leaves it, and
+`/Applications` is not run as root. That step also accepts a `k3sm.app` dragged
+to `/Applications` from the disk image, which belongs to whoever dragged it:
+the copy it puts in its place is owned by root. The app's uninstall removes the
+file once `k3sm uninstall` succeeds. `sudo k3sm uninstall` in a terminal leaves it, and
 then an older release of the app cannot be installed over it by that step; an
 administrator removes it with:
 

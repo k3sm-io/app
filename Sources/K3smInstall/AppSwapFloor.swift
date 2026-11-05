@@ -33,13 +33,13 @@ public struct AppSwapRecovery: Hashable, Sendable {
     /// status is a success or a refusal a reinstall does not get past.
     ///
     /// `targetUntrusted` (115) is the one dead end a user can reach on an
-    /// ordinary Mac: a standard user, who cannot write `/Applications`, with
-    /// a k3sm.app there that was copied in by an account (dragged from the
-    /// disk image) rather than owned by root, is sent to the administrator
-    /// path, which refuses a target that is not root's. The same status
-    /// covers an installed copy older than root's floor record. In both the
-    /// way forward is the release itself: the disk image's k3sm.app dragged
-    /// to Applications is the update, with no swap.
+    /// ordinary Mac: an installed copy older than root's floor record, or one
+    /// whose tree has been changed (a writable or hard-linked entry, an ACL).
+    /// The way forward is the release itself: the disk image's k3sm.app
+    /// dragged to Applications is the update, with no swap. That copy belongs
+    /// to whoever dragged it, which the administrator path does not refuse:
+    /// its next swap leaves a bundle root owns (`AdminSwapEngine`), so this
+    /// offer does not come back for that reason.
     public static func forAdministratorExit(_ status: Int32) -> AppSwapRecovery? {
         guard status == AppSwapRootExit.targetUntrusted else { return nil }
         return reinstall
@@ -48,8 +48,8 @@ public struct AppSwapRecovery: Hashable, Sendable {
     /// The offer for `targetUntrusted`.
     public static let reinstall = AppSwapRecovery(
         title: "Reinstall k3sm.app from the release",
-        message: "k3sm could not update k3sm.app with administrator rights: the copy in Applications is not owned by the "
-            + "system, or is older than the release this Mac last installed. Download k3sm.app from the release page "
+        message: "k3sm could not update k3sm.app with administrator rights: the copy in Applications has been changed, "
+            + "or is older than the release this Mac last installed. Download k3sm.app from the release page "
             + "and drag it to Applications to install the update.",
         actionTitle: "Open the Release Page",
         url: GuidedSteps.releasesURL)
@@ -57,7 +57,9 @@ public struct AppSwapRecovery: Hashable, Sendable {
 
 /// AppSwapFloor is root's floor record (`AppSwapRoot.floorRecord`) outside
 /// the swap: the copy-out seeds it on an install and removes it on an
-/// uninstall, and `resetCommand` removes it by hand.
+/// uninstall, the administrator path seeds it before it replaces a target
+/// another account owns (`AppSwapRootScriptBuilder.adoption`), and
+/// `resetCommand` removes it by hand.
 ///
 /// The seed closes the swap's bootstrap window. With no record, the
 /// administrator path's only floor is the installed bundle's own tag, so an
@@ -91,21 +93,22 @@ public enum AppSwapFloor {
     /// replaced or lowered: the swap raises it. An untagged copy writes
     /// nothing. A failing command ends the step under `set -e` before the
     /// staged k3sm runs; the record is then absent, as before, or whole.
-    /// `record` and `owner` are the shipped path and root; tests render it
-    /// over scratch paths.
-    static func seed(record: String, owner: UInt32) -> String {
+    /// `record`, `owner` and `root` are the shipped path, root and the system
+    /// tools; tests render it over scratch paths.
+    static func seed(record: String, owner: UInt32, root: ScriptRoot = .system) -> String {
         let q = ShellQuote.quote
+        let r = root
         let plist = RootScriptBuilder.stagedBundle + "/" + q("Contents/Info.plist")
         let file = "\"$stage\"/" + q(seedFileName)
-        return AppSwapRootScriptBuilder.tagRank + #"""
+        return AppSwapRootScriptBuilder.tagRank(root: r) + #"""
             record=\#(q(record))
             if [ ! -e "$record" ] && [ ! -L "$record" ]; then
-            	tag=$(/usr/bin/plutil -extract K3smPayloadTag raw -o - \#(plist) 2>/dev/null) || tag=
+            	tag=$(\#(r("/usr/bin/plutil")) -extract K3smPayloadTag raw -o - \#(plist) 2>/dev/null) || tag=
             	if tagrank > /dev/null; then
             		printf '%s\n' "$tag" > \#(file)
-            		/usr/sbin/chown \#(owner) \#(file)
-            		/bin/chmod 0600 \#(file)
-            		/bin/mv -f \#(file) "$record"
+            		\#(r("/usr/sbin/chown")) \#(owner) \#(file)
+            		\#(r("/bin/chmod")) 0600 \#(file)
+            		\#(r("/bin/mv")) -f \#(file) "$record"
             		echo "copy-out: recorded $tag as the app release floor"
             	fi
             fi

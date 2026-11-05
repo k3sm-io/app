@@ -32,7 +32,6 @@ struct AppSwapRootScriptRunTests {
         case symlinkedApplications
         case symlinkedTarget
         case symlinkedHelper
-        case targetNotOwned
         case groupWritableEntry
         case floorAboveInstalled
         case installedFailsRequirement
@@ -48,7 +47,7 @@ struct AppSwapRootScriptRunTests {
             case .symlinkedApplications, .symlinkedTarget: AppSwapRootExit.targetRefused
             // The target check refuses any symlink in the target's tree, so a
             // symlinked helper never reaches the copy or the helper check.
-            case .symlinkedHelper, .targetNotOwned, .groupWritableEntry, .floorAboveInstalled: AppSwapRootExit.targetUntrusted
+            case .symlinkedHelper, .groupWritableEntry, .floorAboveInstalled: AppSwapRootExit.targetUntrusted
             case .installedFailsRequirement: CopyOutExit.signatureRejected
             case .helperMissing, .helperNotAFile, .helperFailsRequirement: AppSwapRootExit.helperRejected
             }
@@ -58,7 +57,7 @@ struct AppSwapRootScriptRunTests {
         /// (one ditto) or before anything is copied (none).
         var copies: Bool {
             switch self {
-            case .symlinkedApplications, .symlinkedTarget, .symlinkedHelper, .targetNotOwned, .groupWritableEntry: false
+            case .symlinkedApplications, .symlinkedTarget, .symlinkedHelper, .groupWritableEntry: false
             case .floorAboveInstalled, .installedFailsRequirement, .helperMissing, .helperNotAFile, .helperFailsRequirement: true
             }
         }
@@ -92,12 +91,47 @@ struct AppSwapRootScriptRunTests {
         #expect(w.leftoverStages().isEmpty)
     }
 
+    @Test("a target another account owns, as a release dragged from the disk image is: root's floor is seeded from the verified copy before its helper runs")
+    func appSwapRootScriptSeedsTheFloorForADraggedBundle() throws {
+        let w = try SwapScriptWorld()
+        defer { w.cleanUp() }
+        let result = try w.run(owner: getuid() + 1)
+        #expect(result.status == 0, "\(result) \(w.log())")
+        #expect(w.calls().last == "helper --admin-swap", "\(w.calls())")
+        #expect((try? String(contentsOfFile: w.root + AppSwapRoot.floorRecord, encoding: .utf8)) == "v1.0.0\n")
+        var st = stat()
+        try #require(lstat(w.root + AppSwapRoot.floorRecord, &st) == 0)
+        #expect(st.st_mode & 0o7777 == 0o600 && st.st_nlink == 1)
+        #expect(w.log().contains("the swap replaces it with a copy root owns"), "\(w.log())")
+        #expect(w.leftoverStages().isEmpty)
+    }
+
+    @Test("a tree that is root's alone writes no floor record of its own in the script")
+    func appSwapRootScriptSeedsNothingForARootBundle() throws {
+        let w = try SwapScriptWorld()
+        defer { w.cleanUp() }
+        #expect(try w.run().status == 0)
+        #expect(!FileManager.default.fileExists(atPath: w.root + AppSwapRoot.floorRecord))
+    }
+
+    @Test("a dragged bundle with no release tag to record is refused, its helper never runs")
+    func appSwapRootScriptRefusesAnUntaggedDraggedBundle() throws {
+        let w = try SwapScriptWorld()
+        defer { w.cleanUp() }
+        let info: [String: Any] = ["CFBundleIdentifier": "io.k3sm.app"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: URL(fileURLWithPath: w.target + "/Contents/Info.plist"))
+        let result = try w.run(owner: getuid() + 1)
+        #expect(result.status == AppSwapRootExit.targetUntrusted, "\(result) \(w.log())")
+        #expect(!w.calls().contains { $0.hasPrefix("helper") }, "\(w.calls())")
+        #expect(!FileManager.default.fileExists(atPath: w.root + AppSwapRoot.floorRecord))
+    }
+
     @Test("a symlinked Applications or target, an untrusted target, a target below root's floor and a rejected bundle or helper refuse, and no helper runs",
           arguments: Hostile.allCases)
     func appSwapRootScriptExecutesRefusals(_ c: Hostile) throws {
         let w = try SwapScriptWorld()
         defer { w.cleanUp() }
-        var owner = getuid()
         let fm = FileManager.default
         switch c {
         case .symlinkedApplications:
@@ -109,8 +143,6 @@ struct AppSwapRootScriptRunTests {
         case .symlinkedHelper:
             try fm.moveItem(atPath: w.helper, toPath: w.root + "/other-helper")
             try fm.createSymbolicLink(atPath: w.helper, withDestinationPath: w.root + "/other-helper")
-        case .targetNotOwned:
-            owner = getuid() + 1
         case .groupWritableEntry:
             try #require(chmod(w.target + "/Contents/MacOS", 0o775) == 0)
         case .floorAboveInstalled:
@@ -125,7 +157,7 @@ struct AppSwapRootScriptRunTests {
         case .helperFailsRequirement:
             try w.mark("fail-helper")
         }
-        let result = try w.run(owner: owner)
+        let result = try w.run()
         #expect(result.status == c.status, "\(result) \(w.log())")
         let calls = w.calls()
         #expect(calls.filter { $0.hasPrefix("ditto ") }.count == (c.copies ? 1 : 0), "\(calls)")
@@ -151,7 +183,7 @@ private final class SwapScriptWorld: @unchecked Sendable {
     var callLog: String { root + "/calls" }
 
     static let linkedTools = ["/usr/bin/stat", "/usr/bin/find", "/bin/cat", "/usr/bin/grep", "/usr/bin/plutil", "/usr/bin/awk",
-                              "/bin/mkdir", "/bin/chmod", "/bin/rm", "/usr/bin/chflags", "/usr/bin/mktemp", "/usr/bin/head"]
+                              "/bin/mkdir", "/bin/chmod", "/bin/rm", "/bin/mv", "/usr/bin/chflags", "/usr/bin/mktemp", "/usr/bin/head"]
 
     init() throws {
         var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))

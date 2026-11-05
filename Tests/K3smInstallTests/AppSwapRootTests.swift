@@ -48,16 +48,16 @@ import K3smStatus
         	echo 'app-swap: refused: Applications or k3sm.app in it is a symlink or not a folder'
         	exit 120
         fi
-        if [ "$(/usr/bin/stat -f %u "$target")" != 0 ]; then
-        	echo 'app-swap: refused: k3sm.app in Applications is not owned by root'
+        if ! foreign=$(/usr/bin/find "$target" ! -user 0 -print -quit); then
+        	echo 'app-swap: refused: k3sm.app in Applications could not be read'
         	exit 115
         fi
-        if ! bad=$(/usr/bin/find "$target" \( ! -user 0 -o -perm +022 -o -acl -o ! \( -type f -o -type d \) -o \( -type f -links +1 \) \) -print -quit); then
+        if ! bad=$(/usr/bin/find "$target" \( -perm +022 -o -acl -o ! \( -type f -o -type d \) -o \( -type f -links +1 \) \) -print -quit); then
         	echo 'app-swap: refused: k3sm.app in Applications could not be read'
         	exit 115
         fi
         if [ -n "$bad" ]; then
-        	echo 'app-swap: refused: k3sm.app holds an entry not owned by root, writable by group or others, with an ACL, or not a plain file or folder'
+        	echo 'app-swap: refused: k3sm.app holds an entry writable by group or others, with an ACL, or not a plain file or folder'
         	exit 115
         fi
         record='/Library/k3sm.app-floor'
@@ -90,6 +90,34 @@ import K3smStatus
         		echo 'app-swap: refused: the installed k3sm.app is older than the release root installed last'
         		exit 115
         	fi
+        fi
+        if [ -n "$foreign" ]; then
+        tagrank() {
+        	case $tag in ''|*[!0-9a-z.-]*) return 1 ;; esac
+        	printf '%s\n' "$tag" | /usr/bin/grep -Eqx 'v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-rc\.(0|[1-9][0-9]{0,3}))?' || return 1
+        	core=${tag#v}
+        	rc=99999
+        	case $core in *-rc.*) rc=${core#*-rc.}; core=${core%%-*} ;; esac
+        	major=${core%%.*}
+        	rest=${core#*.}
+        	printf '%09d%09d%09d%05d\n' "$major" "${rest%%.*}" "${rest#*.}" "$rc"
+        }
+        record='/Library/k3sm.app-floor'
+        if [ ! -e "$record" ] && [ ! -L "$record" ]; then
+        	tag=$(/usr/bin/plutil -extract K3smPayloadTag raw -o - "$stage"/'k3sm.app'/'Contents/Info.plist' 2>/dev/null) || tag=
+        	if tagrank > /dev/null; then
+        		printf '%s\n' "$tag" > "$stage"/'app-floor'
+        		/usr/sbin/chown 0 "$stage"/'app-floor'
+        		/bin/chmod 0600 "$stage"/'app-floor'
+        		/bin/mv -f "$stage"/'app-floor' "$record"
+        		echo "copy-out: recorded $tag as the app release floor"
+        	fi
+        fi
+        	if [ ! -f "$record" ]; then
+        		echo 'app-swap: refused: k3sm.app in Applications is not owned by root and carries no release tag'
+        		exit 115
+        	fi
+        	echo 'app-swap: k3sm.app in Applications is not owned by root; the swap replaces it with a copy root owns'
         fi
         helper="$stage"/'k3sm.app'/'Contents/Helpers/k3sm-app-update'
         if [ -L "$helper" ] || [ ! -f "$helper" ]; then
@@ -280,7 +308,7 @@ import K3smStatus
         var testDescription: String { rawValue }
     }
 
-    @Test("a target tree that is not root's, or a target below root's own floor, is refused before anything is copied",
+    @Test("a target tree another account owns with no floor record, an unsafe tree, or a target below root's own floor, is refused before anything is copied",
           arguments: Untrusted.allCases)
     func appSwapRefusesNonRootOwnedTarget(_ untrusted: Untrusted) throws {
         let s = AdminScratch()
@@ -290,8 +318,8 @@ import K3smStatus
         let before = (identity(s.target), identity(s.staged))
         switch untrusted {
         case .userOwnedTree:
-            // The target's tree reads as another account's: what a bundle
-            // put there by whoever can write Applications looks like to root.
+            // The target's tree reads as another account's and root has no
+            // floor record: its own tag cannot be the floor, so nothing moves.
             let inspector = OwnerOverride(prefix: s.target, owner: getuid() + 1)
             #expect(s.engine(inspector: inspector).run() == AppSwapRootExit.targetUntrusted)
         case .groupWritableEntry:
@@ -326,11 +354,75 @@ import K3smStatus
         s.expectNothingLeft()
     }
 
+    // MARK: a bundle an account dragged to Applications
+
+    /// A group this account belongs to other than `gid`, which stands in for
+    /// root's group: a test cannot chown a file to root, but it can move it
+    /// between its own groups, so the adopted copy's group is observable.
+    static func anotherGroup(than gid: gid_t) throws -> gid_t {
+        var groups = [gid_t](repeating: 0, count: Int(NGROUPS_MAX))
+        let count = getgroups(Int32(groups.count), &groups)
+        return try #require(groups.prefix(Int(max(count, 0))).first { $0 != gid })
+    }
+
+    static func status(uid: uid_t, gid: gid_t) -> stat {
+        var st = stat()
+        st.st_uid = uid
+        st.st_gid = gid
+        return st
+    }
+
+    @Test("a user-owned bundle reinstalled from the release goes through the administrator step, comes out root's, and the next swap is not refused 115")
+    func appSwapRefusalReinstallLeavesARootOwnedBundle() throws {
+        let s = AdminScratch()
+        defer { s.cleanUp() }
+        s.install(tag: "v1.0.0")
+        s.stage(tag: "v1.1.0")
+        var before = stat()
+        try #require(lstat(s.target, &before) == 0)
+        s.group = try Self.anotherGroup(than: before.st_gid)
+
+        // The disk image's copy, dragged to Applications: another account's
+        // tree. The script's check lets it through, and the script's seed
+        // leaves the verified copy's tag as root's floor for the engine.
+        let dragged = getuid() + 1
+        let check = "set -eu\n" + AppSwapRootScriptBuilder.targetCheck(applications: s.applications, target: s.target, floorRecord: s.floorRecord, owner: dragged)
+            + "echo passed\n"
+        let first = try shell(["-c", check])
+        #expect(first.status == 0 && first.output == "passed\n", "\(first)")
+        s.writeFloor("v1.0.0\n")
+        #expect(s.engine(inspector: OwnerOverride(prefix: s.target, owner: dragged)).run() == 0)
+        #expect(s.tag(at: s.target) == "v1.1.0")
+
+        // Root's copy took root's group, not the dragged bundle's.
+        var after = stat()
+        try #require(lstat(s.target, &after) == 0)
+        #expect(after.st_uid == s.locations.owner && after.st_gid == s.locations.group)
+        var inner = stat()
+        try #require(lstat(s.target + "/Contents/MacOS/k3sm-app", &inner) == 0)
+        #expect(inner.st_uid == s.locations.owner && inner.st_gid == s.locations.group)
+
+        #expect(AdminSwapEngine.copyOwnership(target: Self.status(uid: 501, gid: 20), rootsAlone: false,
+                                              locations: .standard) == (0, 0))
+        #expect(AdminSwapEngine.copyOwnership(target: Self.status(uid: 0, gid: 80), rootsAlone: true,
+                                              locations: .standard) == (0, 80))
+
+        // The next swap, on the same Mac, reads a tree that is root's alone.
+        let next = try shell(["-c", "set -eu\n" + AppSwapRootScriptBuilder.targetCheck(applications: s.applications, target: s.target, floorRecord: s.floorRecord, owner: getuid()) + "echo passed\n"])
+        #expect(next.status == 0 && next.output == "passed\n", "\(next)")
+        try FileManager.default.removeItem(atPath: s.staged)
+        s.stage(tag: "v1.2.0")
+        #expect(s.engine().run() == 0)
+        #expect(s.tag(at: s.target) == "v1.2.0")
+        #expect(s.relaunched.count == 2)
+    }
+
     // MARK: the root script's own target and floor checks, run over scratch trees
 
     enum ShellTarget: String, CaseIterable, Sendable, CustomTestStringConvertible {
         case good
         case userOwnedTop
+        case userOwnedGroupWritable
         case groupWritableEntry
         case symlinkEntry
         case hardLinkEntry
@@ -345,7 +437,7 @@ import K3smStatus
         var testDescription: String { rawValue }
     }
 
-    @Test("the root script refuses a target tree that is not root's alone, and a floor record that is not root's own, before the copy",
+    @Test("the root script notes a target tree that is not root's alone, and refuses an unsafe one or a floor record that is not root's own, before the copy",
           arguments: ShellTarget.allCases)
     func appSwapScriptRefusesUntrustedTarget(_ c: ShellTarget) throws {
         let w = ShellScratch()
@@ -354,6 +446,9 @@ import K3smStatus
         switch c {
         case .good: break
         case .userOwnedTop: owner = getuid() + 1
+        case .userOwnedGroupWritable:
+            owner = getuid() + 1
+            try #require(chmod(w.target + "/Contents/Resources", 0o775) == 0)
         case .groupWritableEntry: try #require(chmod(w.target + "/Contents/Resources", 0o775) == 0)
         case .symlinkEntry:
             try FileManager.default.createSymbolicLink(atPath: w.target + "/Contents/Resources/link", withDestinationPath: "/etc/passwd")
@@ -368,10 +463,11 @@ import K3smStatus
             w.writeRecord("v1.0.0\n", at: w.root + "/real-record")
             try FileManager.default.createSymbolicLink(atPath: w.record, withDestinationPath: w.root + "/real-record")
         }
-        let result = try shell(["-c", "set -eu\n" + w.targetCheck(owner: owner) + "echo \"floor=$floor\"\n"])
+        let result = try shell(["-c", "set -eu\n" + w.targetCheck(owner: owner) + "echo \"floor=$floor foreign=${foreign:+yes}\"\n"])
         switch c {
-        case .good: #expect(result.status == 0 && result.output == "floor=\n", "\(result)")
-        case .goodRecord: #expect(result.status == 0 && result.output == "floor=v1.0.0\n", "\(result)")
+        case .good: #expect(result.status == 0 && result.output == "floor= foreign=\n", "\(result)")
+        case .userOwnedTop: #expect(result.status == 0 && result.output == "floor= foreign=yes\n", "\(result)")
+        case .goodRecord: #expect(result.status == 0 && result.output == "floor=v1.0.0 foreign=\n", "\(result)")
         default: #expect(result.status == AppSwapRootExit.targetUntrusted, "\(result)")
         }
     }
@@ -783,9 +879,12 @@ private final class AdminScratch: @unchecked Sendable {
         try? FileManager.default.removeItem(atPath: root)
     }
 
+    /// The group standing in for root's.
+    var group = getgid()
+
     var locations: AdminSwapLocations {
         AdminSwapLocations(target: target, workRoot: workRoot, previousRoot: previousRoot, floorRecord: floorRecord,
-                           owner: getuid(), group: getgid())
+                           owner: getuid(), group: group)
     }
 
     func engine(renamer: any Renamer = SystemRenamer(), console: (any ConsoleSession)? = nil,
