@@ -53,7 +53,8 @@ public enum AppSwapRootExit {
     /// flagged; or root's floor record (`AppSwapRoot.floorRecord`) exists but
     /// is not a root-owned 0600 regular file holding one release tag; or the
     /// installed bundle is older than that record, or is another account's
-    /// and carries no release tag to record. A tree another account owns is
+    /// and carries no release tag or one below
+    /// `AppSwapRoot.minimumAdoptedRelease`. A tree another account owns is
     /// not itself a refusal: the swap replaces it with root's copy.
     public static let targetUntrusted: Int32 = 115
     /// A swap had to be undone (the target was replaced between the check and
@@ -115,6 +116,15 @@ public enum AppSwapRoot {
     /// It sits beside the staging root, not in it, because every root step
     /// sweeps the staging root when it starts.
     public static let floorRecord = "/Library/k3sm.app-floor"
+    /// The lowest release whose helper the administrator path runs as root
+    /// from a target another account owns: the first release that can replace
+    /// such a tree. Anyone who can write `/Applications` chooses what is
+    /// there, so without this a genuine older release, with its older helper,
+    /// would be theirs to pick on a Mac with a low floor or none. It sits
+    /// just above the last release published before that helper, so the first
+    /// release carrying it passes, whichever number it takes. It is compiled
+    /// into the app that renders the script, not read from the bundle checked.
+    public static let minimumAdoptedRelease = "v0.2.4-rc.0"
     /// The device whose owner is the console user.
     public static let consoleDevice = "/dev/console"
 
@@ -143,7 +153,7 @@ public enum AppSwapRoot {
 ///     entry, chowned to root);
 ///  3. compares the copy's release tag with root's floor, and when the
 ///     target is another account's, a copy dragged from the disk image, seeds
-///     the floor from the copy (`adoption`);
+///     the floor and holds the copy to a compiled minimum (`adoption`);
 ///  4. refuses unless the copy's helper is a regular file that satisfies the
 ///     helper requirement;
 ///  5. runs that helper as root with `--admin-swap`, which does the swap
@@ -333,18 +343,33 @@ public enum AppSwapRootScriptBuilder {
     }
 
     /// After `floorCompare`, and before the helper runs: when the target's
-    /// tree is another account's (`$foreign`), root's floor must exist before
-    /// the swap, because the engine then has no root-owned bundle to read one
-    /// from. So the seed writes the verified copy's tag when there is no
-    /// record (`AppSwapFloor.seed`), the same trust an install from the target
-    /// places in that copy, and a copy with no release tag to record is
-    /// refused (`targetUntrusted`). From here the tree at the target is not
-    /// read again by the script. A tree that is `owner`'s alone skips this.
-    static func adoption(record: String, owner: UInt32, root: ScriptRoot = .system) -> String {
-        #"""
+    /// tree is another account's (`$foreign`), the owner of that tree chose
+    /// the copy whose helper is about to run as root, and the engine has no
+    /// root-owned bundle to read a floor from. So:
+    ///
+    /// - with no record, the seed writes the higher of the verified copy's
+    ///   tag and `AppSwapRoot.minimumAdoptedRelease` (`AppSwapFloor.seed`);
+    /// - with a record or without, a copy with no release tag, or one below
+    ///   the minimum, is refused (`targetUntrusted`).
+    ///
+    /// The seed comes first, so it stands when the copy is refused here or the
+    /// helper refuses later: that account can raise the floor with a genuine
+    /// newer release, and an older one is then refused until an administrator
+    /// runs `AppSwapFloor.resetCommand`. The README states this. A tree that
+    /// is `owner`'s alone skips all of it.
+    static func adoption(record: String, owner: UInt32, root: ScriptRoot = .system,
+                         minimum: String = AppSwapRoot.minimumAdoptedRelease) -> String {
+        let r = root
+        return #"""
         if [ -n "$foreign" ]; then
-        \#(AppSwapFloor.seed(record: record, owner: owner, root: root))	if [ ! -f "$record" ]; then
+        \#(AppSwapFloor.seed(record: record, owner: owner, root: root, minimum: minimum))	tag=$(\#(r("/usr/bin/plutil")) -extract K3smPayloadTag raw -o - "$stage"/\#(ShellQuote.quote(CopyOutPlan.stagedBundleName))/'Contents/Info.plist' 2>/dev/null) || tag=
+        	if ! copyrank=$(tagrank); then
         		echo 'app-swap: refused: k3sm.app in Applications is not owned by root and carries no release tag'
+        		exit \#(AppSwapRootExit.targetUntrusted)
+        	fi
+        	tag=\#(ShellQuote.quote(minimum))
+        	if [ "$(\#(r("/usr/bin/awk")) -v a="$copyrank" -v b="$(tagrank)" 'BEGIN { print ("" a < "" b) }')" != 0 ]; then
+        		echo 'app-swap: refused: k3sm.app in Applications is not owned by root and is older than the lowest release this path accepts from it'
         		exit \#(AppSwapRootExit.targetUntrusted)
         	fi
         	echo 'app-swap: k3sm.app in Applications is not owned by root; the swap replaces it with a copy root owns'

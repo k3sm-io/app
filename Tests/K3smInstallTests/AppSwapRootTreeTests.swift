@@ -114,7 +114,10 @@ import Testing
         }
 
         func cleanUp() {
-            AdminSwapEngine.clearUserLockingFlags(root)
+            if let fd = FileOps.openDirectory((root as NSString).deletingLastPathComponent) {
+                AdminSwapEngine.clearUserLockingFlags(at: fd, (root as NSString).lastPathComponent)
+                close(fd)
+            }
             try? FileManager.default.removeItem(atPath: root)
         }
     }
@@ -164,8 +167,58 @@ import Testing
         defer { close(fd) }
         #expect(!AdminSwapEngine.isFree(of: AdminSwapEngine.userLockingFlags, at: fd, "tree"))
         #expect(!FileOps.removeTree(at: fd, "tree"), "the flag keeps the tree")
-        AdminSwapEngine.clearUserLockingFlags(t.tree)
+        AdminSwapEngine.clearUserLockingFlags(at: fd, "tree")
         #expect(FileOps.removeTree(at: fd, "tree"))
+    }
+
+    /// Whether `path`, not followed, carries `uchg`.
+    static func isImmutable(_ path: String) -> Bool {
+        var st = stat()
+        return lstat(path, &st) == 0 && st.st_flags & UInt32(UF_IMMUTABLE) != 0
+    }
+
+    @Test("clearing the flags does not follow a symlink planted in the tree, at its top or inside it")
+    func clearFlagsLeavesAPlantedSymlinksTarget() throws {
+        let t = Tree()
+        defer {
+            _ = chflags(t.root + "/outside", 0)
+            t.cleanUp()
+        }
+        try #require(chflags(t.root + "/outside", UInt32(UF_IMMUTABLE)) == 0)
+        try FileManager.default.createSymbolicLink(atPath: t.tree + "/Contents/planted", withDestinationPath: t.root + "/outside")
+        try FileManager.default.createSymbolicLink(atPath: t.root + "/top", withDestinationPath: t.root + "/outside")
+        let fd = try #require(FileOps.openDirectory(t.root))
+        defer { close(fd) }
+        AdminSwapEngine.clearUserLockingFlags(at: fd, "tree")
+        AdminSwapEngine.clearUserLockingFlags(at: fd, "top")
+        #expect(Self.isImmutable(t.root + "/outside"))
+    }
+
+    @Test("a directory swapped for a symlink while the flags are cleared does not lead outside the tree")
+    func clearFlagsHoldsTheDirectoryItOpened() throws {
+        let t = Tree()
+        let decoy = t.root + "/decoy"
+        defer {
+            _ = chflags(decoy + "/k3sm-app", 0)
+            t.cleanUp()
+        }
+        try FileManager.default.createDirectory(atPath: decoy, withIntermediateDirectories: false)
+        try Data("decoy".utf8).write(to: URL(fileURLWithPath: decoy + "/k3sm-app"))
+        try #require(chflags(decoy + "/k3sm-app", UInt32(UF_IMMUTABLE)) == 0)
+        try #require(chflags(t.tree + "/Contents/MacOS/k3sm-app", UInt32(UF_IMMUTABLE)) == 0)
+        let fd = try #require(FileOps.openDirectory(t.root))
+        defer { close(fd) }
+        // What the owner of a dragged tree can do while root walks it.
+        var swapped = false
+        AdminSwapEngine.clearUserLockingFlags(at: fd, "tree") { name in
+            guard name == "MacOS", !swapped else { return }
+            swapped = true
+            try? FileManager.default.moveItem(atPath: t.tree + "/Contents/MacOS", toPath: t.tree + "/Contents/moved")
+            try? FileManager.default.createSymbolicLink(atPath: t.tree + "/Contents/MacOS", withDestinationPath: decoy)
+        }
+        #expect(swapped)
+        #expect(Self.isImmutable(decoy + "/k3sm-app"), "the walk followed the swapped-in symlink")
+        #expect(!Self.isImmutable(t.tree + "/Contents/moved/k3sm-app"), "the walk lost the directory it opened")
     }
 
     @Test("the refused flags are uchg, uappnd, uunlnk, schg, sappnd and sunlnk, and no other")

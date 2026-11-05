@@ -67,7 +67,8 @@ func adminSwap() -> Never {
         renamer: SystemRenamer(),
         console: SystemConsoleSession(),
         relauncher: SystemSessionRelauncher(),
-        locations: .standard)
+        locations: .standard,
+        installedCopy: String(path.dropLast(AppSwapRoot.helperPath.count + 1)))
     exit(engine.run())
 }
 if arguments == [AppSwapRoot.argument] { adminSwap() }

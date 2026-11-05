@@ -33,8 +33,10 @@ public struct AppSwapRecovery: Hashable, Sendable {
     /// status is a success or a refusal a reinstall does not get past.
     ///
     /// `targetUntrusted` (115) is the one dead end a user can reach on an
-    /// ordinary Mac: an installed copy older than root's floor record, or one
-    /// whose tree has been changed (a writable or hard-linked entry, an ACL).
+    /// ordinary Mac: an installed copy older than root's floor record or, when
+    /// another account owns it, than `AppSwapRoot.minimumAdoptedRelease`, or
+    /// one whose tree has been changed (a writable or hard-linked entry, an
+    /// ACL).
     /// The way forward is the release itself: the disk image's k3sm.app
     /// dragged to Applications is the update, with no swap. That copy belongs
     /// to whoever dragged it, which the administrator path does not refuse:
@@ -49,7 +51,7 @@ public struct AppSwapRecovery: Hashable, Sendable {
     public static let reinstall = AppSwapRecovery(
         title: "Reinstall k3sm.app from the release",
         message: "k3sm could not update k3sm.app with administrator rights: the copy in Applications has been changed, "
-            + "or is older than the release this Mac last installed. Download k3sm.app from the release page "
+            + "or is an older release than this Mac accepts. Download k3sm.app from the release page "
             + "and drag it to Applications to install the update.",
         actionTitle: "Open the Release Page",
         url: GuidedSteps.releasesURL)
@@ -93,11 +95,19 @@ public enum AppSwapFloor {
     /// replaced or lowered: the swap raises it. An untagged copy writes
     /// nothing. A failing command ends the step under `set -e` before the
     /// staged k3sm runs; the record is then absent, as before, or whole.
-    /// `record`, `owner` and `root` are the shipped path, root and the system
-    /// tools; tests render it over scratch paths.
-    static func seed(record: String, owner: UInt32, root: ScriptRoot = .system) -> String {
+    /// With `minimum`, a release tag, the higher of it and the copy's tag is
+    /// what is written. `record`, `owner` and `root` are the shipped path,
+    /// root and the system tools; tests render it over scratch paths.
+    static func seed(record: String, owner: UInt32, root: ScriptRoot = .system, minimum: String? = nil) -> String {
         let q = ShellQuote.quote
         let r = root
+        let raise = minimum.map { minimum in #"""
+            		copytag=$tag
+            		copyrank=$(tagrank)
+            		tag=\#(q(minimum))
+            		if [ "$(\#(r("/usr/bin/awk")) -v a="$copyrank" -v b="$(tagrank)" 'BEGIN { print ("" a < "" b) }')" = 0 ]; then tag=$copytag; fi
+
+            """# } ?? ""
         let plist = RootScriptBuilder.stagedBundle + "/" + q("Contents/Info.plist")
         let file = "\"$stage\"/" + q(seedFileName)
         return AppSwapRootScriptBuilder.tagRank(root: r) + #"""
@@ -105,7 +115,7 @@ public enum AppSwapFloor {
             if [ ! -e "$record" ] && [ ! -L "$record" ]; then
             	tag=$(\#(r("/usr/bin/plutil")) -extract K3smPayloadTag raw -o - \#(plist) 2>/dev/null) || tag=
             	if tagrank > /dev/null; then
-            		printf '%s\n' "$tag" > \#(file)
+            \#(raise)		printf '%s\n' "$tag" > \#(file)
             		\#(r("/usr/sbin/chown")) \#(owner) \#(file)
             		\#(r("/bin/chmod")) 0600 \#(file)
             		\#(r("/bin/mv")) -f \#(file) "$record"

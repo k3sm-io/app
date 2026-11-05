@@ -106,6 +106,19 @@ struct AppSwapRootScriptRunTests {
         #expect(w.leftoverStages().isEmpty)
     }
 
+    @Test("an older genuine copy at a target another account owns, with no floor record, is refused, and its helper never runs as root")
+    func appSwapRootScriptRefusesAnOlderDraggedBundle() throws {
+        let w = try SwapScriptWorld()
+        defer { w.cleanUp() }
+        let info: [String: Any] = ["CFBundleIdentifier": "io.k3sm.app", "K3smPayloadTag": "v0.1.0"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: URL(fileURLWithPath: w.target + "/Contents/Info.plist"))
+        let result = try w.run(owner: getuid() + 1)
+        #expect(result.status == AppSwapRootExit.targetUntrusted, "\(result) \(w.log())")
+        #expect(!w.calls().contains { $0.hasPrefix("helper") }, "\(w.calls())")
+        #expect((try? String(contentsOfFile: w.root + AppSwapRoot.floorRecord, encoding: .utf8)) == AppSwapRoot.minimumAdoptedRelease + "\n")
+    }
+
     @Test("a tree that is root's alone writes no floor record of its own in the script")
     func appSwapRootScriptSeedsNothingForARootBundle() throws {
         let w = try SwapScriptWorld()

@@ -106,6 +106,10 @@ import K3smStatus
         if [ ! -e "$record" ] && [ ! -L "$record" ]; then
         	tag=$(/usr/bin/plutil -extract K3smPayloadTag raw -o - "$stage"/'k3sm.app'/'Contents/Info.plist' 2>/dev/null) || tag=
         	if tagrank > /dev/null; then
+        		copytag=$tag
+        		copyrank=$(tagrank)
+        		tag='v0.2.4-rc.0'
+        		if [ "$(/usr/bin/awk -v a="$copyrank" -v b="$(tagrank)" 'BEGIN { print ("" a < "" b) }')" = 0 ]; then tag=$copytag; fi
         		printf '%s\n' "$tag" > "$stage"/'app-floor'
         		/usr/sbin/chown 0 "$stage"/'app-floor'
         		/bin/chmod 0600 "$stage"/'app-floor'
@@ -113,8 +117,14 @@ import K3smStatus
         		echo "copy-out: recorded $tag as the app release floor"
         	fi
         fi
-        	if [ ! -f "$record" ]; then
+        	tag=$(/usr/bin/plutil -extract K3smPayloadTag raw -o - "$stage"/'k3sm.app'/'Contents/Info.plist' 2>/dev/null) || tag=
+        	if ! copyrank=$(tagrank); then
         		echo 'app-swap: refused: k3sm.app in Applications is not owned by root and carries no release tag'
+        		exit 115
+        	fi
+        	tag='v0.2.4-rc.0'
+        	if [ "$(/usr/bin/awk -v a="$copyrank" -v b="$(tagrank)" 'BEGIN { print ("" a < "" b) }')" != 0 ]; then
+        		echo 'app-swap: refused: k3sm.app in Applications is not owned by root and is older than the lowest release this path accepts from it'
         		exit 115
         	fi
         	echo 'app-swap: k3sm.app in Applications is not owned by root; the swap replaces it with a copy root owns'
@@ -365,6 +375,89 @@ import K3smStatus
         return try #require(groups.prefix(Int(max(count, 0))).first { $0 != gid })
     }
 
+    @Test("a target another account owns does not pass its top directory's mode to root's copy; a tree root's alone keeps its own")
+    func appSwapForeignTargetCopyIsMode0755() throws {
+        let s = AdminScratch()
+        defer { s.cleanUp() }
+        s.install(tag: "v1.0.0")
+        s.stage(tag: "v1.1.0")
+        s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
+        s.writeFloor("v1.0.0\n")
+        try #require(chmod(s.target, 0o750) == 0)
+        #expect(s.engine(inspector: OwnerOverride(prefix: s.target, owner: getuid() + 1), installedCopy: s.helperCopy).run() == 0)
+        var after = stat()
+        try #require(lstat(s.target, &after) == 0)
+        #expect(after.st_mode & 0o7777 == 0o755)
+        // A tree root's alone keeps what an administrator chose.
+        try #require(chmod(s.target, 0o750) == 0)
+        try FileManager.default.removeItem(atPath: s.staged)
+        s.stage(tag: "v1.2.0")
+        #expect(s.engine().run() == 0)
+        try #require(lstat(s.target, &after) == 0)
+        #expect(after.st_mode & 0o7777 == 0o750)
+    }
+
+    @Test("what the engine knows of a target another account owns comes from the verified copy: a live Info.plist changed under it is not read")
+    func appSwapForeignTargetIsReadFromTheVerifiedCopy() throws {
+        let s = AdminScratch()
+        defer { s.cleanUp() }
+        s.install(tag: "v1.0.0")
+        s.stage(tag: "v1.1.0")
+        s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
+        s.writeFloor("v1.0.0\n")
+        try Data("not a property list".utf8).write(to: URL(fileURLWithPath: s.target + "/Contents/Info.plist"))
+        #expect(s.engine(inspector: OwnerOverride(prefix: s.target, owner: getuid() + 1), installedCopy: s.helperCopy).run() == 0)
+        #expect(s.tag(at: s.target) == "v1.1.0")
+        // The old bundle is named for the copy's tag.
+        #expect((try? FileManager.default.contentsOfDirectory(atPath: s.previousRoot)) == ["k3sm-v1.0.0.previous"])
+    }
+
+    @Test("a target another account owns with no verified copy to read is refused")
+    func appSwapForeignTargetNeedsTheVerifiedCopy() throws {
+        let s = AdminScratch()
+        defer { s.cleanUp() }
+        s.install(tag: "v1.0.0")
+        s.stage(tag: "v1.1.0")
+        s.writeFloor("v1.0.0\n")
+        #expect(s.engine(inspector: OwnerOverride(prefix: s.target, owner: getuid() + 1)).run() == AppSwapRootExit.targetUntrusted)
+        #expect(s.tag(at: s.target) == "v1.0.0" && s.relaunched.isEmpty)
+    }
+
+    struct AdoptionCase: CustomTestStringConvertible, Sendable {
+        let record: String?
+        let copy: String
+        let accept: Bool
+        let after: String
+        var testDescription: String { "record \(record ?? "none"), copy \(copy)" }
+    }
+
+    static let minimum = AppSwapRoot.minimumAdoptedRelease
+
+    @Test("a foreign target's copy must reach the compiled minimum, with or without a record, and the seed is the higher of the two",
+          arguments: [
+              AdoptionCase(record: nil, copy: "v0.1.0", accept: false, after: minimum),
+              AdoptionCase(record: "v0.1.0", copy: "v0.1.0", accept: false, after: "v0.1.0"),
+              AdoptionCase(record: nil, copy: minimum, accept: true, after: minimum),
+              AdoptionCase(record: nil, copy: "v1.0.0", accept: true, after: "v1.0.0"),
+              AdoptionCase(record: "v0.1.0", copy: "v1.0.0", accept: true, after: "v0.1.0"),
+          ])
+    func appSwapAdoptionHoldsTheCompiledMinimum(_ c: AdoptionCase) throws {
+        let w = ShellScratch()
+        defer { w.cleanUp() }
+        if let record = c.record { w.writeRecord(record + "\n") }
+        let stage = w.root + "/stage"
+        try FileManager.default.createDirectory(atPath: stage + "/k3sm.app/Contents", withIntermediateDirectories: true)
+        try PropertyListSerialization.data(fromPropertyList: ["K3smPayloadTag": c.copy], format: .xml, options: 0)
+            .write(to: URL(fileURLWithPath: stage + "/k3sm.app/Contents/Info.plist"))
+        let text = "set -eu\numask 077\nforeign=x\nstage=" + ShellQuote.quote(stage) + "\n"
+            + AppSwapRootScriptBuilder.adoption(record: w.record, owner: getuid()) + "echo passed\n"
+        let result = try shell(["-c", text])
+        #expect(result.status == (c.accept ? 0 : AppSwapRootExit.targetUntrusted), "\(result)")
+        #expect(result.output.hasSuffix("passed\n") == c.accept, "\(result)")
+        #expect((try? String(contentsOfFile: w.record, encoding: .utf8)) == c.after + "\n")
+        #expect(AppVersion.releaseTagVersion(Self.minimum) != nil)
+    }
+
     static func status(uid: uid_t, gid: gid_t) -> stat {
         var st = stat()
         st.st_uid = uid
@@ -391,7 +484,8 @@ import K3smStatus
         let first = try shell(["-c", check])
         #expect(first.status == 0 && first.output == "passed\n", "\(first)")
         s.writeFloor("v1.0.0\n")
-        #expect(s.engine(inspector: OwnerOverride(prefix: s.target, owner: dragged)).run() == 0)
+        s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
+        #expect(s.engine(inspector: OwnerOverride(prefix: s.target, owner: dragged), installedCopy: s.helperCopy).run() == 0)
         #expect(s.tag(at: s.target) == "v1.1.0")
 
         // Root's copy took root's group, not the dragged bundle's.
@@ -402,10 +496,10 @@ import K3smStatus
         try #require(lstat(s.target + "/Contents/MacOS/k3sm-app", &inner) == 0)
         #expect(inner.st_uid == s.locations.owner && inner.st_gid == s.locations.group)
 
-        #expect(AdminSwapEngine.copyOwnership(target: Self.status(uid: 501, gid: 20), rootsAlone: false,
-                                              locations: .standard) == (0, 0))
-        #expect(AdminSwapEngine.copyOwnership(target: Self.status(uid: 0, gid: 80), rootsAlone: true,
-                                              locations: .standard) == (0, 80))
+        let foreign = AdminSwapEngine.copyAttributes(target: Self.status(uid: 501, gid: 20), rootsAlone: false, locations: .standard)
+        #expect(foreign.owner == 0 && foreign.group == 0 && foreign.mode == 0o755)
+        let roots = AdminSwapEngine.copyAttributes(target: Self.status(uid: 0, gid: 80), rootsAlone: true, locations: .standard)
+        #expect(roots.owner == 0 && roots.group == 80)
 
         // The next swap, on the same Mac, reads a tree that is root's alone.
         let next = try shell(["-c", "set -eu\n" + AppSwapRootScriptBuilder.targetCheck(applications: s.applications, target: s.target, floorRecord: s.floorRecord, owner: getuid()) + "echo passed\n"])
@@ -887,11 +981,14 @@ private final class AdminScratch: @unchecked Sendable {
                            owner: getuid(), group: group)
     }
 
+    /// The helper's own root-owned copy of the installed bundle.
+    var helperCopy: String { root + "/stage/k3sm.app" }
+
     func engine(renamer: any Renamer = SystemRenamer(), console: (any ConsoleSession)? = nil,
-                inspector: any TreeInspector = SystemTreeInspector()) -> AdminSwapEngine {
+                inspector: any TreeInspector = SystemTreeInspector(), installedCopy: String? = nil) -> AdminSwapEngine {
         AdminSwapEngine(verifier: StaticCodeVerifier(requirement: fixtureRequirement, runningTeam: AppSwapRootTests.team),
                         renamer: renamer, console: console ?? FixedConsole(owner: account), relauncher: relauncher,
-                        locations: locations, inspector: inspector)
+                        locations: locations, inspector: inspector, installedCopy: installedCopy)
     }
 
     /// Writes root's floor record as this account, which stands in for root.

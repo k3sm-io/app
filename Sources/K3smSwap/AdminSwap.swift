@@ -168,10 +168,11 @@ public struct SystemSessionRelauncher: SessionRelauncher {
 ///    installed) and the installed bundle's `K3smPayloadTag` or short
 ///    version; with no record, the floor is the installed bundle's, when its
 ///    tree is root's (`locations.owner`) alone. A tree that is not, which is
-///    what a release dragged from the disk image is, needs the record: anyone
-///    who can write `/Applications` (the admin group can) can change it, so
-///    its own tag cannot be the floor, and with no record the run is refused.
-///    The root script seeds the record from its verified copy first. A
+///    what a release dragged from the disk image is, can be changed by anyone
+///    who can write `/Applications` (the admin group can). So the engine reads
+///    what it is from `installedCopy`, the verified root-owned copy it runs
+///    from, not from that tree, and it needs the record, which the root
+///    script seeds first; with no copy or no record the run is refused. A
 ///    record that exists but is not a root-owned 0600 regular file holding
 ///    one release tag refuses the run.
 /// 3. The work directory is root's own 0700 directory on the target's volume
@@ -185,9 +186,9 @@ public struct SystemSessionRelauncher: SessionRelauncher {
 ///    root, checked to be on the target's volume, and verified there: the
 ///    requirement, the bundle id, the team stamp, and a `K3smPayloadTag`
 ///    strictly above the installed one.
-/// 4. The copy takes the target's owner and group when the target's tree is
-///    root's alone, and root's otherwise (`copyOwnership`), and its top
-///    directory the target's mode, and is verified again (the same cdhash).
+/// 4. The copy takes the target's owner, group and top directory mode when
+///    the target's tree is root's alone, and root's and 0755 otherwise
+///    (`copyAttributes`), and is verified again (the same cdhash).
 ///    This is how a bundle an account dragged to `/Applications` becomes
 ///    root's: never by a chown in place, but by the verified copy replacing
 ///    it, so the next run finds a tree that is root's alone.
@@ -216,10 +217,15 @@ public struct AdminSwapEngine: Sendable {
     public let relauncher: any SessionRelauncher
     public let locations: AdminSwapLocations
     public let inspector: any TreeInspector
+    /// The verified root-owned copy of the installed bundle this helper runs
+    /// from. What the engine knows of an installed bundle that is not root's
+    /// alone comes from it, never from the tree at the target.
+    public let installedCopy: String?
 
     public init(verifier: any BundleVerifier, renamer: any Renamer, console: any ConsoleSession,
                 relauncher: any SessionRelauncher, locations: AdminSwapLocations,
-                inspector: any TreeInspector = SystemTreeInspector()) {
+                inspector: any TreeInspector = SystemTreeInspector(), installedCopy: String? = nil) {
+        self.installedCopy = installedCopy
         self.verifier = verifier
         self.renamer = renamer
         self.console = console
@@ -306,8 +312,17 @@ public struct AdminSwapEngine: Sendable {
             SwapLog.logger.error("admin swap: the installed bundle's tree is not root's alone and root has no floor record")
             return AppSwapRootExit.targetUntrusted
         }
-        guard let installed = InstalledRelease.read(bundleAt: target),
-              let installedCode = try? verifier.verify(bundleAt: target, requireTag: false), installedCode.identity == original
+        // What the installed bundle is. A tree not root's alone can change at
+        // any moment, so its bytes are never parsed or trusted here: the
+        // verified copy this helper runs from says what it is. Past this
+        // point the live tree is only walked, by descriptor, and renamed.
+        guard let installedPath = rootsAlone ? target : installedCopy else {
+            SwapLog.logger.error("admin swap: the installed bundle's tree is not root's alone and there is no verified copy to read")
+            return AppSwapRootExit.targetUntrusted
+        }
+        guard let installed = InstalledRelease.read(bundleAt: installedPath),
+              let installedCode = try? verifier.verify(bundleAt: installedPath, requireTag: false),
+              !rootsAlone || installedCode.identity == original
         else { return AppSwapRootExit.verificationFailed }
         let floor = recorded.map { max($0, installed.version) } ?? installed.version
 
@@ -338,14 +353,14 @@ public struct AdminSwapEngine: Sendable {
             // `uchg` file that would keep its directory from ever being
             // removed; the user flags are cleared first.
             for dirName in made where dirName != kept {
-                Self.clearUserLockingFlags(locations.workRoot + "/" + dirName)
+                Self.clearUserLockingFlags(at: workFD, dirName)
                 FileOps.removeTree(at: workFD, dirName)
             }
         }
 
         // Copies the staged bundle into a fresh directory, gives it its final
         // owner and the target's mode, and verifies it twice.
-        let ownership = Self.copyOwnership(target: targetStat, rootsAlone: rootsAlone, locations: locations)
+        let attributes = Self.copyAttributes(target: targetStat, rootsAlone: rootsAlone, locations: locations)
         func copyIn() -> (fd: Int32, bundle: VerifiedBundle, dirName: String)? {
             let dirName = FileOps.randomName(length: 12)
             guard mkdirat(workFD, dirName, 0o700) == 0 else { return nil }
@@ -357,8 +372,8 @@ public struct AdminSwapEngine: Sendable {
                   Self.sameVolume(Self.fsid(copyPath), targetVolume)
             else { close(fd); return nil }
             guard let first = verifiedNewer(copyPath, fd: fd, floor: floor),
-                  Self.chownTree(at: fd, AppSwapRoot.bundleName, owner: ownership.owner, group: ownership.group),
-                  fchmodat(fd, AppSwapRoot.bundleName, targetStat.st_mode & 0o7777, AT_SYMLINK_NOFOLLOW) == 0,
+                  Self.chownTree(at: fd, AppSwapRoot.bundleName, owner: attributes.owner, group: attributes.group),
+                  fchmodat(fd, AppSwapRoot.bundleName, attributes.mode, AT_SYMLINK_NOFOLLOW) == 0,
                   let second = verifiedNewer(copyPath, fd: fd, floor: floor),
                   second.cdhash == first.cdhash, second.identity == first.identity
             else { close(fd); return nil }
@@ -420,7 +435,7 @@ public struct AdminSwapEngine: Sendable {
         let previousName = SwapPaths.previousName(tag: installed.tag)
         if let previousFD = privateDirectory(locations.previousRoot) {
             for entry in FileOps.entries(previousFD) {
-                Self.clearUserLockingFlags(locations.previousRoot + "/" + entry)
+                Self.clearUserLockingFlags(at: previousFD, entry)
                 FileOps.removeTree(at: previousFD, entry)
             }
             if renamer.move(fromDir: copy.fd, from: AppSwapRoot.bundleName, toDir: previousFD, to: previousName) == 0 {
@@ -432,13 +447,18 @@ public struct AdminSwapEngine: Sendable {
         return 0
     }
 
-    /// The owner and group root's copy ends with: the target's when its tree
-    /// is root's alone, so a swap keeps what an administrator chose, and root's
-    /// otherwise, so the account that dragged a release to `/Applications`
-    /// owns nothing of what replaces it.
-    static func copyOwnership(target: stat, rootsAlone: Bool, locations: AdminSwapLocations) -> (owner: uid_t, group: gid_t) {
-        rootsAlone ? (target.st_uid, target.st_gid) : (locations.owner, locations.group)
+    /// The owner, group and top directory mode root's copy ends with: the
+    /// target's when its tree is root's alone, so a swap keeps what an
+    /// administrator chose, and root's and `adoptedMode` otherwise, so the
+    /// account that dragged a release to `/Applications` decides nothing of
+    /// what replaces it.
+    static func copyAttributes(target: stat, rootsAlone: Bool, locations: AdminSwapLocations) -> (owner: uid_t, group: gid_t, mode: mode_t) {
+        rootsAlone ? (target.st_uid, target.st_gid, target.st_mode & 0o7777) : (locations.owner, locations.group, adoptedMode)
     }
+
+    /// The top directory's mode of a copy that replaces a tree not root's
+    /// alone, whose own mode that account chose.
+    static let adoptedMode: mode_t = 0o755
 
     /// Swaps the target and root's copy back after a swap that must not
     /// stand, and returns whether the undo rename succeeded. On a failure it
@@ -575,18 +595,29 @@ public struct AdminSwapEngine: Sendable {
         return FileOps.entries(fd).allSatisfy { isFree(of: flags, at: fd, $0) }
     }
 
-    /// Clears `userLockingFlags` on `path` and everything under it, never
-    /// following a symlink (`lchflags`), so the tree can be removed. It runs
-    /// only on trees root made inside its own 0700 directories, which no
-    /// other user can change, so the paths name what was checked. Root may
-    /// clear a user flag; the system flags are refused before the copy.
-    static func clearUserLockingFlags(_ path: String) {
-        var st = stat()
-        guard lstat(path, &st) == 0 else { return }
-        if st.st_flags & userLockingFlags != 0 { _ = lchflags(path, st.st_flags & ~userLockingFlags) }
-        guard (st.st_mode & S_IFMT) == S_IFDIR, let fd = FileOps.openDirectory(path) else { return }
+    /// Clears `userLockingFlags` on `name` in `dirFD` and everything under it,
+    /// so the tree can be removed. Root may clear a user flag; the system
+    /// flags are refused before the copy. The tree may be a bundle an account
+    /// dragged to `/Applications`, now in root's previous directory, and that
+    /// account can still hold a descriptor inside it and change it during
+    /// this walk. So every step is relative to a descriptor this walk opened
+    /// and no symlink is followed: what is changed is always inside the tree.
+    /// `beforeDescending` is for tests: it runs with a directory's name once
+    /// the directory is open and listed, where such a change lands.
+    static func clearUserLockingFlags(at dirFD: Int32, _ name: String, beforeDescending: (String) -> Void = { _ in }) {
+        // O_SYMLINK opens a symlink itself, so its target is never reached;
+        // O_NONBLOCK keeps a FIFO from blocking root. Failing to open leaves
+        // the entry's flags, and only its removal fails.
+        let fd = openat(dirFD, name, O_RDONLY | O_SYMLINK | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return }
         defer { close(fd) }
-        for entry in FileOps.entries(fd) { clearUserLockingFlags(path + "/" + entry) }
+        var st = stat()
+        guard fstat(fd, &st) == 0 else { return }
+        if st.st_flags & userLockingFlags != 0 { _ = fchflags(fd, st.st_flags & ~userLockingFlags) }
+        guard (st.st_mode & S_IFMT) == S_IFDIR else { return }
+        let names = FileOps.entries(fd)
+        beforeDescending(name)
+        for entry in names { clearUserLockingFlags(at: fd, entry, beforeDescending: beforeDescending) }
     }
 
     /// Sets the owner and group of `name` in `dirFD` and everything under

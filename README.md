@@ -1257,10 +1257,17 @@ tag of that app. It is the lowest release of `k3sm.app` the administrator
 step for replacing the app accepts, so an older release put back in
 `/Applications` is not run as root. That step also accepts a `k3sm.app` dragged
 to `/Applications` from the disk image, which belongs to whoever dragged it:
-the copy it puts in its place is owned by root. The app's uninstall removes the
-file once `k3sm uninstall` succeeds. `sudo k3sm uninstall` in a terminal leaves it, and
-then an older release of the app cannot be installed over it by that step; an
-administrator removes it with:
+the copy it puts in its place is owned by root. When there is no such file yet,
+that step writes one first, holding the dragged copy's release or a minimum
+built into the app, whichever is higher, and it stays even if the step then
+refuses. So an account that can write `/Applications` can raise the lowest
+accepted release with a newer genuine copy, and an older release is refused
+until the file is removed.
+
+The app's uninstall removes the file once `k3sm uninstall` succeeds.
+`sudo k3sm uninstall` in a terminal leaves it, and then an older release of the
+app cannot be installed over it by that step. In either case an administrator
+removes it with:
 
 ```sh
 sudo rm -f /Library/k3sm.app-floor
