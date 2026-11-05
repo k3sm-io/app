@@ -107,7 +107,8 @@ public enum AppSwapRoot {
     public static let workRoot = CopyOutPlan.stagingRoot + "/app-swap"
     /// The root-owned 0700 directory the replaced bundle moves to, named
     /// `k3sm-<tag>.previous`, once every entry of it is root's
-    /// (`AdminSwapEngine.handOverTree`). The next root step's sweep removes it.
+    /// (`AdminSwapEngine.handOverTree`). The next root step's sweep removes it,
+    /// as it does anything under the staging root that is root's alone.
     public static let previousRoot = CopyOutPlan.stagingRoot + "/app-previous"
     /// Root's record of the highest release this path has installed: a
     /// root-owned 0600 regular file holding one release tag and a newline
@@ -188,7 +189,7 @@ public enum AppSwapRootScriptBuilder {
                                 floorRecord: r(AppSwapRoot.floorRecord), owner: owner, root: r)
         let text = RootScriptBuilder.stagedCopy(bundlePath: r(AppSwapRoot.target), stagingTemplate: r(AppSwapRoot.stagingTemplate),
                                                 designatedRequirement: AppUpdateTrust.appRequirement(teamID: teamID),
-                                                beforeCopy: check, root: r)
+                                                beforeCopy: check, root: r, owner: owner)
             + floorCompare(root: r) + adoption(record: r(AppSwapRoot.floorRecord), owner: owner, root: r) + #"""
             helper=\#(helper)
             if [ -L "$helper" ] || [ ! -f "$helper" ]; then

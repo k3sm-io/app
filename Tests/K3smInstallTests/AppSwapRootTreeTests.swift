@@ -334,6 +334,119 @@ import Testing
         #expect(try Self.status(t.tree + "/Contents/MacOS/k3sm-app").st_gid == group)
     }
 
+    @Test("hand-over order: setuid and setgid go before the chown, the ACL before the mode")
+    func handOverOrder() throws {
+        let t = Tree()
+        defer { t.cleanUp() }
+        let group = try Self.handOverGroup(t.tree)
+        let fd = try #require(FileOps.openDirectory(t.root))
+        defer { close(fd) }
+        var steps: [String] = []
+        #expect(AdminSwapEngine.handOverTree(at: fd, "tree", owner: getuid(), group: group, trace: { steps.append($0) }))
+        let first = Array(steps.prefix(6))
+        #expect(first == ["flags", "setid", "chown", "flags", "acl", "mode"], "\(steps)")
+    }
+
+    @Test("a flagged special file is unlinked unopened: nothing blocks on it and its flag does not stop the walk")
+    func handOverUnlinksAFlaggedSpecialFile() throws {
+        let t = Tree()
+        let fifo = t.tree + "/Contents/pipe"
+        defer {
+            _ = chflags(fifo, 0)
+            t.cleanUp()
+        }
+        let group = try Self.handOverGroup(t.tree)
+        try #require(mkfifo(fifo, 0o600) == 0 && chflags(fifo, UInt32(UF_IMMUTABLE)) == 0)
+        let fd = try #require(FileOps.openDirectory(t.root))
+        defer { close(fd) }
+        #expect(AdminSwapEngine.handOverTree(at: fd, "tree", owner: getuid(), group: group))
+        var gone = stat()
+        #expect(lstat(fifo, &gone) != 0)
+    }
+
+    @Test("a hard-linked symlink is unlinked: the shared inode keeps its group and flags, and its other name stays")
+    func handOverUnlinksAHardLinkedSymlink() throws {
+        let t = Tree()
+        let other = t.root + "/other-link"
+        defer {
+            _ = lchflags(other, 0)
+            t.cleanUp()
+        }
+        let group = try Self.handOverGroup(t.tree)
+        try FileManager.default.createSymbolicLink(atPath: other, withDestinationPath: t.root + "/outside")
+        try #require(linkat(AT_FDCWD, other, AT_FDCWD, t.tree + "/Contents/shared", 0) == 0)
+        let before = try Self.status(other)
+        try #require(before.st_nlink == 2 && before.st_mode & S_IFMT == S_IFLNK)
+        let fd = try #require(FileOps.openDirectory(t.root))
+        defer { close(fd) }
+        #expect(AdminSwapEngine.handOverTree(at: fd, "tree", owner: getuid(), group: group))
+        var gone = stat()
+        #expect(lstat(t.tree + "/Contents/shared", &gone) != 0)
+        let after = try Self.status(other)
+        #expect(after.st_gid == before.st_gid && after.st_nlink == 1)
+    }
+
+    @Test("the helper's descriptor limit rises to what a deep walk needs, never falls, and stays within the hard limit")
+    func descriptorLimit() {
+        let wanted = AdminSwapEngine.wantedDescriptorLimit
+        #expect(wanted == 2048)
+        #expect(AdminSwapEngine.descriptorLimit(soft: 256, hard: rlim_t.max) == wanted)
+        #expect(AdminSwapEngine.descriptorLimit(soft: 256, hard: 1024) == 1024)
+        #expect(AdminSwapEngine.descriptorLimit(soft: 10240, hard: rlim_t.max) == 10240)
+    }
+
+    /// A chain of `depth` directories below `top`, made with one descriptor
+    /// at a time: too long a path for anything else.
+    static func makeChain(top: Int32, name: String, depth: Int) -> Bool {
+        guard mkdirat(top, name, 0o755) == 0, var fd = FileOps.openDirectory(at: top, name) else { return false }
+        for _ in 0..<depth {
+            guard mkdirat(fd, "d", 0o755) == 0, let next = FileOps.openDirectory(at: fd, "d") else {
+                close(fd)
+                return false
+            }
+            close(fd)
+            fd = next
+        }
+        close(fd)
+        return true
+    }
+
+    @Test("a tree as deep as the helper's descriptor limit is walked and removed within the main thread's 8 MiB stack")
+    func deepTreeFitsTheStack() throws {
+        // Raising only, and past the helper's limit, so the other tests in this
+        // process keep what they had.
+        var limit = rlimit()
+        try #require(getrlimit(RLIMIT_NOFILE, &limit) == 0)
+        limit.rlim_cur = max(limit.rlim_cur, min(limit.rlim_max, 8192))
+        try #require(setrlimit(RLIMIT_NOFILE, &limit) == 0 && limit.rlim_cur >= 8192)
+        let t = Tree()
+        defer { t.cleanUp() }
+        let group = try Self.handOverGroup(t.tree)
+        let fd = try #require(FileOps.openDirectory(t.root))
+        defer { close(fd) }
+        let depth = Int(AdminSwapEngine.wantedDescriptorLimit)
+        try #require(Self.makeChain(top: fd, name: "deep", depth: depth))
+        let results = Results()
+        let done = DispatchSemaphore(value: 0)
+        let thread = Thread {
+            results.handed = AdminSwapEngine.handOverTree(at: fd, "deep", owner: getuid(), group: group)
+            results.safe = AdminSwapEngine.isSafeTree(at: fd, "deep")
+            AdminSwapEngine.clearUserLockingFlags(at: fd, "deep")
+            results.removed = AdminSwapEngine.removeOnVolume(at: fd, "deep")
+            done.signal()
+        }
+        thread.stackSize = 8 * 1024 * 1024
+        thread.start()
+        done.wait()
+        #expect(results.handed && results.safe && results.removed)
+    }
+
+    final class Results: @unchecked Sendable {
+        var handed = false
+        var safe = false
+        var removed = false
+    }
+
     @Test("the refused flags are uchg, uappnd, uunlnk, schg, sappnd and sunlnk, and no other")
     func flagSet() {
         #expect(AdminSwapEngine.userLockingFlags == 0x0000_0016)

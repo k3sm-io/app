@@ -145,6 +145,33 @@ struct AppSwapRootScriptRunTests {
         #expect(st.st_flags & UInt32(UF_IMMUTABLE) != 0, "the sweep followed a planted symlink")
     }
 
+    @Test("the sweep skips, with a line in the log, a top-level entry holding anything not root's, and follows nothing while it looks")
+    func sweepSkipsAnEntryNotRootsAlone() throws {
+        let w = try SwapScriptWorld()
+        let decoy = w.root + "/decoy"
+        let left = w.root + CopyOutPlan.stagingRoot + "/app-swap/AAAAAAAAAAAA/k3sm.app/Contents"
+        defer {
+            _ = chflags(decoy, 0)
+            _ = chflags(left + "/flagged", 0)
+            w.cleanUp()
+        }
+        try w.write(decoy, "decoy", mode: 0o644)
+        try #require(chflags(decoy, UInt32(UF_IMMUTABLE)) == 0)
+        try FileManager.default.createDirectory(atPath: left, withIntermediateDirectories: true)
+        try w.write(left + "/flagged", "old", mode: 0o644)
+        try #require(chflags(left + "/flagged", UInt32(UF_IMMUTABLE)) == 0)
+        try FileManager.default.createSymbolicLink(atPath: left + "/planted", withDestinationPath: decoy)
+        // With another uid as root, this account's entries are the former owner's.
+        let result = try w.run(owner: getuid() + 1)
+        #expect(result.status == 0, "\(result) \(w.log())")
+        #expect(w.log().contains("copy-out: left for the swap helper: app-swap holds an entry not owned by root"), "\(w.log())")
+        var st = stat()
+        try #require(lstat(left + "/flagged", &st) == 0, "the sweep removed a tree that is not root's")
+        #expect(st.st_flags & UInt32(UF_IMMUTABLE) != 0, "the sweep changed a tree that is not root's")
+        try #require(lstat(decoy, &st) == 0)
+        #expect(st.st_flags & UInt32(UF_IMMUTABLE) != 0)
+    }
+
     @Test("a tree that is root's alone writes no floor record of its own in the script")
     func appSwapRootScriptSeedsNothingForARootBundle() throws {
         let w = try SwapScriptWorld()
