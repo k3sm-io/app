@@ -496,7 +496,9 @@ import K3smStatus
         let inner = tree + "/Contents/mnt"
         try FileManager.default.createDirectory(atPath: inner, withIntermediateDirectories: true)
         try Data("x".utf8).write(to: URL(fileURLWithPath: tree + "/Contents/file"))
-        let volume = try MountedVolume(name: "k3smwalk", mountPoint: inner)
+        // Ownership is honoured so that a hand-over that crossed onto the volume
+        // would succeed there and go on to its files.
+        let volume = try MountedVolume(name: "k3smwalk", mountPoint: inner, honoursOwners: true)
         let kept = inner + "/kept"
         let flagged = inner + "/flagged"
         defer {
@@ -511,7 +513,11 @@ import K3smStatus
         try Data("on the volume".utf8).write(to: URL(fileURLWithPath: kept))
         try Data("flagged".utf8).write(to: URL(fileURLWithPath: flagged))
         try #require(chmod(kept, 0o666) == 0 && chflags(flagged, UInt32(UF_IMMUTABLE)) == 0)
+        try #require(chmod(inner, 0o775) == 0)
         let group = try AppSwapRootTreeTests.handOverGroup(tree + "/Contents/file")
+        let keptBefore = try AppSwapRootTreeTests.status(kept)
+        let rootBefore = try AppSwapRootTreeTests.status(inner)
+        try #require(keptBefore.st_gid != group && rootBefore.st_gid != group)
         let fd = try #require(FileOps.openDirectory(s.root + "/old"))
         defer { close(fd) }
         #expect(!AdminSwapEngine.handOverTree(at: fd, "k3sm.app", owner: getuid(), group: group))
@@ -520,7 +526,10 @@ import K3smStatus
         #expect(file.st_gid == group, "the walk still reaches what is on the volume it started on")
         var after = stat()
         try #require(lstat(kept, &after) == 0)
-        #expect(after.st_mode & 0o777 == 0o666, "the walk crossed a mount point")
+        #expect(after.st_mode & 0o777 == 0o666 && after.st_gid == keptBefore.st_gid, "the walk crossed a mount point")
+        var rootAfter = stat()
+        try #require(lstat(inner, &rootAfter) == 0)
+        #expect(rootAfter.st_mode & 0o777 == 0o775 && rootAfter.st_gid == rootBefore.st_gid, "the walk changed the mount root")
         AdminSwapEngine.clearUserLockingFlags(at: fd, "k3sm.app")
         try #require(lstat(flagged, &after) == 0)
         #expect(after.st_flags & UInt32(UF_IMMUTABLE) != 0, "clearing flags crossed a mount point")
@@ -1229,17 +1238,17 @@ private final class ShellScratch: @unchecked Sendable {
 }
 
 /// MountedVolume is a scratch APFS disk image, attached without browsing.
-private struct MountedVolume {
+struct MountedVolume {
     let image: String
     let mount: String
 
-    init(name: String, mountPoint: String? = nil) throws {
+    init(name: String, mountPoint: String? = nil, honoursOwners: Bool = false) throws {
         let dir = realPath(NSTemporaryDirectory()) + "/k3sm-adminswap-vol-" + UUID().uuidString.prefix(8)
         try FileManager.default.createDirectory(atPath: dir + "/mnt", withIntermediateDirectories: true)
         image = dir + "/volume.dmg"
         mount = mountPoint ?? dir + "/mnt"
         try #require(run("/usr/bin/hdiutil", ["create", "-quiet", "-size", "40m", "-fs", "APFS", "-volname", name, image]) == 0)
-        try #require(run("/usr/bin/hdiutil", ["attach", "-quiet", "-nobrowse", "-noautoopen", "-mountpoint", mount, image]) == 0)
+        try #require(run("/usr/bin/hdiutil", ["attach", "-quiet", "-nobrowse", "-noautoopen", "-mountpoint", mount] + (honoursOwners ? ["-owners", "on"] : []) + [image]) == 0)
     }
 
     func detach() {

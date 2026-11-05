@@ -386,13 +386,14 @@ import Testing
         #expect(after.st_gid == before.st_gid && after.st_nlink == 1)
     }
 
-    @Test("the helper's descriptor limit rises to what a deep walk needs, never falls, and stays within the hard limit")
+    @Test("the helper's descriptor limit is exactly the wanted one, rising to it or falling to it, within the hard limit")
     func descriptorLimit() {
         let wanted = AdminSwapEngine.wantedDescriptorLimit
         #expect(wanted == 2048)
-        #expect(AdminSwapEngine.descriptorLimit(soft: 256, hard: rlim_t.max) == wanted)
-        #expect(AdminSwapEngine.descriptorLimit(soft: 256, hard: 1024) == 1024)
-        #expect(AdminSwapEngine.descriptorLimit(soft: 10240, hard: rlim_t.max) == 10240)
+        #expect(AdminSwapEngine.descriptorLimit(rlimit(rlim_cur: 256, rlim_max: rlim_t.max)) == wanted)
+        #expect(AdminSwapEngine.descriptorLimit(rlimit(rlim_cur: 256, rlim_max: 1024)) == 1024)
+        #expect(AdminSwapEngine.descriptorLimit(rlimit(rlim_cur: 10240, rlim_max: rlim_t.max)) == wanted)
+        #expect(AdminSwapEngine.descriptorLimit(rlimit(rlim_cur: 10240, rlim_max: 20480)) == wanted)
     }
 
     /// A chain of `depth` directories below `top`, made with one descriptor

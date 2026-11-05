@@ -172,6 +172,32 @@ struct AppSwapRootScriptRunTests {
         #expect(st.st_flags & UInt32(UF_IMMUTABLE) != 0)
     }
 
+    @Test("the sweep changes nothing across a mount point, and a mount point it cannot remove stops nothing after it")
+    func sweepStopsAtAMountPoint() throws {
+        let w = try SwapScriptWorld()
+        let inner = w.root + CopyOutPlan.stagingRoot + "/app-swap/AAAAAAAAAAAA/mnt"
+        try FileManager.default.createDirectory(atPath: inner, withIntermediateDirectories: true)
+        let volume = try MountedVolume(name: "k3smsweep", mountPoint: inner)
+        let kept = inner + "/kept"
+        let flagged = inner + "/flagged"
+        defer {
+            _ = chflags(flagged, 0)
+            volume.detach()
+            w.cleanUp()
+        }
+        try w.write(kept, "on the volume", mode: 0o644)
+        try w.write(flagged, "flagged", mode: 0o644)
+        try #require(chflags(flagged, UInt32(UF_IMMUTABLE)) == 0)
+        let result = try w.run()
+        #expect(result.status == 0, "\(result) \(w.log())")
+        #expect(w.log().contains("copy-out: could not remove app-swap; the next sweep tries again"), "\(w.log())")
+        #expect(w.calls().last == "helper --admin-swap", "\(w.calls())")
+        #expect(FileManager.default.fileExists(atPath: kept), "the sweep's rm crossed a mount point")
+        var st = stat()
+        try #require(lstat(flagged, &st) == 0, "the sweep's rm crossed a mount point")
+        #expect(st.st_flags & UInt32(UF_IMMUTABLE) != 0, "the sweep's chflags crossed a mount point")
+    }
+
     @Test("a tree that is root's alone writes no floor record of its own in the script")
     func appSwapRootScriptSeedsNothingForARootBundle() throws {
         let w = try SwapScriptWorld()

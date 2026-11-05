@@ -277,15 +277,17 @@ public enum RootScriptBuilder {
             # later root step. Clear them first; a failure falls through to rm.
             # An entry holding anything not root's is left for the swap helper, which
             # walks it by descriptor: its former owner may still hold descriptors in
-            # it. find -x only reads, follows no symlink and stays on this volume.
+            # it. find -x only reads, follows no symlink and stays on this volume, and
+            # chflags -x and rm -x stay on it too. What rm cannot remove, such as a busy
+            # mount point, stops nothing after it: the next sweep tries again.
             for entry in "$root"/* "$root"/.[!.]* "$root"/..?*; do
             	if [ ! -e "$entry" ] && [ ! -L "$entry" ]; then continue; fi
             	if ! left=$(\#(r("/usr/bin/find")) -x "$entry" ! -user \#(owner) -print -quit) || [ -n "$left" ]; then
             		echo "copy-out: left for the swap helper: ${entry##*/} holds an entry not owned by root"
             		continue
             	fi
-            	\#(r("/usr/bin/chflags")) -R nouchg,nouappnd "$entry" || true
-            	\#(r("/bin/rm")) -rf "$entry"
+            	\#(r("/usr/bin/chflags")) -R -x nouchg,nouappnd "$entry" || true
+            	\#(r("/bin/rm")) -rfx "$entry" || echo "copy-out: could not remove ${entry##*/}; the next sweep tries again"
             done
             stage=$(\#(r("/usr/bin/mktemp")) -d \#(q(stagingTemplate)))
             \#(r("/usr/sbin/chown")) root:wheel "$stage"

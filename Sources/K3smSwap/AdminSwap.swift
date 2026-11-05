@@ -759,24 +759,25 @@ public struct AdminSwapEngine: Sendable {
     }
 
     /// The soft descriptor limit the helper runs with. Each level of a walk
-    /// holds one descriptor, so this bounds the depth a walk reaches, and a
-    /// deeper tree fails it safely. The frames of that many levels fit the
-    /// main thread's 8 MiB stack, even in an unoptimised build, where a level
-    /// of `handOverTree` takes about 2 KiB (`AppSwapRootTreeTests`).
+    /// holds one descriptor, so this bounds the depth a walk reaches. The frames
+    /// of that many levels fit the main thread's 8 MiB stack, even in an
+    /// unoptimised build, where a level of `handOverTree` takes about 2 KiB
+    /// (`AppSwapRootTreeTests`).
     static let wantedDescriptorLimit: rlim_t = 2048
 
-    /// The soft limit to set: `wanted` when the hard limit allows, never lower
-    /// than it is.
-    static func descriptorLimit(soft: rlim_t, hard: rlim_t, wanted: rlim_t = wantedDescriptorLimit) -> rlim_t {
-        max(soft, min(hard, wanted))
+    /// The soft limit to set: exactly `wanted`, or the hard limit when that is
+    /// lower. A higher soft limit is not kept, since it would stop bounding a
+    /// walk's depth.
+    static func descriptorLimit(_ current: rlimit, wanted: rlim_t = wantedDescriptorLimit) -> rlim_t {
+        min(current.rlim_max, wanted)
     }
 
-    /// Raises this process's soft descriptor limit from the 256 a root script
-    /// starts with, so a deep tree does not end a walk early.
-    public static func raiseDescriptorLimit() {
+    /// Sets this process's soft descriptor limit, from the 256 a root script
+    /// starts with or from whatever higher limit it inherited.
+    public static func setDescriptorLimit() {
         var limit = rlimit()
         guard getrlimit(RLIMIT_NOFILE, &limit) == 0 else { return }
-        limit.rlim_cur = descriptorLimit(soft: limit.rlim_cur, hard: limit.rlim_max)
+        limit.rlim_cur = descriptorLimit(limit)
         _ = setrlimit(RLIMIT_NOFILE, &limit)
     }
 

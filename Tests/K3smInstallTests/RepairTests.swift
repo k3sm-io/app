@@ -76,15 +76,17 @@ struct RepairTests {
         # later root step. Clear them first; a failure falls through to rm.
         # An entry holding anything not root's is left for the swap helper, which
         # walks it by descriptor: its former owner may still hold descriptors in
-        # it. find -x only reads, follows no symlink and stays on this volume.
+        # it. find -x only reads, follows no symlink and stays on this volume, and
+        # chflags -x and rm -x stay on it too. What rm cannot remove, such as a busy
+        # mount point, stops nothing after it: the next sweep tries again.
         for entry in "$root"/* "$root"/.[!.]* "$root"/..?*; do
         	if [ ! -e "$entry" ] && [ ! -L "$entry" ]; then continue; fi
         	if ! left=$(/usr/bin/find -x "$entry" ! -user 0 -print -quit) || [ -n "$left" ]; then
         		echo "copy-out: left for the swap helper: ${entry##*/} holds an entry not owned by root"
         		continue
         	fi
-        	/usr/bin/chflags -R nouchg,nouappnd "$entry" || true
-        	/bin/rm -rf "$entry"
+        	/usr/bin/chflags -R -x nouchg,nouappnd "$entry" || true
+        	/bin/rm -rfx "$entry" || echo "copy-out: could not remove ${entry##*/}; the next sweep tries again"
         done
         stage=$(/usr/bin/mktemp -d '/Library/k3sm.staging/0.2.0.XXXXXXXX')
         /usr/sbin/chown root:wheel "$stage"
