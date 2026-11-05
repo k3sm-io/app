@@ -1,0 +1,109 @@
+{
+ "note": "AppKit colours (sRGB r,g,b,a) behind and on the accent, keyed by macOS major then appearance. Only 27 is recorded. A default button's title is white by AppKit's drawing (no colour API), so the canary cannot check it live. Increased-contrast variants are not recorded: this process resolves them to the plain appearance (see AccentContrast.resolve).",
+ "os": {
+  "27": {
+   "aqua": {
+    "labels": [
+     {
+      "role": "default button title",
+      "rgba": [
+       1,
+       1,
+       1,
+       1
+      ]
+     },
+     {
+      "role": "selected row text",
+      "rgba": [
+       1,
+       1,
+       1,
+       1
+      ]
+     }
+    ],
+    "surfaces": [
+     {
+      "role": "window background",
+      "rgba": [
+       1,
+       1,
+       1,
+       1
+      ]
+     },
+     {
+      "role": "table background",
+      "rgba": [
+       1,
+       1,
+       1,
+       1
+      ]
+     },
+     {
+      "role": "alternate table row",
+      "rgba": [
+       0.956863,
+       0.960784,
+       0.960784,
+       1
+      ]
+     }
+    ]
+   },
+   "darkAqua": {
+    "labels": [
+     {
+      "role": "default button title",
+      "rgba": [
+       1,
+       1,
+       1,
+       1
+      ]
+     },
+     {
+      "role": "selected row text",
+      "rgba": [
+       1,
+       1,
+       1,
+       1
+      ]
+     }
+    ],
+    "surfaces": [
+     {
+      "role": "window background",
+      "rgba": [
+       0.117647,
+       0.117647,
+       0.117647,
+       1
+      ]
+     },
+     {
+      "role": "table background",
+      "rgba": [
+       0.117647,
+       0.117647,
+       0.117647,
+       1
+      ]
+     },
+     {
+      "role": "alternate table row",
+      "rgba": [
+       1,
+       1,
+       1,
+       0.047059
+      ]
+     }
+    ]
+   }
+  }
+ }
+}
