@@ -119,6 +119,40 @@ struct AppSwapRootScriptRunTests {
         #expect((try? String(contentsOfFile: w.root + AppSwapRoot.floorRecord, encoding: .utf8)) == AppSwapRoot.minimumAdoptedRelease + "\n")
     }
 
+    @Test("every rendered sweep leaves root's previous directory to the engine, which walks it by descriptor")
+    func renderedSweepExcludesThePreviousDirectory() throws {
+        let team = Self.team
+        let plan = try CopyOutPlan(bundlePath: AppSwapRoot.target, payloadVersion: SemanticVersion("0.2.0")!, policy: .developerID(team),
+                                   user: ConsoleUser("alice")!, action: .update(.server))
+        for text in [AppSwapRootScriptBuilder.render(teamID: team).text, RootScriptBuilder.render(plan).text] {
+            let sweeps = text.split(separator: "\n").filter { $0.contains("-mindepth 1 -maxdepth 1") }
+            #expect(sweeps.count == 2, "\(sweeps)")
+            for line in sweeps { #expect(line.contains("! -name 'app-previous'"), "\(line)") }
+        }
+        #expect(AppSwapRoot.previousRoot == CopyOutPlan.stagingRoot + "/app-previous")
+    }
+
+    @Test("a root step's sweep removes a stale stage and touches nothing in root's previous directory, flagged or not")
+    func sweepLeavesThePreviousDirectory() throws {
+        let w = try SwapScriptWorld()
+        defer {
+            _ = chflags(w.root + AppSwapRoot.previousRoot + "/k3sm-v0.9.0.previous/kept", 0)
+            w.cleanUp()
+        }
+        let staging = w.root + CopyOutPlan.stagingRoot
+        let kept = w.root + AppSwapRoot.previousRoot + "/k3sm-v0.9.0.previous/kept"
+        try FileManager.default.createDirectory(atPath: (kept as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try w.write(kept, "old bundle", mode: 0o644)
+        try #require(chflags(kept, UInt32(UF_IMMUTABLE)) == 0)
+        try FileManager.default.createDirectory(atPath: staging + "/stale.AAAA", withIntermediateDirectories: true)
+        let result = try w.run()
+        #expect(result.status == 0, "\(result) \(w.log())")
+        #expect(!FileManager.default.fileExists(atPath: staging + "/stale.AAAA"))
+        var st = stat()
+        try #require(lstat(kept, &st) == 0)
+        #expect(st.st_flags & UInt32(UF_IMMUTABLE) != 0, "the sweep cleared a flag in the previous directory")
+    }
+
     @Test("a tree that is root's alone writes no floor record of its own in the script")
     func appSwapRootScriptSeedsNothingForARootBundle() throws {
         let w = try SwapScriptWorld()

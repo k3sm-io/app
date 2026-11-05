@@ -76,7 +76,8 @@ public enum AppSwapRootExit {
 /// - only the installed bundle's own helper runs as root, from the verified
 ///   root-owned copy the script makes, with the one argument `argument`;
 /// - root's work and previous directories sit under the copy-out staging
-///   root, which every root step sweeps when it starts.
+///   root. Every root step sweeps that root when it starts, except the
+///   previous directory, which only the swap engine clears.
 public enum AppSwapRoot {
     /// The one target, the constant of operator ruling R6.
     public static let target = "/Applications/k3sm.app"
@@ -105,9 +106,15 @@ public enum AppSwapRoot {
     /// The root-owned 0700 directory the staged bundle is copied into, on
     /// the target's volume.
     public static let workRoot = CopyOutPlan.stagingRoot + "/app-swap"
+    /// The previous directory's name in the staging root. The root steps'
+    /// sweep leaves it out (`RootScriptBuilder.stagedCopy`).
+    static let previousDirectoryName = "app-previous"
     /// The root-owned 0700 directory the replaced bundle moves to, named
-    /// `k3sm-<tag>.previous`. The next root step's sweep removes it.
-    public static let previousRoot = CopyOutPlan.stagingRoot + "/app-previous"
+    /// `k3sm-<tag>.previous`. It can be a tree another account owns, so the
+    /// shell sweep leaves it alone: the next swap clears it by descriptor
+    /// (`AdminSwapEngine.clearUserLockingFlags`), and `k3sm uninstall` removes
+    /// the staging root with it.
+    public static let previousRoot = CopyOutPlan.stagingRoot + "/" + previousDirectoryName
     /// Root's record of the highest release this path has installed: a
     /// root-owned 0600 regular file holding one release tag and a newline
     /// (`v1.2.3\n`), written only after a swap is verified. The version floor
