@@ -1114,6 +1114,33 @@ disabled with the reason. A worker's app offers no such button: it offers the
 app-carried update when the app carries a newer release, and otherwise says
 that the server's app updates it.
 
+### The update channel
+
+**Update channel** in Settings > Updates, under **Releases**, picks which
+releases the cluster is offered: **Stable** (final releases only, the default)
+or **Release candidates**. It shows the channel the status report names, and
+the app stores none of its own: the cluster holds the setting, for every Mac.
+Changing it starts no update.
+
+The app asks first, with **Cancel** as the default answer when opting in to
+release candidates, and says that going back does not move a node down: a node
+on a release candidate stays on it and waits for a higher final release. It then
+shows an administrator prompt naming the channel, and runs
+`/Library/k3sm/k3sm update channel stable` or `... rc` as root, after the same
+ownership and Developer ID checks as every other root step. That command writes
+the setting with the server's admin credentials and runs one update check, so it
+can reach the release host. Nothing typed reaches it.
+
+When the write takes and the check after it fails, the app says the channel is
+set and not verified, and `sudo k3sm update check` runs the check again. When the
+write does not take, the app says so with k3sm's own error.
+
+The picker is disabled, with the reason in its help tag, with no cluster, on a
+worker (the channel is set on the server), under a k3sm that reports no channel
+or one this app does not know, during a roll, and on a build that is not
+Developer ID signed, developer mode included: use `sudo k3sm update channel
+stable` or `sudo k3sm update channel rc` in Terminal there.
+
 ## Connections from other devices
 
 Settings > Network carries a checkbox, **Allow connections from other

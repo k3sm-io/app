@@ -19,7 +19,8 @@ import SwiftUI
 
 /// UpdatesPane is the Settings window's Updates pane: the installed and the
 /// available release with the `update` row's state in plain words
-/// (`UpdatesPaneFacts`), Update Now (`UpdateNowControl` over the one update
+/// (`UpdatesPaneFacts`), the cluster's channel (`UpdateChannelPicker`, which
+/// shows what the report says and stores nothing), Update Now (`UpdateNowControl` over the one update
 /// plan, `UpdatePlan`, run by `AppModel.performUpdate`) with the plan's line
 /// under it, the roll's progress in the console's own
 /// panel (`UpdateProgressPanel`, with its Cancel), and the two stored
@@ -37,6 +38,7 @@ struct UpdatesPane: View {
         let facts = UpdatesPaneFacts.decide(report: app.lanReport, installed: app.installedVersion)
         let plan = app.updatePlan
         let control = UpdateNowControl.decide(plan: plan, report: app.lanReport)
+        let channel = app.updateChannelPicker
         VStack(alignment: .leading, spacing: 18) {
             group("k3sm.app") {
                 AppReleaseLines(model: app.appUpdate, cluster: app.installedVersion)
@@ -56,6 +58,16 @@ struct UpdatesPane: View {
                         Text(verbatim: facts.available).monospacedDigit().help(Help.Updates.available)
                     }
                 }
+                Picker(UpdateChannelPicker.title, selection: Binding(
+                    get: { channel.selection },
+                    set: { app.setUpdateChannel($0) })) {
+                    ForEach(UpdateChannel.allCases, id: \.self) { item in
+                        Text(verbatim: item.title).tag(item)
+                    }
+                }
+                .fixedSize()
+                .disabled(!channel.enabled)
+                .help(Help.Updates.channel(channel))
                 Text(verbatim: facts.state).font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
                     .help(Help.Updates.state)
