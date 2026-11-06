@@ -193,9 +193,10 @@ struct DeveloperModeTrustTests {
     func developerModeTrustTableDeveloperIDGoldens() throws {
         let renders = Self.policyRenders()
         // The goldens' developer-mode renders (`developer-*`) are checked by the golden suite itself, and so
-        // is the version set's roll (`bundled-roll*`), which takes a Team ID and has no policy API.
+        // is the version set's roll (`bundled-roll*`), which takes a Team ID and has no policy API. Nor does
+        // a channel (`update-channel-*`), which renders only under a Developer ID.
         #expect(Set(renders.map(\.name)) == Set(RootScriptGoldenTests.renders().map(\.name)
-            .filter { !$0.hasPrefix("developer-") && !$0.hasPrefix("bundled-roll") }))
+            .filter { !$0.hasPrefix("developer-") && !$0.hasPrefix("bundled-roll") && !$0.hasPrefix("update-channel-") }))
         for (name, text) in renders {
             let expected = try RootScriptGoldenTests.fixture(name)
             if let d = RootScriptGoldenTests.diff(expected: expected, actual: text) {

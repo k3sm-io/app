@@ -942,6 +942,15 @@ public enum Help {
         /// Update Now.
         public static let updateNow = HelpTag("Update every node to the newest release, the server last",
                                               control: "updates: Update Now", label: UpdateNowControl.title)
+        /// The channel picker.
+        public static let channel = HelpTag("Which releases this cluster is offered; changing it starts no update",
+                                            control: "updates: channel picker", label: UpdateChannelPicker.title)
+
+        /// The channel picker's tag: why it is disabled, or what it does.
+        public static func channel(_ picker: UpdateChannelPicker) -> String {
+            picker.reason ?? channel.text
+        }
+
         /// Drain each node before updating it.
         public static let drain = HelpTag("Evict each node's pods before it updates, so they move first",
                                           control: "updates: drain checkbox", label: "Drain each node before updating it")
@@ -979,7 +988,7 @@ public enum Help {
                                                 control: "updates: download app checkbox", label: "Download app updates when available")
 
         public static var all: [HelpTag] {
-            [installed, available, state, updateNow, drain, allowDowngrade, signature, notify,
+            [installed, available, state, updateNow, channel, drain, allowDowngrade, signature, notify,
              appState, lastCheck, checkNow, checkApp, downloadApp]
         }
     }

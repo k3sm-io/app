@@ -37,29 +37,33 @@ struct LifecycleScriptTests {
         .updateApply: ["update", "apply", "--yes", "--version", "v0.1.8"],
         .updateCancel: ["update", "cancel"],
         .updateAbort: ["update", "abort"],
+        .updateChannelStable: ["update", "channel", "stable"],
+        .updateChannelRC: ["update", "channel", "rc"],
     ]
 
     @Test("the verb set is closed: stop, start, restart")
     func verbs() {
         #expect(LifecycleVerb.lifecycleVerbs.map(\.rawValue) == ["stop", "start", "restart"])
-        #expect(LifecycleVerb.allCases.filter { !$0.isLAN && !$0.isUpdate } == LifecycleVerb.lifecycleVerbs)
+        #expect(LifecycleVerb.allCases.filter { !$0.isLAN && !$0.isUpdate && !$0.isChannel } == LifecycleVerb.lifecycleVerbs)
     }
 
     /// The release every apply here is pinned to, as `UpdateDriver.apply`
     /// pins the one the user confirmed.
     static let release = ReleaseTag("v0.1.8")!
 
-    /// The script `verb` runs: a fixed verb's, or the apply with its release.
+    /// The script `verb` runs: a fixed verb's, a channel's, or the apply with its release.
     static func rendered(_ verb: LifecycleVerb) -> RootScript {
+        if let channel = verb.channel { return LifecycleScriptBuilder.renderUpdateChannel(channel, teamID: team) }
         guard let fixed = LifecycleScriptBuilder.FixedVerb(verb) else {
             return LifecycleScriptBuilder.renderUpdateApply(teamID: team, options: .defaults, release: release)
         }
         return LifecycleScriptBuilder.render(fixed, teamID: team)
     }
 
-    /// The argv `verb` runs with: a fixed verb's constant, or the apply's,
-    /// which always carries its release.
+    /// The argv `verb` runs with: a fixed verb's constant, a channel's, or the
+    /// apply's, which always carries its release.
     static func argv(_ verb: LifecycleVerb) -> [String] {
+        if let channel = verb.channel { return K3smCLI.updateChannelArguments(channel) }
         guard let fixed = LifecycleScriptBuilder.FixedVerb(verb) else {
             return LifecycleScriptBuilder.updateApplyArguments(options: .defaults, release: release)
         }
@@ -71,13 +75,13 @@ struct LifecycleScriptTests {
         #expect(Self.argv(verb) == Self.goldenArgv[verb])
     }
 
-    @Test("every verb but the apply is a fixed verb")
+    @Test("every verb but the apply and the channel's two is a fixed verb")
     func fixedVerbs() {
-        #expect(LifecycleScriptBuilder.FixedVerb.allCases.map(\.verb) == LifecycleVerb.allCases.filter { $0 != .updateApply })
+        #expect(LifecycleScriptBuilder.FixedVerb.allCases.map(\.verb) == LifecycleVerb.allCases.filter { $0 != .updateApply && !$0.isChannel })
         #expect(LifecycleScriptBuilder.FixedVerb(.updateApply) == nil)
         #expect(LifecycleScriptBuilder.FixedVerb(rawValue: "update-apply") == nil)
         #expect(!LifecycleScriptBuilder.FixedVerb.allCases.contains { $0.rawValue == "update-apply" })
-        #expect(LifecycleVerb.allCases.allSatisfy { v in LifecycleScriptBuilder.FixedVerb(v).map { $0.verb == v } ?? (v == .updateApply) })
+        #expect(LifecycleVerb.allCases.allSatisfy { v in LifecycleScriptBuilder.FixedVerb(v).map { $0.verb == v } ?? (v == .updateApply || v.isChannel) })
     }
 
     /// The single CLI line of a rendered script.

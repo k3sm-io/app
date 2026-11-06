@@ -141,7 +141,7 @@ struct UpdateChannelTests {
 
             // A developer build, and a worker, keep showing what the row says.
             ("developer build", Self.channel("rc"), idle, true,
-             Picker(selection: .rc, enabled: false, reason: UpdateOffer.developerBuildReason)),
+             Picker(selection: .rc, enabled: false, reason: Picker.developerBuildReason)),
             ("worker", Self.report(Self.row(channel: "rc"), role: "agent"), idle, false,
              Picker(selection: .rc, enabled: false, reason: Picker.workerReason)),
 
@@ -163,7 +163,7 @@ struct UpdateChannelTests {
             ("no cluster over developer", nil, idle, true,
              Picker(selection: .stable, enabled: false, reason: Picker.noClusterReason)),
             ("developer over worker", Self.report(Self.row(channel: "rc"), role: "agent"), idle, true,
-             Picker(selection: .rc, enabled: false, reason: UpdateOffer.developerBuildReason)),
+             Picker(selection: .rc, enabled: false, reason: Picker.developerBuildReason)),
             ("worker over no channel", Self.report(Self.row(channel: nil), role: "agent"), idle, false,
              Picker(selection: .stable, enabled: false, reason: Picker.workerReason)),
             ("no channel over rolling", Self.channel(nil), rolling, false,
@@ -173,11 +173,23 @@ struct UpdateChannelTests {
         }
 
         // Every reason is a sentence of its own, none blank.
-        let reasons = [Picker.noClusterReason, Picker.workerReason, Picker.noChannelReason,
+        let reasons = [Picker.noClusterReason, Picker.developerBuildReason, Picker.workerReason, Picker.noChannelReason,
                        Picker.unknownChannelReason, Picker.rollingReason]
         #expect(Set(reasons).count == reasons.count)
         #expect(reasons.allSatisfy { !$0.isEmpty })
         #expect(Picker.workerReason.contains("set on the server"))
+
+        // A developer build is told the command that changes a channel, not the apply.
+        #expect(Picker.developerBuildReason != UpdateOffer.developerBuildReason)
+        #expect(!Picker.developerBuildReason.contains("update apply"))
+        for channel in UpdateChannel.allCases {
+            #expect(Picker.developerBuildReason.contains("`sudo k3sm update channel \(channel.rawValue)`"))
+        }
+
+        // The picker's items and its help tag.
+        #expect(UpdateChannel.allCases.map(\.title) == ["Stable", "Release candidates"])
+        #expect(Help.Updates.channel(Picker(selection: .stable, enabled: true, reason: nil)) == Help.Updates.channel.text)
+        #expect(Help.Updates.channel(Picker(selection: .rc, enabled: false, reason: Picker.rollingReason)) == Picker.rollingReason)
     }
 
     // MARK: - eyebrow

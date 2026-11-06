@@ -19,15 +19,17 @@ import K3smStatus
 /// LifecycleVerb is the closed set of actions the app runs as root through
 /// the installed CLI: `k3sm stop`, `k3sm start` and `k3sm restart`, the
 /// two LAN access verbs, `k3sm network lan on` and `k3sm network lan off`,
-/// and the three managed update verbs, `k3sm update apply --yes`,
-/// `k3sm update cancel` and `k3sm update abort`.
+/// the three managed update verbs, `k3sm update apply --yes`,
+/// `k3sm update cancel` and `k3sm update abort`, and the two channel verbs,
+/// `k3sm update channel stable` and `k3sm update channel rc`.
 /// Nothing else, and no string from the user or the CLI, ever reaches the
 /// root script: each verb's argv but the apply's is a compile-time constant
 /// (`LifecycleScriptBuilder.arguments(for:)`, over `FixedVerb`), and the
 /// apply's is only the fixed flags its `UpdateOptions` name and `--version`
 /// with the release the user confirmed, a `ReleaseTag`
 /// (`updateApplyArguments(options:release:)`), which it cannot be rendered
-/// without.
+/// without. A channel verb's argv is a constant too, chosen by the closed
+/// `UpdateChannel` (`renderUpdateChannel(_:teamID:)`).
 public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
     case stop
     case start
@@ -37,6 +39,8 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
     case updateApply = "update-apply"
     case updateCancel = "update-cancel"
     case updateAbort = "update-abort"
+    case updateChannelStable = "update-channel-stable"
+    case updateChannelRC = "update-channel-rc"
 
     /// The three lifecycle verbs, which act on the node daemon's state.
     public static let lifecycleVerbs: [LifecycleVerb] = [.stop, .start, .restart]
@@ -45,6 +49,31 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
 
     /// The three managed update verbs, which act on the cluster's roll.
     public static let updateVerbs: [LifecycleVerb] = [.updateApply, .updateCancel, .updateAbort]
+
+    /// The two channel verbs, which change what the cluster is offered and
+    /// start no roll. Each has its own prompt, so an `rc` opt-in is never
+    /// authorised under text that does not say `rc`.
+    public static let channelVerbs: [LifecycleVerb] = [.updateChannelStable, .updateChannelRC]
+
+    /// The verb that sets `channel`.
+    public static func updateChannel(_ channel: UpdateChannel) -> LifecycleVerb {
+        switch channel {
+        case .stable: return .updateChannelStable
+        case .rc: return .updateChannelRC
+        }
+    }
+
+    /// The channel this verb sets; nil for any other verb.
+    public var channel: UpdateChannel? {
+        switch self {
+        case .updateChannelStable: return .stable
+        case .updateChannelRC: return .rc
+        default: return nil
+        }
+    }
+
+    /// Whether this is one of the channel verbs.
+    public var isChannel: Bool { channel != nil }
 
     /// Whether this is one of the managed update verbs.
     public var isUpdate: Bool { Self.updateVerbs.contains(self) }
@@ -61,6 +90,8 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
         case .updateApply: return "update apply --yes"
         case .updateCancel: return "update cancel"
         case .updateAbort: return "update abort"
+        case .updateChannelStable: return "update channel stable"
+        case .updateChannelRC: return "update channel rc"
         }
     }
 
@@ -75,6 +106,8 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
         case .updateApply: return "k3sm wants to update k3sm on every node of this cluster."
         case .updateCancel: return "k3sm wants to cancel the k3sm update."
         case .updateAbort: return "k3sm wants to abort the k3sm update and release every node."
+        case .updateChannelStable: return "k3sm wants to set this cluster's update channel to stable, which offers final releases only."
+        case .updateChannelRC: return "k3sm wants to set this cluster's update channel to rc, which also offers release candidates to every node."
         }
     }
 
@@ -89,6 +122,8 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
         case .updateApply: return "Update k3sm"
         case .updateCancel: return "Cancel Update"
         case .updateAbort: return "Abort Update"
+        case .updateChannelStable: return "Use Final Releases"
+        case .updateChannelRC: return "Use Release Candidates"
         }
     }
 
@@ -96,12 +131,13 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
     /// node; start acts on a stopped one. The LAN verbs act in either state
     /// (a stopped node applies the setting when it starts), so they have none.
     /// The update verbs act on the cluster's roll, which the CLI checks
-    /// itself, so they have none either.
+    /// itself, so they have none either; nor do the channel verbs, which
+    /// `UpdateChannelPrecondition` guards.
     public var requiredState: LifecycleState? {
         switch self {
         case .stop, .restart: return .running
         case .start: return .stopped
-        case .lanOn, .lanOff, .updateApply, .updateCancel, .updateAbort: return nil
+        case .lanOn, .lanOff, .updateApply, .updateCancel, .updateAbort, .updateChannelStable, .updateChannelRC: return nil
         }
     }
 }
@@ -114,8 +150,13 @@ public enum LifecycleExit {
     public static let failed: Int32 = 1
     /// The CLI did not accept the arguments: an older or different CLI.
     public static let usage: Int32 = 2
-    /// The CLI did not run as root; nothing was done.
+    /// The CLI did not run as root; nothing was done. Never a channel verb's
+    /// meaning: `k3sm update channel` has no root check, and its 3 is
+    /// `channelSetNotVerified`.
     public static let needsRoot: Int32 = 3
+    /// `k3sm update channel <value>` wrote the channel and the check after it
+    /// failed (`exitChannelCheckFailed`): set, and not verified.
+    public static let channelSetNotVerified: Int32 = 3
     /// A stop that left something behind exits `stopLeftoverBase` plus one
     /// bit per class (see `LifecycleOutcome.leftovers`).
     public static let stopLeftoverBase: Int32 = 32
@@ -153,10 +194,12 @@ public enum LifecycleScriptBuilder {
     /// The fixed reason every app-run verb records (`--reason`).
     public static let reason = "from the k3sm app"
 
-    /// FixedVerb is every verb whose argv is a compile-time constant: all of
-    /// them but the apply, which carries the release the user confirmed and
-    /// is rendered only by `renderUpdateApply(policy:options:release:)`. So no
-    /// path can render an apply without its release.
+    /// FixedVerb is every verb whose argv is a compile-time constant and that
+    /// renders under any `TrustPolicy`: all of them but the apply, which carries
+    /// the release the user confirmed and is rendered only by
+    /// `renderUpdateApply(policy:options:release:)`, and the channel verbs, which
+    /// render only under a Developer ID (`renderUpdateChannel(_:teamID:)`). So no
+    /// path can render an apply without its release, or a channel in developer mode.
     public enum FixedVerb: String, CaseIterable, Hashable, Sendable {
         case stop, start, restart
         case lanOn = "lan-on"
@@ -164,7 +207,7 @@ public enum LifecycleScriptBuilder {
         case updateCancel = "update-cancel"
         case updateAbort = "update-abort"
 
-        /// `verb` as a fixed verb, or nil for the apply.
+        /// `verb` as a fixed verb, or nil for the apply and the channel verbs.
         public init?(_ verb: LifecycleVerb) {
             self.init(rawValue: verb.rawValue)
         }
@@ -221,6 +264,21 @@ public enum LifecycleScriptBuilder {
     /// requirement for `teamID`.
     public static func renderUpdateApply(teamID: TeamID, options: UpdateOptions, release: ReleaseTag) -> RootScript {
         renderUpdateApply(policy: .developerID(teamID), options: options, release: release)
+    }
+
+    /// Renders the script that sets `channel`: the checked preamble under the
+    /// Developer ID requirement for `teamID`, then `exec "$k3sm" update channel
+    /// <word>`, with the prompt naming the channel. Its only inputs are a closed
+    /// enum and a checked Team ID, and it takes no `TrustPolicy`, so a developer
+    /// build has no way to render it. `UpdateChannelDriver` is its one caller.
+    public static func renderUpdateChannel(_ channel: UpdateChannel, teamID: TeamID) -> RootScript {
+        renderUpdateChannel(channel, teamID: teamID, cliPath: K3smCLI.path)
+    }
+
+    /// `renderUpdateChannel(_:teamID:)` for a CLI at `cliPath`. Only the tests
+    /// pass another path, to prove the refusals against real directories.
+    static func renderUpdateChannel(_ channel: UpdateChannel, teamID: TeamID, cliPath: String) -> RootScript {
+        render(LifecycleVerb.updateChannel(channel), argv: K3smCLI.updateChannelArguments(channel), policy: .developerID(teamID), cliPath: cliPath)
     }
 
     /// Renders a fixed verb's script for a CLI at `cliPath`. Only the tests
@@ -483,12 +541,16 @@ public enum LifecycleOutcome {
             case .updateApply: return "The update has started. Each node updates in turn, the server last."
             case .updateCancel: return "k3sm is cancelling the update."
             case .updateAbort: return "k3sm released every node from the update, and marked any unfinished update Cancelled. Nothing was rolled back: every node keeps the release it runs, and a node already installing may still finish."
+            case .updateChannelStable: return "The update channel is now stable: this cluster is offered final releases only. No update started."
+            case .updateChannelRC: return "The update channel is now rc: this cluster is also offered release candidates. No update started."
             }
         case .cancelled:
             return "Cancelled. Nothing was changed."
         case .couldNotStart:
             return "The administrator prompt could not be shown. Nothing was changed."
         case .failed(let status):
+            // First: a channel verb's 1 and 3 are not the shared table's.
+            if let channel = verb.channel, let text = UpdateChannelOutcome.text(status: status, channel: channel) { return text }
             switch status {
             case LifecycleExit.refusedBinary:
                 return "The installed k3sm at \(K3smCLI.path), or a folder above it, is not owned by root or is writable by others, so nothing was run."

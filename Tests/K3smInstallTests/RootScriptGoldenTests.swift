@@ -81,6 +81,9 @@ struct RootScriptGoldenTests {
                      LifecycleScriptBuilder.renderUpdateApply(teamID: team, options: .defaults, release: release).text))
         out.append(("update-apply-all-options.sh",
                      LifecycleScriptBuilder.renderUpdateApply(teamID: team, options: allOptions, release: release).text))
+        for channel in UpdateChannel.allCases {
+            out.append(("update-channel-\(channel.rawValue).sh", LifecycleScriptBuilder.renderUpdateChannel(channel, teamID: team).text))
+        }
         // Developer mode (`TrustPolicy.developer`): the preamble's marker
         // check and every copy-out shape. A first install (start, join)
         // passes `--developer-mode on` and checks no marker; an update, a

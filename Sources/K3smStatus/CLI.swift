@@ -54,6 +54,15 @@ public enum K3smCLI {
     /// cleared, and only the update controller's own cordons are lifted. Run
     /// only as root, like the apply.
     public static let updateAbortArguments = ["update", "abort"]
+    /// Sets the cluster's update channel, then runs one check on it. Run only as
+    /// root, through the checked channel script. The words are literals chosen by
+    /// the closed enum, so no text reaches the command line.
+    public static func updateChannelArguments(_ channel: UpdateChannel) -> [String] {
+        switch channel {
+        case .stable: return ["update", "channel", "stable"]
+        case .rc: return ["update", "channel", "rc"]
+        }
+    }
     /// The workloads list: every pod on the cluster, through the CLI's bundled
     /// kubectl with the kubeconfig the CLI presets.
     public static let workloadsArguments = ["kubectl", "get", "pods", "-A", "-o", "json"]

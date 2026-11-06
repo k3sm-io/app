@@ -1761,6 +1761,47 @@ final class AppModel: ObservableObject {
         return nil
     }
 
+    /// The Updates pane's channel picker: what the report decides, and disabled
+    /// too while the checked root step could not run.
+    var updateChannelPicker: UpdateChannelPicker {
+        let picker = UpdateChannelPicker.decide(report: lanReport, progress: updateProgress, developerBuild: isDeveloperBuild)
+        guard picker.enabled, let reason = updateActionReason else { return picker }
+        return UpdateChannelPicker(selection: picker.selection, enabled: false, reason: reason)
+    }
+
+    /// Sets the cluster's channel from the picker, through the channel's fixed
+    /// root step. It needs the pinned Team ID, so developer mode cannot run it. The
+    /// picker reads the report again afterward, so a change that did not take shows
+    /// the channel the cluster has.
+    func setUpdateChannel(_ channel: UpdateChannel) {
+        let picker = updateChannelPicker
+        guard picker.enabled, channel != picker.selection, let teamID else { return }
+        let verb = LifecycleVerb.updateChannel(channel)
+        let driver = UpdateChannelDriver(
+            teamID: teamID,
+            readStatus: { await self.readFullReport() },
+            confirm: { Self.confirm($0) },
+            runner: runner)
+        Task {
+            running = true
+            outcomeMessage = nil
+            let result = await driver.perform(channel, progress: updateProgress)
+            running = false
+            switch result {
+            case .declined:
+                break
+            case .refused(let why):
+                outcomeMessage = why
+                Self.alert(title: "Nothing was changed", text: why)
+            case .ran(let outcome, let text):
+                outcomeMessage = text
+                if outcome != .succeeded, outcome != .cancelled { Self.alert(title: verb.title, text: text) }
+            }
+            log.notice("update channel verb finished")
+            _ = await readFullReport()
+        }
+    }
+
     private func updateDriver(_ policy: TrustPolicy) -> UpdateDriver {
         UpdateDriver(
             policy: policy,

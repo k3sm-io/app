@@ -22,6 +22,14 @@ import Foundation
 public enum UpdateChannel: String, CaseIterable, Equatable, Sendable {
     case stable
     case rc
+
+    /// The picker's item.
+    public var title: String {
+        switch self {
+        case .stable: return "Stable"
+        case .rc: return "Release candidates"
+        }
+    }
 }
 
 /// UpdateChannelReading is what the report's `update` row says about the channel,
@@ -71,7 +79,13 @@ public enum UpdateChannelReading: Equatable, Sendable {
 /// channel is not offered for change: it comes from a k3sm newer than this app, whose
 /// setting this app should not overwrite without knowing what it means.
 public struct UpdateChannelPicker: Equatable, Sendable {
+    /// The picker's label.
+    public static let title = "Update channel"
     public static let noClusterReason = "No cluster is running, so there is no channel to set."
+    /// A developer build's reason, whether or not developer mode is on: only a
+    /// build that pins a Developer ID runs this root step (`UpdateChannelDriver`).
+    public static let developerBuildReason =
+        "This build of k3sm is not Developer ID signed, so it cannot set the update channel. Use `sudo k3sm update channel stable` or `sudo k3sm update channel rc` in Terminal."
     public static let workerReason = "The channel is set on the server."
     public static let noChannelReason = "This k3sm has not reported a channel, so the app treats it as stable."
     public static let unknownChannelReason = "This k3sm reports a channel this app does not know, so it reads as stable."
@@ -94,7 +108,7 @@ public struct UpdateChannelPicker: Equatable, Sendable {
         }
         guard let report, report.verdict == .running || report.verdict == .degraded,
               let role = NodeRole.detect(in: report) else { return disabled(noClusterReason) }
-        if developerBuild { return disabled(UpdateOffer.developerBuildReason) }
+        if developerBuild { return disabled(developerBuildReason) }
         if role == .agent { return disabled(workerReason) }
         switch reading {
         case .absent: return disabled(noChannelReason)
