@@ -84,7 +84,7 @@ for name in \
 	"a role with no switch has none" \
 	"a refused change and its applied state decode from the app's fixture" \
 	"the CLI's error text is stripped of control characters and truncated" \
-	"the verb set is closed: stop, start, restart, LAN on, LAN off, update apply, cancel and abort" \
+	"the verb set is closed: stop, start, restart, LAN on, LAN off, update apply, cancel, abort and the two channels" \
 	"the LAN verbs' argv are the constants network lan on and off" \
 	"each LAN prompt says allow or stop allowing connections from other devices" \
 	"the LAN scripts run the stop script's checks under env -i" \
