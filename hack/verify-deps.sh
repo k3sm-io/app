@@ -124,6 +124,11 @@ check() {
 	if [ -d "$root/hack" ]; then
 		while IFS= read -r -d '' f; do
 			[ "$(basename "$f")" != verify-deps.sh ] || continue
+			# This one posts a hash to the timestamp authority and reads back a token
+			# that the verifier tests then check. Nothing it fetches runs, and a token
+			# differs on every request, so no digest can be pinned. The exact path is
+			# named so a second script cannot claim this.
+			[ "${f#"$root"/}" != hack/release-index-cms/make-kind-fixtures.sh ] || continue
 			code="$(grep -Ev '^[[:space:]]*#' "$f" || true)"
 			if grep -Eq "$dl" <<<"$code"; then
 				{ grep -Eq 'shasum -a 256 -c|sha256sum -c' "$f" \

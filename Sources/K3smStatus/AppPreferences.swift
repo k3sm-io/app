@@ -178,6 +178,10 @@ public struct AppPreferences: @unchecked Sendable {
     /// settings, and the floor must not move down.
     public static let appUpdateHighTagKey = "appUpdateHighTag"
     public static let appUpdateHighIssuedAtKey = "appUpdateHighIssuedAt"
+    /// The candidate floor's own two keys (`AppUpdateCandidateRecord`), which a
+    /// candidate writes in place of the stable floor's. `reset` keeps them too.
+    public static let appUpdateCandidateHighTagKey = "appUpdateCandidateHighTag"
+    public static let appUpdateCandidateHighIssuedAtKey = "appUpdateCandidateHighIssuedAt"
     public static let appUpdateLastSuccessKey = "appUpdateLastSuccess"
     public static let appUpdateNotifiedKey = "appUpdateNotifiedRelease"
 
@@ -200,6 +204,18 @@ public struct AppPreferences: @unchecked Sendable {
         nonmutating set {
             defaults.set(newValue.highTag, forKey: Self.appUpdateHighTagKey)
             defaults.set(newValue.highIssuedAt, forKey: Self.appUpdateHighIssuedAtKey)
+        }
+    }
+
+    /// The stored candidate floor; a value of another type reads as absent.
+    public var appUpdateCandidateRecord: AppUpdateCandidateRecord {
+        get {
+            AppUpdateCandidateRecord(highTag: defaults.object(forKey: Self.appUpdateCandidateHighTagKey) as? String,
+                                     highIssuedAt: defaults.object(forKey: Self.appUpdateCandidateHighIssuedAtKey) as? String)
+        }
+        nonmutating set {
+            defaults.set(newValue.highTag, forKey: Self.appUpdateCandidateHighTagKey)
+            defaults.set(newValue.highIssuedAt, forKey: Self.appUpdateCandidateHighIssuedAtKey)
         }
     }
 

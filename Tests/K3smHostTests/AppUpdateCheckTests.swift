@@ -31,6 +31,28 @@ private final class CountingFetcher: AppIndexFetcher {
     var count: Int { requests.withLock { $0.count } }
 }
 
+/// A fetcher that always answers with one HTTP status, as the shipped one throws it.
+private struct StatusFetcher: AppIndexFetcher {
+    let status: Int
+    func fetch(_ request: URLRequest) async throws -> Data {
+        throw AppIndexFetchError.status(status)
+    }
+}
+
+/// A fetcher answering each URL on its own: a listed status is thrown, and any
+/// other URL answers with bytes. It records every URL it is asked for.
+private final class RoutedFetcher: AppIndexFetcher {
+    let statuses: [String: Int]
+    let asked = Mutex<[String]>([])
+    init(statuses: [String: Int]) { self.statuses = statuses }
+    func fetch(_ request: URLRequest) async throws -> Data {
+        let url = request.url?.absoluteString ?? ""
+        asked.withLock { $0.append(url) }
+        if let status = statuses[url] { throw AppIndexFetchError.status(status) }
+        return Data("signed".utf8)
+    }
+}
+
 private struct Refused: Error, CustomStringConvertible {
     var description: String { "the signature is not valid" }
 }
@@ -42,22 +64,24 @@ struct AppUpdateCheckTests {
     @Test("checks off sends nothing")
     func checksOffSendsNothing() async {
         let fetcher = CountingFetcher()
-        let checker = AppUpdateChecker(fetcher: fetcher) { _ in throw Refused() }
-        let outcome = await checker.check(.automatic, checksOn: false, own: Self.release, firstRun: false, record: AppUpdateRecord())
+        let checker = AppUpdateChecker(fetcher: fetcher) { _, _ in throw Refused() }
+        let outcome = await checker.check(.automatic, checksOn: false, own: Self.release, firstRun: false, kind: .stable, record: AppUpdateRecord(),
+                                          candidateRecord: AppUpdateCandidateRecord())
         #expect(fetcher.count == 0)
         #expect(outcome.result == nil)
         let dev = await checker.check(.user, checksOn: true, own: AppUpdateOwn(tag: "v0.2.0", pinned: false), firstRun: false,
-                                      record: AppUpdateRecord())
+                                      kind: .stable, record: AppUpdateRecord(), candidateRecord: AppUpdateCandidateRecord())
         #expect(fetcher.count == 0 && dev.result == nil)
     }
 
     @Test("Check Now sends exactly the fixed request, and a refused signature is never an offer")
     func checkNowSendsTheFixedRequest() async throws {
         let fetcher = CountingFetcher()
-        let checker = AppUpdateChecker(fetcher: fetcher) { _ in throw Refused() }
+        let checker = AppUpdateChecker(fetcher: fetcher) { _, _ in throw Refused() }
         let stored = AppUpdateRecord(highTag: "v0.2.0", highIssuedAt: "2026-11-02T18:04:11Z")
-        let outcome = await checker.check(.user, checksOn: false, own: Self.release, firstRun: false, record: stored)
-        #expect(outcome == .init(result: .failed("the signature is not valid"), record: stored))
+        let outcome = await checker.check(.user, checksOn: false, own: Self.release, firstRun: false, kind: .stable, record: stored,
+                                          candidateRecord: AppUpdateCandidateRecord())
+        #expect(outcome == .init(result: .failed("the signature is not valid"), record: stored, candidateRecord: AppUpdateCandidateRecord()))
         let sent = try #require(fetcher.requests.withLock { $0.first })
         #expect(fetcher.count == 1)
         #expect(sent.url?.absoluteString == "https://github.com/k3sm-io/k3sm/releases/latest/download/k3sm_release-index.p7m")
@@ -65,6 +89,148 @@ struct AppUpdateCheckTests {
         #expect(sent.allHTTPHeaderFields == ["User-Agent": "k3sm-app"])
         #expect(sent.httpShouldHandleCookies == false)
         #expect(sent.httpBody == nil)
+    }
+
+    // MARK: a candidate on the row
+
+    static let candidateTag = "v0.3.0-rc.2"
+    static let candidate = ReleaseIndexKind.candidate(tag: candidateTag)
+    static let stableFloor = AppUpdateRecord(highTag: "v0.2.0", highIssuedAt: "2026-11-02T18:04:11Z")
+    static let signedAt = Date(timeIntervalSince1970: 1_800_000_000)
+
+    /// The candidate golden, vendored beside k3sm's corpus in the decoder's tests.
+    static func candidateIndex() throws -> ReleaseIndex {
+        let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let file = tests.appendingPathComponent("K3smStatusTests/Fixtures/release-index-rc/index.json")
+        return try ReleaseIndex.parse(try Data(contentsOf: file), expected: candidate)
+    }
+
+    /// The stable golden, vendored beside k3sm's corpus in the decoder's tests.
+    static func stableIndex() throws -> ReleaseIndex {
+        let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let file = tests.appendingPathComponent("K3smStatusTests/Fixtures/release-index/index.json")
+        return try ReleaseIndex.parse(try Data(contentsOf: file), expected: .stable)
+    }
+
+    @Test("a candidate is asked for by tag, on a pinned host, and verified as that kind")
+    func aCandidateIsAskedForByTag() async throws {
+        let fetcher = CountingFetcher()
+        let asked = Mutex<[ReleaseIndexKind]>([])
+        let index = try Self.candidateIndex()
+        let checker = AppUpdateChecker(fetcher: fetcher) { _, kind in
+            asked.withLock { $0.append(kind) }
+            return (index, Self.signedAt)
+        }
+        let outcome = await checker.check(.user, checksOn: false, own: Self.release, firstRun: false, kind: Self.candidate,
+                                          record: Self.stableFloor, candidateRecord: AppUpdateCandidateRecord())
+        let sent = try #require(fetcher.requests.withLock { $0.first })
+        #expect(sent.url?.absoluteString
+            == "https://github.com/k3sm-io/k3sm/releases/download/v0.3.0-rc.2/k3sm_0.3.0-rc.2_release-index.p7m")
+        #expect(AppUpdateRequest.allowsHop(try #require(sent.url)))
+        #expect(sent.allHTTPHeaderFields == ["User-Agent": "k3sm-app"])
+        #expect(sent.httpShouldHandleCookies == false)
+        #expect(asked.withLock { $0 } == [Self.candidate])
+        let latest = try #require(AppUpdateLatest(index: index))
+        #expect(outcome == .init(result: .verified(latest), record: Self.stableFloor,
+                                 candidateRecord: AppUpdateCandidateRecord(highTag: Self.candidateTag, highIssuedAt: "2026-11-05T12:30:45Z")))
+    }
+
+    @Test("a candidate below its floor changes neither record")
+    func aCandidateBelowItsFloorIsRefused() async throws {
+        let index = try Self.candidateIndex()
+        let checker = AppUpdateChecker(fetcher: CountingFetcher()) { _, _ in (index, Self.signedAt) }
+        let floor = AppUpdateCandidateRecord(highTag: "v0.3.0-rc.3", highIssuedAt: "2026-11-05T12:30:45Z")
+        let outcome = await checker.check(.user, checksOn: false, own: Self.release, firstRun: false, kind: Self.candidate,
+                                          record: Self.stableFloor, candidateRecord: floor)
+        #expect(outcome == .init(result: .failed(AppUpdateRecord.olderThanSeen), record: Self.stableFloor, candidateRecord: floor))
+    }
+
+    @Test("only a candidate's 404 falls back to stable, and a 404 verifies nothing")
+    func aTagWithNoDocumentIsNotAnAnswer() async {
+        let floor = AppUpdateCandidateRecord(highTag: "v0.3.0-rc.1", highIssuedAt: "2026-11-05T12:30:45Z")
+        func outcome(status: Int, kind: ReleaseIndexKind) async -> AppUpdateChecker.Outcome {
+            let checker = AppUpdateChecker(fetcher: StatusFetcher(status: status)) { _, _ in throw Refused() }
+            return await checker.check(.user, checksOn: false, own: Self.release, firstRun: false, kind: kind,
+                                       record: Self.stableFloor, candidateRecord: floor)
+        }
+        // The fetcher answers 404 for stable too, so nothing verified.
+        #expect(await outcome(status: 404, kind: Self.candidate)
+            == .init(result: .failed("the server answered 404"), record: Self.stableFloor, candidateRecord: floor))
+        #expect(await outcome(status: 500, kind: Self.candidate).result == .failed("the server answered 500"))
+        #expect(await outcome(status: 403, kind: Self.candidate).result == .failed("the server answered 403"))
+        #expect(await outcome(status: 404, kind: .stable).result == .failed("the server answered 404"))
+    }
+
+    /// Removing one candidate asset must not silence a stable update: a 404 for
+    /// the candidate still checks stable, and only a verified stable index
+    /// counts as a successful check.
+    @Test func candidateNotFoundStillChecksStable() async throws {
+        let candidateURL = "https://github.com/k3sm-io/k3sm/releases/download/v0.3.0-rc.2/k3sm_0.3.0-rc.2_release-index.p7m"
+        let stableURL = AppUpdateRequest.url
+        let floor = AppUpdateCandidateRecord(highTag: "v0.3.0-rc.1", highIssuedAt: "2026-11-05T12:30:45Z")
+        let index = try Self.stableIndex()
+        let macOS = OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+        let older = AppUpdateOwn(tag: "v0.1.0", pinned: true)
+        let current = AppUpdateOwn(tag: "v0.2.0", pinned: true)
+        func run(own: AppUpdateOwn, statuses: [String: Int] = [:], record: AppUpdateRecord = AppUpdateRecord(),
+                 verify: @escaping AppUpdateChecker.Verify) async -> (RoutedFetcher, AppUpdateChecker.Outcome) {
+            let fetcher = RoutedFetcher(statuses: [candidateURL: 404].merging(statuses) { $1 })
+            let checker = AppUpdateChecker(fetcher: fetcher, verify: verify)
+            let outcome = await checker.check(.user, checksOn: false, own: own, firstRun: false, kind: Self.candidate,
+                                              record: record, candidateRecord: floor)
+            return (fetcher, outcome)
+        }
+        func state(_ own: AppUpdateOwn, _ outcome: AppUpdateChecker.Outcome) -> AppUpdateState {
+            AppUpdateState.decide(own: own, result: outcome.result, download: .idle, macOS: macOS)
+        }
+
+        // A newer stable release is offered, verified as stable, and its floor kept.
+        let asked = Mutex<[ReleaseIndexKind]>([])
+        let (fetcher, offered) = await run(own: older) { _, kind in
+            asked.withLock { $0.append(kind) }
+            return (index, Self.signedAt)
+        }
+        #expect(fetcher.asked.withLock { $0 } == [candidateURL, stableURL])
+        #expect(asked.withLock { $0 } == [.stable])
+        #expect(state(older, offered) == .available("0.2.0", .idle))
+        #expect(offered.result?.isAnswer == true)
+        #expect(offered.record == AppUpdateRecord(highTag: "v0.2.0", highIssuedAt: index.issuedAt))
+        #expect(offered.candidateRecord == floor)
+
+        // Nothing newer: no offer and not an error, for the candidate, and the
+        // verified stable index is what counts as the success.
+        let (_, nothingNewer) = await run(own: current) { _, _ in (index, Self.signedAt) }
+        #expect(state(current, nothingNewer) == .noCandidateDocument("0.3.0-rc.2"))
+        #expect(nothingNewer.result?.isAnswer == true)
+
+        // Stable unverified: nothing counts, and the failure is shown. The
+        // candidate's 404 alone never stamps the last successful check.
+        let (_, refused) = await run(own: older) { _, _ in throw Refused() }
+        #expect(refused.result == .failed("the signature is not valid"))
+        #expect(refused.result?.isAnswer == false)
+        #expect(refused.record == AppUpdateRecord())
+        let (_, outage) = await run(own: older, statuses: [stableURL: 500]) { _, _ in (index, Self.signedAt) }
+        #expect(outage.result == .failed("the server answered 500"))
+        #expect(outage.result?.isAnswer == false)
+        let (_, gone) = await run(own: older, statuses: [stableURL: 404]) { _, _ in (index, Self.signedAt) }
+        #expect(gone.result == .failed("the server answered 404"))
+
+        // A replayed stable index is held to the stable floor on this path too.
+        let high = AppUpdateRecord(highTag: "v0.3.0", highIssuedAt: "2026-11-05T12:30:45Z")
+        let (_, replay) = await run(own: older, record: high) { _, _ in (index, Self.signedAt) }
+        #expect(replay.result == .failed(AppUpdateRecord.olderThanSeen))
+        #expect(replay.record == high)
+    }
+
+    @Test("a tag outside the grammar sends nothing")
+    func aBadTagSendsNothing() async {
+        let fetcher = CountingFetcher()
+        let checker = AppUpdateChecker(fetcher: fetcher) { _, _ in throw Refused() }
+        let outcome = await checker.check(.user, checksOn: false, own: Self.release, firstRun: false,
+                                          kind: .candidate(tag: "v0.3.0-rc.2/../../evil"), record: Self.stableFloor,
+                                          candidateRecord: AppUpdateCandidateRecord())
+        #expect(fetcher.count == 0)
+        #expect(outcome.result == .failed("no index URL"))
     }
 
     @Test("the session stores nothing and adds no header")

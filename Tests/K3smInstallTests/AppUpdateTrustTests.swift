@@ -49,7 +49,8 @@ struct AppUpdateTrustTests {
         "the leaf extended key usage includes 1.3.6.1.5.5.7.3.3",
         "the leaf subject OU equals ABCDE12345",
         "the chain is exactly 3 certificates: leaf, intermediate, root",
-        "the signed content carries the context string io.k3sm.release-index/v1",
+        "the signed content carries the expected kind's context string, io.k3sm.release-index/v1 or io.k3sm.release-index-rc/v1, read before the rest of its body",
+        "a candidate document names exactly the requested tag",
     ]
 
     /// Compiles `text` with the Security framework's requirement parser, the
@@ -93,7 +94,8 @@ struct AppUpdateTrustTests {
         #expect(IndexSignerPolicy.chainLength == 3)
         #expect(IndexSignerPolicy.contextString == "io.k3sm.release-index/v1")
         #expect(signer.checks.count == Set(signer.checks).count)
-        #expect(signer.checks.last == "the signed content carries the context string io.k3sm.release-index/v1")
+        #expect(IndexSignerPolicy.candidateContextString == "io.k3sm.release-index-rc/v1")
+        #expect(signer.checks.last == "a candidate document names exactly the requested tag")
         #expect(IndexSignerPolicy.codeSigningUsageOID == "1.3.6.1.5.5.7.3.3")
 
         // The policy's OIDs are the ones the requirement text checks, in the

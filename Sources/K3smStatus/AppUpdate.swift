@@ -81,6 +81,18 @@ public enum AppUpdateResult: Equatable, Sendable {
     /// Why the check failed: a network, signature, decode or floor refusal,
     /// as its own words; the state line cleans it for the screen.
     case failed(String)
+    /// The release host has no signed index at this candidate tag, and the
+    /// stable index checked in its place verified. A candidate can publish
+    /// without one, so that is no offer for the candidate and not a failure; the
+    /// stable release can still be offered. There is no case for the 404 alone:
+    /// the asset's absence verifies nothing, so if stable fails too the check is
+    /// `failed`.
+    case noCandidateDocument(String, stable: AppUpdateLatest)
+
+    /// Whether the check verified an index, so it counts as successful.
+    public var isAnswer: Bool {
+        if case .failed = self { false } else { true }
+    }
 }
 
 /// AppUpdateDownload is where the new release's disk image stands.
@@ -148,6 +160,48 @@ public struct AppUpdateRecord: Equatable, Sendable {
     }
 }
 
+/// AppUpdateCandidateRecord is the candidate floor: the highest candidate `(tag,
+/// issuedAt)` the app has accepted, under keys of its own. It is a separate type
+/// and never touches `AppUpdateRecord`, so an app that accepted `v0.3.1-rc.1` and
+/// left `rc` still takes the stable index `v0.3.0`.
+public struct AppUpdateCandidateRecord: Equatable, Sendable {
+    public var highTag: String?
+    public var highIssuedAt: String?
+
+    public init(highTag: String? = nil, highIssuedAt: String? = nil) {
+        self.highTag = highTag
+        self.highIssuedAt = highIssuedAt
+    }
+
+    public static let notACandidate = "the index does not name a release candidate"
+
+    public enum Acceptance: Equatable, Sendable {
+        /// The record to store.
+        case accepted(AppUpdateCandidateRecord)
+        case refused(String)
+    }
+
+    /// Whether to take the candidate `latest`, signed at `signedAt`, under the
+    /// rules of `AppUpdateRecord.accept` against this floor. `stable` is only
+    /// read: `rc` ranks a final above its own candidates, so a candidate below a
+    /// final this app has accepted is a steered listing, and is refused. The
+    /// running bundle's half of the floor is `AppUpdateState.decide`'s.
+    public static func accept(_ latest: AppUpdateLatest, signedAt: Date, record: AppUpdateCandidateRecord,
+                              stable: AppUpdateRecord) -> Acceptance {
+        guard latest.version.isReleaseCandidate else { return .refused(notACandidate) }
+        if let tag = stable.highTag, let high = AppVersion.releaseTagVersion(tag), latest.version < high {
+            return .refused(AppUpdateRecord.olderThanSeen)
+        }
+        let own = AppUpdateRecord(highTag: record.highTag, highIssuedAt: record.highIssuedAt)
+        switch AppUpdateRecord.accept(latest, signedAt: signedAt, record: own) {
+        case .refused(let reason):
+            return .refused(reason)
+        case .accepted(let stored):
+            return .accepted(AppUpdateCandidateRecord(highTag: stored.highTag, highIssuedAt: stored.highIssuedAt))
+        }
+    }
+}
+
 /// AppUpdateState is the app's own release line in Settings > Updates and
 /// the menu: one of the states the update plan names, decided from what the
 /// app is, the last check and the download. Only `available` is an offer.
@@ -158,6 +212,13 @@ public enum AppUpdateState: Equatable, Sendable {
     case notChecked
     case upToDate(String)
     case available(String, AppUpdateDownload)
+    /// A verified release candidate above this build. It is stated and not
+    /// offered: the app has no way to download one yet.
+    case candidateVerified(String)
+    /// The update row names this candidate and it has no signed index, so
+    /// there is nothing to offer for it, and the stable index offers nothing
+    /// either. This is not an error.
+    case noCandidateDocument(String)
     /// A newer release this macOS cannot run; nothing is downloaded.
     case requiresNewerMacOS(String, minimum: String)
     /// This build is newer than the latest release (a release candidate, or
@@ -174,6 +235,14 @@ public enum AppUpdateState: Equatable, Sendable {
             return .notChecked
         case .failed(let reason):
             return .couldNotCheck(StatusDisplay.errorText(reason))
+        case .noCandidateDocument(let tag, let stable):
+            let state = decide(own: own, result: .verified(stable), download: download, macOS: macOS)
+            switch state {
+            case .upToDate, .buildNewer:
+                return .noCandidateDocument(StatusDisplay.clip(tag.hasPrefix("v") ? String(tag.dropFirst()) : tag))
+            default:
+                return state
+            }
         case .verified(let latest):
             let shown = StatusDisplay.clip(latest.version.description)
             if latest.version == ownVersion { return .upToDate(shown) }
@@ -181,7 +250,7 @@ public enum AppUpdateState: Equatable, Sendable {
             guard latest.supports(macOS: macOS) else {
                 return .requiresNewerMacOS(shown, minimum: StatusDisplay.clip(latest.minimumMacOS))
             }
-            return .available(shown, download)
+            return latest.version.isReleaseCandidate ? .candidateVerified(shown) : .available(shown, download)
         }
     }
 
@@ -206,6 +275,8 @@ public enum AppUpdateState: Equatable, Sendable {
         case .available(let release, .verified): "k3sm.app \(release) is ready: restart to update."
         case .requiresNewerMacOS(let release, let minimum):
             "k3sm.app \(release) needs macOS \(minimum) or later; nothing was downloaded."
+        case .candidateVerified(let release): "k3sm.app \(release) is a verified release candidate; this app cannot download it yet."
+        case .noCandidateDocument(let release): "Release candidate \(release) has no signed index for the app, so nothing is offered."
         case .buildNewer(let own, let latest): "This build (\(own)) is newer than the latest release (\(latest))."
         case .couldNotCheck(let reason): "Could not check for updates: \(reason)" + (reason.hasSuffix(".") ? "" : ".")
         }
@@ -292,9 +363,11 @@ public enum AppUpdateNotice {
     }
 }
 
-/// AppUpdateRequest is the whole of what the check sends: a GET of one fixed
-/// URL with a fixed user agent that names no version, no query string, no
-/// cookie and no credential. Every hop, the first and each redirect, must be
+/// AppUpdateRequest is the whole of what the check sends: a GET of one URL with
+/// a fixed user agent, no query string, no cookie and no credential. The URL is
+/// fixed and names no version, unless the update row names a candidate: then its
+/// path names that tag, so GitHub can see this Mac asks for a candidate, and a
+/// 404 there is followed by a GET of the fixed URL. Every hop, the first and each redirect, must be
 /// https on a pinned host (`ReleaseIndex.allowedHosts`) with no port and no
 /// user; a redirect target's own query (the CDN's signature) is GitHub's.
 public enum AppUpdateRequest {
@@ -303,11 +376,48 @@ public enum AppUpdateRequest {
     public static let userAgent = "k3sm-app"
     public static let headers = ["User-Agent": userAgent]
 
+    /// The URL to fetch `kind`'s document from: the fixed stable URL, or the
+    /// asset of a candidate's own release. Nil for a tag outside the candidate
+    /// grammar, so nothing else from the row reaches a URL.
+    public static func url(for kind: ReleaseIndexKind) -> String? {
+        switch kind {
+        case .stable:
+            return url
+        case .candidate(let tag):
+            guard ReleaseIndex.isCandidateTag(tag) else { return nil }
+            return ReleaseIndex.downloadURL(tag: tag, name: "k3sm_" + tag.dropFirst() + "_release-index.p7m")
+        }
+    }
+
     public static func allowsHop(_ url: URL) -> Bool {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.scheme == "https", components.user == nil, components.password == nil, components.port == nil,
               let host = components.host?.lowercased()
         else { return false }
         return ReleaseIndex.allowedHosts.contains(host)
+    }
+}
+
+extension ReleaseIndexKind {
+    /// The document to ask for, from the report's `update` row: a candidate when
+    /// the row names a tag in the candidate grammar, and stable for anything
+    /// else, no cluster and no row included. The row is untrusted data that picks
+    /// a request and nothing more: the signed document is the authority.
+    public init(report: StatusReport?) {
+        guard let row = report?.row(named: "update"), let tag = UpdateOffer.latestTag(in: row),
+              ReleaseIndex.isCandidateTag(tag)
+        else {
+            self = .stable
+            return
+        }
+        self = .candidate(tag: tag)
+    }
+
+    /// Whether an HTTP status means this kind has no document, so the stable
+    /// index is checked in its place. Only a candidate can publish without one,
+    /// so a stable 404 stays a failure, as does any other status (a rate limit
+    /// or an outage says nothing about the asset).
+    public func hasNoDocument(status: Int) -> Bool {
+        if case .candidate = self { status == 404 } else { false }
     }
 }

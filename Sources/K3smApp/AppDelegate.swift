@@ -123,6 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The app's own release: the notice once per release; the
             // download is the follow-up's other half. Neither rolls the cluster.
             model.appUpdate.firstRun = { [weak model] in model?.screen == .firstRun }
+            model.appUpdate.statusReport = { [weak model] in model?.report }
             model.appUpdate.onFollowUp = { [weak notifier] step in
                 switch step {
                 case .notify(let release):

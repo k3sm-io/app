@@ -58,9 +58,10 @@ public enum AppUpdateFetch {
         return request
     }
 
-    /// The fixed index request; nil only if the compiled URL fails to parse.
-    public static var indexRequest: URLRequest? {
-        URL(string: AppUpdateRequest.url).map(request)
+    /// The request for `kind`'s document; nil for a tag outside the candidate
+    /// grammar, or if the URL fails to parse.
+    public static func indexRequest(_ kind: ReleaseIndexKind) -> URLRequest? {
+        AppUpdateRequest.url(for: kind).flatMap { URL(string: $0) }.map(request)
     }
 
     /// The session configuration: ephemeral, with nothing stored and no
@@ -131,13 +132,15 @@ public final class EphemeralIndexFetcher: NSObject, AppIndexFetcher, URLSessionT
     }
 }
 
-/// AppUpdateChecker runs one check: whether it may send at all
-/// (`AppUpdateSchedule.mayRequest`), the fetch, the signature
-/// (`ReleaseIndexVerifier`, passed in as `verify`), and the floor
-/// (`AppUpdateRecord.accept`). It returns the result and the record to
-/// store; it holds no CLI runner and starts nothing else.
+/// AppUpdateChecker runs one check of one document kind: whether it may send at
+/// all (`AppUpdateSchedule.mayRequest`), the fetch, the signature
+/// (`ReleaseIndexVerifier`, passed in as `verify`), and that kind's own floor
+/// (`AppUpdateRecord.accept` or `AppUpdateCandidateRecord.accept`). A candidate
+/// with no document falls back to the stable kind, so removing one asset cannot
+/// silence a stable update. It returns the result and the records to store; it
+/// holds no CLI runner and starts nothing else.
 public struct AppUpdateChecker: Sendable {
-    public typealias Verify = @Sendable (Data) throws -> (index: ReleaseIndex, signedAt: Date)
+    public typealias Verify = @Sendable (Data, ReleaseIndexKind) throws -> (index: ReleaseIndex, signedAt: Date)
 
     let fetcher: any AppIndexFetcher
     let verify: Verify
@@ -150,9 +153,16 @@ public struct AppUpdateChecker: Sendable {
     /// The shipped checker for this build's pinned team; nil for a
     /// development build.
     public static var pinned: AppUpdateChecker? {
-        guard let verifier = ReleaseIndexVerifier.pinned else { return nil }
-        return AppUpdateChecker(fetcher: EphemeralIndexFetcher()) { data in
-            let verified = try verifier.verified(p7m: data)
+        ReleaseIndexVerifier.pinned.map { checker(fetcher: EphemeralIndexFetcher(), verifier: $0) }
+    }
+
+    /// The checker over `verifier`: the document kind the check asks for is the
+    /// kind the signature is held to. Internal so a test can run this closure;
+    /// the only verifier outside a test is `ReleaseIndexVerifier.pinned`, as the
+    /// initializer that takes other roots is internal to `K3smInstall`.
+    static func checker(fetcher: any AppIndexFetcher, verifier: ReleaseIndexVerifier) -> AppUpdateChecker {
+        AppUpdateChecker(fetcher: fetcher) { data, kind in
+            let verified = try verifier.verified(p7m: data, expected: kind)
             return (verified.index, verified.signedAt)
         }
     }
@@ -160,44 +170,70 @@ public struct AppUpdateChecker: Sendable {
     public struct Outcome: Equatable, Sendable {
         /// Nil when nothing was sent.
         public let result: AppUpdateResult?
-        /// The record to store; the old one when nothing was accepted.
+        /// The stable floor to store; the old one unless a stable index was accepted.
         public let record: AppUpdateRecord
+        /// The candidate floor to store; the old one unless a candidate was accepted.
+        public let candidateRecord: AppUpdateCandidateRecord
     }
 
     public func check(_ trigger: AppUpdateSchedule.Trigger, checksOn: Bool, own: AppUpdateOwn, firstRun: Bool,
-                      record: AppUpdateRecord) async -> Outcome {
+                      kind: ReleaseIndexKind, record: AppUpdateRecord, candidateRecord: AppUpdateCandidateRecord) async -> Outcome {
         guard AppUpdateSchedule.mayRequest(trigger, checksOn: checksOn, own: own, firstRun: firstRun) else {
             appUpdateLog.notice("app update: check skipped")
-            return Outcome(result: nil, record: record)
+            return Outcome(result: nil, record: record, candidateRecord: candidateRecord)
         }
-        guard let request = AppUpdateFetch.indexRequest else { return Outcome(result: .failed("no index URL"), record: record) }
+        return await fetchAndAccept(kind, record: record, candidateRecord: candidateRecord)
+    }
+
+    /// The fetch, the signature and the floor of one kind. A candidate's missing
+    /// document is answered by the stable kind, which has no such fallback.
+    private func fetchAndAccept(_ kind: ReleaseIndexKind, record: AppUpdateRecord, candidateRecord: AppUpdateCandidateRecord) async -> Outcome {
+        let unchanged = { (result: AppUpdateResult?) in Outcome(result: result, record: record, candidateRecord: candidateRecord) }
+        let refused = { (reason: String) in
+            appUpdateLog.notice("app update: refused: \(reason, privacy: .public)")
+            return unchanged(.failed(reason))
+        }
+        guard let request = AppUpdateFetch.indexRequest(kind) else { return unchanged(.failed("no index URL")) }
         appUpdateLog.notice("app update: checking")
         let data: Data
         do {
             data = try await fetcher.fetch(request)
         } catch {
-            return refused(String(describing: error), record: record)
+            if case .status(let status)? = error as? AppIndexFetchError, kind.hasNoDocument(status: status),
+               case .candidate(let tag) = kind {
+                appUpdateLog.notice("app update: no index at \(tag, privacy: .public), checking stable")
+                let stable = await fetchAndAccept(.stable, record: record, candidateRecord: candidateRecord)
+                guard case .verified(let latest)? = stable.result else { return stable }
+                return Outcome(result: .noCandidateDocument(tag, stable: latest), record: stable.record, candidateRecord: candidateRecord)
+            }
+            return refused(String(describing: error))
         }
         let verified: (index: ReleaseIndex, signedAt: Date)
         do {
-            verified = try verify(data)
+            verified = try verify(data, kind)
         } catch {
-            return refused(String(describing: error), record: record)
+            return refused(String(describing: error))
         }
         guard let latest = AppUpdateLatest(index: verified.index) else {
-            return refused("the index names no release tag", record: record)
+            return refused("the index names no release tag")
         }
-        switch AppUpdateRecord.accept(latest, signedAt: verified.signedAt, record: record) {
-        case .refused(let reason):
-            return refused(reason, record: record)
-        case .accepted(let stored):
-            appUpdateLog.notice("app update: index accepted for \(latest.tag, privacy: .public)")
-            return Outcome(result: .verified(latest), record: stored)
+        switch kind {
+        case .stable:
+            switch AppUpdateRecord.accept(latest, signedAt: verified.signedAt, record: record) {
+            case .refused(let reason):
+                return refused(reason)
+            case .accepted(let stored):
+                appUpdateLog.notice("app update: index accepted for \(latest.tag, privacy: .public)")
+                return Outcome(result: .verified(latest), record: stored, candidateRecord: candidateRecord)
+            }
+        case .candidate:
+            switch AppUpdateCandidateRecord.accept(latest, signedAt: verified.signedAt, record: candidateRecord, stable: record) {
+            case .refused(let reason):
+                return refused(reason)
+            case .accepted(let stored):
+                appUpdateLog.notice("app update: candidate index accepted for \(latest.tag, privacy: .public)")
+                return Outcome(result: .verified(latest), record: record, candidateRecord: stored)
+            }
         }
-    }
-
-    private func refused(_ reason: String, record: AppUpdateRecord) -> Outcome {
-        appUpdateLog.notice("app update: refused: \(reason, privacy: .public)")
-        return Outcome(result: .failed(reason), record: record)
     }
 }

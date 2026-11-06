@@ -58,7 +58,7 @@ struct ReleaseIndexByteComparisonTests {
             Bundle.module.url(forResource: "index", withExtension: "json", subdirectory: "Fixtures/release-index"))), as: UTF8.self)
         func refused(_ from: String, _ to: String) -> ReleaseIndexError? {
             do {
-                _ = try ReleaseIndex.parse(Data(golden.replacingOccurrences(of: from, with: to).utf8))
+                _ = try ReleaseIndex.parse(Data(golden.replacingOccurrences(of: from, with: to).utf8), expected: .stable)
                 return nil
             } catch {
                 return error

@@ -117,6 +117,11 @@ public struct IndexSignerPolicy: Equatable, Sendable {
     /// (`pkg/update/releaseindex.go`).
     public static let contextString = "io.k3sm.release-index/v1"
 
+    /// The candidate document's domain-separation string, so a signature over
+    /// a candidate document never reads as a stable index, and the reverse. It
+    /// equals k3sm's `CandidateIndexContext` (`pkg/update/releaseindex.go`).
+    public static let candidateContextString = "io.k3sm.release-index-rc/v1"
+
     /// The team the leaf subject OU must equal.
     public let teamID: TeamID
 
@@ -134,9 +139,9 @@ public struct IndexSignerPolicy: Equatable, Sendable {
 
     /// The checks a verifier makes, each a fixed sentence. This list is the
     /// complete, ordered contract the release index verifier implements: it
-    /// makes every check, in this order, and decodes the index only as the
-    /// last one (the context string is read by that decode); its tests
-    /// cover every entry. An index that fails any of them is
+    /// makes every check, in this order, and decodes the index only last (the
+    /// expected kind's strings are read before the rest of that decode); its
+    /// tests cover every entry. An index that fails any of them is
     /// "could not verify", never an update.
     ///
     /// The anchor check is `anchor apple generic` and no hash of a particular
@@ -156,7 +161,8 @@ public struct IndexSignerPolicy: Equatable, Sendable {
             "the leaf extended key usage includes \(Self.codeSigningUsageOID)",
             "the leaf subject OU equals \(teamID.value)",
             "the chain is exactly \(Self.chainLength) certificates: leaf, intermediate, root",
-            "the signed content carries the context string \(Self.contextString)",
+            "the signed content carries the expected kind's context string, \(Self.contextString) or \(Self.candidateContextString), read before the rest of its body",
+            "a candidate document names exactly the requested tag",
         ]
     }
 }

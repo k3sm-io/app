@@ -120,7 +120,7 @@ struct ReleaseIndexTests {
     /// exactly the directory; the byte cap holds at k3sm's boundary; and the
     /// host pins equal k3sm's.
     @Test func releaseIndexDecodesK3smGolden() throws {
-        let ix = try ReleaseIndex.parse(try releaseIndexFixture("index.json"))
+        let ix = try ReleaseIndex.parse(try releaseIndexFixture("index.json"), expected: .stable)
         #expect(ix.schema == "k3sm-release-index/v1")
         #expect(ix.context == "io.k3sm.release-index/v1")
         #expect(ix.issuedAt == "2026-11-02T18:04:11Z")
@@ -147,7 +147,7 @@ struct ReleaseIndexTests {
         for name in reds.sorted() {
             let raw = try releaseIndexFixture(name)
             do {
-                let accepted = try ReleaseIndex.parse(raw)
+                let accepted = try ReleaseIndex.parse(raw, expected: .stable)
                 Issue.record("\(name) was accepted as \(accepted)")
             } catch {
                 let reason = Self.redReasons[name] ?? "<no reason>"
@@ -177,9 +177,9 @@ struct ReleaseIndexTests {
         let gold = try releaseIndexFixture("index.json")
         let atCap = Data(repeating: 0x20, count: ReleaseIndex.maxBytes - gold.count) + gold
         #expect(atCap.count == 65536)
-        #expect(try ReleaseIndex.parse(atCap) == ix)
-        #expect(throws: ReleaseIndexError.tooLarge(65537)) { try ReleaseIndex.parse(Data([0x20]) + atCap) }
-        #expect(throws: ReleaseIndexError.tooLarge(65537)) { try ReleaseIndex.parse(Data(repeating: 0xFF, count: 65537)) }
+        #expect(try ReleaseIndex.parse(atCap, expected: .stable) == ix)
+        #expect(throws: ReleaseIndexError.tooLarge(65537)) { try ReleaseIndex.parse(Data([0x20]) + atCap, expected: .stable) }
+        #expect(throws: ReleaseIndexError.tooLarge(65537)) { try ReleaseIndex.parse(Data(repeating: 0xFF, count: 65537), expected: .stable) }
 
         let hosts = try JSONSerialization.jsonObject(with: try releaseIndexFixture("allowed-hosts.json")) as? [String]
         #expect(hosts == ReleaseIndex.allowedHosts)
@@ -274,7 +274,7 @@ struct ReleaseIndexTests {
     @Test func swiftSpecificRefusals() throws {
         for c in try Self.swiftReds() {
             do {
-                let accepted = try ReleaseIndex.parse(c.raw)
+                let accepted = try ReleaseIndex.parse(c.raw, expected: .stable)
                 Issue.record("\(c.name): accepted as \(accepted)")
             } catch {
                 if case .invalidDocument(let want) = c.want, want.hasPrefix("want ") {
@@ -320,10 +320,10 @@ struct ReleaseIndexTests {
     }
 
     @Test func goAcceptedVariants() throws {
-        let want = try ReleaseIndex.parse(try releaseIndexFixture("index.json"))
+        let want = try ReleaseIndex.parse(try releaseIndexFixture("index.json"), expected: .stable)
         for c in try Self.accepted() {
             do {
-                #expect(try ReleaseIndex.parse(c.raw) == want, "\(c.name)")
+                #expect(try ReleaseIndex.parse(c.raw, expected: .stable) == want, "\(c.name)")
             } catch {
                 Issue.record("\(c.name): refused: \(error)")
             }
@@ -354,7 +354,7 @@ struct ReleaseIndexTests {
         for c in Self.minimumSupportedTagCases {
             let raw = try replacing(field, "\"minimumSupportedTag\": \"\(c.value)\"", in: try golden())
             do {
-                let ix = try ReleaseIndex.parse(Data(raw.utf8))
+                let ix = try ReleaseIndex.parse(Data(raw.utf8), expected: .stable)
                 #expect(c.want == nil, "\(c.value): accepted, want \(String(describing: c.want))")
                 #expect(ix.minimumSupportedTag == c.value)
             } catch {
@@ -389,7 +389,7 @@ struct ReleaseIndexTests {
     @Test func supportsMacOS() throws {
         for c in Self.macOSCases {
             let raw = try replacing(#""minimumMacOS": "26.0""#, "\"minimumMacOS\": \"\(c.minimum)\"", in: try golden())
-            let ix = try ReleaseIndex.parse(Data(raw.utf8))
+            let ix = try ReleaseIndex.parse(Data(raw.utf8), expected: .stable)
             let v = OperatingSystemVersion(majorVersion: c.macOS[0], minorVersion: c.macOS[1], patchVersion: c.macOS[2])
             #expect(ix.supports(macOS: v) == c.want, "\(c.testDescription)")
         }

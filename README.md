@@ -959,7 +959,11 @@ The **Updates** pane (see [The managed update](#the-managed-update)):
     download that follows a found release.
   - The check is one `GET` of a fixed URL on github.com, over https only,
     with the user agent `k3sm-app` and no version, no query string, no cookie
-    and no cache; every redirect must stay on GitHub's release hosts. GitHub
+    and no cache; every redirect must stay on GitHub's release hosts. While the
+    update row names a release candidate, the `GET` names that candidate's tag
+    instead, and when it has no signed index (a 404) the fixed URL is checked as
+    well, so a candidate cannot hide a stable release; only a verified index
+    counts as a successful check. GitHub
     sees the Mac's address, the time and that the index was fetched. An index
     is accepted only with a valid Developer ID signature and a trusted
     timestamp, and never when it names an older release than one the app has
