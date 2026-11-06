@@ -166,12 +166,21 @@ struct CandidateIndexTests {
     // MARK: no document
 
     @Test func aTagWithNoDocumentIsNoOfferNotAnError() {
-        let line = Self.state(own: "v0.2.0", .noCandidateDocument(Self.requested))
+        let stable = Self.latest("v0.2.0")
+        let line = Self.state(own: "v0.2.0", .noCandidateDocument(Self.requested, stable: stable))
         #expect(line == .noCandidateDocument("0.3.0-rc.2"))
         #expect(!line.isOffer)
         #expect(line.line == "Release candidate 0.3.0-rc.2 has no signed index for the app, so nothing is offered.")
         #expect(!line.line.contains("Could not"))
-        #expect(AppUpdateResult.noCandidateDocument(Self.requested).isAnswer)
+        // It counts as a successful check because stable verified; no case
+        // holds the 404 alone.
+        #expect(AppUpdateResult.noCandidateDocument(Self.requested, stable: stable).isAnswer)
+        // A build above the latest final has no offer either.
+        #expect(Self.state(own: "v0.2.1", .noCandidateDocument(Self.requested, stable: stable)) == .noCandidateDocument("0.3.0-rc.2"))
+        // A stable release this build can take is offered over the line.
+        let newer = Self.state(own: "v0.1.0", .noCandidateDocument(Self.requested, stable: stable))
+        #expect(newer == .available("0.2.0", .idle))
+        #expect(newer.isOffer)
         #expect(!AppUpdateResult.failed("x").isAnswer)
         #expect(AppUpdateFollowUp.decide(line, downloadOn: true, notifyOn: true, notified: nil).isEmpty)
 

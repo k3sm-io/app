@@ -81,11 +81,15 @@ public enum AppUpdateResult: Equatable, Sendable {
     /// Why the check failed: a network, signature, decode or floor refusal,
     /// as its own words; the state line cleans it for the screen.
     case failed(String)
-    /// The release host has no signed index at this candidate tag: an answer,
-    /// not a failure, and no offer. A candidate can publish without one.
-    case noCandidateDocument(String)
+    /// The release host has no signed index at this candidate tag, and the
+    /// stable index checked in its place verified. A candidate can publish
+    /// without one, so that is no offer for the candidate and not a failure; the
+    /// stable release can still be offered. There is no case for the 404 alone:
+    /// the asset's absence verifies nothing, so if stable fails too the check is
+    /// `failed`.
+    case noCandidateDocument(String, stable: AppUpdateLatest)
 
-    /// Whether the release host answered the check, so it counts as successful.
+    /// Whether the check verified an index, so it counts as successful.
     public var isAnswer: Bool {
         if case .failed = self { false } else { true }
     }
@@ -212,7 +216,8 @@ public enum AppUpdateState: Equatable, Sendable {
     /// offered: the app has no way to download one yet.
     case candidateVerified(String)
     /// The update row names this candidate and it has no signed index, so
-    /// there is nothing to offer for it. This is not an error.
+    /// there is nothing to offer for it, and the stable index offers nothing
+    /// either. This is not an error.
     case noCandidateDocument(String)
     /// A newer release this macOS cannot run; nothing is downloaded.
     case requiresNewerMacOS(String, minimum: String)
@@ -230,8 +235,14 @@ public enum AppUpdateState: Equatable, Sendable {
             return .notChecked
         case .failed(let reason):
             return .couldNotCheck(StatusDisplay.errorText(reason))
-        case .noCandidateDocument(let tag):
-            return .noCandidateDocument(StatusDisplay.clip(tag.hasPrefix("v") ? String(tag.dropFirst()) : tag))
+        case .noCandidateDocument(let tag, let stable):
+            let state = decide(own: own, result: .verified(stable), download: download, macOS: macOS)
+            switch state {
+            case .upToDate, .buildNewer:
+                return .noCandidateDocument(StatusDisplay.clip(tag.hasPrefix("v") ? String(tag.dropFirst()) : tag))
+            default:
+                return state
+            }
         case .verified(let latest):
             let shown = StatusDisplay.clip(latest.version.description)
             if latest.version == ownVersion { return .upToDate(shown) }
@@ -355,7 +366,8 @@ public enum AppUpdateNotice {
 /// AppUpdateRequest is the whole of what the check sends: a GET of one URL with
 /// a fixed user agent, no query string, no cookie and no credential. The URL is
 /// fixed and names no version, unless the update row names a candidate: then its
-/// path names that tag, so GitHub can see this Mac asks for a candidate. Every hop, the first and each redirect, must be
+/// path names that tag, so GitHub can see this Mac asks for a candidate, and a
+/// 404 there is followed by a GET of the fixed URL. Every hop, the first and each redirect, must be
 /// https on a pinned host (`ReleaseIndex.allowedHosts`) with no port and no
 /// user; a redirect target's own query (the CDN's signature) is GitHub's.
 public enum AppUpdateRequest {
@@ -401,9 +413,10 @@ extension ReleaseIndexKind {
         self = .candidate(tag: tag)
     }
 
-    /// Whether an HTTP status means this kind has no document. Only a candidate
-    /// can publish without one, so a stable 404 stays a failure, as does any
-    /// other status (a rate limit or an outage says nothing about the asset).
+    /// Whether an HTTP status means this kind has no document, so the stable
+    /// index is checked in its place. Only a candidate can publish without one,
+    /// so a stable 404 stays a failure, as does any other status (a rate limit
+    /// or an outage says nothing about the asset).
     public func hasNoDocument(status: Int) -> Bool {
         if case .candidate = self { status == 404 } else { false }
     }

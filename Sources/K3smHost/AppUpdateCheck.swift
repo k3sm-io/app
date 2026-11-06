@@ -135,9 +135,10 @@ public final class EphemeralIndexFetcher: NSObject, AppIndexFetcher, URLSessionT
 /// AppUpdateChecker runs one check of one document kind: whether it may send at
 /// all (`AppUpdateSchedule.mayRequest`), the fetch, the signature
 /// (`ReleaseIndexVerifier`, passed in as `verify`), and that kind's own floor
-/// (`AppUpdateRecord.accept` or `AppUpdateCandidateRecord.accept`). It returns
-/// the result and the records to store; it holds no CLI runner and starts
-/// nothing else.
+/// (`AppUpdateRecord.accept` or `AppUpdateCandidateRecord.accept`). A candidate
+/// with no document falls back to the stable kind, so removing one asset cannot
+/// silence a stable update. It returns the result and the records to store; it
+/// holds no CLI runner and starts nothing else.
 public struct AppUpdateChecker: Sendable {
     public typealias Verify = @Sendable (Data, ReleaseIndexKind) throws -> (index: ReleaseIndex, signedAt: Date)
 
@@ -170,14 +171,20 @@ public struct AppUpdateChecker: Sendable {
 
     public func check(_ trigger: AppUpdateSchedule.Trigger, checksOn: Bool, own: AppUpdateOwn, firstRun: Bool,
                       kind: ReleaseIndexKind, record: AppUpdateRecord, candidateRecord: AppUpdateCandidateRecord) async -> Outcome {
+        guard AppUpdateSchedule.mayRequest(trigger, checksOn: checksOn, own: own, firstRun: firstRun) else {
+            appUpdateLog.notice("app update: check skipped")
+            return Outcome(result: nil, record: record, candidateRecord: candidateRecord)
+        }
+        return await fetchAndAccept(kind, record: record, candidateRecord: candidateRecord)
+    }
+
+    /// The fetch, the signature and the floor of one kind. A candidate's missing
+    /// document is answered by the stable kind, which has no such fallback.
+    private func fetchAndAccept(_ kind: ReleaseIndexKind, record: AppUpdateRecord, candidateRecord: AppUpdateCandidateRecord) async -> Outcome {
         let unchanged = { (result: AppUpdateResult?) in Outcome(result: result, record: record, candidateRecord: candidateRecord) }
         let refused = { (reason: String) in
             appUpdateLog.notice("app update: refused: \(reason, privacy: .public)")
             return unchanged(.failed(reason))
-        }
-        guard AppUpdateSchedule.mayRequest(trigger, checksOn: checksOn, own: own, firstRun: firstRun) else {
-            appUpdateLog.notice("app update: check skipped")
-            return unchanged(nil)
         }
         guard let request = AppUpdateFetch.indexRequest(kind) else { return unchanged(.failed("no index URL")) }
         appUpdateLog.notice("app update: checking")
@@ -187,8 +194,10 @@ public struct AppUpdateChecker: Sendable {
         } catch {
             if case .status(let status)? = error as? AppIndexFetchError, kind.hasNoDocument(status: status),
                case .candidate(let tag) = kind {
-                appUpdateLog.notice("app update: no index at \(tag, privacy: .public)")
-                return unchanged(.noCandidateDocument(tag))
+                appUpdateLog.notice("app update: no index at \(tag, privacy: .public), checking stable")
+                let stable = await fetchAndAccept(.stable, record: record, candidateRecord: candidateRecord)
+                guard case .verified(let latest)? = stable.result else { return stable }
+                return Outcome(result: .noCandidateDocument(tag, stable: latest), record: stable.record, candidateRecord: candidateRecord)
             }
             return refused(String(describing: error))
         }
