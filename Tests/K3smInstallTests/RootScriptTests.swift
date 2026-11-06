@@ -38,6 +38,7 @@ struct RootScriptTests {
         var scripts = LifecycleScriptBuilder.FixedVerb.allCases.map { LifecycleScriptBuilder.render($0, teamID: team) }
         scripts += [.pruneDryRun, .prune].map { LifecycleScriptBuilder.renderImage($0, teamID: team) }
         scripts.append(LifecycleScriptBuilder.renderUpdateApply(teamID: team, options: .defaults, release: ReleaseTag("v0.1.8")!))
+        scripts += UpdateChannel.allCases.map { LifecycleScriptBuilder.renderUpdateChannel($0, teamID: team) }
         return scripts
     }
 

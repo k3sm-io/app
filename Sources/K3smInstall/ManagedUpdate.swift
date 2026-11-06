@@ -19,6 +19,11 @@ import K3smStatus
 /// UpdateConfirmationText is the fixed text of the questions asked before
 /// the managed update's root steps.
 public enum UpdateConfirmationText {
+    /// The question before opting in to `rc`: what is offered, and that going
+    /// back waits for a higher final (`k3sm` never moves a node down for a channel).
+    public static let channelRC = "This cluster is also offered release candidates, which are not final releases. This starts no update. Going back to final releases later does not move a node down: a node on a release candidate stays on it and waits for a higher final release."
+    /// The question before going back to `stable`.
+    public static let channelStable = "This cluster is offered final releases only. This starts no update, and it does not move a node down: a node on a release candidate stays on it and waits for a higher final release."
     public static let apply = "k3sm updates the cluster one node at a time, the server last. Pods on each node restart as it updates. The window shows the progress, and the update can be cancelled from there."
     /// The catch-up's question body: the nodes that move, the release (the
     /// one installed on the server), this server when its own Node moves
