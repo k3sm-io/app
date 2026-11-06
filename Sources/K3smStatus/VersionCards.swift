@@ -46,11 +46,27 @@ public struct VersionCard: Equatable, Sendable {
 
     /// The first card's eyebrow: the k3sm installed on this Mac.
     public static let installedEyebrow = "INSTALLED"
+    /// The first card's eyebrow on the `rc` channel. The value names the
+    /// version, and the eyebrow names the channel.
+    public static let installedRCEyebrow = "INSTALLED · RC CHANNEL"
+    /// The same words as the eyebrow, for the one-line form and the Updates pane.
+    public static let installedLabel = "Installed"
+    public static let installedRCLabel = "Installed · RC channel"
     /// The second card's eyebrow: the release this app carries, or the app
     /// itself when it carries none.
     public static let appEyebrow = "THIS APP"
     /// The second card's note under a development build's pseudo-version.
     public static let developmentNote = "development build"
+
+    /// The first card's eyebrow under `channel`: only `rc` changes it.
+    public static func installedEyebrow(_ channel: UpdateChannelReading) -> String {
+        channel.channel == .rc ? installedRCEyebrow : installedEyebrow
+    }
+
+    /// `installedEyebrow(_:)` in the words of a line of text.
+    public static func installedLabel(_ channel: UpdateChannelReading) -> String {
+        channel.channel == .rc ? installedRCLabel : installedLabel
+    }
 }
 
 extension AppVersion {
@@ -62,9 +78,10 @@ extension AppVersion {
     /// "up to date", "an older release"; none when the installed release is
     /// unknown), or, for a build that carries no release, the app's own
     /// version (`text`, the pseudo-version, never `0.0.0`) with the
-    /// development note; "unknown" for a binary outside a bundle.
-    public func versionCards(installed: SemanticVersion?, payload: SemanticVersion?) -> [VersionCard] {
-        let first = VersionCard(eyebrow: VersionCard.installedEyebrow, value: installed?.description ?? "unknown", note: nil)
+    /// development note; "unknown" for a binary outside a bundle. The first
+    /// card's eyebrow names the `rc` channel (`VersionCard.installedEyebrow(_:)`).
+    public func versionCards(installed: SemanticVersion?, payload: SemanticVersion?, channel: UpdateChannelReading = .absent) -> [VersionCard] {
+        let first = VersionCard(eyebrow: VersionCard.installedEyebrow(channel), value: installed?.description ?? "unknown", note: nil)
         guard let payload else {
             let note = isDevelopment ? VersionCard.developmentNote : nil
             return [first, VersionCard(eyebrow: VersionCard.appEyebrow, value: text ?? "unknown", note: note)]

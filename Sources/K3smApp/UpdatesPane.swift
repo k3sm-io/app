@@ -48,7 +48,7 @@ struct UpdatesPane: View {
             group("Releases") {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
                     GridRow {
-                        Text("Installed").foregroundStyle(.secondary)
+                        Text(verbatim: facts.installedLabel).foregroundStyle(.secondary)
                         Text(verbatim: facts.installed).monospacedDigit().help(Help.Updates.installed)
                     }
                     GridRow {
@@ -59,6 +59,7 @@ struct UpdatesPane: View {
                 Text(verbatim: facts.state).font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
                     .help(Help.Updates.state)
+                if let channelNote = facts.channelNote { note(channelNote) }
                 Button(UpdateNowControl.title) { app.performUpdate() }
                     .disabled(!control.enabled)
                     .help(Help.Updates.updateNow(control, plan: plan))

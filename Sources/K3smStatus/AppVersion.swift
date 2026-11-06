@@ -161,14 +161,15 @@ public struct AppVersion: Equatable, Sendable {
     /// the installed release with it ("this app carries 1.2.3, a newer
     /// release"); without one it names the installed release and the app
     /// itself ("Installed: 0.1.8 · k3sm.app v0.2.4-0.20261017002053-910af952ea03").
-    public func versionLine(installed: SemanticVersion?, payload: SemanticVersion?) -> String {
+    public func versionLine(installed: SemanticVersion?, payload: SemanticVersion?, channel: UpdateChannelReading = .absent) -> String {
         let shown = installed?.description ?? "unknown"
-        guard let payload else { return "Installed: \(shown) · \(title)" }
-        guard let current = installed else { return "Installed: \(shown) · this app carries \(payload)" }
+        let label = VersionCard.installedLabel(channel)
+        guard let payload else { return "\(label): \(shown) · \(title)" }
+        guard let current = installed else { return "\(label): \(shown) · this app carries \(payload)" }
         switch PayloadRelation(payload: payload, installed: current) {
-        case .newer: return "Installed: \(current) · this app carries \(payload), a newer release"
-        case .same: return "Installed: \(current) · up to date with this app"
-        case .older: return "Installed: \(current) · this app carries an older release, \(payload)"
+        case .newer: return "\(label): \(current) · this app carries \(payload), a newer release"
+        case .same: return "\(label): \(current) · up to date with this app"
+        case .older: return "\(label): \(current) · this app carries an older release, \(payload)"
         }
     }
 

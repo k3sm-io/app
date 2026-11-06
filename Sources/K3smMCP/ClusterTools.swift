@@ -181,11 +181,14 @@ public struct ClusterTools: Sendable {
     /// The report's `update` row, nil when it has none.
     static func updateRow(_ report: StatusReport?) -> JSONValue? {
         guard let report, let row = report.row(named: "update") else { return nil }
+        let channel = UpdateChannelReading(report: report)
         return [
             "state": .string(StatusDisplay.clip(row.state)),
             "severity": .string(StatusDisplay.clip(row.severity)),
             "detail": .string(StatusDisplay.clip(row.detail)),
             "latest": .optional(UpdateOffer.latestTag(in: row).map(StatusDisplay.clip)),
+            "channel": .optional(channel.word),
+            "channelNote": .optional(channel.note),
             "rolling": .bool(UpdateOffer.rowRolling(in: report)),
         ]
     }

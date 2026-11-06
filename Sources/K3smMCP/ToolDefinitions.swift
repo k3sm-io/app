@@ -112,7 +112,8 @@ enum Schema {
     ])
 
     static let updateRow = object([
-        "state": string, "severity": string, "detail": string, "latest": stringOrNull, "rolling": boolean,
+        "state": string, "severity": string, "detail": string, "latest": stringOrNull,
+        "channel": stringOrNull, "channelNote": stringOrNull, "rolling": boolean,
     ])
 
     static let update = object([
