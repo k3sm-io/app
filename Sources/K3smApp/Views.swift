@@ -552,7 +552,8 @@ struct StatusView: View {
     /// version line. The update plan's button sits under them.
     private var versionCards: some View {
         let plan = model.updatePlan
-        let cards = model.appVersion.versionCards(installed: model.installedVersion, payload: model.payloadVersion)
+        let cards = model.appVersion.versionCards(installed: model.installedVersion, payload: model.payloadVersion,
+                                                  channel: UpdateChannelReading(report: model.lanReport ?? model.report))
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 ForEach(Array(cards.enumerated()), id: \.offset) { index, card in
@@ -638,7 +639,8 @@ struct StatusView: View {
 
     /// The one-line form of the version cards, for accessibility.
     private var versionLine: String {
-        model.appVersion.versionLine(installed: model.installedVersion, payload: model.payloadVersion)
+        model.appVersion.versionLine(installed: model.installedVersion, payload: model.payloadVersion,
+                                     channel: UpdateChannelReading(report: model.lanReport ?? model.report))
     }
 }
 

@@ -117,7 +117,9 @@ extension UpdateOffer {
 /// from the last full report's `update` row and the installed `k3sm
 /// version`: the installed release, the available one, and the row's state
 /// in plain words. A tag reaches the pane only when it parses as a release
-/// (`UpdateOffer.latestTag`); every other row string is clipped.
+/// (`UpdateOffer.latestTag`); every other row string is clipped. The channel
+/// comes from the same row (`UpdateChannelReading`): `rc` is named in the
+/// installed label, and a tag that is a candidate is called one whatever the channel.
 public struct UpdatesPaneFacts: Equatable, Sendable {
     /// "v0.1.8", or "unknown".
     public let installed: String
@@ -126,14 +128,20 @@ public struct UpdatesPaneFacts: Equatable, Sendable {
     public let available: String
     /// One sentence.
     public let state: String
+    /// The label beside the installed release, naming the `rc` channel.
+    public let installedLabel: String
+    /// Why the channel shown is not the one reported; nil when it is.
+    public let channelNote: String?
 
     public static let unknownVersion = "unknown"
     public static let notKnown = "not known"
 
-    public init(installed: String, available: String, state: String) {
+    public init(installed: String, available: String, state: String, installedLabel: String = VersionCard.installedLabel, channelNote: String? = nil) {
         self.installed = installed
         self.available = available
         self.state = state
+        self.installedLabel = installedLabel
+        self.channelNote = channelNote
     }
 
     public static func decide(report: StatusReport?, installed: SemanticVersion?) -> UpdatesPaneFacts {
@@ -145,6 +153,7 @@ public struct UpdatesPaneFacts: Equatable, Sendable {
         guard let row = report.row(named: "update") else {
             return UpdatesPaneFacts(installed: installedText, available: notKnown, state: "This k3sm reports no update check.")
         }
+        let channel = UpdateChannelReading(report: report)
         let latest = UpdateOffer.latestTag(in: row)
         let target = row.wide["target"].flatMap { UpdateOffer.valid($0) ? $0 : nil }
         let state: String
@@ -153,21 +162,29 @@ public struct UpdatesPaneFacts: Equatable, Sendable {
         case .behind where UpdateOffer.staleBehind(in: report):
             state = "No release is newer than the one this cluster runs."
         case .behind:
-            state = latest.map { "k3sm \($0) is available; at least one node runs an older release." }
+            state = latest.map { "k3sm \($0)\(candidateAside($0)) is available; at least one node runs an older release." }
                 ?? "A newer release is available; at least one node runs an older release."
         case .ahead:
             state = "A node runs a release newer than the latest one."
         case .rolling:
-            state = target.map { "An update to \($0) is rolling." } ?? "An update is rolling."
+            state = target.map { "An update to \($0)\(candidateAside($0)) is rolling." } ?? "An update is rolling."
             available = target ?? latest
         case .healthy:
-            state = "This cluster runs the latest release."
+            state = latest.flatMap(SemanticVersion.init)?.isReleaseCandidate == true
+                ? "This cluster runs the latest release, a release candidate."
+                : "This cluster runs the latest release."
         case .unknown(let word) where word == "unknown":
             state = sentence("Not known: " + StatusDisplay.clip(row.detail))
         default:
             state = sentence("The update check says " + StatusDisplay.clip(row.state) + ": " + StatusDisplay.clip(row.detail))
         }
-        return UpdatesPaneFacts(installed: installedText, available: available ?? notKnown, state: state)
+        return UpdatesPaneFacts(installed: installedText, available: available ?? notKnown, state: state,
+                                installedLabel: VersionCard.installedLabel(channel), channelNote: channel.note)
+    }
+
+    /// What follows a tag in a sentence when it is a release candidate.
+    private static func candidateAside(_ tag: String) -> String {
+        SemanticVersion(tag)?.isReleaseCandidate == true ? ", a release candidate," : ""
     }
 
     /// `text` with a closing period, clipped.
