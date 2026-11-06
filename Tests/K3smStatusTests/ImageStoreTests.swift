@@ -267,6 +267,128 @@ struct ImageStoreTests {
         #expect(ImageStoreText.pruned(output: "garbage", node: "studio").contains("did not say"))
     }
 
+    /// A forced run that deleted one manifest, its sweep's lines after the
+    /// registry summary, then a kept block and an unreadable repository.
+    static func swept(_ sweep: [String]) -> String {
+        ([
+            registryHead,
+            "  deleted apps/web@sha256:" + hex + " (untagged)",
+            "  deleted 1" + gcTail,
+        ] + sweep + [
+            "  kept untagged:",
+            "    younger than the grace period    1",
+            "  unreadable, left alone: apps/broken",
+            "node cache:",
+            "  deleted sha256:" + hex,
+            "  deleted 1 blob(s), 2.0 GiB",
+        ]).joined(separator: "\n")
+    }
+
+    static func sweptRead(_ sweep: ImagePrunePreview.Sweep?) -> ImagePruneRead {
+        preview(["sha256:" + hex], "2.0 GiB", registry: .init(
+            manifests: ["apps/web@sha256:" + hex], kept: [.init(reason: "younger than the grace period", count: 1)],
+            unreadable: ["apps/broken"], sweep: sweep))
+    }
+
+    static let sweepErrorTail = "; the registry's scheduled garbage collection reclaims what this sweep did not"
+
+    @Test("a forced prune reads the registry sweep's lines, and parses without them")
+    func forcedPruneReadsTheSweep() {
+        // A k3sm that predates the sweep prints none.
+        #expect(ImagePrune.parse(Self.swept([]), forced: true) == Self.sweptRead(nil))
+        #expect(ImageStoreText.pruned(output: Self.swept([]), node: "studio")
+                == "Deleted 1 blob, 2.0 GiB, on node studio, and 1 untagged manifest from the cluster registry.")
+
+        let clean = ["  swept apps/web, apps/api: freed 3 blob(s), 40.0 MiB"]
+        #expect(ImagePrune.parse(Self.swept(clean), forced: true)
+                == Self.sweptRead(.init(repositories: ["apps/web", "apps/api"], blobs: 3, size: "40.0 MiB")))
+        #expect(ImageStoreText.pruned(output: Self.swept(clean), node: "studio")
+                == "Deleted 1 blob, 2.0 GiB, on node studio, and 1 untagged manifest from the cluster registry. "
+                + "The registry's sweep freed 3 blobs, 40.0 MiB.")
+
+        let every = [
+            "  swept apps/web: freed 1 blob(s), 512 B",
+            "  sweep stopped by the mass-delete brake, nothing freed: apps/big",
+            "  not yet reviewed by the registry's garbage collection, only reported on: apps/new",
+            "  not yet reviewed by the registry's garbage collection, only reported on: apps/newer",
+            "  sweep failed, nothing freed: apps/bad",
+            "  sweep: collect: unexpected status 503: the registry is busy" + Self.sweepErrorTail,
+        ]
+        #expect(ImagePrune.parse(Self.swept(every), forced: true)
+                == Self.sweptRead(.init(repositories: ["apps/web"], blobs: 1, size: "512 B", stopped: ["apps/big"],
+                                        reviewing: ["apps/new", "apps/newer"], failed: ["apps/bad"],
+                                        error: "collect: unexpected status 503: the registry is busy")))
+        #expect(ImageStoreText.pruned(output: Self.swept(every), node: "studio").hasSuffix(
+            " The registry's sweep freed 1 blob, 512 B; its scheduled garbage collection reclaims the rest."))
+
+        // A braked sweep frees nothing.
+        let braked = ["  swept apps/web: freed 0 blob(s), 0 B", "  sweep stopped by the mass-delete brake, nothing freed: apps/web"]
+        #expect(ImagePrune.parse(Self.swept(braked), forced: true)
+                == Self.sweptRead(.init(repositories: ["apps/web"], stopped: ["apps/web"])))
+        #expect(ImageStoreText.pruned(output: Self.swept(braked), node: "studio").hasSuffix(
+            " The registry's sweep freed nothing now; its scheduled garbage collection reclaims the layers later."))
+
+        // A sweep that failed before it ran: no repository came back.
+        let failed = ["  swept : freed 0 blob(s), 0 B", "  sweep: Post \"https://registry-k3sm:6450/collect\": EOF" + Self.sweepErrorTail]
+        #expect(ImagePrune.parse(Self.swept(failed), forced: true)
+                == Self.sweptRead(.init(error: "Post \"https://registry-k3sm:6450/collect\": EOF")))
+        #expect(!ImageStoreText.pruned(output: Self.swept(failed), node: "studio").contains("did not say"))
+
+        let nothing = ["  swept apps/web: freed 0 blob(s), 0 B"]
+        #expect(ImageStoreText.pruned(output: Self.swept(nothing), node: "studio").hasSuffix(" The registry's sweep freed nothing."))
+    }
+
+    struct SweepRefused: Sendable, CustomTestStringConvertible {
+        let name: String
+        let sweep: [String]
+        /// The 1-based line the parse refuses, in `swept(sweep)`.
+        let line: Int
+        var testDescription: String { name }
+    }
+
+    static let sweepRefused: [SweepRefused] = [
+        SweepRefused(name: "a sweep line with no swept line", sweep: ["  sweep failed, nothing freed: apps/web"], line: 4),
+        SweepRefused(name: "two swept lines",
+                     sweep: ["  swept apps/web: freed 0 blob(s), 0 B", "  swept apps/web: freed 0 blob(s), 0 B"], line: 5),
+        SweepRefused(name: "a brake line after a failed line",
+                     sweep: ["  swept apps/web: freed 0 blob(s), 0 B", "  sweep failed, nothing freed: apps/a",
+                             "  sweep stopped by the mass-delete brake, nothing freed: apps/b"], line: 6),
+        SweepRefused(name: "a line after the sweep's error",
+                     sweep: ["  swept apps/web: freed 0 blob(s), 0 B", "  sweep: boom" + sweepErrorTail,
+                             "  sweep failed, nothing freed: apps/a"], line: 6),
+        SweepRefused(name: "two errors",
+                     sweep: ["  swept apps/web: freed 0 blob(s), 0 B", "  sweep: a" + sweepErrorTail, "  sweep: b" + sweepErrorTail], line: 6),
+        SweepRefused(name: "a size not in the CLI's units", sweep: ["  swept apps/web: freed 1 blob(s), 1 MB"], line: 4),
+        SweepRefused(name: "a swept line with no count", sweep: ["  swept apps/web"], line: 4),
+        SweepRefused(name: "an error line without its tail", sweep: ["  swept apps/web: freed 0 blob(s), 0 B", "  sweep: boom"], line: 5),
+        SweepRefused(name: "an unknown sweep line", sweep: ["  swept apps/web: freed 0 blob(s), 0 B", "  sweep paused: apps/web"], line: 5),
+    ]
+
+    @Test("a forced prune refuses a sweep line out of renderSweep's shape or order", arguments: sweepRefused)
+    func forcedPruneRefusesABadSweep(_ c: SweepRefused) {
+        #expect(ImagePrune.parse(Self.swept(c.sweep), forced: true) == .malformed(line: c.line))
+        #expect(ImageStoreText.pruned(output: Self.swept(c.sweep), node: "studio").contains("did not say"))
+    }
+
+    @Test("the sweep's lines are read only where renderPrune prints them")
+    func sweepOnlyAfterTheSummary() {
+        let swept = "  swept apps/web: freed 0 blob(s), 0 B"
+        // Before the registry summary.
+        let early = [Self.registryHead, "  deleted apps/web@sha256:" + Self.hex + " (untagged)", swept, "  deleted 1" + Self.gcTail,
+                     "node cache:", Self.nothing, "  deleted 0 blob(s), 0 B"].joined(separator: "\n")
+        #expect(ImagePrune.parse(early, forced: true) == .malformed(line: 3))
+        // After the kept block, or in the node cache's half.
+        let late = [Self.registryHead, "  deleted apps/web@sha256:" + Self.hex + " (untagged)", "  deleted 1" + Self.gcTail,
+                    "  unreadable, left alone: apps/broken", swept, "node cache:", Self.nothing, "  deleted 0 blob(s), 0 B"]
+        #expect(ImagePrune.parse(late.joined(separator: "\n"), forced: true) == .malformed(line: 5))
+        let inCache = Self.cache([Self.nothing, swept, "  deleted 0 blob(s), 0 B"])
+        #expect(ImagePrune.parse(inCache, forced: true) == .malformed(line: 5))
+        // A dry run prints no sweep.
+        let dry = [Self.registryHead, "  would delete apps/web@sha256:" + Self.hex + " (untagged)", "  would delete 1" + Self.gcTail,
+                   swept, "node cache:", Self.nothing, "  would delete 0 blob(s), 0 B", Self.note].joined(separator: "\n")
+        #expect(ImagePrune.parse(dry) == .malformed(line: 4))
+    }
+
     @Test("an output past the line bound is refused, not read")
     func pruneTooLong() {
         let lines = Array(repeating: "would delete sha256:" + Self.hex, count: ImagePrune.maxLines + 1)
@@ -328,6 +450,38 @@ struct ImageStoreTests {
 
     static var pruneSource: URL? { k3smSource("cmd/k3sm/imageprune.go") }
     static var imageSource: URL? { k3smSource("cmd/k3sm/image.go") }
+
+    /// Whether the k3sm checkout prints the registry sweep; one that
+    /// predates it has no renderSweep, and its check is skipped.
+    static var sweepSource: Bool {
+        guard let url = pruneSource, let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        return text.contains("func renderSweep(")
+    }
+
+    @Test("the sweep lines read are the ones renderSweep prints", .enabled(if: sweepSource))
+    func sweepShapeMatchesTheCLI() throws {
+        let prune = try String(contentsOf: try #require(Self.pruneSource), encoding: .utf8)
+        let render = try #require(prune.range(of: "func renderPrune("))
+        #expect(prune[render.upperBound...].prefix(3000).contains("renderSweep(out, reg.Sweep)"),
+                "renderPrune no longer prints the sweep after its registry summary")
+        let sweep = try #require(prune.range(of: "func renderSweep("))
+        let body = prune[sweep.upperBound...].prefix(2000)
+        for line in [
+            #""  swept %s: freed %d blob(s), %s\n", strings.Join(repos, ", ")"#,
+            #""  sweep stopped by the mass-delete brake, nothing freed: %s\n""#,
+            #""  not yet reviewed by the registry's garbage collection, only reported on: %s\n""#,
+            #""  sweep failed, nothing freed: %s\n""#,
+            #""  sweep: %s; the registry's scheduled garbage collection reclaims what this sweep did not\n""#,
+            "humanBytes(",
+        ] {
+            #expect(body.contains(line), "renderSweep no longer prints \(line)")
+        }
+        // The order the parse holds the lines to.
+        let order = ["for _, repo := range s.Stopped", "for _, repo := range s.Reviewing", "for _, repo := range s.Failed",
+                     #"if s.Error != """#]
+        let at = order.compactMap { body.range(of: $0)?.lowerBound }
+        #expect(at.count == order.count && at == at.sorted(), "renderSweep prints its lines in another order")
+    }
 
     @Test("the lines read are the ones cmd/k3sm/imageprune.go prints", .enabled(if: pruneSource != nil && imageSource != nil))
     func pruneShapeMatchesTheCLI() throws {

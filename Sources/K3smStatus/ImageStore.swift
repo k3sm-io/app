@@ -115,6 +115,43 @@ public struct ImagePrunePreview: Equatable, Sendable {
         }
     }
 
+    /// The registry's garbage-collection sweep a forced prune runs right
+    /// after deleting manifests: what it freed and each reason it freed less.
+    /// A k3sm that predates the sweep prints none, and the read has none.
+    public struct Sweep: Equatable, Sendable {
+        /// The repositories swept, the CLI's words, clipped.
+        public let repositories: [String]
+        /// The blobs the sweep freed.
+        public let blobs: Int
+        /// Their size, as the CLI wrote it ("12.3 MiB", "0 B").
+        public let size: String
+        /// Repositories the mass-delete brake stopped; nothing freed in them.
+        public let stopped: [String]
+        /// Repositories the registry's garbage collection has not reviewed
+        /// yet; the sweep only reported on them.
+        public let reviewing: [String]
+        /// Repositories whose sweep failed; nothing freed in them.
+        public let failed: [String]
+        /// Why the sweep did not run or did not finish, clipped; nil when it did.
+        public let error: String?
+
+        public init(repositories: [String] = [], blobs: Int = 0, size: String = "0 B", stopped: [String] = [],
+                    reviewing: [String] = [], failed: [String] = [], error: String? = nil) {
+            self.repositories = repositories
+            self.blobs = blobs
+            self.size = size
+            self.stopped = stopped
+            self.reviewing = reviewing
+            self.failed = failed
+            self.error = error
+        }
+
+        /// Whether the sweep left something for the registry's scheduled
+        /// garbage collection: a brake, a failure, an unreviewed repository
+        /// or an error.
+        public var incomplete: Bool { !stopped.isEmpty || !reviewing.isEmpty || !failed.isEmpty || error != nil }
+    }
+
     /// The registry half: the untagged manifests the prune deletes from the
     /// cluster registry, or why this node skipped it.
     public struct Registry: Equatable, Sendable {
@@ -127,13 +164,17 @@ public struct ImagePrunePreview: Equatable, Sendable {
         public let unreadable: [String]
         /// Deletions the registry refused (a forced run only).
         public let failed: Int
+        /// The sweep after a forced run's deletions; nil when none was printed.
+        public let sweep: Sweep?
 
-        public init(skipped: String? = nil, manifests: [String] = [], kept: [Kept] = [], unreadable: [String] = [], failed: Int = 0) {
+        public init(skipped: String? = nil, manifests: [String] = [], kept: [Kept] = [], unreadable: [String] = [], failed: Int = 0,
+                    sweep: Sweep? = nil) {
             self.skipped = skipped
             self.manifests = manifests
             self.kept = kept
             self.unreadable = unreadable
             self.failed = failed
+            self.sweep = sweep
         }
     }
 
@@ -177,7 +218,11 @@ public enum ImagePruneRead: Equatable, Sendable {
 ///   - "registry <name>:", then either "  skipped: <why>", or one
 ///     "  <verb> <repo>@<digest> (untagged)" line per manifest, a forced run's
 ///     "  could not delete <repo>@<digest>: <error>" lines, the
-///     "  <verb> N untagged manifest(s); …" summary whose N matches, an
+///     "  <verb> N untagged manifest(s); …" summary whose N matches, a
+///     forced run's optional sweep (`renderSweep`: one
+///     "  swept <repos>: freed N blob(s), <size>" line, then, in order, its
+///     "  sweep stopped by the mass-delete brake, …", "  not yet reviewed by
+///     …", "  sweep failed, …" and "  sweep: <error>; …" lines), an
 ///     optional "  kept untagged:" block of "    <reason> <count>" lines, and
 ///     "  unreadable, left alone: <repo>" lines;
 ///   - "node cache:", then an optional "  nothing to reclaim: …" line, one
@@ -194,6 +239,20 @@ public enum ImagePrune {
     static let registrySummaryTail =
         " untagged manifest(s); the registry's garbage collection reclaims their layers on its next sweep"
     static let cacheNothing = "  nothing to reclaim: every blob in the cache is referenced."
+    static let sweptPrefix = "  swept "
+    static let sweptFreed = ": freed "
+    static let sweepStopped = "  sweep stopped by the mass-delete brake, nothing freed: "
+    static let sweepReviewing = "  not yet reviewed by the registry's garbage collection, only reported on: "
+    static let sweepFailed = "  sweep failed, nothing freed: "
+    static let sweepErrorPrefix = "  sweep: "
+    static let sweepErrorTail = "; the registry's scheduled garbage collection reclaims what this sweep did not"
+
+    /// The sweep's lines in the order `renderSweep` prints them; a line
+    /// never follows one of a later kind.
+    private enum SweepStage: Int, Comparable {
+        case none, swept, stopped, reviewing, failed, error
+        static func < (a: SweepStage, b: SweepStage) -> Bool { a.rawValue < b.rawValue }
+    }
 
     private enum Section { case start, registry, registryKept, cache, cacheKept, done }
 
@@ -210,6 +269,8 @@ public enum ImagePrune {
         var registryCount: Int?
         var registryKept: [ImagePrunePreview.Kept] = []
         var unreadable: [String] = []
+        var sweep: ImagePrunePreview.Sweep?
+        var sweepStage = SweepStage.none
         // The node-cache half.
         var nothing = false
         var digests: [String] = []
@@ -263,6 +324,17 @@ public enum ImagePrune {
                     let n = line.dropFirst(2 + verb.count).dropLast(registrySummaryTail.count)
                     guard skipped == nil, registryCount == nil, let count = Int(n), count == manifests.count else { return bad }
                     registryCount = count
+                } else if forced, let (stage, update) = sweepLine(line) {
+                    // The sweep follows the summary and precedes the kept and
+                    // unreadable lines; its own lines keep renderSweep's order.
+                    guard registryCount != nil, registryKept.isEmpty, unreadable.isEmpty else { return bad }
+                    if stage == .swept {
+                        guard sweepStage == .none else { return bad }
+                    } else {
+                        guard sweepStage != .none, sweepStage <= stage, sweepStage != .error else { return bad }
+                    }
+                    sweepStage = stage
+                    sweep = update(sweep ?? ImagePrunePreview.Sweep())
                 } else if line == "  kept untagged:" {
                     guard registryCount != nil, registryKept.isEmpty, unreadable.isEmpty else { return bad }
                     section = .registryKept
@@ -301,8 +373,47 @@ public enum ImagePrune {
         guard section == (forced ? .cacheKept : .done) || (forced && section == .cache) else { return end }
         guard let summary, summary.count == digests.count, nothing == digests.isEmpty else { return end }
         let registry = ImagePrunePreview.Registry(skipped: skipped, manifests: manifests, kept: registryKept,
-                                                  unreadable: unreadable, failed: failed)
+                                                  unreadable: unreadable, failed: failed, sweep: sweep)
         return .read(ImagePrunePreview(digests: digests, size: summary.size, kept: kept, registry: registry))
+    }
+
+    /// One of `renderSweep`'s lines: its kind, and how it changes the sweep
+    /// read so far; nil for any other line. The repositories and the error
+    /// are the registry's words (control characters already stripped by the
+    /// CLI), kept only clipped.
+    private static func sweepLine(_ line: String) -> (SweepStage, (ImagePrunePreview.Sweep) -> ImagePrunePreview.Sweep)? {
+        func with(_ s: ImagePrunePreview.Sweep, repositories: [String]? = nil, blobs: Int? = nil, size: String? = nil,
+                  stopped: [String] = [], reviewing: [String] = [], failed: [String] = [], error: String? = nil) -> ImagePrunePreview.Sweep {
+            ImagePrunePreview.Sweep(repositories: repositories ?? s.repositories, blobs: blobs ?? s.blobs, size: size ?? s.size,
+                                    stopped: s.stopped + stopped, reviewing: s.reviewing + reviewing, failed: s.failed + failed,
+                                    error: error ?? s.error)
+        }
+        let repo = { (prefix: String) in StatusDisplay.clip(String(line.dropFirst(prefix.count))) }
+        if line.hasPrefix(sweptPrefix), let freed = line.range(of: sweptFreed, options: .backwards) {
+            let start = line.index(line.startIndex, offsetBy: sweptPrefix.count)
+            guard freed.lowerBound >= start, let summary = summaryLine(line[freed.upperBound...]) else { return nil }
+            let names = line[start..<freed.lowerBound]
+            let repos = names.components(separatedBy: ", ").filter { !$0.isEmpty }.map(StatusDisplay.clip)
+            return (.swept, { with($0, repositories: repos, blobs: summary.count, size: summary.size) })
+        }
+        if line.hasPrefix(sweepStopped) {
+            let r = repo(sweepStopped)
+            return (.stopped, { with($0, stopped: [r]) })
+        }
+        if line.hasPrefix(sweepReviewing) {
+            let r = repo(sweepReviewing)
+            return (.reviewing, { with($0, reviewing: [r]) })
+        }
+        if line.hasPrefix(sweepFailed) {
+            let r = repo(sweepFailed)
+            return (.failed, { with($0, failed: [r]) })
+        }
+        if line.hasPrefix(sweepErrorPrefix), line.hasSuffix(sweepErrorTail),
+           line.count >= sweepErrorPrefix.count + sweepErrorTail.count {
+            let why = StatusDisplay.clip(String(line.dropFirst(sweepErrorPrefix.count).dropLast(sweepErrorTail.count)))
+            return (.error, { with($0, error: why) })
+        }
+        return nil
     }
 
     /// "<repository>@sha256:<64 hex>", the repository one word.
@@ -526,11 +637,35 @@ public enum ImageStoreText {
     }
 
     /// A finished prune's line, from its `--force` output: the node cache's
-    /// blobs and the cluster registry's untagged manifests it deleted.
+    /// blobs and the cluster registry's untagged manifests it deleted, then
+    /// what the registry's sweep freed when the CLI printed one.
     public static func pruned(output: String?, node: String) -> String {
         guard let output, case .read(let done) = ImagePrune.parse(output, forced: true) else {
             return StatusDisplay.clip("The prune ran on node \(node). Its output did not say how much it deleted.")
         }
+        // The sweep's sentence holds only a count and a size the parse
+        // checked, so it is added after the clip and is never cut off.
+        guard let sweep = done.registry.sweep else { return prunedHalves(done, node: node) }
+        return prunedHalves(done, node: node) + " " + swept(sweep)
+    }
+
+    /// The sweep's sentence: what it freed, and whether the registry's
+    /// scheduled garbage collection still reclaims the rest.
+    public static func swept(_ sweep: ImagePrunePreview.Sweep) -> String {
+        let blobs = sweep.blobs == 1 ? "1 blob" : "\(sweep.blobs) blobs"
+        switch (sweep.blobs > 0, sweep.incomplete) {
+        case (true, false):
+            return "The registry's sweep freed \(blobs), \(sweep.size)."
+        case (true, true):
+            return "The registry's sweep freed \(blobs), \(sweep.size); its scheduled garbage collection reclaims the rest."
+        case (false, false):
+            return "The registry's sweep freed nothing."
+        case (false, true):
+            return "The registry's sweep freed nothing now; its scheduled garbage collection reclaims the layers later."
+        }
+    }
+
+    private static func prunedHalves(_ done: ImagePrunePreview, node: String) -> String {
         let count = done.registry.manifests.count
         let manifests = count == 1 ? "1 untagged manifest" : "\(count) untagged manifests"
         let blobs = done.digests.count == 1 ? "1 blob" : "\(done.digests.count) blobs"
