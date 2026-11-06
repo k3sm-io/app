@@ -153,8 +153,15 @@ public struct AppUpdateChecker: Sendable {
     /// The shipped checker for this build's pinned team; nil for a
     /// development build.
     public static var pinned: AppUpdateChecker? {
-        guard let verifier = ReleaseIndexVerifier.pinned else { return nil }
-        return AppUpdateChecker(fetcher: EphemeralIndexFetcher()) { data, kind in
+        ReleaseIndexVerifier.pinned.map { checker(fetcher: EphemeralIndexFetcher(), verifier: $0) }
+    }
+
+    /// The checker over `verifier`: the document kind the check asks for is the
+    /// kind the signature is held to. Internal so a test can run this closure;
+    /// the only verifier outside a test is `ReleaseIndexVerifier.pinned`, as the
+    /// initializer that takes other roots is internal to `K3smInstall`.
+    static func checker(fetcher: any AppIndexFetcher, verifier: ReleaseIndexVerifier) -> AppUpdateChecker {
+        AppUpdateChecker(fetcher: fetcher) { data, kind in
             let verified = try verifier.verified(p7m: data, expected: kind)
             return (verified.index, verified.signedAt)
         }

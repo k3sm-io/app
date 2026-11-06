@@ -26,11 +26,12 @@ import K3smStatus
 ///
 /// The macOS CMS decoder trusts a timestamp only from an authority the
 /// system trusts, and a test cannot add one (`releaseIndexTimestampAPIBehaviour`
-/// pins this). So no test here can accept an index end to end: the accepting
-/// path, a moved timestamp caught by its message imprint, and the chain and
-/// Developer ID checks reached through a real Apple timestamp are proven
-/// against a real Developer ID signature, outside this suite. What the suite
-/// proves end to end is every refusal up to and including the timestamp
+/// pins this). So no fixture here can accept an index end to end. The accepting
+/// path under a throwaway signer and a real Apple timestamp is
+/// `signedDocumentsAcceptedOnlyUnderTheirKind` in `K3smHostTests`; a moved
+/// timestamp caught by its message imprint, and acceptance of a real Developer
+/// ID signature under the Apple roots, are proven outside the test suites. What
+/// this suite proves end to end is every refusal up to and including the timestamp
 /// step; the chain, Developer ID and content checks it proves stage by stage,
 /// on signatures whose signer status is valid, at a time the test chooses.
 @Suite("release index verifier")
@@ -114,8 +115,8 @@ struct ReleaseIndexVerifierTests {
     ///
     /// (a) a timestamp from a test authority is not trusted
     ///     (errSecTimestampNotTrusted), with or without the time-stamping
-    ///     policy, and its presence turns the signer status invalid; so a
-    ///     test cannot accept a timestamped index end to end;
+    ///     policy, and its presence turns the signer status invalid; so an
+    ///     index under a test authority's timestamp is never accepted;
     /// (b) no timestamp is errSecTimestampMissing, the signer status valid;
     /// (c) a genuine token moved from another signature reads exactly like
     ///     (a), so under a test authority a moved token cannot be told from
