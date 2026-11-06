@@ -103,7 +103,7 @@ for name in \
 	"an unknown covers or alwaysOn word is shown without control or format characters" \
 	"a long covers or alwaysOn list is capped" \
 	"a covers or alwaysOn change between the question and the prompt refuses" \
-	"answering no is the default only for turning on and for aborting an update" \
+	"answering no is the default only for turning on, for aborting an update and for opting in to rc" \
 	"on: live read, confirm, re-read, the lan-on script, then a confirming read" \
 	"off runs without a question" \
 	"a declined question runs nothing" \
