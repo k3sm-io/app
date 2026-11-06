@@ -31,7 +31,7 @@ struct UpdateChannelScriptTests {
         (.stable, "update-channel-stable.sh", .updateChannelStable, ["update", "channel", "stable"],
          "k3sm wants to set this cluster's update channel to stable, which offers final releases only."),
         (.rc, "update-channel-rc.sh", .updateChannelRC, ["update", "channel", "rc"],
-         "k3sm wants to set this cluster's update channel to rc, which also offers release candidates."),
+         "k3sm wants to set this cluster's update channel to rc, which also offers release candidates to every node."),
     ]
 
     @Test("each channel's root script and prompt, byte for byte")
@@ -124,7 +124,8 @@ struct UpdateChannelScriptTests {
             == "The update channel is now rc: this cluster is also offered release candidates. No update started.")
         #expect(LifecycleOutcome.text(.succeeded, verb: .updateChannelStable)
             == "The update channel is now stable: this cluster is offered final releases only. No update started.")
-        #expect(text(1) == "k3sm could not set the update channel to rc: the cluster could not be reached, refused the write, or does not serve the setting yet. "
+        #expect(text(1) == "k3sm could not confirm setting the update channel to rc: the cluster could not be reached, refused the write, or does not serve the setting yet. "
+            + "The setting may or may not have been applied; the picker shows what the cluster reports. "
             + "No update started. Try again in a minute; if it keeps failing, check the server's k3sm version and log.")
         #expect(text(2) == "The installed k3sm did not accept `k3sm update channel rc`. Update k3sm, or run `sudo k3sm update channel rc` in Terminal.")
         // Exit 3 is a write that took: never the root refusal the shared table gives it.
@@ -151,7 +152,7 @@ struct UpdateChannelScriptTests {
             Issue.record("a refused write was not shown as one")
             return
         }
-        #expect(text.hasPrefix("k3sm could not set the update channel to rc:"))
+        #expect(text.hasPrefix("k3sm could not confirm setting the update channel to rc:"))
         #expect(text.contains("takes cluster-admin") && !text.contains("\u{1B}"))
 
         // The check's own error after a write is not the outcome's sentence.
@@ -249,10 +250,18 @@ struct UpdateChannelScriptTests {
             .replacingOccurrences(of: "[ \t]+", with: " ", options: .regularExpression)
     }
 
-    @Test("the exits mapped here are the ones k3sm update channel has",
-          .enabled(if: cli("updatechannel.go")?.contains("func setUpdateChannel(") == true))
+    /// Whether the pin runs: a caller who set K3SM_DIR (`hack/ci.sh` does whenever it
+    /// has a checkout) asked for it, so it runs and fails by name if the source is
+    /// missing; with no K3SM_DIR it runs only when the sibling checkout is there.
+    static var pinEnabled: Bool {
+        ProcessInfo.processInfo.environment["K3SM_DIR"] != nil || cli("updatechannel.go") != nil
+    }
+
+    @Test("the exits mapped here are the ones k3sm update channel has", .enabled(if: pinEnabled))
     func exitContract() throws {
-        let channel = try #require(Self.cli("updatechannel.go"))
+        let channel = try #require(Self.cli("updatechannel.go"),
+            "no cmd/k3sm/updatechannel.go under K3SM_DIR or the k3sm sibling; the exit pin cannot run")
+        #expect(channel.contains("func setUpdateChannel("), "no setUpdateChannel in updatechannel.go; the scrape is stale")
         let update = try #require(Self.cli("update.go"))
         let status = try #require(Self.cli("status.go"))
         #expect(update.contains("case \"channel\":\n return runUpdateChannel("))
@@ -266,7 +275,14 @@ struct UpdateChannelScriptTests {
         let written = try #require(set.range(of: "The update channel is now %s"))
         let notVerified = try #require(set.range(of: "return exitChannelCheckFailed"))
         #expect(written.lowerBound < notVerified.lowerBound)
-        #expect(!set.contains("exitNeedsRoot") && !set.contains("env.root"))
+        // setUpdateChannel and the verb that calls it carry no root check, so exit 3
+        // (not verified) cannot be a refusal for want of root (LifecycleExit.needsRoot is 3 too).
+        let verb = try #require(UpdateAbortTests.body(of: "runUpdateChannel", in: channel))
+        for (name, body) in [("setUpdateChannel", set), ("runUpdateChannel", verb)] {
+            for gate in ["exitNeedsRoot", "env.root", "requireRoot(", "Geteuid", "Getuid"] {
+                #expect(!body.contains(gate), "\(name) now has a root check (\(gate)); exit 3 would be ambiguous")
+            }
+        }
         // Forbidden and a server with no CRD both exit 1, so one outcome covers them.
         #expect(set.contains("apierrors.IsForbidden(err)"))
         let refusedWrite = try #require(set.range(of: "writeUpdateChannel("))

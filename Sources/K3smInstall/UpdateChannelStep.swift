@@ -18,7 +18,7 @@ import K3smStatus
 
 /// UpdateChannelOutcome says what a `k3sm update channel <value>` exit means. The
 /// CLI's exits are its own (`cmd/k3sm/updatechannel.go`, `setUpdateChannel`): 0 set
-/// and checked; 1 the write did not take, whether no cluster client, Forbidden or a
+/// and checked; 1 the write did not complete (a timeout can follow a write the server kept), whether no cluster client, Forbidden or a
 /// CRD the server does not serve yet, which only its error text tells apart; 2 usage,
 /// as from a k3sm with no such verb; 3 written, and the check after it failed. Every
 /// other status falls to `LifecycleOutcome.text`'s shared table.
@@ -27,8 +27,9 @@ public enum UpdateChannelOutcome {
     public static func text(status: Int32, channel: UpdateChannel) -> String? {
         switch status {
         case LifecycleExit.failed:
-            return "k3sm could not set the update channel to \(channel.rawValue): the cluster could not be reached, refused the write, "
-                + "or does not serve the setting yet. No update started. Try again in a minute; if it keeps failing, check the server's k3sm version and log."
+            return "k3sm could not confirm setting the update channel to \(channel.rawValue): the cluster could not be reached, refused the write, "
+                + "or does not serve the setting yet. The setting may or may not have been applied; the picker shows what the cluster reports. "
+                + "No update started. Try again in a minute; if it keeps failing, check the server's k3sm version and log."
         case LifecycleExit.channelSetNotVerified:
             return "The update channel is set to \(channel.rawValue), but the check after it failed, so what it offers is not verified. "
                 + "No update started. Run `sudo k3sm update check` in Terminal, or wait for the server's next check."

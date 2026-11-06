@@ -107,7 +107,7 @@ public enum LifecycleVerb: String, CaseIterable, Hashable, Sendable {
         case .updateCancel: return "k3sm wants to cancel the k3sm update."
         case .updateAbort: return "k3sm wants to abort the k3sm update and release every node."
         case .updateChannelStable: return "k3sm wants to set this cluster's update channel to stable, which offers final releases only."
-        case .updateChannelRC: return "k3sm wants to set this cluster's update channel to rc, which also offers release candidates."
+        case .updateChannelRC: return "k3sm wants to set this cluster's update channel to rc, which also offers release candidates to every node."
         }
     }
 
