@@ -26,5 +26,7 @@ import K3smStatus
 struct ReleaseIndexContextTests {
     @Test func decoderAndSignerPolicyAgreeOnTheContext() {
         #expect(ReleaseIndex.context == IndexSignerPolicy.contextString)
+        #expect(ReleaseIndex.candidateContext == IndexSignerPolicy.candidateContextString)
+        #expect(ReleaseIndex.candidateContext != ReleaseIndex.context)
     }
 }

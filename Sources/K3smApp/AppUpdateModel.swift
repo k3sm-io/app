@@ -39,6 +39,8 @@ final class AppUpdateModel: ObservableObject {
 
     /// Whether the app is still in first run, when no automatic check runs.
     var firstRun: () -> Bool = { false }
+    /// The latest status report, whose `update` row picks the document to check.
+    var statusReport: () -> StatusReport? = { nil }
     /// A follow-up the state calls for (the notice, the download).
     var onFollowUp: ((AppUpdateFollowUp) -> Void)?
 
@@ -75,11 +77,13 @@ final class AppUpdateModel: ObservableObject {
         checking = true
         defer { checking = false }
         let outcome = await checker.check(trigger, checksOn: preferences.checkAppUpdates, own: own, firstRun: firstRun(),
-                                          record: preferences.appUpdateRecord)
+                                          kind: ReleaseIndexKind(report: statusReport()), record: preferences.appUpdateRecord,
+                                          candidateRecord: preferences.appUpdateCandidateRecord)
         guard let fresh = outcome.result else { return }
         result = fresh
         preferences.appUpdateRecord = outcome.record
-        if case .verified = fresh {
+        preferences.appUpdateCandidateRecord = outcome.candidateRecord
+        if fresh.isAnswer {
             let now = Date()
             lastSuccess = now
             preferences.appUpdateLastSuccess = now

@@ -16,9 +16,20 @@ limitations under the License.
 
 import Foundation
 
-/// ReleaseIndex is one `k3sm-release-index/v1` document: the latest final
-/// release and the version set it ships, the app's disk image and the k3sm
-/// archive. k3sm owns the contract (`docs/design/release-index.md` and
+/// ReleaseIndexKind is the document a reader expects, and it has no default:
+/// `stable`, the `k3sm-release-index/v1` document of the latest final release,
+/// or `candidate`, the `k3sm-release-index-rc/v1` document read at one release
+/// candidate's own path. The two documents share a key tree and a signing
+/// identity, so this is what keeps them apart: each has its own schema and
+/// context strings, and a candidate document is good only for the tag asked for.
+public enum ReleaseIndexKind: Equatable, Sendable {
+    case stable
+    case candidate(tag: String)
+}
+
+/// ReleaseIndex is one release index document of either kind: a release and the
+/// version set it ships, the app's disk image and the k3sm archive. k3sm owns
+/// the contract (`docs/design/release-index.md` and
 /// `ParseReleaseIndex` in `pkg/update/releaseindex.go`); this decoder follows
 /// it check for check, and its tests run k3sm's golden document and refusal
 /// corpus, vendored byte for byte.
@@ -33,6 +44,11 @@ public struct ReleaseIndex: Equatable, Sendable {
     /// equals k3sm's `ReleaseIndexContext` and the app's
     /// `IndexSignerPolicy.contextString` (a test holds the two together).
     public static let context = "io.k3sm.release-index/v1"
+    /// The candidate document's format and its version.
+    public static let candidateSchema = "k3sm-release-index-rc/v1"
+    /// The candidate document's domain-separation string. It equals k3sm's
+    /// `CandidateIndexContext` and `IndexSignerPolicy.candidateContextString`.
+    public static let candidateContext = "io.k3sm.release-index-rc/v1"
     /// The byte cap, checked before anything is read.
     public static let maxBytes = 65536
     /// The largest disk image an index may name, in bytes.
@@ -59,7 +75,7 @@ public struct ReleaseIndex: Equatable, Sendable {
     public struct App: Equatable, Sendable {
         /// `ReleaseIndex.bundleID`.
         public let bundleID: String
-        /// The app's CFBundleShortVersionString: the tag without its v.
+        /// The app's CFBundleShortVersionString: the tag's `X.Y.Z` core.
         public let shortVersion: String
         /// The signed, notarized disk image.
         public let image: Image
@@ -67,7 +83,8 @@ public struct ReleaseIndex: Equatable, Sendable {
 
     /// The app's disk image release asset.
     public struct Image: Equatable, Sendable {
-        /// `k3sm_<version>_darwin_arm64.dmg`.
+        /// `k3sm_<version>_darwin_arm64.dmg`, the tag without its v, so a
+        /// candidate's carries `-rc.N`.
         public let name: String
         /// `downloadURL(tag:name:)`, exactly.
         public let url: String
@@ -79,7 +96,7 @@ public struct ReleaseIndex: Equatable, Sendable {
 
     /// The k3sm half of the set.
     public struct K3sm: Equatable, Sendable {
-        /// `k3sm_<version>_darwin_arm64.tar.gz`.
+        /// `k3sm_<version>_darwin_arm64.tar.gz`, named as the image is.
         public let archive: String
         /// The archive's lowercase hex sha256.
         public let archiveSHA256: String
@@ -87,15 +104,15 @@ public struct ReleaseIndex: Equatable, Sendable {
         public let payloadManifestSHA256: String
     }
 
-    /// `ReleaseIndex.schema`.
+    /// The kind's schema string.
     public let schema: String
-    /// `ReleaseIndex.context`.
+    /// The kind's context string.
     public let context: String
     /// When the release wrote the index: `YYYY-MM-DDTHH:MM:SSZ`, UTC.
     public let issuedAt: String
-    /// The final release tag, `vMAJOR.MINOR.PATCH`.
+    /// The release tag: `vMAJOR.MINOR.PATCH`, with `-rc.N` on a candidate.
     public let tag: String
-    /// The tag as a version (never a pre-release).
+    /// The tag as a version (a pre-release only on a candidate).
     public let version: SemanticVersion
     /// The lowest macOS release the set runs on, `MAJOR[.MINOR[.PATCH]]`.
     public let minimumMacOS: String
@@ -107,21 +124,30 @@ public struct ReleaseIndex: Equatable, Sendable {
     /// The k3sm half of the set.
     public let k3sm: K3sm
 
-    /// Decodes one release index and checks every field, in k3sm's order: the
-    /// byte cap before anything is read; then the one JSON object, refusing a
-    /// key that is not a schema key at its place in exact case (compared after
-    /// escapes are decoded), a key repeated in one object, any array, a value
-    /// of the wrong type (`null` included), and anything after the object
-    /// other than JSON whitespace; then the field grammar.
-    public static func parse(_ raw: Data) throws(ReleaseIndexError) -> ReleaseIndex {
+    /// Decodes one release index of the `expected` kind and checks every
+    /// field: the byte cap before anything is read; then the one JSON object,
+    /// refusing a key that is not a schema key at its place in exact case
+    /// (compared after escapes are decoded), a key repeated in one object and
+    /// any array; then the kind's schema and context strings, before any other
+    /// field is decoded; then a value of the wrong type (`null` included) and
+    /// anything after the object other than JSON whitespace; then the field
+    /// grammar, with a candidate's tag compared to the requested one right
+    /// after its own grammar. The scan cannot be cut shorter, since `schema` may
+    /// be any key of the object, but it keeps only strings and shape.
+    ///
+    /// The kind has no default, so a reader always says which document it
+    /// expects. A document with two defects can name a different one than k3sm
+    /// does, which checks the strings after decoding; both refuse it.
+    public static func parse(_ raw: Data, expected: ReleaseIndexKind) throws(ReleaseIndexError) -> ReleaseIndex {
         if raw.count > maxBytes {
             throw .tooLarge(raw.count)
         }
         var scanner = StrictJSONScanner(Array(raw))
         let root = try scanner.document(keys: schemaKeys)
+        try checkKind(root, expected)
         let draft = try decode(root)
         try scanner.end()
-        return draft.with(version: try draft.check())
+        return draft.with(version: try draft.check(expected))
     }
 
     /// The macOS check made before any download.
@@ -163,6 +189,14 @@ public enum ReleaseIndexError: Error, Equatable, Sendable, CustomStringConvertib
     case schema
     case context
     case tag
+    /// A candidate read: the schema is not the candidate document's.
+    case candidateSchema
+    /// A candidate read: the context is not the candidate document's.
+    case candidateContext
+    /// A candidate read: the tag is not a release candidate tag.
+    case candidateTag
+    /// The candidate tag the document names, then the one asked for.
+    case requestedTag(String, String)
     case minimumMacOS
     case minimumSupportedTag
     /// The minimum supported tag, then the tag: both final tags, the first
@@ -191,17 +225,21 @@ public enum ReleaseIndexError: Error, Equatable, Sendable, CustomStringConvertib
         case .schema: "schema is not \(ReleaseIndex.schema)"
         case .context: "context is not \(ReleaseIndex.context)"
         case .tag: "tag is not a final release tag vMAJOR.MINOR.PATCH"
+        case .candidateSchema: "schema is not \(ReleaseIndex.candidateSchema)"
+        case .candidateContext: "context is not \(ReleaseIndex.candidateContext)"
+        case .candidateTag: "tag is not a release candidate tag vMAJOR.MINOR.PATCH-rc.N"
+        case .requestedTag(let tag, let requested): "tag \(tag) is not the requested \(requested)"
         case .minimumMacOS: "minimumMacOS is not MAJOR[.MINOR[.PATCH]]"
         case .minimumSupportedTag: "minimumSupportedTag is not a final release tag vMAJOR.MINOR.PATCH"
         case .minimumSupportedTagAboveTag(let minimum, let tag): "minimumSupportedTag \(minimum) is above tag \(tag)"
         case .issuedAt: "issuedAt is not a UTC time YYYY-MM-DDTHH:MM:SSZ"
         case .bundleID: "app: bundleID is not \(ReleaseIndex.bundleID)"
         case .shortVersion(let core): "app: shortVersion is not \(core)"
-        case .imageName(let core): "app: image name is not k3sm_\(core)_darwin_arm64.dmg"
+        case .imageName(let version): "app: image name is not k3sm_\(version)_darwin_arm64.dmg"
         case .imageSHA256: "app: image sha256 is not a lowercase hex sha256"
         case .imageSize(let n): "app: image size \(n) is outside 1 to \(ReleaseIndex.maxImageBytes) bytes"
         case .imageURL(let want): "app: image url is not \(want)"
-        case .archive(let core): "k3sm: archive is not k3sm_\(core)_darwin_arm64.tar.gz"
+        case .archive(let version): "k3sm: archive is not k3sm_\(version)_darwin_arm64.tar.gz"
         case .archiveSHA256: "k3sm: archiveSHA256 is not a lowercase hex sha256"
         case .payloadManifestSHA256: "k3sm: payloadManifestSHA256 is not a lowercase hex sha256"
         }
@@ -230,7 +268,7 @@ public enum ReleaseIndexError: Error, Equatable, Sendable, CustomStringConvertib
 // MARK: - The field grammar
 
 extension ReleaseIndex {
-    /// The v1 key tree: each object's keys, mapped to the keys of the object
+    /// The key tree both documents share: each object's keys, mapped to the keys of the object
     /// that key holds (empty for a scalar, so any key inside one is unknown).
     static let schemaKeys = KeyTree([
         "schema": .scalar, "context": .scalar, "issuedAt": .scalar, "tag": .scalar, "minimumMacOS": .scalar,
@@ -241,6 +279,21 @@ extension ReleaseIndex {
         ]),
         "k3sm": KeyTree(["archive": .scalar, "archiveSHA256": .scalar, "payloadManifestSHA256": .scalar]),
     ])
+
+    /// The kind's two strings, from the scanned tree, before any other field
+    /// is decoded. A missing one is empty, and so refused.
+    private static func checkKind(_ root: [JSONKey: JSONValue], _ expected: ReleaseIndexKind) throws(ReleaseIndexError) {
+        let schema = try string(root, "schema")
+        let context = try string(root, "context")
+        switch expected {
+        case .stable:
+            guard same(schema, Self.schema) else { throw .schema }
+            guard same(context, Self.context) else { throw .context }
+        case .candidate:
+            guard same(schema, candidateSchema) else { throw .candidateSchema }
+            guard same(context, candidateContext) else { throw .candidateContext }
+        }
+    }
 
     /// Maps the checked tree onto the fields. A missing field is its zero
     /// value, as in k3sm, so the grammar check names it; a value of the wrong
@@ -310,28 +363,47 @@ extension ReleaseIndex {
             minimumMacOS: minimumMacOS, minimumSupportedTag: minimumSupportedTag, app: app, k3sm: k3sm)
     }
 
-    /// The grammar check, in k3sm's order; it returns the tag as a version.
-    private func check() throws(ReleaseIndexError) -> SemanticVersion {
-        guard Self.same(schema, Self.schema) else { throw .schema }
-        guard Self.same(context, Self.context) else { throw .context }
-        guard Self.isFinalTag(tag), let parsed = SemanticVersion(tag), parsed.prerelease.isEmpty else { throw .tag }
+    /// The tag as `expected` reads it: a final tag, or exactly the requested
+    /// candidate.
+    private func checkTag(_ expected: ReleaseIndexKind) throws(ReleaseIndexError) -> SemanticVersion {
+        switch expected {
+        case .stable:
+            guard Self.isFinalTag(tag), let parsed = SemanticVersion(tag), parsed.prerelease.isEmpty else { throw .tag }
+            return parsed
+        case .candidate(let requested):
+            guard Self.isCandidateTag(tag), let parsed = SemanticVersion(tag), parsed.prerelease.count == 2 else {
+                throw .candidateTag
+            }
+            guard Self.same(tag, requested) else { throw .requestedTag(tag, requested) }
+            return parsed
+        }
+    }
+
+    /// The grammar check after the kind's strings, in k3sm's order; it returns
+    /// the tag as a version.
+    private func check(_ expected: ReleaseIndexKind) throws(ReleaseIndexError) -> SemanticVersion {
+        let parsed = try checkTag(expected)
         guard Self.isMacOSVersion(minimumMacOS) else { throw .minimumMacOS }
         guard Self.isFinalTag(minimumSupportedTag), let minimum = SemanticVersion(minimumSupportedTag),
               minimum.prerelease.isEmpty
         else { throw .minimumSupportedTag }
-        // Both are final tags, so this compares the three numbers in order.
+        // A final tag ranks above its own candidates, so a candidate's own
+        // final is above it and refused.
         guard !(parsed < minimum) else { throw .minimumSupportedTagAboveTag(minimumSupportedTag, tag) }
         guard Self.isIssuedAt(issuedAt) else { throw .issuedAt }
-        let core = String(tag.dropFirst())
+        // The whole version names the assets; the core is the short version.
+        // The tag matched its grammar, so the only hyphen starts an -rc.N.
+        let full = String(tag.dropFirst())
+        let core = String(full.prefix { $0 != "-" })
         guard Self.same(app.bundleID, Self.bundleID) else { throw .bundleID }
         guard Self.same(app.shortVersion, core) else { throw .shortVersion(core) }
         let im = app.image
-        guard Self.same(im.name, "k3sm_" + core + "_darwin_arm64.dmg") else { throw .imageName(core) }
+        guard Self.same(im.name, "k3sm_" + full + "_darwin_arm64.dmg") else { throw .imageName(full) }
         guard Self.isSHA256Hex(im.sha256) else { throw .imageSHA256 }
         guard im.size >= 1, im.size <= Self.maxImageBytes else { throw .imageSize(im.size) }
         let want = Self.downloadURL(tag: tag, name: im.name)
         guard Self.same(im.url, want) else { throw .imageURL(want) }
-        guard Self.same(k3sm.archive, "k3sm_" + core + "_darwin_arm64.tar.gz") else { throw .archive(core) }
+        guard Self.same(k3sm.archive, "k3sm_" + full + "_darwin_arm64.tar.gz") else { throw .archive(full) }
         guard Self.isSHA256Hex(k3sm.archiveSHA256) else { throw .archiveSHA256 }
         guard Self.isSHA256Hex(k3sm.payloadManifestSHA256) else { throw .payloadManifestSHA256 }
         return parsed
@@ -350,6 +422,15 @@ extension ReleaseIndex {
         guard b.first == UInt8(ascii: "v") else { return false }
         let parts = b.dropFirst().split(separator: UInt8(ascii: "."), omittingEmptySubsequences: false)
         return parts.count == 3 && parts.allSatisfy { isNumber($0, maxDigits: 9) }
+    }
+
+    /// A final tag and `-rc.N`: `N` is `0` or at most four digits with no
+    /// leading zero, as k3sm's `candidateTag` has it.
+    static func isCandidateTag(_ s: String) -> Bool {
+        let b = Array(s.utf8)
+        let suffix = Array("-rc.".utf8)
+        guard let dash = b.firstIndex(of: UInt8(ascii: "-")), b[dash...].starts(with: suffix) else { return false }
+        return isFinalTag(String(decoding: b[..<dash], as: UTF8.self)) && isNumber(b[(dash + suffix.count)...], maxDigits: 4)
     }
 
     /// `^[1-9][0-9]{0,2}(\.(0|[1-9][0-9]{0,2})){0,2}$`.

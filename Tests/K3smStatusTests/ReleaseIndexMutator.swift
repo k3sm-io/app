@@ -79,7 +79,7 @@ enum ReleaseIndexMutator {
     /// One line per mutant for the differential check: `accept` and every
     /// field, tab-separated, or `refuse`. k3sm's checker prints the same.
     static func verdict(_ raw: [UInt8]) -> String {
-        guard let ix = try? ReleaseIndex.parse(Data(raw)) else { return "refuse" }
+        guard let ix = try? ReleaseIndex.parse(Data(raw), expected: .stable) else { return "refuse" }
         return ["accept", ix.schema, ix.context, ix.issuedAt, ix.tag, ix.minimumMacOS,
                 ix.minimumSupportedTag,
                 ix.app.bundleID, ix.app.shortVersion, ix.app.image.name, ix.app.image.url,

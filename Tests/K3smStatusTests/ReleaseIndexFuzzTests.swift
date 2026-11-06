@@ -50,15 +50,15 @@ struct ReleaseIndexFuzzTests {
             let raw = Data(mutant)
             var first: Result<ReleaseIndex, ReleaseIndexError>!
             let elapsed = clock.measure {
-                first = Result { () throws(ReleaseIndexError) in try ReleaseIndex.parse(raw) }
+                first = Result { () throws(ReleaseIndexError) in try ReleaseIndex.parse(raw, expected: .stable) }
             }
             #expect(elapsed < Self.perCallBound, "mutant \(i) took \(elapsed)")
-            let second = Result { () throws(ReleaseIndexError) in try ReleaseIndex.parse(raw) }
+            let second = Result { () throws(ReleaseIndexError) in try ReleaseIndex.parse(raw, expected: .stable) }
             switch (first!, second) {
             case (.success(let a), .success(let b)):
                 accepted += 1
                 #expect(Self.sameBytes(a, b), "mutant \(i) re-parsed to another value")
-                let again = try ReleaseIndex.parse(Self.reencode(a))
+                let again = try ReleaseIndex.parse(Self.reencode(a), expected: .stable)
                 #expect(Self.sameBytes(a, again), "mutant \(i) re-encoded to another value")
             case (.failure(let a), .failure(let b)):
                 #expect(a == b, "mutant \(i) was refused for two reasons")

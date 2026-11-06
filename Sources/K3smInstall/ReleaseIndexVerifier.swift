@@ -23,9 +23,13 @@ import K3smStatus
 /// the pinned team's Developer ID Application identity, with a secure
 /// timestamp, its chain evaluated at the time that timestamp attests. It
 /// makes the checks `IndexSignerPolicy.checks` lists, in that order, and only
-/// then hands the signed content to `ReleaseIndex.parse`.
+/// then hands the signed content to `ReleaseIndex.parse`, which holds it to the
+/// kind the caller expects. The caller names that kind (`ReleaseIndexKind`) on
+/// every call, with no default: one identity signs both documents, so nothing
+/// but the kind stops a genuine candidate document reading as a stable index,
+/// or a genuine document for one candidate reading as another's.
 ///
-/// `verified(p7m:)` is the only caller of `ReleaseIndex.parse` in the app
+/// `verified(p7m:expected:)` is the only caller of `ReleaseIndex.parse` in the app
 /// (a test holds it so), so an index is never decoded from bytes a signature
 /// check has not accepted: not from a cache, not from a preference, not from
 /// a download kept beside the `.p7m`. Every failure is a
@@ -118,15 +122,15 @@ public struct ReleaseIndexVerifier: Sendable {
         return data
     }
 
-    /// The release index inside `p7m`, after every check passed, with the
-    /// attested signing time. The signer chain is evaluated only at
+    /// The release index of the `expected` kind inside `p7m`, after every check
+    /// passed, with the attested signing time. The signer chain is evaluated only at
     /// `signedAt`, the date `signingTime` derived from the timestamp (a test
     /// holds that no other date reaches `checkSigner`).
-    public func verified(p7m: Data) throws(ReleaseIndexVerifierError) -> VerifiedReleaseIndex {
+    public func verified(p7m: Data, expected: ReleaseIndexKind) throws(ReleaseIndexVerifierError) -> VerifiedReleaseIndex {
         let signed = try SignedIndex(p7m)
         let signedAt = try signingTime(signed.decoder)
         try checkSigner(signed.trust, at: signedAt)
-        return VerifiedReleaseIndex(index: try index(from: signed.content), signedAt: signedAt)
+        return VerifiedReleaseIndex(index: try index(from: signed.content, expected: expected), signedAt: signedAt)
     }
 
     // MARK: the stages, in order
@@ -288,11 +292,13 @@ public struct ReleaseIndexVerifier: Sendable {
         guard chain.count == IndexSignerPolicy.chainLength else { throw .chainLength(chain.count) }
     }
 
-    /// The last check: the signed content is a release index, its context
-    /// string included. This is the one call of `ReleaseIndex.parse`.
-    func index(from content: Data) throws(ReleaseIndexVerifierError) -> ReleaseIndex {
+    /// The last check: the signed content is a release index of the `expected`
+    /// kind, its schema and context strings read before the rest of its body
+    /// and, on a candidate, its tag the requested one. This is the one call of
+    /// `ReleaseIndex.parse`.
+    func index(from content: Data, expected: ReleaseIndexKind) throws(ReleaseIndexVerifierError) -> ReleaseIndex {
         do {
-            return try ReleaseIndex.parse(content)
+            return try ReleaseIndex.parse(content, expected: expected)
         } catch {
             throw .index(error)
         }

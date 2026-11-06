@@ -68,9 +68,9 @@ struct ReleaseIndexVerifierTests {
         )
     }
 
-    static func refusal(_ p7m: Data, _ verifier: ReleaseIndexVerifier) -> ReleaseIndexVerifierError? {
+    static func refusal(_ p7m: Data, _ verifier: ReleaseIndexVerifier, expected: ReleaseIndexKind = .stable) -> ReleaseIndexVerifierError? {
         do {
-            _ = try verifier.verified(p7m: p7m)
+            _ = try verifier.verified(p7m: p7m, expected: expected)
             return nil
         } catch {
             return error
@@ -276,7 +276,7 @@ struct ReleaseIndexVerifierTests {
         let signed = try ReleaseIndexVerifier.SignedIndex(try Self.fixture("index-untimestamped.p7m"))
         let verifier = try Self.verifier()
         try verifier.checkSigner(signed.trust, at: Date())
-        let index = try verifier.index(from: signed.content)
+        let index = try verifier.index(from: signed.content, expected: .stable)
         #expect(index.tag == "v0.2.0")
         #expect(index.minimumSupportedTag == "v0.1.0")
         #expect(index.context == IndexSignerPolicy.contextString)
@@ -331,20 +331,80 @@ struct ReleaseIndexVerifierTests {
     ])
     func contentStage(name: String, want: ReleaseIndexVerifierError) throws {
         let signed = try ReleaseIndexVerifier.SignedIndex(try Self.fixture(name))
-        #expect(throws: want) { try Self.verifier().index(from: signed.content) }
+        #expect(throws: want) { try Self.verifier().index(from: signed.content, expected: .stable) }
     }
 
     @Test func signedBytesThatAreNotAnIndexAreRefused() throws {
         let signed = try ReleaseIndexVerifier.SignedIndex(try Self.fixture("not-an-index.p7m"))
         let verifier = try Self.verifier()
         do throws(ReleaseIndexVerifierError) {
-            _ = try verifier.index(from: signed.content)
+            _ = try verifier.index(from: signed.content, expected: .stable)
             Issue.record("signed text was accepted as an index")
         } catch {
             guard case .index = error else {
                 Issue.record("refused for \(error), not as an index")
                 return
             }
+        }
+    }
+
+    // MARK: the expected kind
+
+    /// The candidate golden, vendored beside k3sm's corpus in the decoder's tests.
+    static func candidateGolden() throws -> String {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let file = root.appendingPathComponent("K3smStatusTests/Fixtures/release-index-rc/index.json")
+        return try String(contentsOf: file, encoding: .utf8)
+    }
+
+    /// One identity signs both documents, so a genuine signature over either is
+    /// refused as the other, and the kind is read before the body: a document
+    /// of the other kind whose body would not decode is refused for its kind.
+    @Test func theExpectedKindIsReadBeforeTheBody() throws {
+        let verifier = try Self.verifier()
+        let stable = try ReleaseIndexVerifier.SignedIndex(try Self.fixture("index-untimestamped.p7m")).content
+        let candidate = Data(try Self.candidateGolden().utf8)
+        let tag = ReleaseIndexKind.candidate(tag: "v0.3.0-rc.2")
+        #expect(try verifier.index(from: stable, expected: .stable).tag == "v0.2.0")
+        #expect(try verifier.index(from: candidate, expected: tag).tag == "v0.3.0-rc.2")
+        #expect(throws: ReleaseIndexVerifierError.index(.candidateSchema)) {
+            try verifier.index(from: stable, expected: .candidate(tag: "v0.2.0"))
+        }
+        #expect(throws: ReleaseIndexVerifierError.index(.schema)) { try verifier.index(from: candidate, expected: .stable) }
+
+        let badBody = Data(try Self.candidateGolden().replacingOccurrences(of: "123456789", with: "\"big\"").utf8)
+        #expect(throws: ReleaseIndexVerifierError.index(.invalidDocument("key \"size\" is not an integer"))) {
+            try verifier.index(from: badBody, expected: tag)
+        }
+        #expect(throws: ReleaseIndexVerifierError.index(.schema)) { try verifier.index(from: badBody, expected: .stable) }
+        // A refusal up to the timestamp is the same whichever kind is asked for.
+        let p7m = try Self.fixture("index-untimestamped.p7m")
+        #expect(Self.refusal(p7m, verifier) != nil)
+        #expect(Self.refusal(p7m, verifier, expected: tag) == Self.refusal(p7m, verifier))
+    }
+
+    @Test func aCandidateMustNameTheRequestedTag() throws {
+        let verifier = try Self.verifier()
+        let candidate = Data(try Self.candidateGolden().utf8)
+        for requested in ["v0.3.0-rc.1", "v0.3.0-rc.3", "v0.3.0", "", "latest"] {
+            #expect(throws: ReleaseIndexVerifierError.index(.requestedTag("v0.3.0-rc.2", requested))) {
+                try verifier.index(from: candidate, expected: .candidate(tag: requested))
+            }
+        }
+    }
+
+    /// Neither entry point gives the kind a default: a caller that forgot it
+    /// must not read as stable.
+    @Test func theExpectedKindHasNoDefault() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        let verifier = try String(contentsOf: sources.appendingPathComponent("K3smInstall/ReleaseIndexVerifier.swift"), encoding: .utf8)
+        let decoder = try String(contentsOf: sources.appendingPathComponent("K3smStatus/ReleaseIndex.swift"), encoding: .utf8)
+        #expect(verifier.contains("func verified(p7m: Data, expected: ReleaseIndexKind) throws"))
+        #expect(verifier.contains("func index(from content: Data, expected: ReleaseIndexKind) throws"))
+        #expect(decoder.contains("func parse(_ raw: Data, expected: ReleaseIndexKind) throws"))
+        for text in [verifier, decoder] {
+            #expect(!text.contains("expected: ReleaseIndexKind ="))
         }
     }
 
@@ -442,7 +502,8 @@ struct ReleaseIndexVerifierTests {
             "signerStage: index-no-codesigning-usage (refused by the policy first)",
             "signerStage: index-other-ou, index-two-ou",
             "signerStage: index-long-chain",
-            "contentStage: no-context, other-context",
+            "contentStage: no-context, other-context; theExpectedKindIsReadBeforeTheBody",
+            "aCandidateMustNameTheRequestedTag",
         ]
         #expect(proof.count == Self.policy.checks.count)
     }
@@ -481,7 +542,7 @@ struct ReleaseIndexVerifierTests {
         #expect(users.count == 1 && users[0].contains("at: signedAt"), "\(users)")
     }
 
-    /// `ReleaseIndexVerifier.verified(p7m:)` is the only way into
+    /// `ReleaseIndexVerifier.verified(p7m:expected:)` is the only way into
     /// `ReleaseIndex.parse` in the app's sources: one call, in the verifier's
     /// last step, and no other reference to the decoder's entry point. So no
     /// index is ever decoded from a cache, a preference or a download that
