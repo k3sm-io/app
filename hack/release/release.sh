@@ -393,7 +393,13 @@ detach_image() {
 mounted_image_problems() {
 	local img="$1" tag="$2" bundle="$3" manifest="$4" seal="$5" check="$6" rc=0 root entries
 	shift 6
-	IMAGE_WORK="$(temp_dir release-image)"
+	# errexit is off in the caller's command substitution: a failed mktemp must
+	# stop here, named, not leave the mount point at /mnt.
+	if ! IMAGE_WORK="$(temp_dir release-image)"; then
+		IMAGE_WORK=""
+		echo "    cannot create a temp dir: mktemp failed under ${TMPDIR:-/tmp}; the image is not mounted"
+		return 1
+	fi
 	chmod 700 "$IMAGE_WORK"
 	IMAGE_MNT="$IMAGE_WORK/mnt"
 	mkdir -m 700 "$IMAGE_MNT"
@@ -755,6 +761,9 @@ exit 97
 EOF
 	# hdiutil attach "mounts" an image whose first line is `FIXTURE <dir>` by
 	# copying <dir> (symlinks kept) to the mount point; detach empties it.
+	# FAKE_ATTACH_LIES makes an attach mount (a .fake-volume marker the fake
+	# stat reads as another device) and then fail; FAKE_DETACH_BUSY names a
+	# file holding how many detaches fail as busy (exit 16) first.
 	cat >"$F/hdiutil" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "hdiutil $*" >>"$FAKE_TOOL_LOG"
@@ -768,15 +777,36 @@ attach)
 	src="$(sed -n '1s/^FIXTURE //p' "$img" 2>/dev/null)"
 	[ "$ro" = 1 ] && [ -n "$mnt" ] && [ -d "$mnt" ] && [ -n "$src" ] && [ -d "$src" ] || exit 1
 	cp -R "$src/." "$mnt/" || exit 1
+	if [ -n "${FAKE_ATTACH_LIES:-}" ]; then
+		: >"$mnt/.fake-volume"
+		exit 1
+	fi
 	exit 0 ;;
 detach)
 	[ -z "${FAKE_DETACH_FAIL:-}" ] || exit 16
+	if [ -n "${FAKE_DETACH_BUSY:-}" ]; then
+		n="$(cat "$FAKE_DETACH_BUSY")"
+		if [ "$n" -gt 0 ]; then
+			echo "$((n - 1))" >"$FAKE_DETACH_BUSY"
+			exit 16
+		fi
+	fi
 	mnt="${!#}"
 	[ -d "$mnt" ] || exit 1
 	find "$mnt" -mindepth 1 -delete
 	exit 0 ;;
 esac
 exit 97
+EOF
+	# stat -f %d reports another device for a dir holding the fake hdiutil's
+	# .fake-volume marker, the way a real mount point reads; it logs nothing.
+	cat >"$F/stat" <<'EOF'
+#!/usr/bin/env bash
+if [ "$#" = 3 ] && [ "$1" = -f ] && [ "$2" = %d ] && [ -e "$3/.fake-volume" ]; then
+	echo 999999
+	exit 0
+fi
+exec /usr/bin/stat "$@"
 EOF
 	# The staged tree: an executable k3sm reporting FAKE_TREE_VERSION (or the
 	# version given), a data file, PAYLOAD-SHA256 inside and beside it.
@@ -1204,6 +1234,39 @@ publish.sh --upload"
 	unset FAKE_DETACH_FAIL
 	check "a failed detach is a failure with a clear message, before upload" \
 		eval '[ "$CASE_RC" = 3 ] && out_has "could not detach the image" && out_has "REFUSE: image-unverified" && not_logged "^publish.sh --upload"'
+	# image_dirs: how many release-image work dirs are left under TMPDIR.
+	image_dirs() {
+		local d n=0
+		for d in "${TMPDIR%/}"/release-image.*; do
+			if [ -e "$d" ]; then n=$((n + 1)); fi
+		done
+		echo "$n"
+	}
+	local dirs_before
+	dirs_before="$(image_dirs)"
+	full_case lies
+	export FAKE_ATTACH_LIES=1
+	run_case in_fakes run_full
+	unset FAKE_ATTACH_LIES
+	check "an attach that fails after mounting is detached anyway, and refuses" \
+		eval '[ "$CASE_RC" = 3 ] && out_has "cannot attach" && grep -A1 "^hdiutil attach" "$log" | grep -q "^hdiutil detach" && not_logged "^publish.sh --upload"'
+	check "an attach that fails after mounting leaves no mount point or work dir" eval '[ "$(image_dirs)" = "$dirs_before" ]'
+	full_case busy
+	dirs_before="$(image_dirs)"
+	echo 2 >"$T/detach-busy"
+	export FAKE_DETACH_BUSY="$T/detach-busy"
+	run_case in_fakes run_full
+	unset FAKE_DETACH_BUSY
+	check "a volume busy at detach still passes, by a forced retry" \
+		eval '[ "$CASE_RC" = 0 ] && logged "^hdiutil detach -force" && out_has "released v1.2.3"'
+	check "a volume busy at detach is left detached, its work dir removed" \
+		eval '[ "$(cat "$T/detach-busy")" = 0 ] && [ "$(image_dirs)" = "$dirs_before" ]'
+	full_case notmp
+	export TMPDIR="$T/no-such-tmp"
+	run_case in_fakes run_full
+	export TMPDIR="$T/tmpdir"
+	check "a temp dir that cannot be created refuses, named, before any attach" \
+		eval '[ "$CASE_RC" = 3 ] && out_has "cannot create a temp dir: " && not_logged "^hdiutil attach" && not_logged "^publish.sh --upload"'
 	full_case exists
 	mkdir -p "$T/run-exists/stage.app-build"
 	run_case in_fakes run_full

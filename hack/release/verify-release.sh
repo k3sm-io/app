@@ -315,7 +315,13 @@ image_problems() (
 		echo "    --team-id $pin names a team, but $(basename "$img") is a rehearsal image with none"; exit 1
 	fi
 
-	work="$(temp_dir verify-release)"
+	# errexit is off in the caller's command substitution: a failed mktemp must
+	# stop here, named, not leave the mount point at /mnt.
+	if ! work="$(temp_dir verify-release)"; then
+		work=""
+		echo "    cannot create a temp dir: mktemp failed under ${TMPDIR:-/tmp}; the image is not mounted"
+		exit 1
+	fi
 	chmod 700 "$work"
 	mnt="$work/mnt"
 	mkdir -m 700 "$mnt"
@@ -463,6 +469,14 @@ mount_parent_problem() {
 	done
 }
 
+# info_dir <dir>: the form of <dir> to look for in hdiutil info. /var and /tmp
+# are links into /private, and hdiutil info can print either spelling, so this
+# drops a leading /private: the result is found inside both.
+info_dir() {
+	local d="${1%/}"
+	printf '%s/' "${d#/private}"
+}
+
 # detach_fixture_images <dir>: detach any image attached from under <dir>. A
 # self-test that ended early must not leave its fixture attached after its
 # EXIT trap has deleted the image file.
@@ -471,7 +485,26 @@ detach_fixture_images() {
 	info="$(hdiutil info 2>/dev/null)" || return 0
 	while IFS= read -r dev; do
 		hdiutil detach -quiet -force "$dev" >/dev/null 2>&1 || echo "verify-release: could not detach the fixture at $dev; run: hdiutil detach -force $dev" >&2
-	done < <(awk -v dir="$1/" '/^image-path/ { inside = index($0, dir) > 0 } inside && /^\/dev\/disk/ { print $1; inside = 0 }' <<<"$info")
+	done < <(awk -v dir="$(info_dir "$1")" '/^image-path/ { inside = index($0, dir) > 0 } inside && /^\/dev\/disk/ { print $1; inside = 0 }' <<<"$info")
+}
+
+# selftest_cleanup <dir>: the self-test's EXIT trap. It detaches first, then
+# removes <dir> only when hdiutil info names nothing under it (an image or a
+# mount point): rm -rf must never recurse into a volume whose forced detach
+# failed. A dir it cannot clear is kept, and named.
+selftest_cleanup() {
+	local info
+	[ -n "$1" ] && [ -d "$1" ] || return 0
+	detach_fixture_images "$1"
+	if ! info="$(hdiutil info 2>/dev/null)"; then
+		echo "verify-release: hdiutil info failed, so $1 may hold a mount; not removing it" >&2
+		return 0
+	fi
+	if grep -F "$(info_dir "$1")" <<<"$info" >/dev/null; then
+		echo "verify-release: an image under $1 is still attached; not removing it (see hdiutil info)" >&2
+		return 0
+	fi
+	rm -rf "$1"
 }
 
 # shellcheck disable=SC2016 # each case's assertion is a single-quoted string for eval
@@ -479,7 +512,9 @@ self_test() {
 	local given="${1:-}" T passes=0 fails=0 rc ver tag app good
 	T="$(temp_dir verify-release-selftest)"
 	SELFTEST_TMP="$T"
-	trap 'detach_fixture_images "$SELFTEST_TMP"; rm -rf "$SELFTEST_TMP"' EXIT
+	# The trap drops the hdiutil stub below first: it reads this function's
+	# locals, which are gone by the time the trap runs.
+	trap 'unset -f hdiutil; selftest_cleanup "$SELFTEST_TMP"' EXIT
 	ok() { echo "  ok   $1"; passes=$((passes + 1)); }
 	bad() { echo "  FAIL $1"; fails=$((fails + 1)); sed 's/^/       /' "$T/out" 2>/dev/null || true; }
 	# expect <name> <want-rc> <grep-pattern> <command...>
@@ -549,7 +584,10 @@ EOF
 
 	# Every attach and detach of the cases below passes through here, so the
 	# mount points can be checked afterwards and a lying attach or a busy volume
-	# can be staged on the real image.
+	# can be staged on the real image. attach-refused fails an attach without
+	# making it. info-fixture, while it exists, is all hdiutil info prints: one
+	# image on /dev/disk-fixture, which never reaches the real hdiutil; its
+	# detach fails while fixture-stuck exists and otherwise ends the fixture.
 	hdiutil() {
 		local a m="" n
 		case "$1" in
@@ -559,10 +597,20 @@ EOF
 				[ "$a" != -mountpoint ] || m=next
 			done
 			printf '%s\n' "$m" >>"$T/mounts"
+			[ ! -e "$T/attach-refused" ] || return 1
 			command hdiutil "$@" || return $?
 			[ ! -e "$T/attach-lies" ] || return 1
 			;;
+		info)
+			if [ -f "$T/info-fixture" ]; then cat "$T/info-fixture"; else command hdiutil "$@"; fi
+			;;
 		detach)
+			if [ "${!#}" = /dev/disk-fixture ]; then
+				printf '%s\n' "${!#}" >>"$T/detached"
+				[ ! -e "$T/fixture-stuck" ] || return 1
+				rm -f "$T/info-fixture"
+				return 0
+			fi
 			n="$(cat "$T/detach-busy" 2>/dev/null || echo 0)"
 			if [ "$n" -gt 0 ]; then
 				echo "$((n - 1))" >"$T/detach-busy"
@@ -573,13 +621,13 @@ EOF
 		*) command hdiutil "$@" ;;
 		esac
 	}
-	# fixture_attached: an image from this self-test is still attached. Read the
-	# list whole: grep -q would end the pipe early, and under pipefail hdiutil's
-	# SIGPIPE would read as "not found".
+	# fixture_attached [dir]: an image from this self-test (or from under dir)
+	# is still attached. Read the list whole: grep -q would end the pipe early,
+	# and under pipefail hdiutil's SIGPIPE would read as "not found".
 	fixture_attached() {
 		local attached_now
 		attached_now="$(hdiutil info)"
-		grep -F "$T/" <<<"$attached_now" >"$T/out"
+		grep -F "$(info_dir "${1:-$T}")" <<<"$attached_now" >"$T/out"
 	}
 	echo "the images (hdiutil, no network)"
 	if [ -n "$given" ]; then
@@ -648,6 +696,18 @@ EOF
 		verify_image "$T/notdmg/$rname" "$(sums_for "$T/notdmg/$rname")" ""
 	expect "--team-id on a rehearsal image fails" 1 "is a rehearsal image with none" \
 		verify_image "$good" "$(sums_for "$good")" ABCDE12345
+	# attach-refused keeps a wrong mount point (the old /mnt) off the real hdiutil.
+	local mounts_before
+	mounts_before="$(wc -l <"$T/mounts" | tr -d ' ')"
+	: >"$T/attach-refused"
+	TMPDIR="$T/no-such-tmp" expect "a temp dir that cannot be created fails, named" 1 "cannot create a temp dir: " \
+		verify_image "$good" "$(sums_for "$good")" ""
+	rm -f "$T/attach-refused"
+	if [ "$(wc -l <"$T/mounts" | tr -d ' ')" = "$mounts_before" ]; then
+		ok "a temp dir that cannot be created fails before any attach"
+	else
+		bad "a temp dir that cannot be created fails before any attach"
+	fi
 	: >"$T/attach-lies"
 	expect "an attach that fails after mounting reports it" 1 "cannot attach the image" verify_image "$good" "$(sums_for "$good")" ""
 	rm -f "$T/attach-lies"
@@ -666,6 +726,58 @@ EOF
 	else
 		ok "a volume busy at detach is left detached"
 	fi
+
+	echo "the self-test's own cleanup (a stubbed hdiutil info; nothing is attached)"
+	# fake_info <dir>: hdiutil info lists one image under <dir>, mounted under it.
+	fake_info() {
+		printf '%s\n' '================================================' "image-path      : $1/fixture.dmg" \
+			"/dev/disk-fixture	Apple_HFS	$1/mnt" >"$T/info-fixture"
+	}
+	# tv and tp: this self-test's dir spelled through /var (or /tmp) and through
+	# /private/var (or /private/tmp). hdiutil info can print either.
+	local tv="" tp=""
+	case "$T" in
+	/private/var/* | /private/tmp/*) tp="$T" tv="${T#/private}" ;;
+	/var/* | /tmp/*) tv="$T" tp="/private$T" ;;
+	esac
+	if [ -z "$tv" ]; then
+		echo "  skip: $T is under neither /var nor /tmp, so it has one spelling"
+	else
+		fake_info "$tv"
+		if fixture_attached "$tp"; then ok "fixture_attached finds a /private path in its /var spelling"; else bad "fixture_attached finds a /private path in its /var spelling"; fi
+		fake_info "$tp"
+		if fixture_attached "$tv"; then ok "fixture_attached finds a /var path in its /private/var spelling"; else bad "fixture_attached finds a /var path in its /private/var spelling"; fi
+		: >"$T/detached"
+		fake_info "$tv"
+		detach_fixture_images "$tp" >"$T/out" 2>&1
+		fake_info "$tp"
+		detach_fixture_images "$tv" >>"$T/out" 2>&1
+		if [ "$(grep -c -x /dev/disk-fixture "$T/detached")" = 2 ]; then
+			ok "the fixture detach finds its image in either spelling"
+		else
+			bad "the fixture detach finds its image in either spelling"
+		fi
+	fi
+	mkdir -p "$T/cleanup/mnt"
+	printf 'x\n' >"$T/cleanup/mnt/file"
+	fake_info "$T/cleanup"
+	: >"$T/fixture-stuck"
+	selftest_cleanup "$T/cleanup" >"$T/out" 2>&1 || true
+	rm -f "$T/fixture-stuck"
+	if [ -f "$T/cleanup/mnt/file" ] && grep -q "still attached" "$T/out"; then
+		ok "the cleanup keeps a dir whose image will not detach, and names it"
+	else
+		bad "the cleanup keeps a dir whose image will not detach, and names it"
+	fi
+	: >"$T/detached"
+	fake_info "$T/cleanup"
+	selftest_cleanup "$T/cleanup" >"$T/out" 2>&1 || true
+	if grep -qx /dev/disk-fixture "$T/detached" && [ ! -e "$T/cleanup" ]; then
+		ok "the cleanup detaches first, then removes the dir"
+	else
+		bad "the cleanup detaches first, then removes the dir"
+	fi
+	rm -f "$T/info-fixture"
 
 	echo "the bundle's files (no image)"
 	expect "a bundle with no hard link passes the app checks" 0 "" app_problems "$app" "$tag" rehearsal ""
