@@ -283,8 +283,13 @@ struct SplitWindow {
         window.alphaValue = 0
         window.contentViewController = NSHostingController(rootView: SplitRoot(app: app, logOpen: logOpen))
         let minimum = ConsoleView.minSize(inspectorShown: true, panelCollapsed: false)
-        window.setFrame(NSRect(x: 40, y: 40, width: minimum.width + extraWidth, height: minimum.height + 60), display: true)
+        // Ordering a titled window in fits it to its screen, so a frame set
+        // before then shrinks to a laptop's width while a wider display keeps
+        // it, and every pane's width would depend on the screen the run uses.
+        // So the window is ordered in first and sized after: setFrame keeps
+        // the frame as asked, on any screen.
         window.orderFront(nil)
+        window.setFrame(NSRect(x: 40, y: 40, width: minimum.width + extraWidth, height: minimum.height + 60), display: true)
         defer { window.orderOut(nil) }
         let harness = try SplitWindow(app: app, window: window)
         harness.settle()
