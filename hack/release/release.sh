@@ -393,7 +393,13 @@ detach_image() {
 mounted_image_problems() {
 	local img="$1" tag="$2" bundle="$3" manifest="$4" seal="$5" check="$6" rc=0 root entries
 	shift 6
-	IMAGE_WORK="$(temp_dir release-image)"
+	# errexit is off in the caller's command substitution: a failed mktemp must
+	# stop here, named, not leave the mount point at /mnt.
+	if ! IMAGE_WORK="$(temp_dir release-image)"; then
+		IMAGE_WORK=""
+		echo "    cannot create a temp dir: mktemp failed under ${TMPDIR:-/tmp}; the image is not mounted"
+		return 1
+	fi
 	chmod 700 "$IMAGE_WORK"
 	IMAGE_MNT="$IMAGE_WORK/mnt"
 	mkdir -m 700 "$IMAGE_MNT"
@@ -1204,6 +1210,12 @@ publish.sh --upload"
 	unset FAKE_DETACH_FAIL
 	check "a failed detach is a failure with a clear message, before upload" \
 		eval '[ "$CASE_RC" = 3 ] && out_has "could not detach the image" && out_has "REFUSE: image-unverified" && not_logged "^publish.sh --upload"'
+	full_case notmp
+	export TMPDIR="$T/no-such-tmp"
+	run_case in_fakes run_full
+	export TMPDIR="$T/tmpdir"
+	check "a temp dir that cannot be created refuses, named, before any attach" \
+		eval '[ "$CASE_RC" = 3 ] && out_has "cannot create a temp dir: " && not_logged "^hdiutil attach" && not_logged "^publish.sh --upload"'
 	full_case exists
 	mkdir -p "$T/run-exists/stage.app-build"
 	run_case in_fakes run_full

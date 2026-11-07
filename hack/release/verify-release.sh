@@ -315,7 +315,13 @@ image_problems() (
 		echo "    --team-id $pin names a team, but $(basename "$img") is a rehearsal image with none"; exit 1
 	fi
 
-	work="$(temp_dir verify-release)"
+	# errexit is off in the caller's command substitution: a failed mktemp must
+	# stop here, named, not leave the mount point at /mnt.
+	if ! work="$(temp_dir verify-release)"; then
+		work=""
+		echo "    cannot create a temp dir: mktemp failed under ${TMPDIR:-/tmp}; the image is not mounted"
+		exit 1
+	fi
 	chmod 700 "$work"
 	mnt="$work/mnt"
 	mkdir -m 700 "$mnt"
@@ -549,7 +555,8 @@ EOF
 
 	# Every attach and detach of the cases below passes through here, so the
 	# mount points can be checked afterwards and a lying attach or a busy volume
-	# can be staged on the real image.
+	# can be staged on the real image. attach-refused fails an attach without
+	# making it.
 	hdiutil() {
 		local a m="" n
 		case "$1" in
@@ -559,6 +566,7 @@ EOF
 				[ "$a" != -mountpoint ] || m=next
 			done
 			printf '%s\n' "$m" >>"$T/mounts"
+			[ ! -e "$T/attach-refused" ] || return 1
 			command hdiutil "$@" || return $?
 			[ ! -e "$T/attach-lies" ] || return 1
 			;;
@@ -648,6 +656,18 @@ EOF
 		verify_image "$T/notdmg/$rname" "$(sums_for "$T/notdmg/$rname")" ""
 	expect "--team-id on a rehearsal image fails" 1 "is a rehearsal image with none" \
 		verify_image "$good" "$(sums_for "$good")" ABCDE12345
+	# attach-refused keeps a wrong mount point (the old /mnt) off the real hdiutil.
+	local mounts_before
+	mounts_before="$(wc -l <"$T/mounts" | tr -d ' ')"
+	: >"$T/attach-refused"
+	TMPDIR="$T/no-such-tmp" expect "a temp dir that cannot be created fails, named" 1 "cannot create a temp dir: " \
+		verify_image "$good" "$(sums_for "$good")" ""
+	rm -f "$T/attach-refused"
+	if [ "$(wc -l <"$T/mounts" | tr -d ' ')" = "$mounts_before" ]; then
+		ok "a temp dir that cannot be created fails before any attach"
+	else
+		bad "a temp dir that cannot be created fails before any attach"
+	fi
 	: >"$T/attach-lies"
 	expect "an attach that fails after mounting reports it" 1 "cannot attach the image" verify_image "$good" "$(sums_for "$good")" ""
 	rm -f "$T/attach-lies"
