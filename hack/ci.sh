@@ -9,7 +9,11 @@
 #   2. swift test, once, with its swift-testing event stream: a failure names
 #      the failing tests from the stream, and a stream this repo's reader does
 #      not recognise is a failure; the acceptance gates of stage 12 read this
-#      same stream (K3SM_APP_TEST_EVENTS) instead of running the suite again
+#      same stream (K3SM_APP_TEST_EVENTS) instead of running the suite again.
+#      First hack/testresults.sh --self-test (the quarantine checker's table
+#      tests); then the stream passes through that checker, which validates
+#      hack/quarantine.txt and applies it for the tier (below), and swift
+#      test's exit and the checker's are checked against each other
 #   3. hack/build-app.sh into a temp dir (builds, signs and verifies the bundle;
 #      the app icon is in it and reads back with a 1024-pixel member; the
 #      MCP server is in it, sealed by the bundle's signature, and answers
@@ -64,6 +68,14 @@
 #      can nest, it refuses to act outside its private copy. Its requirement
 #      check and bundle verifier are exercised only at attended signing.
 #
+#   hack/ci.sh [--acceptance | --swap-engine | --shipped-helper] [--tier fast|full] [--edited <file>]
+#
+# --tier picks how the suite's stream applies hack/quarantine.txt: full (the
+# default) reds on every failing test; fast excuses a listed flake outside the
+# targets the change edits, when every failing iteration carries its recorded
+# signature. --edited names a file with one edited target per line (a target
+# covers its <target>Tests too).
+#
 # hack/ci.sh --acceptance runs only stage 12. hack/ci.sh --swap-engine runs
 # stage 13 with the K3smSwapTests suite itself (swift test --filter).
 # hack/ci.sh --shipped-helper runs only stage 14. The gates cross-check the k3sm
@@ -79,16 +91,31 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-usage() { echo "usage: hack/ci.sh [--acceptance | --swap-engine | --shipped-helper]" >&2; exit 2; }
+usage() { echo "usage: hack/ci.sh [--acceptance | --swap-engine | --shipped-helper] [--tier fast|full] [--edited <file>]" >&2; exit 2; }
 mode=all
-case "${1:-}" in
-"") ;;
---acceptance) mode=acceptance ;;
---swap-engine) mode=swap-engine ;;
---shipped-helper) mode=shipped-helper ;;
-*) usage ;;
-esac
-[ "$#" -le 1 ] || usage
+test_tier=full
+edited_file=""
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	--acceptance | --swap-engine | --shipped-helper)
+		[ "$mode" = all ] || usage
+		mode="${1#--}"
+		shift
+		;;
+	--tier) [ "$#" -ge 2 ] || usage; test_tier="$2"; shift 2 ;;
+	--edited) [ "$#" -ge 2 ] || usage; edited_file="$2"; shift 2 ;;
+	*) usage ;;
+	esac
+done
+case "$test_tier" in fast | full) ;; *) echo "hack/ci.sh: --tier must be fast or full" >&2; exit 2 ;; esac
+edited_args=()
+if [ -n "$edited_file" ]; then
+	[ -r "$edited_file" ] || { echo "hack/ci.sh: --edited $edited_file is not readable" >&2; exit 2; }
+	while IFS= read -r t || [ -n "$t" ]; do
+		case "$t" in '' | '#'*) continue ;; esac
+		edited_args+=(--edited "$t")
+	done < "$edited_file"
+fi
 
 # The Command Line Tools ship the swift-testing macro plugin in a directory
 # SwiftPM does not search on its own; point the compiler at it. A full Xcode
@@ -112,8 +139,17 @@ fi
 # the stream before the run fails; a stream that cannot be read fails too. The
 # CLI cross-check tests read K3SM_DIR, given here as the absolute path the
 # acceptance gates also use, so the stream answers for the same checkout.
+#
+# The stream then passes through hack/testresults/main.swift (built here, its
+# table tests run first), which validates hack/quarantine.txt and applies it
+# for --tier. Its exit says whether swift test should have failed (0: no
+# failure, 3: only registry-excused failures, 1: red), so the two exits are
+# checked against each other and neither can turn the other green.
 run_suite() {
-	local dir="$1" status=0 k3sm_dir="${K3SM_DIR:-../k3sm}" env_args=()
+	local dir="$1" status=0 k3sm_dir="${K3SM_DIR:-../k3sm}" env_args=() tr_rc=0
+	echo "==> hack/testresults.sh --self-test (the quarantine checker)"
+	bash hack/testresults.sh build "$dir/testresults"
+	bash hack/testresults.sh --self-test "$dir/testresults"
 	# Without a checkout K3SM_DIR stays as the caller left it, so the tests
 	# that need one skip as they always have; ci.sh's own K3SM_DIR is never
 	# changed, since later stages read whether the caller set it.
@@ -130,12 +166,31 @@ run_suite() {
 	# the failure lines. PIPESTATUS[0] is swift's exit, not tee's.
 	env ${env_args[@]+"${env_args[@]}"} swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"} \
 		--experimental-event-stream-output "$dir/events.jsonl" 2>&1 | tee "$dir/test.log" || status=${PIPESTATUS[0]}
-	if [ "$status" != 0 ]; then
+	echo "==> the quarantine registry (tier: $test_tier)"
+	"$dir/testresults" --registry hack/quarantine.txt --tier "$test_tier" --events "$dir/events.jsonl" \
+		--log "$dir/test.log" ${edited_args[@]+"${edited_args[@]}"} || tr_rc=$?
+	case "$status:$tr_rc" in
+	0:0) ;;
+	1:3) echo "==> swift test failed only on quarantined tests (see QUARANTINED above)" ;;
+	*:1)
+		if [ "$status" != 0 ]; then
+			echo "==> the failing tests"
+			failure_names "$dir/events.jsonl" "$dir/test.log" "$dir/results.tsv"
+		fi
+		echo "FAIL: the test stage is RED (swift test exited $status); the RED lines above say why"
+		exit 1
+		;;
+	*:0)
 		echo "==> the failing tests"
 		failure_names "$dir/events.jsonl" "$dir/test.log" "$dir/results.tsv"
-		echo "FAIL: swift test exited $status"
+		echo "FAIL: swift test exited $status and its stream holds no failure; read the log above"
 		exit 1
-	fi
+		;;
+	*)
+		echo "FAIL: swift test exit $status and the quarantine checker's exit $tr_rc disagree"
+		exit 1
+		;;
+	esac
 	test_results "$dir/events.jsonl" > "$dir/results.tsv" || exit 1
 	failed_tests "$dir/results.tsv"
 }
