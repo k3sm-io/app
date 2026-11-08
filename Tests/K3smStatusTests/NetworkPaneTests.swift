@@ -53,6 +53,22 @@ struct NetworkPaneTests {
         #expect(NetworkPaneFacts.stateLine(.unreadableField) == "Now: unknown")
     }
 
+    @Test("the Network pane warns about public networks while LAN access is on")
+    func testLANOnWarnsAboutPublicNetworks() throws {
+        let warning = NetworkPaneFacts.lanOnWarning
+        let absent = try Self.report("status_json_network-absent.json")
+        #expect(NetworkPaneFacts.lines(report: absent, nodes: nil).contains(warning))
+
+        let appliedOn = LANAccess(setting: .off, recorded: true, applied: LANApplied(setting: .on))
+        #expect(NetworkPaneFacts.warning(appliedOn) == warning)
+        #expect(NetworkPaneFacts.warning(LANAccess(setting: .on, recorded: true)) == warning)
+
+        let recorded = try Self.report("status_json_network-recorded.json")
+        #expect(!NetworkPaneFacts.lines(report: recorded, nodes: nil).contains(warning))
+        #expect(NetworkPaneFacts.warning(LANAccess(setting: .off, recorded: true)) == nil)
+        #expect(NetworkPaneFacts.warning(.unreadableField) == nil)
+    }
+
     @Test("a node address from the cluster is clipped to one line")
     func addressClipped() throws {
         let recorded = try Self.report("status_json_network-recorded.json")
