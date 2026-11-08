@@ -1,0 +1,36 @@
+# hack/quarantine.txt -- the flake quarantine registry for this repository.
+#
+# hack/ci.sh reads this file on every run through hack/testresults/main.swift
+# (built and self-tested by hack/testresults.sh), which validates it first: a line
+# that does not parse reds every tier, so the registry fails closed. One entry per
+# line; `#` starts a comment (a whole line, or after whitespace); blank lines are
+# ignored. Values that hold spaces use shell-style quotes:
+#
+#   <TestTarget>/<Suite>[/<NestedSuite>...]/<function>  sig="<failure signature>"  owner=<login or role>  filed=<YYYY-MM-DD>  deadline=<YYYY-MM-DD>  fix=<issue>  reason="<why>"
+#
+#   <function> is written as swift-testing names it, argument labels included:
+#             K3smStatusTests/LogColumnsTests/contentWidth(). A test outside any
+#             suite cannot be listed.
+#   sig       a literal substring of the recorded failure, at least 12 characters;
+#             a failure is excused only when the messages of the failing issues of
+#             every iteration that failed contain it. A sig that occurs in the test
+#             id is refused: it would match every failure of that test.
+#   owner, filed, deadline, fix, reason   all required; filed <= deadline.
+#
+# Every key is required, no key may repeat, no unknown key is accepted, and a test
+# id may appear once. At most 10 entries.
+#
+# Never quarantinable (such an entry is refused, which reds every tier): a test whose
+# signature is a race or sanitizer report, a test in a K3smInstall* target (the
+# checked root step), and a test whose name names signature policy, cosign, RBAC
+# or K3smInstall.
+#
+# What an entry buys, in the fast tier only: a failure of the listed test, outside
+# the targets the change edits (an edited target covers its <target>Tests too),
+# whose failing issues carry the signature and no race report, is reported and
+# does not red. A race or sanitizer report in the console log reds, whatever is
+# listed. The full tier (the default) reds on every failure, and an entry past its
+# deadline reds every tier.
+#
+# Example (not an entry):
+#   K3smStatusTests/PollTests/backoffAfterTimeout()  sig="the poll timed out after 2 seconds"  owner=maintainers  filed=2026-11-01  deadline=2026-12-01  fix=#123  reason="a loaded host misses the poll window"
