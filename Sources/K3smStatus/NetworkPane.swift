@@ -24,6 +24,15 @@ public enum NetworkPaneFacts {
     /// The pane's line on a Mac whose role has no switch, or no install.
     public static let noSwitchText = "This Mac runs no k3sm node, so it has no network settings."
 
+    /// The warning shown while LAN access is on, recorded or applied.
+    public static let lanOnWarning = "LAN access is on: k3sm NodePorts and LoadBalancers answer on every network this Mac joins, including public Wi-Fi. sudo k3sm network lan off limits them to this Mac and the cluster mesh. Pods that bind their own addresses can still listen on other networks."
+
+    /// The warning line when the recorded or the applied setting is on; nil
+    /// when both are off or unknown.
+    public static func warning(_ network: LANAccess) -> String? {
+        network.setting == .on || network.applied?.setting == .on ? lanOnWarning : nil
+    }
+
     /// The current state: what k3sm serves when the report carries it (an
     /// administrator's read), else the recorded setting; "unknown" for a
     /// value the app does not know.
@@ -49,6 +58,7 @@ public enum NetworkPaneFacts {
         guard report.hasLANSwitch else { return [noSwitchText] }
         let network = report.network
         var out = [stateLine(network)]
+        if let warning = warning(network) { out.append(warning) }
         if !network.covers.isEmpty {
             out.append("The switch controls: " + list(network.covers))
         }
