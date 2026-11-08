@@ -1,0 +1,3 @@
+# an entry whose deadline is today still holds
+exit 3
+QUARANTINED K3smStatusTests/PollTests/flaky()

@@ -1,0 +1,3 @@
+# a line missing keys reds
+exit 1
+RED registry: line 2: missing filed, deadline, fix, reason

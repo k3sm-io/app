@@ -1,0 +1,3 @@
+# a race report as the sig is refused
+exit 1
+refused, a race or sanitizer report is never quarantinable

@@ -1,0 +1,3 @@
+# an entry in a K3smInstall* target is refused, even on a clean run
+exit 1
+RED registry: line 2: refused, K3smInstallTests/CopyOutScriptTests/quotesEveryValue() can never be quarantined (trust surface K3smInstall)

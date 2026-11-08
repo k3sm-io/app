@@ -1,0 +1,4 @@
+# an unlisted failure reds in the fast tier
+exit 1
+RED K3smStatusTests/PollTests/other(): failed
+K3smStatusTests/PollTests/other(): Expectation failed: a != b

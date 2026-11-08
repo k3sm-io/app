@@ -1,0 +1,4 @@
+# a race report in the console log reds whatever is listed
+exit 1
+RED (console log) race report: failed
+QUARANTINED K3smStatusTests/PollTests/flaky()

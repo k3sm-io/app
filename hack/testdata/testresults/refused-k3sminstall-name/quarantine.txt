@@ -1,0 +1,2 @@
+# fixture registry
+K3smStatusTests/SetupTests/k3smInstallStepRuns()  sig="the root step did not finish"  owner=maintainers  filed=2026-11-01  deadline=2026-12-01  fix=#2  reason=r

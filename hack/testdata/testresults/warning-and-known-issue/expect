@@ -1,0 +1,4 @@
+# a warning and a known issue are not failures
+exit 0
+0 failed
+ok

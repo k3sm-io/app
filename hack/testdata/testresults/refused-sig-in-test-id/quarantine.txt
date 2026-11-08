@@ -1,0 +1,2 @@
+# fixture registry
+K3smStatusTests/PollTests/flaky()  sig="PollTests/flaky()"  owner=maintainers  filed=2026-11-01  deadline=2026-12-01  fix=#2  reason=r

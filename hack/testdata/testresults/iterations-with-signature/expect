@@ -1,0 +1,3 @@
+# every failing iteration carries the sig: excused
+exit 3
+QUARANTINED K3smStatusTests/PollTests/flaky()

@@ -1,0 +1,3 @@
+# an entry naming a test not in the stream is harmless
+exit 0
+ok

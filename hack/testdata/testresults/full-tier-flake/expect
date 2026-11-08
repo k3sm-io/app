@@ -1,0 +1,4 @@
+# the full tier reds on a listed flake
+exit 1
+RED K3smStatusTests/PollTests/flaky(): quarantined test failed; the full tier reds on it
+RED

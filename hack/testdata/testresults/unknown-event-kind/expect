@@ -1,0 +1,3 @@
+# an event kind this reader does not know reds
+exit 1
+RED test stream: line 13: an unrecognised event kind "testVanished"

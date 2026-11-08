@@ -1,0 +1,4 @@
+# an excused flake does not cover another failure
+exit 1
+QUARANTINED K3smStatusTests/PollTests/flaky()
+RED K3smStatusTests/PollTests/other(): failed

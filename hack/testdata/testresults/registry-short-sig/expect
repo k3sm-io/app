@@ -1,0 +1,3 @@
+# a sig under 12 characters reds
+exit 1
+sig is shorter than 12 characters

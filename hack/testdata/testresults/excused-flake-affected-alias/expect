@@ -1,0 +1,3 @@
+# affected is the fast tier's other name
+exit 3
+QUARANTINED K3smStatusTests/PollTests/flaky()

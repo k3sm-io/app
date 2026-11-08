@@ -1,0 +1,3 @@
+# an unclosed quote reds
+exit 1
+unparseable (no closing quotation)

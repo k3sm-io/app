@@ -1,0 +1,4 @@
+# an empty registry and a passing run: green
+exit 0
+4 tests, 0 failed, 0 quarantine entries
+ok
