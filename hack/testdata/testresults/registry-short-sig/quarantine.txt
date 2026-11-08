@@ -1,0 +1,2 @@
+# fixture registry
+K3smStatusTests/PollTests/flaky()  sig="timed out"  owner=maintainers  filed=2026-11-01  deadline=2026-12-01  fix=#1  reason="a loaded host misses the poll window"

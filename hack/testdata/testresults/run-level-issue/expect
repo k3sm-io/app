@@ -1,0 +1,3 @@
+# a failing issue outside any test reds
+exit 1
+RED (run) outside any test: failed

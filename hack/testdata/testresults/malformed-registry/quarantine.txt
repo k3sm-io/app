@@ -1,0 +1,2 @@
+# fixture registry
+K3smStatusTests/PollTests/flaky()  sig="the poll timed out"  owner=maintainers

@@ -1,0 +1,12 @@
+# fixture registry
+K3smStatusTests/PollTests/t0()  sig="the poll timed out after 2 seconds"  owner=m  filed=2026-11-01  deadline=2026-12-01  fix=#1  reason=r
+K3smStatusTests/PollTests/t1()  sig="the poll timed out after 2 seconds"  owner=m  filed=2026-11-01  deadline=2026-12-01  fix=#1  reason=r
+K3smStatusTests/PollTests/t2()  sig="the poll timed out after 2 seconds"  owner=m  filed=2026-11-01  deadline=2026-12-01  fix=#1  reason=r
+K3smStatusTests/PollTests/t3()  sig="the poll timed out after 2 seconds"  owner=m  filed=2026-11-01  deadline=2026-12-01  fix=#1  reason=r
+K3smStatusTests/PollTests/t4()  sig="the poll timed out after 2 seconds"  owner=m  filed=2026-11-01  deadline=2026-12-01  fix=#1  reason=r
+K3smStatusTests/PollTests/t5()  sig="the poll timed out after 2 seconds"  owner=m  filed=2026-11-01  deadline=2026-12-01  fix=#1  reason=r
+K3smStatusTests/PollTests/t6()  sig="the poll timed out after 2 seconds"  owner=m  filed=2026-11-01  deadline=2026-12-01  fix=#1  reason=r
+K3smStatusTests/PollTests/t7()  sig="the poll timed out after 2 seconds"  owner=m  filed=2026-11-01  deadline=2026-12-01  fix=#1  reason=r
+K3smStatusTests/PollTests/t8()  sig="the poll timed out after 2 seconds"  owner=m  filed=2026-11-01  deadline=2026-12-01  fix=#1  reason=r
+K3smStatusTests/PollTests/t9()  sig="the poll timed out after 2 seconds"  owner=m  filed=2026-11-01  deadline=2026-12-01  fix=#1  reason=r
+K3smStatusTests/PollTests/t10()  sig="the poll timed out after 2 seconds"  owner=m  filed=2026-11-01  deadline=2026-12-01  fix=#1  reason=r

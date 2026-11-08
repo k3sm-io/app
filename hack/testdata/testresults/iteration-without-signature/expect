@@ -1,0 +1,3 @@
+# every failing iteration must carry the sig
+exit 1
+RED K3smStatusTests/PollTests/flaky(): quarantined, but the failure does not match the recorded signature

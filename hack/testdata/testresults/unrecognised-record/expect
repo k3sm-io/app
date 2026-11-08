@@ -1,0 +1,3 @@
+# a record that is neither a test nor an event reds
+exit 1
+an unrecognised record

@@ -1,0 +1,4 @@
+# a listed flake outside the edited targets, carrying its sig: excused (3)
+exit 3
+QUARANTINED K3smStatusTests/PollTests/flaky(): failed with its recorded signature
+ok (1 failure excused by the registry)

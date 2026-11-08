@@ -1,0 +1,3 @@
+# an entry whose test names K3smInstall is refused
+exit 1
+trust surface: test name names "k3sminstall"

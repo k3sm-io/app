@@ -1,0 +1,3 @@
+# an impossible date reds
+exit 1
+filed="2026-02-30" is not a YYYY-MM-DD date

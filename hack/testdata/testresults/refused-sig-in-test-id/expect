@@ -1,0 +1,3 @@
+# a sig that occurs in the test id is refused
+exit 1
+sig occurs in the test id

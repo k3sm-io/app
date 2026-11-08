@@ -1,0 +1,2 @@
+# fixture registry
+k3sm.io/k3sm/pkg/status::TestDecode  sig="unexpected end of JSON input"  owner=maintainers  filed=2026-11-01  deadline=2026-12-01  fix=#2  reason=r

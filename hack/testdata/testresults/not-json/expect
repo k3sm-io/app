@@ -1,0 +1,3 @@
+# a line that is not JSON reds
+exit 1
+RED test stream: line 6: not JSON
