@@ -146,14 +146,59 @@ fi
 # test_set is ./... (the whole swift test) or empty (doc-only change: skipped).
 # ci_tmp is needed only while the mode resolves, so it is removed right after.
 ci_tmp="$(mktemp -d "${TMPDIR:-/tmp}/app-ci-mode.XXXXXX")"
-trap 'rm -rf "$ci_tmp"' EXIT
+# Record this run in the gitignored .ci/last.json (read by the workspace hack/ci-last.sh), best effort,
+# never changing the exit status. A stage is the text of the last `echo "==> ..."` printed;
+# on a red run that stage is the one that failed. ci_cleanup is the cleanup the EXIT
+# handler runs first; a stage that owns a temp dir sets it instead of calling trap.
+ci_root=$PWD
+ci_cleanup=""
+ci_last_stage=""
+ci_note_stage() {
+	case ${1:-} in
+	"==> "*)
+		ci_last_stage=${1#"==> "}
+		ci_last_stage=${ci_last_stage#\[*\] } ;;
+	esac
+}
+# echo is wrapped (not a DEBUG trap) so PIPESTATUS survives for the stages that read it.
+echo() { ci_note_stage "${1:-}"; builtin echo "$@"; }
+ci_json_str() {
+	local s
+	s=$(printf '%s' "$1" | tr -d '[:cntrl:]')
+	s=${s//\\/\\\\}
+	printf '%s' "${s//\"/\\\"}"
+}
+ci_record_last() {
+	local rc=$1 result=green failed="" sha at tmpf
+	if [ "$rc" != 0 ]; then
+		result=red
+		[ -z "$ci_last_stage" ] || failed="\"$(ci_json_str "$ci_last_stage")\""
+	elif [ "${dry_run:-0}" = 1 ]; then
+		result=skipped
+	fi
+	sha=$(git -C "$ci_root" rev-parse HEAD 2>/dev/null) || sha=""
+	at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	mkdir -p "$ci_root/.ci" && tmpf=$(mktemp "$ci_root/.ci/last.XXXXXX") || return 0
+	printf '{"repo":"%s","sha":"%s","result":"%s","at":"%s","failed":[%s]}\n' \
+		"$(ci_json_str "$(basename "$ci_root")")" "$sha" "$result" "$at" "$failed" >"$tmpf"
+	mv -f "$tmpf" "$ci_root/.ci/last.json" || rm -f "$tmpf"
+}
+ci_on_exit() {
+	local rc=$1
+	if [ -n "$ci_cleanup" ]; then eval "$ci_cleanup" || true; fi
+	ci_record_last "$rc" || true
+	exit "$rc"
+}
+trap 'ci_on_exit $?' EXIT
+# shellcheck disable=SC2016 # the EXIT handler evals this string
+ci_cleanup='rm -rf "$ci_tmp"'
 gate_repo=app
 gate_lang=swift
 # shellcheck source=hack/lib/affected-mode.sh
 . hack/lib/affected-mode.sh
 resolve_gate_mode
 rm -rf "$ci_tmp"
-trap - EXIT
+ci_cleanup=""
 
 # The Command Line Tools ship the swift-testing macro plugin in a directory
 # SwiftPM does not search on its own; point the compiler at it. A full Xcode
@@ -254,9 +299,9 @@ acceptance_stage() {
 	if [ -z "$events" ]; then
 		echo "==> swift test (once, for every gate)"
 		suite_dir="$(mktemp -d "${TMPDIR:-/tmp}/app-suite.XXXXXX")"
-		# shellcheck disable=SC2064 # the path is fixed now, on purpose
+		# shellcheck disable=SC2016 # the path is fixed now, on purpose
 		# The full run's $tmp (set when stage 2 was skipped) keeps its cleanup.
-		trap "rm -rf '$suite_dir'${tmp:+ '$tmp'}" EXIT
+		ci_cleanup="rm -rf '$suite_dir'${tmp:+ '$tmp'}"
 		run_suite "$suite_dir"
 		events="$suite_dir/events.jsonl"
 	fi
@@ -340,7 +385,8 @@ swift build ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"}
 # Not a bare mktemp -d: on macOS that ignores TMPDIR and uses the system temp
 # folder, so a gate's own TMPDIR would never see this tree.
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/app-ci.XXXXXX")"
-trap 'rm -rf "$tmp"' EXIT
+# shellcheck disable=SC2016 # the EXIT handler evals this string
+ci_cleanup='rm -rf "$tmp"'
 mkdir "$tmp/suite"
 
 echo "==> swift test"
