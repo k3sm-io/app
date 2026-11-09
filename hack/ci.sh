@@ -69,6 +69,7 @@
 #      check and bundle verifier are exercised only at attended signing.
 #
 #   hack/ci.sh [--acceptance | --swap-engine | --shipped-helper] [--tier fast|full] [--edited <file>]
+#              [--packages <file> [--base <sha>]] [--dry-run]
 #
 # --tier picks how the suite's stream applies hack/quarantine.txt: full (the
 # default) reds on every failing test; fast excuses a listed flake outside the
@@ -83,6 +84,18 @@
 # ../k3sm): the full run skips it by name on a lone clone, and --acceptance
 # fails there.
 #
+# With no mode flag the gate is the full gate, unchanged. --packages <file> reads a
+# k3sm-affected/v1 list (the format the affected-set selector writes; the reader is
+# hack/lib/affected-mode.sh, with gate_lang=swift). No list line names a Swift
+# target, so a list never narrows the suite: a missing, unreadable, malformed or
+# unknown-version file, an @full line for app, an unresolved --base (default: the
+# merge base with origin/main) or any non-doc change against it runs the full gate.
+# Only when the diff holds doc files alone (*.md, docs/, LICENSE, NOTICE, DCO) is
+# stage 2's swift test skipped; every other stage runs, and stage 12 then runs the
+# suite once itself for its gates, as --acceptance does. --dry-run resolves the
+# mode, prints the plan and exits before any stage runs. The mode flags go with the
+# full run only, not with --acceptance, --swap-engine or --shipped-helper.
+#
 # K3SM_SWIFTPM_DISABLE_SANDBOX=1 passes --disable-sandbox to every swift
 # package, build and test run. SwiftPM applies its own sandbox when it compiles
 # the manifest and builds, and a process already inside a sandbox cannot apply
@@ -91,23 +104,33 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-usage() { echo "usage: hack/ci.sh [--acceptance | --swap-engine | --shipped-helper] [--tier fast|full] [--edited <file>]" >&2; exit 2; }
-mode=all
+usage() { echo "usage: hack/ci.sh [--acceptance | --swap-engine | --shipped-helper] [--tier fast|full] [--edited <file>] [--packages <file> [--base <sha>]] [--dry-run]" >&2; exit 2; }
+run_mode=all
 test_tier=full
 edited_file=""
+pkg_file="" pkg_file_set=0 diff_base="" dry_run=0
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 	--acceptance | --swap-engine | --shipped-helper)
-		[ "$mode" = all ] || usage
-		mode="${1#--}"
+		[ "$run_mode" = all ] || usage
+		run_mode="${1#--}"
 		shift
 		;;
 	--tier) [ "$#" -ge 2 ] || usage; test_tier="$2"; shift 2 ;;
 	--edited) [ "$#" -ge 2 ] || usage; edited_file="$2"; shift 2 ;;
+	--packages) [ "$#" -ge 2 ] || usage; pkg_file="$2"; pkg_file_set=1; shift 2 ;;
+	--base) [ "$#" -ge 2 ] && [ -n "$2" ] || usage; diff_base="$2"; shift 2 ;;
+	--dry-run) dry_run=1; shift ;;
 	*) usage ;;
 	esac
 done
 case "$test_tier" in fast | full) ;; *) echo "hack/ci.sh: --tier must be fast or full" >&2; exit 2 ;; esac
+if [ -n "$diff_base" ] && [ "$pkg_file_set" = 0 ]; then
+	echo "hack/ci.sh: --base goes with --packages" >&2; exit 2
+fi
+if [ "$run_mode" != all ] && { [ "$pkg_file_set" = 1 ] || [ "$dry_run" = 1 ]; }; then
+	echo "hack/ci.sh: --packages and --dry-run go with the full run only" >&2; exit 2
+fi
 edited_args=()
 if [ -n "$edited_file" ]; then
 	[ -r "$edited_file" ] || { echo "hack/ci.sh: --edited $edited_file is not readable" >&2; exit 2; }
@@ -116,6 +139,21 @@ if [ -n "$edited_file" ]; then
 		edited_args+=(--edited "$t")
 	done < "$edited_file"
 fi
+
+# The --packages mode lives in hack/lib/affected-mode.sh, which defines read_packages
+# and resolve_gate_mode and carries the k3sm-affected/v1 grammar; these are the
+# variables that make it this repository's. A Swift gate has no module to narrow to:
+# test_set is ./... (the whole swift test) or empty (doc-only change: skipped).
+# ci_tmp is needed only while the mode resolves, so it is removed right after.
+ci_tmp="$(mktemp -d "${TMPDIR:-/tmp}/app-ci-mode.XXXXXX")"
+trap 'rm -rf "$ci_tmp"' EXIT
+gate_repo=app
+gate_lang=swift
+# shellcheck source=hack/lib/affected-mode.sh
+. hack/lib/affected-mode.sh
+resolve_gate_mode
+rm -rf "$ci_tmp"
+trap - EXIT
 
 # The Command Line Tools ship the swift-testing macro plugin in a directory
 # SwiftPM does not search on its own; point the compiler at it. A full Xcode
@@ -206,7 +244,7 @@ acceptance_stage() {
 	echo "==> hack/acceptance/lib/test-passed.sh --self-test"
 	bash hack/acceptance/lib/test-passed.sh --self-test
 	if [ ! -d "$k3sm_dir/cmd/k3sm" ]; then
-		if [ "$mode" = acceptance ]; then
+		if [ "$run_mode" = acceptance ]; then
 			echo "FAIL: no k3sm checkout at $k3sm_dir; the acceptance gates need one (set K3SM_DIR)"
 			exit 1
 		fi
@@ -217,7 +255,8 @@ acceptance_stage() {
 		echo "==> swift test (once, for every gate)"
 		suite_dir="$(mktemp -d "${TMPDIR:-/tmp}/app-suite.XXXXXX")"
 		# shellcheck disable=SC2064 # the path is fixed now, on purpose
-		trap "rm -rf '$suite_dir'" EXIT
+		# The full run's $tmp (set when stage 2 was skipped) keeps its cleanup.
+		trap "rm -rf '$suite_dir'${tmp:+ '$tmp'}" EXIT
 		run_suite "$suite_dir"
 		events="$suite_dir/events.jsonl"
 	fi
@@ -265,17 +304,17 @@ shipped_helper_stage() {
 	bash hack/verify-shipped-helper.sh
 }
 
-if [ "$mode" = acceptance ]; then
+if [ "$run_mode" = acceptance ]; then
 	acceptance_stage
 	echo "app ci --acceptance: green"
 	exit 0
 fi
-if [ "$mode" = swap-engine ]; then
+if [ "$run_mode" = swap-engine ]; then
 	swap_engine_stage run
 	echo "app ci --swap-engine: green"
 	exit 0
 fi
-if [ "$mode" = shipped-helper ]; then
+if [ "$run_mode" = shipped-helper ]; then
 	shipped_helper_stage
 	echo "app ci --shipped-helper: green"
 	exit 0
@@ -305,7 +344,11 @@ trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/suite"
 
 echo "==> swift test"
-run_suite "$tmp/suite"
+if [ ${#test_set[@]} -gt 0 ]; then
+	run_suite "$tmp/suite"
+else
+	echo "    skipped (no affected target)"
+fi
 
 echo "==> hack/build-app.sh (temp dir)"
 bash hack/build-app.sh "$tmp/out"
@@ -703,7 +746,12 @@ echo "==> help tags (hack/verify-help.sh)"
 bash hack/verify-help.sh --self-test
 bash hack/verify-help.sh
 
-acceptance_stage "$tmp/suite/events.jsonl"
+# A skipped stage 2 left no stream, so stage 12 runs the suite once itself.
+if [ ${#test_set[@]} -gt 0 ]; then
+	acceptance_stage "$tmp/suite/events.jsonl"
+else
+	acceptance_stage
+fi
 
 swap_engine_stage
 
