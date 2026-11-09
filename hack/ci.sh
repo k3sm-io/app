@@ -183,8 +183,14 @@ ci_record_last() {
 		"$(ci_json_str "$(basename "$ci_root")")" "$sha" "$result" "$at" "$failed" >"$tmpf"
 	mv -f "$tmpf" "$ci_root/.ci/last.json" || rm -f "$tmpf"
 }
+ci_done=0
 ci_on_exit() {
 	local rc=$1
+	if [ "$rc" = 0 ] && [ "$ci_done" != 1 ]; then
+		rc=1
+		echo "ci: stopped before the end of the script with status 0 (a set -u abort under bash 3.2?); treating it as red" >&2
+		[ -n "$ci_last_stage" ] || ci_last_stage=unknown
+	fi
 	if [ -n "$ci_cleanup" ]; then eval "$ci_cleanup" || true; fi
 	ci_record_last "$rc" || true
 	exit "$rc"
@@ -352,16 +358,19 @@ shipped_helper_stage() {
 if [ "$run_mode" = acceptance ]; then
 	acceptance_stage
 	echo "app ci --acceptance: green"
+	ci_done=1
 	exit 0
 fi
 if [ "$run_mode" = swap-engine ]; then
 	swap_engine_stage run
 	echo "app ci --swap-engine: green"
+	ci_done=1
 	exit 0
 fi
 if [ "$run_mode" = shipped-helper ]; then
 	shipped_helper_stage
 	echo "app ci --shipped-helper: green"
+	ci_done=1
 	exit 0
 fi
 
@@ -804,3 +813,4 @@ swap_engine_stage
 shipped_helper_stage
 
 echo "app ci: green"
+ci_done=1
