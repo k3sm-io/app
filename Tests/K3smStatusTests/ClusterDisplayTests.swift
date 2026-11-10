@@ -295,6 +295,17 @@ struct ClusterDisplayTests {
         #expect(!got.contains("job-done"))
     }
 
+    @Test("the rail's pod count leaves out a finished pod and another node's pod")
+    func railPodCount() throws {
+        let (report, nodes, pods) = try Self.twoNodes()
+        let mine = ClusterDisplay.thisMacPods(pods, report: report, nodes: nodes)
+        #expect(mine.map(\.name).sorted() == ["linux-a", "web-a", "web-b"])
+        #expect(!mine.contains { $0.name == "job-done" }, "a finished pod is not running on this Mac")
+        #expect(!mine.contains { $0.name == "api-b" }, "mac-b's pod is not this Mac's")
+        #expect(mine.count == ClusterDisplay.thisMacPods(pods, report: report, nodeCount: ClusterDisplay.summary(of: report, nodes: nodes, pods: pods).nodeCount).count)
+        #expect(Help.Panel.railPods(mine.count).text == "This Mac is running 3 pods")
+    }
+
     @Test("tiles: one node with its lists")
     func tilesSingleNode() throws {
         let (_, nodes, pods) = try Self.twoNodes()

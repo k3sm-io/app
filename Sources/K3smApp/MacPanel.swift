@@ -38,6 +38,25 @@ struct MacPanel: View {
     private var tour: TourModel { app.tour }
 
     var body: some View {
+        // While the divider is dragged the panel can be narrower than either
+        // layout: each keeps its own width at the leading edge and is cut
+        // at the trailing one, never squeezed.
+        Group {
+            if app.consolePanelCollapsed {
+                RailPanel(app: app, workloads: workloads)
+                    .frame(width: PanelLayout.railWidth)
+            } else {
+                expanded
+                    .frame(minWidth: PanelLayout.minimum)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
+        .background(Palette.deep)
+    }
+
+    /// The panel at its usual width: the wordmark, then the figures, scrolled.
+    private var expanded: some View {
         VStack(alignment: .leading, spacing: 14) {
             // The wordmark stays put above the column: scrolling, by hand or
             // by the tour reaching a stop, never carries it out of view.
@@ -70,7 +89,6 @@ struct MacPanel: View {
                     app.panelMeasured(width)
                 }
         }
-        .background(Palette.deep)
     }
 
     /// The column under the wordmark: the figures, or while the set-up flow
@@ -324,8 +342,7 @@ struct MacPanel: View {
     /// load, and the core and memory legends with the memory block's heading.
     private var macRegion: PanelContent {
         let legend = (coreChart.legend + memoryChart.legend).map { PanelPair($0.label, $0.value, swatch: true) }
-        let load = macNode.flatMap { MetricsDisplay.nodeLoad(named: $0, nodes: workloads.nodes, state: workloads.metrics) }
-        let bars = NodeBars.of(row: macRow, load: load)
+        let bars = Self.macBars(report: report, workloads: workloads)
         return PanelContent(tiles: macTiles, lines: nodes?.lines ?? [],
                             pairs: [PanelPair(Self.machine.line, ""), PanelPair("Nodes", nodes?.heading ?? ""),
                                     PanelPair("Unified memory", memoryHeading)] + legend,
@@ -347,11 +364,31 @@ struct MacPanel: View {
 
     private var pods: [Pod] { workloads.workloads?.pods ?? [] }
     /// The pods on this Mac, for the This Mac meters.
-    private var macPods: [Pod] { ClusterDisplay.thisMacPods(pods, report: report, nodeCount: cluster.nodeCount) }
+    private var macPods: [Pod] { MacPanel.macPods(report: report, workloads: workloads) }
     /// This Mac's node, for its usage sample.
     private var macNode: String? { MetricsDisplay.thisMacNode(report: report, nodes: workloads.nodes) }
     /// This Mac's Cluster view row, for what its pods request; nil before the lists are read.
     private var macRow: ClusterNodeRow? { cluster.nodes.first { $0.thisMac } }
+
+    /// The pods this Mac is running (`ClusterDisplay.thisMacPods`: bound to
+    /// this node when there is more than one, never a finished one). The
+    /// column's pods tile and the rail's pod count count the same list.
+    @MainActor
+    static func macPods(report: StatusReport?, workloads: WorkloadsModel) -> [Pod] {
+        ClusterDisplay.thisMacPods(workloads.workloads?.pods ?? [], report: report, nodes: workloads.nodes)
+    }
+
+    /// This Mac's two load bars: what its pods request, from its Cluster
+    /// view row, and what its node used, from the usage sample. The column's
+    /// load row and the rail's meters draw the same bars.
+    @MainActor
+    static func macBars(report: StatusReport?, workloads: WorkloadsModel) -> NodeBars {
+        let row = ClusterDisplay.summary(of: report, nodes: workloads.nodes, pods: workloads.workloads?.pods)
+            .nodes.first { $0.thisMac }
+        let node = MetricsDisplay.thisMacNode(report: report, nodes: workloads.nodes)
+        let load = node.flatMap { MetricsDisplay.nodeLoad(named: $0, nodes: workloads.nodes, state: workloads.metrics) }
+        return NodeBars.of(row: row, load: load)
+    }
     /// The cores the node used and its pods' working sets, nil without a sample.
     private var coresUsed: Double? { MacUsage.cpuUsed(node: macNode, state: workloads.metrics) }
     private var memoryUsed: Int64? { MacUsage.podsMemoryUsed(macPods, node: macNode, state: workloads.metrics) }
@@ -410,6 +447,65 @@ struct Wordmark: View {
                 .onHover { inside in if inside { flap.poke() } }
             Text("k3sm").font(.system(size: 19, weight: .semibold)).foregroundStyle(.white)
         }
+    }
+}
+
+/// RailPanel is the console panel pinned at its floor, `PanelLayout.railWidth`,
+/// as the boards on app#191 draw it: the mark, the state dot and word, a
+/// hairline, this Mac's pod count over its word, and this Mac's two load meters
+/// upright (`RailMeter`, memory then CPU, each labelled under it), their
+/// full figures given only as a help tag since the rail has no room to draw
+/// them. No new colours; everything here already draws in the full panel.
+struct RailPanel: View {
+    @ObservedObject var app: AppModel
+    @ObservedObject var workloads: WorkloadsModel
+
+    private var report: StatusReport? { app.report }
+    private var pods: [Pod] { workloads.workloads?.pods ?? [] }
+    private var headline: StatusHeadline { app.pane.panelHeadline(report: report, podCount: pods.count) }
+    /// The pods this Mac is running, the list the column's pods tile counts.
+    private var macPods: [Pod] { MacPanel.macPods(report: report, workloads: workloads) }
+    /// The same two bars the column's load row draws, upright here.
+    private var bars: NodeBars { MacPanel.macBars(report: report, workloads: workloads) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            FlappingButterfly(angle: app.flap.angle).frame(width: 22, height: 22)
+                .onHover { inside in if inside { app.flap.poke() } }
+                .padding(.bottom, 22)
+            VStack(spacing: 6) {
+                Circle().fill(Palette.rowOnDark(headline.tone)).frame(width: 8, height: 8)
+                    .help(Help.Status.dot)
+                Text(verbatim: headline.state).font(.system(size: 11)).foregroundStyle(.white.opacity(0.85))
+                    .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: headline.accessibilityLabel))
+            .opensClusterTab(app)
+            if app.pane.stripShown {
+                Rectangle().fill(.white.opacity(0.18)).frame(width: 40, height: 1)
+                    .padding(.vertical, 22)
+                VStack(spacing: 2) {
+                    Text(verbatim: "\(macPods.count)").font(.system(size: 14, weight: .semibold)).monospacedDigit()
+                        .foregroundStyle(.white)
+                    Text(verbatim: macPods.count == 1 ? "pod" : "pods").font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.62))
+                }
+                .help(Help.Panel.railPods(macPods.count))
+                if bars.hasFigures {
+                    VStack(spacing: 18) {
+                        RailMeter(label: "mem", stack: bars.memory).help(Help.Panel.railMemory(bars.memory))
+                        RailMeter(label: "cpu", stack: bars.cpu).help(Help.Panel.railCPU(bars.cpu))
+                    }
+                    .padding(.top, 22)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 44)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
 
