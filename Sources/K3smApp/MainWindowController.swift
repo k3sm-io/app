@@ -34,6 +34,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private var deleteKeys: Any?
     /// The observers of the app being hidden or shown, for the Images pause.
     private var appVisibility: [NSObjectProtocol]?
+    /// The observer of the screens' parameters changing (a resolution, the
+    /// Dock or the menu bar moving), for the minimum's screen width.
+    private var screenParameters: NSObjectProtocol?
     /// The inspector being shown, for growing a window too narrow for it.
     private var minimumGrow: AnyCancellable?
 
@@ -162,9 +165,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     /// screen. The minimum counts a shown inspector even while the strip is
     /// hidden (`WindowFrame.inspectorCountsAtPlacement`): the pane starts as
     /// checking, and the tabs showing afterwards must not grow the window.
+    /// The window is on no screen yet, so the minimum is computed against
+    /// the visible width of the screen the frame lands on
+    /// (`WindowFrame.placementScreen`).
     private func placeWindow(_ window: NSWindow, saved: WindowFrame.Saved?) {
-        let minimum = minimum(inspector: WindowFrame.inspectorCountsAtPlacement(inspectorShown: model.inspectorShown))
         let screens = NSScreen.k3smScreens()
+        recordScreenWidth(WindowFrame.placementScreen(saved: saved, screens: screens)?.visible.width)
+        let minimum = minimum(inspector: WindowFrame.inspectorCountsAtPlacement(inspectorShown: model.inspectorShown))
         let restored = WindowFrame.restore(saved: saved, screens: screens, minimum: minimum)
         guard let frame = restored ?? screens.first.map({ WindowFrame.firstFrame(minimum: minimum, visible: $0.visible) }) else {
             window.center()
@@ -184,11 +191,17 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         WindowFrame.minimum(model.consoleMinimumInputs, inspectorOverride: inspector)
     }
 
-    /// Records the visible width of the window's screen for the minimum,
-    /// nil when the window is on no screen.
+    /// Records the visible width of the window's screen for the minimum.
     private func readScreenWidth(_ window: NSWindow) {
-        let width = window.screen.map { Double($0.visibleFrame.width) }
-        if model.windowScreenWidth != width { model.windowScreenWidth = width }
+        recordScreenWidth(window.screen.map { Double($0.visibleFrame.width) })
+    }
+
+    /// A window briefly on no screen keeps the last width recorded, so the
+    /// badge does not count again and a grow stays clamped to a screen; the
+    /// width is nil only before any screen was seen.
+    private func recordScreenWidth(_ width: Double?) {
+        guard let width, model.windowScreenWidth != width else { return }
+        model.windowScreenWidth = width
     }
 
     /// The inspector, the Developer mode badge or the hidden panel's buttons edge raises the
@@ -256,12 +269,24 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // fallback.
         window.layoutIfNeeded()
         model.windowButtonsEdge = window.standardButtonsEdge()
-        readScreenWidth(window)
         // The frame is placed after the content and its chrome, so neither
         // resizes it afterwards; the delegate is set last, so only the
         // user's moves and resizes from here on are saved.
         placeWindow(window, saved: saved)
+        // Read again from the screen the frame landed on, so the grow's
+        // starting minimum is the one for that screen.
+        readScreenWidth(window)
         window.delegate = self
+        // A change of the screen's own parameters (its resolution, the
+        // Dock) sends no `windowDidChangeScreen`; re-read the width then too.
+        screenParameters = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let window = self.window else { return }
+                self.readScreenWidth(window)
+            }
+        }
         // The window grows whenever its minimum rises: the inspector coming
         // to be drawn, the Developer mode badge showing, or the window buttons
         // edge rising while the panel is collapsed.

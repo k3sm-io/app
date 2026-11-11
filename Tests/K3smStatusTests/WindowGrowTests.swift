@@ -281,6 +281,29 @@ struct WindowGrowTests {
         }
     }
 
+    @Test("the placement's screen is the saved frame's own while connected, else the main screen")
+    func placementScreenIsTheOneRestoreUses() {
+        let main = WindowFrame.Screen(id: "main", visible: Self.screen)
+        let side = WindowFrame.Screen(id: "side", visible: WindowFrame.Rect(x: 1728, y: 0, width: 1280, height: 800))
+        let screens = [main, side]
+        let onSide = WindowFrame.Saved(frame: WindowFrame.Rect(x: 1800, y: 100, width: 900, height: 600), screen: "side")
+        let gone = WindowFrame.Saved(frame: onSide.frame, screen: "unplugged")
+
+        #expect(WindowFrame.placementScreen(saved: onSide, screens: screens) == side)
+        #expect(WindowFrame.placementScreen(saved: gone, screens: screens) == main)
+        #expect(WindowFrame.placementScreen(saved: nil, screens: screens) == main)
+        #expect(WindowFrame.placementScreen(saved: onSide, screens: []) == nil)
+
+        // `restore` lands the frame on that same screen, so the minimum
+        // computed against its width is the one the frame gets.
+        let minimum = WindowFrame.Size(width: 400, height: 300)
+        for saved in [onSide, gone] {
+            let frame = WindowFrame.restore(saved: saved, screens: screens, minimum: minimum)
+            let target = WindowFrame.placementScreen(saved: saved, screens: screens)
+            #expect(frame.map { $0.x >= target!.visible.x && $0.maxX <= target!.visible.maxX } == true)
+        }
+    }
+
     @Test("a full-screen or zoomed window is not grown, an ordinary one is")
     func growSkipsAFullScreenOrZoomedWindow() {
         #expect(WindowFrame.growRuns(fullScreen: false, zoomed: false))

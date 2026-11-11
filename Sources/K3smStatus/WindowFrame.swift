@@ -100,6 +100,16 @@ public enum WindowFrame {
         }
     }
 
+    /// The screen the window is placed on: the saved frame's own screen
+    /// while it is still connected, else the main screen (the first of
+    /// `screens`, as `restore` and `firstFrame` take them); nil with no
+    /// screen. The placement's minimum is computed against this screen's
+    /// visible width, before the window is on any screen.
+    public static func placementScreen(saved: Saved?, screens: [Screen]) -> Screen? {
+        guard let saved else { return screens.first }
+        return screens.first { $0.id == saved.screen } ?? screens.first
+    }
+
     /// The frame to open the window at, or nil for today's centred placement
     /// (nothing saved, or no screen connected).
     ///
@@ -112,9 +122,9 @@ public enum WindowFrame {
     /// one the minimum makes larger than it is pinned to its left and top
     /// edges, so the title bar stays reachable.
     public static func restore(saved: Saved?, screens: [Screen], minimum: Size) -> Rect? {
-        guard let saved, let main = screens.first else { return nil }
-        let known = screens.first { $0.id == saved.screen }
-        let visible = (known ?? main).visible
+        guard let saved, let target = placementScreen(saved: saved, screens: screens) else { return nil }
+        let known = target.id == saved.screen ? target : nil
+        let visible = target.visible
 
         var frame = saved.frame
         let width = max(minimum.width, min(frame.width, visible.width))

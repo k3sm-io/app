@@ -55,8 +55,8 @@ struct MinimumGrowTests {
         var sent = 0
         let sink = app.consoleMinimumInputsChanged.sink { sent += 1 }
         defer { sink.cancel() }
-        // Each of the five inputs sends its current value on subscribe.
-        #expect(sent == 5)
+        // Each of the six inputs sends its current value on subscribe.
+        #expect(sent == 6)
 
         sent = 0
         app.inspectorShown.toggle()
@@ -65,9 +65,11 @@ struct MinimumGrowTests {
         #expect(sent == 2)
         app.windowButtonsEdge = (app.windowButtonsEdge ?? 0) + 17
         #expect(sent == 3)
+        app.windowScreenWidth = (app.windowScreenWidth ?? 1440) + 17
+        #expect(sent == 4)
         // `pane` and `developerModeOn` are set only by the model's own
         // refresh (`private(set)`), so a test cannot change them here; the
-        // five-per-subscribe count above shows both are merged in.
+        // six-per-subscribe count above shows both are merged in.
     }
 
     @Test("subscribing does not grow the window")
