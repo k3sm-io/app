@@ -23,6 +23,21 @@ extension WindowFrame {
         inspectorShown && stripShown
     }
 
+    /// Whether the inspector counts toward the minimum the saved frame is
+    /// restored against before the window first shows: whenever the details
+    /// button has it shown, whatever the strip, since that is the minimum the
+    /// window has once the tabs show. Placing against it means the strip
+    /// showing after launch does not grow, move or re-save the window.
+    public static func inspectorCountsAtPlacement(inspectorShown: Bool) -> Bool {
+        inspectorShown
+    }
+
+    /// Whether the window grows when `inspectorDrawn` changes from `previous`
+    /// to `current`: only when the inspector turns drawn.
+    public static func inspectorGrows(from previous: Bool, to current: Bool) -> Bool {
+        !previous && current
+    }
+
     /// The frame an already-placed window takes when its minimum rises (the
     /// inspector opening): a frame narrower or shorter than `minimum` grows
     /// to exactly that minimum, one already at or past it is returned
