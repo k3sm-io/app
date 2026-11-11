@@ -95,12 +95,65 @@ struct WindowGrowTests {
         }
     }
 
-    @Test("the window grows only when the inspector turns drawn")
-    func inspectorGrowsOnlyWhenItTurnsDrawn() {
-        #expect(WindowFrame.inspectorGrows(from: false, to: true))
-        #expect(!WindowFrame.inspectorGrows(from: true, to: true))
-        #expect(!WindowFrame.inspectorGrows(from: true, to: false))
-        #expect(!WindowFrame.inspectorGrows(from: false, to: false))
+    @Test("the window grows only when its minimum rises on either axis")
+    func windowGrowsOnlyWhenItsMinimumRises() {
+        let low = WindowFrame.Size(width: 800, height: 700)
+        #expect(WindowFrame.growsOnMinimumChange(from: low, to: WindowFrame.Size(width: 900, height: 700)))
+        #expect(WindowFrame.growsOnMinimumChange(from: low, to: WindowFrame.Size(width: 800, height: 750)))
+        #expect(!WindowFrame.growsOnMinimumChange(from: low, to: low))
+        #expect(!WindowFrame.growsOnMinimumChange(from: low, to: WindowFrame.Size(width: 700, height: 700)))
+        #expect(!WindowFrame.growsOnMinimumChange(from: low, to: WindowFrame.Size(width: 800, height: 600)))
+    }
+
+    @Test("the window grows when any input of its minimum raises it, and not for an equal or lower one")
+    func windowGrowsWhenAnyMinimumInputRises() {
+        let base = WindowFrame.ConsoleInputs(inspectorShown: false, stripShown: true, panelCollapsed: false,
+                                             windowButtonsEdge: nil, developerBadge: false,
+                                             labels: ConsoleSection.allCases.map(\.title))
+        var badge = base
+        badge.developerBadge = true
+        // With the panel collapsed, a buttons edge measured past the fallback
+        // widens the strip. Collapsing the panel itself drops the panel's
+        // minimum, more than any believed edge adds, so it lowers the minimum.
+        var collapsedBefore = base
+        collapsedBefore.panelCollapsed = true
+        var collapsed = collapsedBefore
+        collapsed.windowButtonsEdge = 150
+        var open = base
+        open.windowButtonsEdge = TabStripLayout.windowButtonsCeiling
+        var shut = open
+        shut.panelCollapsed = true
+        #expect(!WindowFrame.growsOnMinimumChange(from: WindowFrame.minimum(open), to: WindowFrame.minimum(shut)))
+        var notDrawn = base
+        notDrawn.inspectorShown = true
+        notDrawn.stripShown = false
+        var drawn = notDrawn
+        drawn.stripShown = true
+        let changes: [(WindowFrame.ConsoleInputs, WindowFrame.ConsoleInputs)] = [
+            (base, badge), (collapsedBefore, collapsed), (base, drawn), (notDrawn, drawn),
+        ]
+        for (before, after) in changes {
+            let old = WindowFrame.minimum(before)
+            let new = WindowFrame.minimum(after)
+            #expect(new.width > old.width)
+            #expect(WindowFrame.growsOnMinimumChange(from: old, to: new))
+            let frame = WindowFrame.Rect(x: 100, y: 200, width: old.width, height: old.height)
+            let grown = WindowFrame.grown(frame, minimum: new, visible: Self.screen)
+            #expect(grown.width == new.width)
+            #expect(grown.height == new.height)
+        }
+
+        // An equal minimum and a lower one (the badge going away) do not grow.
+        let same = WindowFrame.minimum(base)
+        #expect(!WindowFrame.growsOnMinimumChange(from: same, to: WindowFrame.minimum(base)))
+        #expect(!WindowFrame.growsOnMinimumChange(from: WindowFrame.minimum(badge), to: same))
+
+        // A rise in height alone grows the window, downward from its top edge.
+        let taller = WindowFrame.Size(width: same.width, height: same.height + 40)
+        #expect(WindowFrame.growsOnMinimumChange(from: same, to: taller))
+        let frame = WindowFrame.Rect(x: 100, y: 200, width: same.width, height: same.height)
+        let grown = WindowFrame.grown(frame, minimum: taller, visible: Self.screen)
+        #expect(grown.width == taller.width && grown.height == taller.height)
     }
 
     @Test("the console's minimum is one function of its inputs, the inspector counted only when drawn or forced")
