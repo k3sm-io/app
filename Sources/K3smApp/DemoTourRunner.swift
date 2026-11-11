@@ -196,6 +196,8 @@ final class DemoTourRunner {
         case .pause(let s):
             await sleep(s)
         case .windowFrame(let f):
+            // Let a prior step's layout (a closed inspector lowering the minimum) settle first, or the set is clamped.
+            await sleep(0.3)
             guard let window = window(), let screen = NSScreen.screens.first else { return "the console window is not open" }
             let r = DemoTour.appKitFrame(f, screenHeight: Double(screen.frame.height))
             window.setFrame(NSRect(x: r.x, y: r.y, width: r.width, height: r.height), display: true, animate: false)
