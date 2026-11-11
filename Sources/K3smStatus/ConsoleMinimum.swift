@@ -30,15 +30,20 @@ extension WindowFrame {
         public var developerBadge: Bool
         /// The strip's tab labels, in order.
         public var labels: [String]
+        /// The visible width of the window's screen, nil when the window has
+        /// no screen: a minimum wider than it leaves the badge out
+        /// (`badgeCounts`).
+        public var visibleWidth: Double?
 
         public init(inspectorShown: Bool, stripShown: Bool, panelCollapsed: Bool, windowButtonsEdge: Double?,
-                    developerBadge: Bool, labels: [String]) {
+                    developerBadge: Bool, labels: [String], visibleWidth: Double? = nil) {
             self.inspectorShown = inspectorShown
             self.stripShown = stripShown
             self.panelCollapsed = panelCollapsed
             self.windowButtonsEdge = windowButtonsEdge
             self.developerBadge = developerBadge
             self.labels = labels
+            self.visibleWidth = visibleWidth
         }
     }
 
@@ -46,12 +51,30 @@ extension WindowFrame {
     public static let consoleMinimumHeight: Double = 700
 
     /// The strip's minimum width (`TabStripLayout.minimumWidth`): every tab
-    /// label whole, the Developer mode badge while it is shown and the
-    /// search field at its minimum. Update is on the Alerts tab's card, not
+    /// label whole, the Developer mode badge while it counts (`badgeCounts`)
+    /// and the search field at its minimum. Update is on the Alerts tab's card, not
     /// in the strip, so it costs the strip nothing.
     public static func consoleStripWidth(_ inputs: ConsoleInputs) -> Double {
         TabStripLayout.minimumWidth(labels: inputs.labels, buttonWidth: nil,
-                                    badgeWidth: inputs.developerBadge ? TabStripLayout.badgeWidth() : nil)
+                                    badgeWidth: badgeCounts(inputs) ? TabStripLayout.badgeWidth() : nil)
+    }
+
+    /// Whether the Developer mode badge counts toward the console's minimum
+    /// and is drawn in the strip: it is on, and the minimum with it (the
+    /// inspector counted whenever shown) fits `visibleWidth`, or there is no
+    /// visible width. A badge that would put the minimum past the screen is
+    /// left out, of the window's minimum, the tab column's and the strip, so
+    /// none of them disagree and the badge never overlaps the tabs (the
+    /// strip does not shrink). A minimum still wider without it stays so.
+    public static func badgeCounts(_ inputs: ConsoleInputs) -> Bool {
+        guard inputs.developerBadge else { return false }
+        guard let visibleWidth = inputs.visibleWidth else { return true }
+        let strip = TabStripLayout.minimumWidth(labels: inputs.labels, buttonWidth: nil,
+                                                badgeWidth: TabStripLayout.badgeWidth())
+        let width = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: inputs.inspectorShown,
+                                                      panelCollapsed: inputs.panelCollapsed,
+                                                      windowButtonsEdge: inputs.windowButtonsEdge)
+        return width <= visibleWidth
     }
 
     /// The tab column's minimum width (`TabStripLayout.columnMinimumWidth`):
@@ -67,7 +90,8 @@ extension WindowFrame {
     /// `TabStripLayout.windowMinimumWidth` gives, the inspector counted while
     /// it is drawn (`inspectorDrawn`) unless `inspectorOverride` says
     /// otherwise (the placement, `inspectorCountsAtPlacement`), and the
-    /// height floor (`consoleMinimumHeight`).
+    /// height floor (`consoleMinimumHeight`). The badge counts only while
+    /// `badgeCounts` says so.
     public static func minimum(_ inputs: ConsoleInputs, inspectorOverride: Bool? = nil) -> Size {
         let inspector = inspectorOverride ?? inspectorDrawn(inspectorShown: inputs.inspectorShown,
                                                             stripShown: inputs.stripShown)

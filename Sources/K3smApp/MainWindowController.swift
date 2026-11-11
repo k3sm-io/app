@@ -124,6 +124,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         saveFrame()
     }
 
+    /// `NSWindow.didChangeScreenNotification`: the minimum follows the new screen.
+    func windowDidChangeScreen(_ notification: Notification) {
+        guard let window else { return }
+        readScreenWidth(window)
+    }
+
     func windowDidResize(_ notification: Notification) {
         saveFrame()
     }
@@ -171,9 +177,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     /// same inputs (`AppModel.consoleMinimumInputs`, `WindowFrame.minimum`):
     /// the inspector counts only while it is drawn
     /// (`WindowFrame.inspectorDrawn`), so not while the set-up flow fills
-    /// the content pane. `inspector` overrides that, for the placement.
+    /// the content pane. `inspector` overrides that, for the placement. The
+    /// inputs carry the visible width of the window's screen
+    /// (`AppModel.windowScreenWidth`), past which the badge does not count.
     private func minimum(inspector: Bool? = nil) -> WindowFrame.Size {
         WindowFrame.minimum(model.consoleMinimumInputs, inspectorOverride: inspector)
+    }
+
+    /// Records the visible width of the window's screen for the minimum,
+    /// nil when the window is on no screen.
+    private func readScreenWidth(_ window: NSWindow) {
+        let width = window.screen.map { Double($0.visibleFrame.width) }
+        if model.windowScreenWidth != width { model.windowScreenWidth = width }
     }
 
     /// The inspector, the Developer mode badge or the hidden panel's buttons edge raises the
@@ -241,6 +256,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // fallback.
         window.layoutIfNeeded()
         model.windowButtonsEdge = window.standardButtonsEdge()
+        readScreenWidth(window)
         // The frame is placed after the content and its chrome, so neither
         // resizes it afterwards; the delegate is set last, so only the
         // user's moves and resizes from here on are saved.

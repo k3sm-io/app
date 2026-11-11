@@ -249,7 +249,9 @@ struct ConsoleStrip: View {
             TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
                 .tourTarget(.tabs, app.tour)
             Spacer()
-            if ConsoleView.developerBadge(app) {
+            // Drawn only while it counts toward the minimum (`badgeCounts`):
+            // the strip does not shrink, so an uncounted badge would overlap the tabs.
+            if WindowFrame.badgeCounts(app.consoleMinimumInputs) {
                 Text(verbatim: TabStripLayout.developerBadgeTitle)
                     .font(.system(size: CGFloat(TabStripLayout.badgeFontSize), weight: .semibold))
                     .foregroundStyle(Palette.warn)

@@ -311,6 +311,11 @@ final class AppModel: ObservableObject {
     /// (nil until then): the strip clears them while the panel is hidden
     /// (`TabStripLayout.leadingInset`).
     @Published var windowButtonsEdge: Double?
+    /// The visible width of the main window's screen, as the window
+    /// controller read it (nil until then, or while the window has no
+    /// screen): a console minimum wider than it leaves the Developer mode
+    /// badge out (`WindowFrame.badgeCounts`).
+    @Published var windowScreenWidth: Double?
     /// The strip's tab labels, in order, as the console window's minimum
     /// counts them.
     static let consoleTabLabels = ConsoleSection.allCases.map(\.title)
@@ -319,7 +324,8 @@ final class AppModel: ObservableObject {
     var consoleMinimumInputs: WindowFrame.ConsoleInputs {
         WindowFrame.ConsoleInputs(inspectorShown: inspectorShown, stripShown: pane.stripShown,
                                   panelCollapsed: consolePanelCollapsed, windowButtonsEdge: windowButtonsEdge,
-                                  developerBadge: ConsoleView.developerBadge(self), labels: Self.consoleTabLabels)
+                                  developerBadge: ConsoleView.developerBadge(self), labels: Self.consoleTabLabels,
+                                  visibleWidth: windowScreenWidth)
     }
     /// Sends whenever an input of `consoleMinimumInputs` changes, and once per
     /// input on subscribe. It must list every input `consoleMinimumInputs`
@@ -332,7 +338,7 @@ final class AppModel: ObservableObject {
             $consolePanelCollapsed.map { _ in () },
             $windowButtonsEdge.map { _ in () },
             $developerModeOn.map { _ in () }
-        ).eraseToAnyPublisher()
+        ).merge(with: $windowScreenWidth.map { _ in () }).eraseToAnyPublisher()
     }
     /// The console's own state; it polls only while the console is on screen.
     let workloads: WorkloadsModel

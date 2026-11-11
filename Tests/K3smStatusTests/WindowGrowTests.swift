@@ -215,6 +215,46 @@ struct WindowGrowTests {
             strip: TabStripLayout.stripMinimumWidth(strip: strip, panelCollapsed: true, windowButtonsEdge: 78)))
     }
 
+    @Test("the console's minimum leaves the Developer mode badge out only when it is wider than the screen")
+    func consoleMinimumDropsTheBadgeWhenWiderThanTheScreen() {
+        let plain = WindowFrame.ConsoleInputs(inspectorShown: true, stripShown: true, panelCollapsed: false,
+                                              windowButtonsEdge: nil, developerBadge: false,
+                                              labels: ConsoleSection.allCases.map(\.title))
+        var badge = plain
+        badge.developerBadge = true
+        let without = WindowFrame.minimum(plain)
+        let with = WindowFrame.minimum(badge)
+        #expect(with.width > without.width)
+        func on(_ inputs: WindowFrame.ConsoleInputs, _ width: Double?) -> WindowFrame.ConsoleInputs {
+            var inputs = inputs
+            inputs.visibleWidth = width
+            return inputs
+        }
+
+        // Narrower than the badged minimum: the badge is left out of the
+        // window's minimum, the tab column's and the strip, which does not draw it.
+        let narrow = on(badge, with.width - 1)
+        #expect(WindowFrame.minimum(narrow) == without)
+        #expect(WindowFrame.minimum(narrow, inspectorOverride: true) == without)
+        #expect(WindowFrame.contentMinimumWidth(narrow) == WindowFrame.contentMinimumWidth(plain))
+        #expect(!WindowFrame.badgeCounts(narrow))
+        // Narrower than even the plain minimum: the plain one, past the screen (the overhang rule applies).
+        let narrower = on(badge, without.width - 1)
+        #expect(WindowFrame.minimum(narrower) == without)
+        #expect(!WindowFrame.badgeCounts(narrower))
+        // Wide enough, or no screen: the badge still raises the minimum and is drawn.
+        for wide in [on(badge, with.width), on(badge, 5000), on(badge, nil)] {
+            #expect(WindowFrame.minimum(wide) == with)
+            #expect(WindowFrame.contentMinimumWidth(wide) == WindowFrame.contentMinimumWidth(badge))
+            #expect(WindowFrame.badgeCounts(wide))
+        }
+        // No badge: the screen changes nothing and nothing is drawn.
+        for off in [on(plain, with.width - 1), on(plain, without.width - 1), on(plain, nil)] {
+            #expect(WindowFrame.minimum(off) == without)
+            #expect(!WindowFrame.badgeCounts(off))
+        }
+    }
+
     @Test("with the panel hidden the window's minimum rises with the buttons edge up to the ceiling, then takes the fallback")
     func consoleMinimumGrowsWithALargeButtonsEdge() {
         var inputs = WindowFrame.ConsoleInputs(inspectorShown: true, stripShown: true, panelCollapsed: true,
