@@ -1518,7 +1518,12 @@ unknown, out of order (a row before its tab is chosen, a pod read with no pod
 selected) or names anything but a read. A tour cannot reach any change to the
 cluster or the administrator step. The app quits with status 0 when the tour
 ends, 1 with the failed step on standard error, and 2 when the tour was
-refused. Reduce Motion turns off the tour's animations, and the stored tab,
+refused. The runner also writes two lines to standard output.
+`k3sm demo tour: ready` comes once the console is shown, so a recorder can
+wait for it before it starts. `k3sm demo tour: frame x=<x> y=<y> width=<w>
+height=<h>` comes after the `windowFrame` step and gives the window's frame
+as it is then, in whole points from the main screen's top-left corner, as the
+rectangle to capture; a later step may still change the window. Reduce Motion turns off the tour's animations, and the stored tab,
 selection, inspector and window frame are put back before the app quits.
 
 `--demo-mask`, honoured only beside `--demo-tour` (alone it is refused with

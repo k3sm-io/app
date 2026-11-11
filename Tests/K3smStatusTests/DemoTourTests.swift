@@ -306,6 +306,44 @@ struct DemoTourTests {
         #expect(DemoTour.frameLine(x: -12, y: 0, width: 400, height: 300)
                 == "k3sm demo tour: frame x=-12 y=0 width=400 height=300")
         #expect(!DemoTour.frameLine(x: 1, y: 2, width: 3, height: 4).contains("\n"))
+        // A value that is not finite prints as 0.
+        #expect(DemoTour.frameLine(x: .nan, y: .infinity, width: -.infinity, height: 1)
+                == "k3sm demo tour: frame x=0 y=0 width=0 height=1")
+    }
+
+    @MainActor
+    final class FakeHost: DemoTourHost {
+        var output: [String] = []
+        var events: [String] = []
+        func consoleShown() async -> Bool { true }
+        func prepare() { events.append("prepare") }
+        func run(_ step: DemoTour.Step) async -> String? {
+            events.append(DemoTour.describe(step))
+            return nil
+        }
+        func setFrame(_ frame: DemoTour.Frame) async -> (line: String?, failure: String?) {
+            events.append("setFrame")
+            return (DemoTour.frameLine(x: frame.x, y: frame.y, width: frame.width, height: frame.height), nil)
+        }
+        func say(_ line: String) {
+            output.append(line)
+            events.append("say " + line)
+        }
+    }
+
+    @Test("the runner prints the ready line, then the frame line after the windowFrame step")
+    @MainActor
+    func demoTourRunnerPrintsReadyThenFrame() async throws {
+        let entries = try Self.tour(["windowFrame 80 60 1280 800", "pause 1", "end"])
+        let host = FakeHost()
+        let failure = await DemoTourSequence.run(entries: entries, host: host)
+        #expect(failure == nil)
+        let frame = "k3sm demo tour: frame x=80 y=60 width=1280 height=800"
+        #expect(host.output == [DemoTour.readyLine, frame])
+        let set = try #require(host.events.firstIndex(of: "setFrame"))
+        let said = try #require(host.events.firstIndex(of: "say " + frame))
+        #expect(said == set + 1)
+        #expect(host.events.first == "say " + DemoTour.readyLine)
     }
 
     @Test("the ready line is one fixed line")
