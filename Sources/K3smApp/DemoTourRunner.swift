@@ -90,6 +90,12 @@ final class DemoTourRunner {
         }.map { $0.resolvingSymlinksInPath() }
     }
 
+    /// Writes one line on standard output, unbuffered, so a recording
+    /// script reading the pipe sees it at once.
+    private static func say(_ line: String) {
+        FileHandle.standardOutput.write(Data((line + "\n").utf8))
+    }
+
     private static func refuse(_ message: String) -> Never {
         FileHandle.standardError.write(Data("k3sm demo tour: refused: \(message)\n".utf8))
         exit(2)
@@ -109,6 +115,7 @@ final class DemoTourRunner {
             guard await self.consoleShown() else {
                 self.quit(failure: "k3sm demo tour: the console did not come on screen within \(Int(DemoTour.consoleWait)) s (is k3sm installed and running?)")
             }
+            Self.say(DemoTour.readyLine)
             // A fresh walk: no guided tour, no status panel, and no search
             // hiding the rows the tour selects.
             self.model.tour.end()
@@ -189,9 +196,16 @@ final class DemoTourRunner {
         case .pause(let s):
             await sleep(s)
         case .windowFrame(let f):
+            // Let a prior step's layout (a closed inspector lowering the minimum) settle first, or the set is clamped.
+            await sleep(0.3)
             guard let window = window(), let screen = NSScreen.screens.first else { return "the console window is not open" }
             let r = DemoTour.appKitFrame(f, screenHeight: Double(screen.frame.height))
             window.setFrame(NSRect(x: r.x, y: r.y, width: r.width, height: r.height), display: true, animate: false)
+            // The frame the window has after the set, which AppKit may have
+            // constrained, back in the tour's top-left coordinates.
+            let got = window.frame
+            let top = Double(screen.frame.height) - Double(got.minY) - Double(got.height)
+            Self.say(DemoTour.frameLine(x: Double(got.minX), y: top, width: Double(got.width), height: Double(got.height)))
         case .end:
             break
         }
