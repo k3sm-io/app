@@ -741,7 +741,7 @@ login** in the app's Settings turns it off or on again (see
   characters would be shortened, at its end. With the panel and the details
   shown and no Developer mode badge, that is at most 1440 points, so the
   window fits the narrowest Mac laptop display.
-- The **window** reopens where you left it, at its size and on its display, after a relaunch too; if that display is gone or the window would sit off the screen, it is moved onto the main display, never smaller than its minimum. When something raises the minimum while the window is open, for example turning developer mode on, a window narrower than the new minimum grows to it, unless it is full screen or zoomed.
+- The **window** reopens where you left it, at its size and on its display, after a relaunch too; if that display is gone or the window would sit off the screen, it is moved onto the main display, never smaller than its minimum. A first launch, with no saved window, opens it at exactly its minimum size, centred on the main display. When something raises the minimum while the window is open, for example turning developer mode on, a window narrower or shorter than the new minimum grows to it. A full-screen or zoomed window is left alone, and one that was full screen grows when it leaves full screen.
 
 The app reads the machine interface the k3sm CLI documents: the cluster's state
 from `k3sm status -o json`, the console's lists through `k3sm kubectl` and the
