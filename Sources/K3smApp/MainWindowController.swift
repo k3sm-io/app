@@ -48,8 +48,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     func show() {
         let window = self.window ?? makeWindow()
         self.window = window
-        // Closing the window cancels its grow; a reopen subscribes again.
-        if minimumGrow == nil { startMinimumGrow() }
         AppActivation.opened(.console)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
@@ -96,8 +94,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // The Dock subscription goes first, so stopping the flap does not
         // render one last frame that is thrown away a line later.
         dockFlap = nil
-        // A closed window does not grow; `show()` subscribes again.
-        minimumGrow = nil
         // A tour still running ends with the window, so the layout it changed
         // is put back and its key monitor goes.
         model.tour.end()
@@ -245,8 +241,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     /// Each input of `AppModel.consoleMinimumInputs` triggers a read of the
     /// minimum on the main queue (`MinimumGrow.grows`), paired first with the
-    /// minimum now (the one the window was placed at, on its first open), so
-    /// subscribing does not grow the window.
+    /// minimum the window was placed at, so subscribing does not grow it. The
+    /// window is reused, so the subscription lasts the controller's lifetime.
     private func startMinimumGrow() {
         let start = minimum()
         minimumGrow = MinimumGrow.grows(
