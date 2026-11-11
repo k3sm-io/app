@@ -441,6 +441,18 @@ public enum DemoTour {
         "k3sm demo tour: step \(index) (\(describe(step))) failed: \(StatusDisplay.clip(reason))"
     }
 
+    /// The line printed on standard output once a windowFrame step has set
+    /// the frame: the frame the window then has, in the tour's coordinates
+    /// (top-left origin on the first screen), in whole points.
+    public static func frameLine(x: Double, y: Double, width: Double, height: Double) -> String {
+        func n(_ v: Double) -> Int { v.isFinite ? Int(v.rounded()) : 0 }
+        return "k3sm demo tour: frame x=\(n(x)) y=\(n(y)) width=\(n(width)) height=\(n(height))"
+    }
+
+    /// The line printed on standard output once the console is on screen,
+    /// before the first step runs.
+    public static let readyLine = "k3sm demo tour: ready"
+
     // MARK: the launch argument
 
     /// LaunchError is why the launch argument was refused.

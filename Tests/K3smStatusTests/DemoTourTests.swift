@@ -19,9 +19,10 @@ import Testing
 @testable import K3smStatus
 
 /// The demo tour's closed step set, its refusals, its closed condition set
-/// and its ordering. Every test name but `demoTourFromBundle` starts with
-/// `demoTourSteps`, so `swift test --filter demoTourSteps` selects those;
-/// `hack/ci.sh` runs the whole suite, `demoTourFromBundle` included.
+/// and its ordering. Every test name but `demoTourFromBundle`,
+/// `releaseTourClosesInspectorBeforeFrame` and the two line formats starts
+/// with `demoTourSteps`, so `swift test --filter demoTourSteps` selects those;
+/// `hack/ci.sh` runs the whole suite.
 @Suite("the scripted demo tour")
 struct DemoTourTests {
     static func tour(_ steps: [String]) throws -> [DemoTour.Entry] {
@@ -49,8 +50,8 @@ struct DemoTourTests {
             .appendingPathComponent("hack/demo/release-tour.json")
         let entries = try DemoTour.parse(Data(contentsOf: url))
         #expect(entries.map(\.step) == [
-            .windowFrame(.init(x: 80, y: 60, width: 1280, height: 800)),
             .closeInspector,
+            .windowFrame(.init(x: 80, y: 60, width: 1280, height: 800)),
             .selectTab(.workloads),
             .selectWorkloadsView(.pods),
             .waitFor(.podRunning(Self.qwen), timeout: 120),
@@ -282,5 +283,34 @@ struct DemoTourTests {
         #expect(DemoTour.animation(reduceMotion: false) != nil)
         #expect(DemoTour.failureLine(index: 7, step: .selectRow(.node(.server)), reason: "no row\nlisted")
                 == "k3sm demo tour: step 7 (selectRow node @server) failed: no row listed")
+    }
+
+    @Test("the release tour closes the inspector before it sets the window frame")
+    func releaseTourClosesInspectorBeforeFrame() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("hack/demo/release-tour.json")
+        let steps = try DemoTour.parse(Data(contentsOf: url)).map(\.step)
+        let close = try #require(steps.firstIndex(of: .closeInspector))
+        let frame = try #require(steps.firstIndex { if case .windowFrame = $0 { return true } else { return false } })
+        #expect(close < frame)
+    }
+
+    @Test("the frame line names the frame the window has, in the tour's coordinates")
+    func demoTourFrameLineFormat() {
+        #expect(DemoTour.frameLine(x: 80, y: 60, width: 1280, height: 800)
+                == "k3sm demo tour: frame x=80 y=60 width=1280 height=800")
+        // Fractional points round; a negative origin stays signed.
+        #expect(DemoTour.frameLine(x: -0.4, y: 59.6, width: 1280.5, height: 799.49)
+                == "k3sm demo tour: frame x=0 y=60 width=1281 height=799")
+        #expect(DemoTour.frameLine(x: -12, y: 0, width: 400, height: 300)
+                == "k3sm demo tour: frame x=-12 y=0 width=400 height=300")
+        #expect(!DemoTour.frameLine(x: 1, y: 2, width: 3, height: 4).contains("\n"))
+    }
+
+    @Test("the ready line is one fixed line")
+    func demoTourReadyLineFormat() {
+        #expect(DemoTour.readyLine == "k3sm demo tour: ready")
+        #expect(!DemoTour.readyLine.contains("\n"))
     }
 }

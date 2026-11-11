@@ -1,8 +1,8 @@
 {
   "about": "The release recording's walk through the console: the MLX model's pod on Workloads, the Stats tab, then the server node on Nodes. Read-only; run with k3sm-app --demo-tour hack/demo/release-tour.json.",
   "steps": [
-    "windowFrame 80 60 1280 800",
     "closeInspector",
+    "windowFrame 80 60 1280 800",
     "selectTab workloads",
     "selectWorkloadsView pods",
     "waitFor podRunning default/qwen3-06b-* 120",
