@@ -15,6 +15,14 @@ limitations under the License.
 */
 
 extension WindowFrame {
+    /// Whether the console draws its inspector: the details button has it
+    /// shown and the strip is shown (`ConsolePane.stripShown`). While the
+    /// set-up flow fills the content pane the inspector is not drawn, so it
+    /// neither counts toward the window's minimum nor grows the window.
+    public static func inspectorDrawn(inspectorShown: Bool, stripShown: Bool) -> Bool {
+        inspectorShown && stripShown
+    }
+
     /// The frame an already-placed window takes when its minimum rises (the
     /// inspector opening): a frame narrower or shorter than `minimum` grows
     /// to exactly that minimum, one already at or past it is returned

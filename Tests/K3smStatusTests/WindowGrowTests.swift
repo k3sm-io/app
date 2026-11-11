@@ -58,4 +58,24 @@ struct WindowGrowTests {
         #expect(huge.x == Self.screen.x)
         #expect(huge.width == Self.screen.width + 100)
     }
+
+    @Test("the inspector is drawn, and widens the window's minimum, only while the strip is shown")
+    func inspectorGrowNeedsTheStripShown() {
+        #expect(WindowFrame.inspectorDrawn(inspectorShown: true, stripShown: true))
+        #expect(!WindowFrame.inspectorDrawn(inspectorShown: true, stripShown: false))
+        #expect(!WindowFrame.inspectorDrawn(inspectorShown: false, stripShown: true))
+        #expect(!WindowFrame.inspectorDrawn(inspectorShown: false, stripShown: false))
+
+        let strip = TabStripLayout.minimumWidth(labels: ConsoleSection.allCases.map(\.title), buttonWidth: nil)
+        let closed = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: false, panelCollapsed: false)
+        for (shown, stripShown) in [(true, true), (true, false), (false, true), (false, false)] {
+            let drawn = WindowFrame.inspectorDrawn(inspectorShown: shown, stripShown: stripShown)
+            let minimum = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: drawn, panelCollapsed: false)
+            if shown && stripShown {
+                #expect(minimum >= closed + InspectorWidth.minimum)
+            } else {
+                #expect(minimum == closed)
+            }
+        }
+    }
 }

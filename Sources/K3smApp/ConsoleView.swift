@@ -86,8 +86,9 @@ struct ConsoleView: View {
         // The inspector and the log pane follow the tabs: while the set-up
         // flow fills the content pane neither shows.
         let tabs = app.pane.stripShown
+        let detailsDrawn = WindowFrame.inspectorDrawn(inspectorShown: app.inspectorShown, stripShown: tabs)
         let badge = Self.developerBadge(app)
-        let size = Self.minSize(inspectorShown: app.inspectorShown && tabs, panelCollapsed: app.consolePanelCollapsed,
+        let size = Self.minSize(inspectorShown: detailsDrawn, panelCollapsed: app.consolePanelCollapsed,
                                 windowButtonsEdge: app.windowButtonsEdge, developerBadge: badge)
         // Only before the first layout does the content's width reach the split.
         let estimate = PanelLayout.naturalWidth(regions: panel.layoutRegions, measured: app.consolePanelMeasured)
@@ -100,7 +101,7 @@ struct ConsoleView: View {
                                                         windowButtonsEdge: app.windowButtonsEdge,
                                                         developerBadge: badge)),
             inspectorWidth: app.inspectorWidth,
-            inspectorShown: app.inspectorShown && tabs,
+            inspectorShown: detailsDrawn,
             // Each pane is hosted on its own; all run under the transparent
             // title bar, as the whole console did before the split.
             panel: panel.ignoresSafeArea(),
