@@ -220,14 +220,17 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             }
             return consumed ? nil : event
         }
+        // The window buttons sit where the transparent title bar put them;
+        // the strip clears them while the panel is hidden. The style mask
+        // lays them out before any frame is set, so they are measured first
+        // and the placement's minimum counts the measured edge, not the
+        // fallback.
+        window.layoutIfNeeded()
+        model.windowButtonsEdge = window.standardButtonsEdge()
         // The frame is placed after the content and its chrome, so neither
         // resizes it afterwards; the delegate is set last, so only the
         // user's moves and resizes from here on are saved.
         placeWindow(window, saved: saved)
-        // The window buttons sit where the transparent title bar put them;
-        // the strip clears them while the panel is hidden.
-        window.layoutIfNeeded()
-        model.windowButtonsEdge = window.standardButtonsEdge()
         window.delegate = self
         // The window grows when the inspector comes to be drawn: the details
         // button showing it while the strip is shown, or the strip showing
