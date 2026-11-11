@@ -140,13 +140,17 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     /// Puts the saved frame back, clamped onto a connected screen and never
-    /// below the console's minimum, or centres the window when nothing is
-    /// saved. The minimum counts a shown inspector even while the strip is
+    /// below the console's minimum. When nothing is saved the window opens at
+    /// exactly its minimum, centred on the main screen
+    /// (`WindowFrame.firstFrame`), or is centred by AppKit when there is no
+    /// screen. The minimum counts a shown inspector even while the strip is
     /// hidden (`WindowFrame.inspectorCountsAtPlacement`): the pane starts as
     /// checking, and the tabs showing afterwards must not grow the window.
     private func placeWindow(_ window: NSWindow, saved: WindowFrame.Saved?) {
         let minimum = minimum(inspector: WindowFrame.inspectorCountsAtPlacement(inspectorShown: model.inspectorShown))
-        guard let frame = WindowFrame.restore(saved: saved, screens: NSScreen.k3smScreens(), minimum: minimum) else {
+        let screens = NSScreen.k3smScreens()
+        let restored = WindowFrame.restore(saved: saved, screens: screens, minimum: minimum)
+        guard let frame = restored ?? screens.first.map({ WindowFrame.firstFrame(minimum: minimum, visible: $0.visible) }) else {
             window.center()
             return
         }
