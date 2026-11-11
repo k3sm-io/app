@@ -153,17 +153,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.setFrame(NSRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height), display: false)
     }
 
-    /// The console's minimum size as `ConsoleView` lays it out
-    /// (`TabStripLayout`): the inspector counts only while it is drawn
+    /// The console's minimum size as `ConsoleView` lays it out, from the
+    /// same inputs (`AppModel.consoleMinimumInputs`, `WindowFrame.minimum`):
+    /// the inspector counts only while it is drawn
     /// (`WindowFrame.inspectorDrawn`), so not while the set-up flow fills
     /// the content pane. `inspector` overrides that, for the placement.
     private func minimum(inspector: Bool? = nil) -> WindowFrame.Size {
-        let inspector = inspector ?? WindowFrame.inspectorDrawn(inspectorShown: model.inspectorShown,
-                                                                stripShown: model.pane.stripShown)
-        let size = ConsoleView.minSize(inspectorShown: inspector, panelCollapsed: model.consolePanelCollapsed,
-                                       windowButtonsEdge: model.windowButtonsEdge,
-                                       developerBadge: ConsoleView.developerBadge(model))
-        return WindowFrame.Size(width: Double(size.width), height: Double(size.height))
+        WindowFrame.minimum(model.consoleMinimumInputs, inspectorOverride: inspector)
     }
 
     /// The inspector opening raises the window's minimum, and the content's

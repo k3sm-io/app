@@ -102,4 +102,52 @@ struct WindowGrowTests {
         #expect(!WindowFrame.inspectorGrows(from: true, to: false))
         #expect(!WindowFrame.inspectorGrows(from: false, to: false))
     }
+
+    @Test("the console's minimum is one function of its inputs, the inspector counted only when drawn or forced")
+    func consoleMinimumIsOneFunctionOfItsInputs() {
+        let labels = ConsoleSection.allCases.map(\.title)
+        let base = WindowFrame.ConsoleInputs(inspectorShown: true, stripShown: true, panelCollapsed: false,
+                                             windowButtonsEdge: nil, developerBadge: false, labels: labels)
+        let strip = TabStripLayout.minimumWidth(labels: labels, buttonWidth: nil)
+
+        // The same values give TabStripLayout's width, and the height is the floor.
+        let drawn = WindowFrame.minimum(base)
+        #expect(drawn == WindowFrame.Size(
+            width: TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: true, panelCollapsed: false),
+            height: WindowFrame.consoleMinimumHeight))
+        #expect(drawn.height == 700)
+
+        // The inspector adds width only while drawn: shown and the strip shown.
+        var hidden = base
+        hidden.stripShown = false
+        let closed = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: false, panelCollapsed: false)
+        #expect(WindowFrame.minimum(hidden).width == closed)
+        #expect(drawn.width > closed)
+        var off = base
+        off.inspectorShown = false
+        #expect(WindowFrame.minimum(off).width == closed)
+
+        // The override forces it either way.
+        #expect(WindowFrame.minimum(hidden, inspectorOverride: true) == drawn)
+        #expect(WindowFrame.minimum(base, inspectorOverride: false).width == closed)
+
+        // The Developer mode badge adds its width to the strip.
+        var badge = base
+        badge.developerBadge = true
+        let badged = TabStripLayout.minimumWidth(labels: labels, buttonWidth: nil, badgeWidth: TabStripLayout.badgeWidth())
+        #expect(WindowFrame.minimum(badge).width
+            == TabStripLayout.windowMinimumWidth(strip: badged, inspectorShown: true, panelCollapsed: false))
+        #expect(WindowFrame.minimum(badge).width > drawn.width)
+
+        // The collapsed panel with a measured buttons edge gives today's width.
+        var collapsed = base
+        collapsed.panelCollapsed = true
+        collapsed.windowButtonsEdge = 78
+        #expect(WindowFrame.minimum(collapsed).width == TabStripLayout.windowMinimumWidth(
+            strip: strip, inspectorShown: true, panelCollapsed: true, windowButtonsEdge: 78))
+
+        // The tab column's minimum follows the same inputs.
+        #expect(WindowFrame.contentMinimumWidth(collapsed) == TabStripLayout.columnMinimumWidth(
+            strip: TabStripLayout.stripMinimumWidth(strip: strip, panelCollapsed: true, windowButtonsEdge: 78)))
+    }
 }
