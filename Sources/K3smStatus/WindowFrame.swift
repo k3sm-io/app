@@ -131,4 +131,17 @@ public enum WindowFrame {
         frame.y = height > visible.height ? visible.maxY - height : min(max(frame.y, visible.y), visible.maxY - height)
         return frame
     }
+
+    /// The frame the window opens at when nothing is saved: exactly the
+    /// minimum's size, centred on `visible` (the main screen's visible
+    /// frame). On an axis where the minimum is larger than `visible`, the
+    /// frame is pinned to its left or top edge instead, as in `restore`, so
+    /// the title bar stays reachable.
+    public static func firstFrame(minimum: Size, visible: Rect) -> Rect {
+        let width = minimum.width
+        let height = minimum.height
+        let x = width > visible.width ? visible.x : visible.x + (visible.width - width) / 2
+        let y = height > visible.height ? visible.maxY - height : visible.y + (visible.height - height) / 2
+        return Rect(x: x, y: y, width: width, height: height)
+    }
 }
