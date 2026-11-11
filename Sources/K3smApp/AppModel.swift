@@ -321,6 +321,19 @@ final class AppModel: ObservableObject {
                                   panelCollapsed: consolePanelCollapsed, windowButtonsEdge: windowButtonsEdge,
                                   developerBadge: ConsoleView.developerBadge(self), labels: Self.consoleTabLabels)
     }
+    /// Sends whenever an input of `consoleMinimumInputs` changes, and once per
+    /// input on subscribe. It must list every input `consoleMinimumInputs`
+    /// reads: one left out would not grow the window when it raises the
+    /// minimum. `isDeveloperBuild` is fixed for the launch, so it has none.
+    var consoleMinimumInputsChanged: AnyPublisher<Void, Never> {
+        Publishers.Merge5(
+            $inspectorShown.map { _ in () },
+            $pane.map { _ in () },
+            $consolePanelCollapsed.map { _ in () },
+            $windowButtonsEdge.map { _ in () },
+            $developerModeOn.map { _ in () }
+        ).eraseToAnyPublisher()
+    }
     /// The console's own state; it polls only while the console is on screen.
     let workloads: WorkloadsModel
     /// Every tab's writes: the one confirmation, the run and its report.

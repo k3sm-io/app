@@ -48,6 +48,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     func show() {
         let window = self.window ?? makeWindow()
         self.window = window
+        // Closing the window cancels its grow; a reopen subscribes again.
+        if minimumGrow == nil { startMinimumGrow() }
         AppActivation.opened(.console)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
@@ -94,6 +96,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // The Dock subscription goes first, so stopping the flap does not
         // render one last frame that is thrown away a line later.
         dockFlap = nil
+        // A closed window does not grow; `show()` subscribes again.
+        minimumGrow = nil
         // A tour still running ends with the window, so the layout it changed
         // is put back and its key monitor goes.
         model.tour.end()
@@ -235,28 +239,24 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // The window grows whenever its minimum rises: the inspector coming
         // to be drawn, the Developer mode badge showing, or the window buttons
         // edge rising while the panel is collapsed.
-        // Each published input of `AppModel.consoleMinimumInputs` triggers a
-        // read of the minimum. `@Published` sends before the value is stored,
-        // so the read runs on the next turn of the main queue, when
-        // `minimum()` sees the new value. The first value pairs with the
-        // minimum the window was placed at, so subscribing does not grow it.
+        startMinimumGrow()
+        return window
+    }
+
+    /// Each input of `AppModel.consoleMinimumInputs` triggers a read of the
+    /// minimum on the main queue (`MinimumGrow.grows`), paired first with the
+    /// minimum now (the one the window was placed at, on its first open), so
+    /// subscribing does not grow the window.
+    private func startMinimumGrow() {
         let start = minimum()
-        minimumGrow = Publishers.Merge5(
-            model.$inspectorShown.map { _ in () },
-            model.$pane.map { _ in () },
-            model.$consolePanelCollapsed.map { _ in () },
-            model.$windowButtonsEdge.map { _ in () },
-            model.$developerModeOn.map { _ in () }
-        )
-            .receive(on: DispatchQueue.main)
-            .map { [weak self] _ in MainActor.assumeIsolated { self?.minimum() } ?? start }
-            .removeDuplicates()
-            .scan((start, start)) { pair, current in (pair.1, current) }
-            .filter { WindowFrame.growsOnMinimumChange(from: $0.0, to: $0.1) }
-            .sink { [weak self] _ in
+        minimumGrow = MinimumGrow.grows(
+            on: model.consoleMinimumInputsChanged,
+            minimum: { [weak self] in MainActor.assumeIsolated { self?.minimum() } ?? start },
+            start: start,
+            scheduler: DispatchQueue.main)
+            .sink { [weak self] in
                 MainActor.assumeIsolated { self?.growToMinimum() }
             }
-        return window
     }
 }
 
