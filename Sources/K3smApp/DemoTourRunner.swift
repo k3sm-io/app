@@ -31,7 +31,7 @@ import SwiftUI
 /// asks for no administrator prompt. The user's stored layout is put back
 /// before it quits.
 @MainActor
-final class DemoTourRunner {
+final class DemoTourRunner: DemoTourHost {
     private let entries: [DemoTour.Entry]
     private let model: AppModel
     private let window: () -> NSWindow?
@@ -91,9 +91,11 @@ final class DemoTourRunner {
     }
 
     /// Writes one line on standard output, unbuffered, so a recording
-    /// script reading the pipe sees it at once.
-    private static func say(_ line: String) {
-        FileHandle.standardOutput.write(Data((line + "\n").utf8))
+    /// script reading the pipe sees it at once. A closed standard output is
+    /// ignored (SIGPIPE is ignored from the tour's start), so the tour still
+    /// quits through `quit` and puts the stored layout back.
+    func say(_ line: String) {
+        try? FileHandle.standardOutput.write(contentsOf: Data((line + "\n").utf8))
     }
 
     private static func refuse(_ message: String) -> Never {
@@ -111,29 +113,26 @@ final class DemoTourRunner {
     /// Runs the tour and quits.
     func start() {
         for key in Self.keys { saved[key] = UserDefaults.standard.object(forKey: key) }
+        // A recorder that closes its end of the pipe must not end the app
+        // before `quit` puts the stored layout back.
+        signal(SIGPIPE, SIG_IGN)
         Task { @MainActor in
-            guard await self.consoleShown() else {
-                self.quit(failure: "k3sm demo tour: the console did not come on screen within \(Int(DemoTour.consoleWait)) s (is k3sm installed and running?)")
-            }
-            Self.say(DemoTour.readyLine)
-            // A fresh walk: no guided tour, no status panel, and no search
-            // hiding the rows the tour selects.
-            self.model.tour.end()
-            self.model.statusPanelShown = false
-            self.model.workloads.query = ""
-            self.model.nodesQuery = ""
-            for (n, entry) in self.entries.enumerated() {
-                if let reason = await self.run(entry.step) {
-                    self.quit(failure: DemoTour.failureLine(index: n + 1, step: entry.step, reason: reason))
-                }
-                if entry.step == .end { break }
-            }
-            self.quit(failure: nil)
+            let failure = await DemoTourSequence.run(entries: self.entries, host: self)
+            self.quit(failure: failure)
         }
     }
 
+    /// A fresh walk: no guided tour, no status panel, and no search hiding
+    /// the rows the tour selects.
+    func prepare() {
+        model.tour.end()
+        model.statusPanelShown = false
+        model.workloads.query = ""
+        model.nodesQuery = ""
+    }
+
     /// Waits for the console screen, bounded.
-    private func consoleShown() async -> Bool {
+    func consoleShown() async -> Bool {
         let deadline = Date().addingTimeInterval(DemoTour.consoleWait)
         while Date() < deadline {
             if model.screen == .status, window()?.isVisible == true { return true }
@@ -143,7 +142,7 @@ final class DemoTourRunner {
     }
 
     /// Runs one step; nil when it succeeded, otherwise why it failed.
-    private func run(_ step: DemoTour.Step) async -> String? {
+    func run(_ step: DemoTour.Step) async -> String? {
         switch step {
         case .selectTab(let s):
             animate { self.model.section = s }
@@ -196,20 +195,33 @@ final class DemoTourRunner {
         case .pause(let s):
             await sleep(s)
         case .windowFrame(let f):
-            // Let a prior step's layout (a closed inspector lowering the minimum) settle first, or the set is clamped.
-            await sleep(0.3)
-            guard let window = window(), let screen = NSScreen.screens.first else { return "the console window is not open" }
-            let r = DemoTour.appKitFrame(f, screenHeight: Double(screen.frame.height))
-            window.setFrame(NSRect(x: r.x, y: r.y, width: r.width, height: r.height), display: true, animate: false)
-            // The frame the window has after the set, which AppKit may have
-            // constrained, back in the tour's top-left coordinates.
-            let got = window.frame
-            let top = Double(screen.frame.height) - Double(got.minY) - Double(got.height)
-            Self.say(DemoTour.frameLine(x: Double(got.minX), y: top, width: Double(got.width), height: Double(got.height)))
+            return await setFrame(f).failure
         case .end:
             break
         }
         return nil
+    }
+
+    /// Sets the window frame; the frame line, or why it failed.
+    func setFrame(_ f: DemoTour.Frame) async -> (line: String?, failure: String?) {
+        // Let a prior step's layout (a closed inspector lowering the minimum)
+        // settle first, or the set is clamped: twice the tour's animation.
+        let settle = 2 * (DemoTour.animation(reduceMotion: false) ?? 0)
+        await sleep(settle)
+        guard let window = window(), let screen = NSScreen.screens.first else { return (nil, "the console window is not open") }
+        let r = DemoTour.appKitFrame(f, screenHeight: Double(screen.frame.height))
+        let want = NSRect(x: r.x, y: r.y, width: r.width, height: r.height)
+        window.setFrame(want, display: true, animate: false)
+        if window.frame != want {
+            // Still clamped by a layout that had not settled: once more.
+            await sleep(settle)
+            window.setFrame(want, display: true, animate: false)
+        }
+        // The frame the window has after the set, which AppKit may have
+        // constrained, back in the tour's top-left coordinates.
+        let got = window.frame
+        let top = Double(screen.frame.height) - Double(got.minY) - Double(got.height)
+        return (DemoTour.frameLine(x: Double(got.minX), y: top, width: Double(got.width), height: Double(got.height)), nil)
     }
 
     /// Reads what a condition needs, through the console's own reads, and decides it.
