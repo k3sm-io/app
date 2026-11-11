@@ -151,6 +151,32 @@ struct WindowGrowTests {
             strip: TabStripLayout.stripMinimumWidth(strip: strip, panelCollapsed: true, windowButtonsEdge: 78)))
     }
 
+    @Test("with the panel hidden the window's minimum rises with the buttons edge up to the ceiling, then takes the fallback")
+    func consoleMinimumGrowsWithALargeButtonsEdge() {
+        var inputs = WindowFrame.ConsoleInputs(inspectorShown: true, stripShown: true, panelCollapsed: true,
+                                               windowButtonsEdge: nil, developerBadge: false,
+                                               labels: ConsoleSection.allCases.map(\.title))
+        func width(_ edge: Double?) -> Double {
+            inputs.windowButtonsEdge = edge
+            return WindowFrame.minimum(inputs).width
+        }
+        // The nine tabs decide the tab column, so each point the buttons
+        // take is a point the window's minimum gains, up to the ceiling.
+        #expect(TabStripLayout.windowButtonsFallback == 78)
+        #expect(TabStripLayout.windowButtonsCeiling == 200)
+        let fallback = width(TabStripLayout.windowButtonsFallback)
+        let wider = width(120)
+        let widest = width(TabStripLayout.windowButtonsCeiling)
+        #expect(fallback < wider)
+        #expect(wider < widest)
+        #expect(wider - fallback == 120 - 78)
+        #expect(widest - wider == 200 - 120)
+        // Past the ceiling, unmeasured, not positive or not a number: the fallback.
+        for edge in [201, nil, 0, .nan] as [Double?] {
+            #expect(width(edge) == fallback)
+        }
+    }
+
     @Test("a full-screen or zoomed window is not grown, an ordinary one is")
     func growSkipsAFullScreenOrZoomedWindow() {
         #expect(WindowFrame.growRuns(fullScreen: false, zoomed: false))

@@ -736,9 +736,11 @@ login** in the app's Settings turns it off or on again (see
   table back.
 - The **tab names** above the list stay whole on one line. The window goes
   no narrower than the row above the list needs for every tab name, the
-  search field at its narrowest and the buttons beside it; only a tab name longer than 24 characters would be
-  shortened, at its end. With the panel and the details shown that is at
-  most 1440 points, so the window fits the narrowest Mac laptop display.
+  Developer mode badge while developer mode is on, the search field at its
+  narrowest and the buttons beside it; only a tab name longer than 24
+  characters would be shortened, at its end. With the panel and the details
+  shown and no Developer mode badge, that is at most 1440 points, so the
+  window fits the narrowest Mac laptop display.
 - The **window** reopens where you left it, at its size and on its display, after a relaunch too; if that display is gone or the window would sit off the screen, it is moved onto the main display, never smaller than its minimum.
 
 The app reads the machine interface the k3sm CLI documents: the cluster's state
