@@ -34,6 +34,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private var deleteKeys: Any?
     /// The observers of the app being hidden or shown, for the Images pause.
     private var appVisibility: [NSObjectProtocol]?
+    /// The inspector being shown, for growing a window too narrow for it.
+    private var inspectorGrow: AnyCancellable?
 
     init(model: AppModel) {
         self.model = model
@@ -152,8 +154,26 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     /// (`TabStripLayout`), the same while the set-up flow fills its pane.
     private func minimum() -> WindowFrame.Size {
         let size = ConsoleView.minSize(inspectorShown: model.inspectorShown, panelCollapsed: model.consolePanelCollapsed,
-                                       windowButtonsEdge: model.windowButtonsEdge)
+                                       windowButtonsEdge: model.windowButtonsEdge,
+                                       developerBadge: ConsoleView.developerBadge(model))
         return WindowFrame.Size(width: Double(size.width), height: Double(size.height))
+    }
+
+    /// The inspector opening raises the window's minimum, and the content's
+    /// minimum alone does not widen a window already on screen: a window
+    /// narrower than the new minimum grows to it (`WindowFrame.grown`),
+    /// kept on its screen, so the strip and the table are not clipped.
+    private func growToMinimum() {
+        guard let window else { return }
+        let f = window.frame
+        let frame = WindowFrame.Rect(x: f.origin.x, y: f.origin.y, width: f.width, height: f.height)
+        let visible = window.screen.map { screen -> WindowFrame.Rect in
+            let v = screen.visibleFrame
+            return WindowFrame.Rect(x: v.origin.x, y: v.origin.y, width: v.width, height: v.height)
+        }
+        let grown = WindowFrame.grown(frame, minimum: minimum(), visible: visible)
+        guard grown != frame else { return }
+        window.setFrame(NSRect(x: grown.x, y: grown.y, width: grown.width, height: grown.height), display: true)
     }
 
     private func makeWindow() -> NSWindow {
@@ -204,6 +224,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.layoutIfNeeded()
         model.windowButtonsEdge = window.standardButtonsEdge()
         window.delegate = self
+        // `@Published` sends before the value is stored: the grow runs on the
+        // next turn of the main queue, when `minimum()` reads the shown inspector.
+        inspectorGrow = model.$inspectorShown.removeDuplicates().dropFirst().filter { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.growToMinimum() }
+            }
         return window
     }
 }
