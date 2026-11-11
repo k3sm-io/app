@@ -110,6 +110,20 @@ struct TabStripLayoutTests {
         #expect(abs(with - (without + TabStripLayout.buttonWidth(title: "Update") + TabStripLayout.itemSpacing)) < 1e-9)
     }
 
+    @Test("the Developer mode badge counts in the strip's minimum while it is shown")
+    func stripMinimumCountsTheDeveloperBadge() {
+        let badge = TabStripLayout.badgeWidth()
+        // The estimate errs wide: the title at a narrow advance, its padding and stroke.
+        #expect(badge >= Double(TabStripLayout.developerBadgeTitle.count) * TabStripLayout.badgeFontSize * 0.6 + 12 + 2)
+        let without = TabStripLayout.minimumWidth(labels: Self.titles, buttonWidth: nil)
+        let with = TabStripLayout.minimumWidth(labels: Self.titles, buttonWidth: nil, badgeWidth: badge)
+        #expect(abs(with - (without + badge + TabStripLayout.itemSpacing)) < 1e-9)
+        // With the panel collapsed and the inspector shown the window's minimum carries it too.
+        let windowWithout = TabStripLayout.windowMinimumWidth(strip: without, inspectorShown: true, panelCollapsed: true)
+        let windowWith = TabStripLayout.windowMinimumWidth(strip: with, inspectorShown: true, panelCollapsed: true)
+        #expect(windowWith > windowWithout)
+    }
+
     @Test("a label is whole up to the cap and shortened at its tail past it")
     func labelCapTruncatesTail() {
         let atCap = String(repeating: "a", count: TabStripLayout.labelCap)

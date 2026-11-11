@@ -121,15 +121,32 @@ public enum TabStripLayout {
         Double(title.count) * buttonFontSize * PanelLayout.advance + buttonPadding
     }
 
+    /// The Developer mode badge's title, shown in the strip while the
+    /// developer-mode marker counts on a developer build.
+    public static let developerBadgeTitle = "Developer mode"
+    /// The badge's font size (a small label).
+    public static let badgeFontSize: Double = 11
+    /// The badge's padding around its title, both sides together (6 pt each
+    /// side), and its 1 pt capsule stroke on each side.
+    public static let badgePadding: Double = 14
+
+    /// The Developer mode badge's estimated width for `title`.
+    public static func badgeWidth(title: String = Self.developerBadgeTitle) -> Double {
+        Double(title.count) * badgeFontSize * PanelLayout.advance + badgePadding
+    }
+
     /// The strip's minimum width: the tabs (`tabsWidth`), the spacer at its
-    /// least, the update button when one is offered (`buttonWidth` non-nil),
-    /// the search field's minimum, the icon buttons, the gaps between the
-    /// items and the strip's `padding`.
+    /// least, the Developer mode badge while it is shown (`badgeWidth`
+    /// non-nil; it never shrinks), the update button when one is offered
+    /// (`buttonWidth` non-nil), the search field's minimum, the icon buttons,
+    /// the gaps between the items and the strip's `padding`.
     public static func minimumWidth(labels: [String], fontSize: Double = Self.fontSize, buttonWidth: Double?,
+                                    badgeWidth: Double? = nil,
                                     searchWidth: Double = Self.searchMinimum, spacing: Double = Self.tabSpacing,
                                     padding: Double = Self.padding) -> Double {
         var width = tabsWidth(labels: labels, fontSize: fontSize, spacing: spacing)
         width += itemSpacing + spacerMinimum + itemSpacing
+        if let badgeWidth { width += badgeWidth + itemSpacing }
         if let buttonWidth { width += buttonWidth + itemSpacing }
         width += searchWidth + itemSpacing
         return width + controlsWidth + padding

@@ -45,27 +45,39 @@ struct ConsoleView: View {
 
     /// The window's minimum height.
     static let minHeight: CGFloat = 700
+    /// Whether the strip shows the Developer mode badge: the developer-mode
+    /// marker counts and this is a developer build.
+    @MainActor
+    static func developerBadge(_ app: AppModel) -> Bool {
+        app.developerModeOn && app.isDeveloperBuild
+    }
     /// The strip's minimum width (`TabStripLayout.minimumWidth`): every tab
-    /// label whole and the search field at its minimum. Update is on the
-    /// Alerts tab's card, not in the strip, so it costs the strip nothing.
-    static func stripMinWidth() -> Double {
-        TabStripLayout.minimumWidth(labels: ConsoleSection.allCases.map(\.title), buttonWidth: nil)
+    /// label whole, the Developer mode badge while it is shown
+    /// (`developerBadge`) and the search field at its minimum. Update is on
+    /// the Alerts tab's card, not in the strip, so it costs the strip nothing.
+    static func stripMinWidth(developerBadge: Bool = false) -> Double {
+        TabStripLayout.minimumWidth(labels: ConsoleSection.allCases.map(\.title), buttonWidth: nil,
+                                    badgeWidth: developerBadge ? TabStripLayout.badgeWidth() : nil)
     }
 
     /// The tab column's minimum width: the larger of what the window floor
     /// leaves and what the strip needs, which while the panel is collapsed
     /// includes clearing the window buttons (`windowButtonsEdge`).
-    static func contentMinWidth(panelCollapsed: Bool = false, windowButtonsEdge: Double? = nil) -> CGFloat {
+    static func contentMinWidth(panelCollapsed: Bool = false, windowButtonsEdge: Double? = nil,
+                                developerBadge: Bool = false) -> CGFloat {
         CGFloat(TabStripLayout.columnMinimumWidth(strip: TabStripLayout.stripMinimumWidth(
-            strip: stripMinWidth(), panelCollapsed: panelCollapsed, windowButtonsEdge: windowButtonsEdge)))
+            strip: stripMinWidth(developerBadge: developerBadge), panelCollapsed: panelCollapsed,
+            windowButtonsEdge: windowButtonsEdge)))
     }
 
     /// The window's minimum size: the panel's minimum, or nothing while it
     /// is collapsed, the tab column's minimum, and the inspector's minimum
     /// while it is shown.
-    static func minSize(inspectorShown: Bool, panelCollapsed: Bool, windowButtonsEdge: Double? = nil) -> CGSize {
-        let width = TabStripLayout.windowMinimumWidth(strip: stripMinWidth(), inspectorShown: inspectorShown,
-                                                      panelCollapsed: panelCollapsed, windowButtonsEdge: windowButtonsEdge)
+    static func minSize(inspectorShown: Bool, panelCollapsed: Bool, windowButtonsEdge: Double? = nil,
+                        developerBadge: Bool = false) -> CGSize {
+        let width = TabStripLayout.windowMinimumWidth(strip: stripMinWidth(developerBadge: developerBadge),
+                                                      inspectorShown: inspectorShown, panelCollapsed: panelCollapsed,
+                                                      windowButtonsEdge: windowButtonsEdge)
         return CGSize(width: CGFloat(width), height: minHeight)
     }
 
@@ -74,8 +86,9 @@ struct ConsoleView: View {
         // The inspector and the log pane follow the tabs: while the set-up
         // flow fills the content pane neither shows.
         let tabs = app.pane.stripShown
+        let badge = Self.developerBadge(app)
         let size = Self.minSize(inspectorShown: app.inspectorShown && tabs, panelCollapsed: app.consolePanelCollapsed,
-                                windowButtonsEdge: app.windowButtonsEdge)
+                                windowButtonsEdge: app.windowButtonsEdge, developerBadge: badge)
         // Only before the first layout does the content's width reach the split.
         let estimate = PanelLayout.naturalWidth(regions: panel.layoutRegions, measured: app.consolePanelMeasured)
         ConsoleSplit(
@@ -84,7 +97,8 @@ struct ConsoleView: View {
             width: app.consolePanelWidth.shown(estimate: estimate),
             collapsed: app.consolePanelCollapsed,
             contentMinimum: Double(Self.contentMinWidth(panelCollapsed: app.consolePanelCollapsed,
-                                                        windowButtonsEdge: app.windowButtonsEdge)),
+                                                        windowButtonsEdge: app.windowButtonsEdge,
+                                                        developerBadge: badge)),
             inspectorWidth: app.inspectorWidth,
             inspectorShown: app.inspectorShown && tabs,
             // Each pane is hosted on its own; all run under the transparent
@@ -240,9 +254,9 @@ struct ConsoleStrip: View {
             TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
                 .tourTarget(.tabs, app.tour)
             Spacer()
-            if app.developerModeOn, app.isDeveloperBuild {
-                Text(verbatim: "Developer mode")
-                    .font(.system(size: 11, weight: .semibold))
+            if ConsoleView.developerBadge(app) {
+                Text(verbatim: TabStripLayout.developerBadgeTitle)
+                    .font(.system(size: CGFloat(TabStripLayout.badgeFontSize), weight: .semibold))
                     .foregroundStyle(Palette.warn)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
