@@ -407,8 +407,7 @@ struct SwapEngineTests {
     @Test func helperCopyMustMatchBundledHelper() throws {
         func signed(_ s: Scratch, _ source: String, _ name: String) -> String {
             let path = s.root + "/" + name
-            try? FileManager.default.copyItem(atPath: source, toPath: path)
-            #expect(run("/usr/bin/codesign", ["--force", "--sign", "-", "--timestamp=none", "--identifier", "io.k3sm.test.fixture", path]) == 0)
+            s.signedExecutable(source, at: path)
             return path
         }
         let s = Scratch()

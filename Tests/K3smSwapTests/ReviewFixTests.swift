@@ -70,7 +70,7 @@ struct ReviewFixTests {
             s.updateOnce()
             let installed = identity(s.target)
             let previous = s.paths.previousDirectory + "/k3sm-v1.0.0.previous"
-            run("/bin/rm", ["-rf", previous])
+            s.retire(previous)
             s.makeBundle(at: previous, tag: "v1.0.0", behaviour: "silent")
             s.requestGoBack(tag: "v1.0.0", app: s.appProcess(exitingAfter: 0.2))
             let spy = SpyRenamer()
@@ -176,7 +176,7 @@ struct ReviewFixTests {
     @Test func volumeRefusedBeforeTheAppQuits() throws {
         let work = realPath(NSTemporaryDirectory()) + "/k3sm-swap-volumes-" + UUID().uuidString.prefix(8)
         try FileManager.default.createDirectory(atPath: work, withIntermediateDirectories: true)
-        defer { run("/bin/rm", ["-rf", work]) }
+        // Left for a later run's sweep (`FixtureTrees`), which never crosses a mount.
         // A FAT volume cannot exchange two names in one step.
         let fat = work + "/fat"
         try FileManager.default.createDirectory(atPath: fat, withIntermediateDirectories: true)

@@ -59,16 +59,10 @@ func detachFixtureVolume(_ mount: String) -> Bool {
 /// fixtures' team and for another team.
 enum FixtureBinaries {
     static let directory: String = {
-        // One directory per test process; those of test processes that are
-        // gone are swept first, so runs leave nothing behind for long.
-        let tmp = realPath(NSTemporaryDirectory())
-        let prefix = "k3sm-swap-fixtures-"
-        for name in (try? FileManager.default.contentsOfDirectory(atPath: tmp)) ?? [] where name.hasPrefix(prefix) {
-            if let pid = Int32(name.dropFirst(prefix.count)), kill(pid, 0) != 0 {
-                try? FileManager.default.removeItem(atPath: tmp + "/" + name)
-            }
-        }
-        let dir = tmp + "/" + prefix + String(getpid())
+        // One directory per test process; old ones are swept by
+        // `FixtureTrees`, never while a run is going.
+        FixtureTrees.sweepOnce()
+        let dir = realPath(NSTemporaryDirectory()) + "/" + FixtureTrees.prefix + "fixtures-" + String(getpid())
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/fixture-app.c").path
         for (name, team) in [("fixture-app", "ABCDE12345"), ("fixture-app-other-team", "ZZZZZ99999")] {
@@ -89,8 +83,9 @@ func realPath(_ path: String) -> String {
 }
 
 /// Scratch is one test's private world: a home, an Applications root and
-/// the `SwapPaths` over them. It removes itself and stops every process it
-/// started.
+/// the `SwapPaths` over them. It stops every process it started; its tree
+/// is left for a later run's sweep (`FixtureTrees`), never removed while the
+/// test process runs.
 final class Scratch: @unchecked Sendable {
     let root: String
     let paths: SwapPaths
@@ -102,7 +97,8 @@ final class Scratch: @unchecked Sendable {
     /// A scratch world; `home` puts the home folder elsewhere (another
     /// volume, in a test).
     init(home: String? = nil) {
-        root = realPath(NSTemporaryDirectory()) + "/k3sm-swap-" + UUID().uuidString.prefix(8)
+        FixtureTrees.sweepOnce()
+        root = realPath(NSTemporaryDirectory()) + "/" + FixtureTrees.prefix + UUID().uuidString.prefix(8)
         let fm = FileManager.default
         let homePath = home ?? root + "/home"
         try? fm.createDirectory(atPath: homePath + "/Library/Application Support", withIntermediateDirectories: true)
@@ -115,13 +111,29 @@ final class Scratch: @unchecked Sendable {
     deinit {
         launcher.stopAll()
         for process in helpers where process.isRunning { kill(process.pid, SIGKILL) }
-        run("/bin/chmod", ["-R", "u+rwx", root])
-        try? FileManager.default.removeItem(atPath: root)
     }
 
-    /// Builds a signed fixture bundle at `path`.
+    /// Places a signed fixture bundle at `path`, where nothing is yet: a copy
+    /// of the one bundle of this content the process signed
+    /// (`FixtureStore`).
     func makeBundle(at path: String, tag: String?, behaviour: String, executable: String = FixtureBinaries.app,
                     shortVersion: String? = nil) {
+        let key = ["bundle", tag ?? "-", behaviour, executable, shortVersion ?? "-"].joined(separator: "|")
+        FixtureStore.place(key: key, name: "k3sm.app", at: path) { path in
+            Self.buildBundle(at: path, tag: tag, behaviour: behaviour, executable: executable, shortVersion: shortVersion)
+        }
+    }
+
+    /// Moves the bundle at `path` aside, out of every directory a test reads,
+    /// instead of removing it while the system may still be scanning it.
+    func retire(_ path: String) {
+        let aside = root + "/retired-" + UUID().uuidString.prefix(8)
+        precondition(rename(path, aside) == 0, "could not move \(path) aside: errno \(errno)")
+    }
+
+    /// Writes an unsigned fixture bundle's content at `path`.
+    private static func buildBundle(at path: String, tag: String?, behaviour: String, executable: String,
+                                    shortVersion: String?) {
         let fm = FileManager.default
         try? fm.createDirectory(atPath: path + "/Contents/MacOS", withIntermediateDirectories: true)
         try? fm.createDirectory(atPath: path + "/Contents/Resources", withIntermediateDirectories: true)
@@ -144,8 +156,14 @@ final class Scratch: @unchecked Sendable {
         try! data.write(to: URL(fileURLWithPath: path + "/Contents/Info.plist"), options: [])
         try! Data((behaviour + "\n").utf8).write(to: URL(fileURLWithPath: path + "/Contents/Resources/behaviour"),
                                                   options: [])
-        let status = run("/usr/bin/codesign", ["--force", "--sign", "-", "--timestamp=none", "--identifier", "io.k3sm.test.fixture", path])
-        precondition(status == 0, "codesign could not sign the fixture bundle")
+    }
+
+    /// Places a signed copy of the bare executable `source` at `path` (no
+    /// bundle around it), signed once per process.
+    func signedExecutable(_ source: String, at path: String) {
+        FixtureStore.place(key: "executable|" + source, name: "executable", at: path) { path in
+            precondition((try? FileManager.default.copyItem(atPath: source, toPath: path)) != nil, "could not copy \(source)")
+        }
     }
 
     /// Installs a fixture bundle at the target.

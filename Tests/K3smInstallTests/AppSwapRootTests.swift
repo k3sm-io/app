@@ -457,7 +457,7 @@ import K3smStatus
         let dir = s.workRoot + "/" + (kept.first ?? "none")
         // What root could always do, this account does by hand; then the next run.
         try #require(chmod(dir + "/k3sm.app/Contents", 0o755) == 0)
-        try? FileManager.default.removeItem(atPath: s.staged)
+        s.retire(s.staged)
         s.stage(tag: "v1.2.0")
         #expect(s.engine().run() == 0)
         #expect(s.tag(at: s.target) == "v1.2.0")
@@ -574,7 +574,7 @@ import K3smStatus
         #expect(after.st_mode & 0o7777 == 0o755)
         // A tree root's alone keeps what an administrator chose.
         try #require(chmod(s.target, 0o750) == 0)
-        try? FileManager.default.removeItem(atPath: s.staged)
+        s.retire(s.staged)
         s.stage(tag: "v1.2.0")
         #expect(s.engine().run() == 0)
         try #require(lstat(s.target, &after) == 0)
@@ -722,7 +722,7 @@ import K3smStatus
         try Data("decoy".utf8).write(to: URL(fileURLWithPath: decoy))
         try #require(chflags(decoy, UInt32(UF_IMMUTABLE)) == 0)
         try FileManager.default.createSymbolicLink(atPath: previous + "/Contents/planted", withDestinationPath: decoy)
-        try? FileManager.default.removeItem(atPath: s.staged)
+        s.retire(s.staged)
         s.stage(tag: "v1.2.0")
         #expect(s.engine(console: console).run() == 0)
         #expect(s.tag(at: s.target) == "v1.2.0")
@@ -778,7 +778,7 @@ import K3smStatus
         // The next swap, on the same Mac, reads a tree that is root's alone.
         let next = try shell(["-c", "set -eu\n" + AppSwapRootScriptBuilder.targetCheck(applications: s.applications, target: s.target, floorRecord: s.floorRecord, owner: getuid()) + "echo passed\n"])
         #expect(next.status == 0 && next.output == "passed\n", "\(next)")
-        try? FileManager.default.removeItem(atPath: s.staged)
+        s.retire(s.staged)
         s.stage(tag: "v1.2.0")
         #expect(s.engine().run() == 0)
         #expect(s.tag(at: s.target) == "v1.2.0")
@@ -995,12 +995,12 @@ import K3smStatus
         try FileManager.default.createDirectory(atPath: (s.staged as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(atPath: s.staged, withDestinationPath: real)
         #expect(s.engine().run() == AppSwapRootExit.stagedRefused)
-        try FileManager.default.removeItem(atPath: s.staged)
+        s.retire(s.staged)
         // A symlink inside the staged tree.
         s.stage(tag: "v1.1.0")
         try FileManager.default.createSymbolicLink(atPath: s.staged + "/Contents/Resources/link", withDestinationPath: "/etc/passwd")
         #expect(s.engine().run() == AppSwapRootExit.verificationFailed)
-        try FileManager.default.removeItem(atPath: s.staged)
+        s.retire(s.staged)
         // Another team's stamp.
         s.makeBundle(at: s.staged, tag: "v1.1.0", executable: AdminFixtures.otherTeam)
         #expect(s.engine().run() == AppSwapRootExit.verificationFailed)
@@ -1056,16 +1056,10 @@ private func identity(_ path: String) -> FileIdentity? { FileIdentity.of(path: p
 /// fixtures' team and another team.
 private enum AdminFixtures {
     static let directory: String = {
-        // One directory per test process; those of processes that are gone
-        // are swept first.
-        let tmp = realPath(NSTemporaryDirectory())
-        let prefix = "k3sm-adminswap-fixtures-"
-        for name in (try? FileManager.default.contentsOfDirectory(atPath: tmp)) ?? [] where name.hasPrefix(prefix) {
-            if let pid = Int32(name.dropFirst(prefix.count)), kill(pid, 0) != 0 {
-                try? FileManager.default.removeItem(atPath: tmp + "/" + name)
-            }
-        }
-        let dir = tmp + "/" + prefix + String(getpid())
+        // One directory per test process; old ones are swept by
+        // `AdminFixtureTrees`, never while a run is going.
+        AdminFixtureTrees.sweepOnce()
+        let dir = realPath(NSTemporaryDirectory()) + "/" + AdminFixtureTrees.prefix + "fixtures-" + String(getpid())
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "K3smSwapTests/Fixtures/fixture-app.c").path
@@ -1213,7 +1207,8 @@ private final class ShellScratch: @unchecked Sendable {
     var record: String { root + "/app-floor" }
 
     init() {
-        root = realPath(NSTemporaryDirectory()) + "/k3sm-adminswap-sh-" + UUID().uuidString.prefix(8)
+        AdminFixtureTrees.sweepOnce()
+        root = realPath(NSTemporaryDirectory()) + "/" + AdminFixtureTrees.prefix + "sh-" + UUID().uuidString.prefix(8)
         let fm = FileManager.default
         try? fm.createDirectory(atPath: target + "/Contents/MacOS", withIntermediateDirectories: true)
         try? fm.createDirectory(atPath: target + "/Contents/Resources", withIntermediateDirectories: true)
@@ -1221,10 +1216,9 @@ private final class ShellScratch: @unchecked Sendable {
         fm.createFile(atPath: target + "/Contents/MacOS/k3sm-app", contents: Data("app".utf8))
     }
 
-    func cleanUp() {
-        run("/bin/chmod", ["-R", "u+rwx", root])
-        try? FileManager.default.removeItem(atPath: root)
-    }
+    /// Leaves the tree: it is never removed while the test process runs, and
+    /// a later run's sweep (`AdminFixtureTrees`) removes it once it is old.
+    func cleanUp() {}
 
     func targetCheck(owner: uid_t) -> String {
         AppSwapRootScriptBuilder.targetCheck(applications: applications, target: target, floorRecord: record, owner: owner)
@@ -1288,7 +1282,8 @@ private final class AdminScratch: @unchecked Sendable {
     var relaunched: [ConsoleAccount] { relauncher.calls.withLock { $0 } }
 
     init(home: String? = nil, workRoot: String? = nil, base: String? = nil) {
-        root = (base ?? realPath(NSTemporaryDirectory())) + "/k3sm-adminswap-" + UUID().uuidString.prefix(8)
+        AdminFixtureTrees.sweepOnce()
+        root = (base ?? realPath(NSTemporaryDirectory())) + "/" + AdminFixtureTrees.prefix + UUID().uuidString.prefix(8)
         self.home = home ?? root + "/home"
         self.workRoot = workRoot ?? root + "/work"
         previousRoot = root + "/previous"
@@ -1297,10 +1292,9 @@ private final class AdminScratch: @unchecked Sendable {
         try? fm.createDirectory(atPath: root + "/Applications", withIntermediateDirectories: true)
     }
 
-    func cleanUp() {
-        run("/bin/chmod", ["-R", "u+rwx", root])
-        try? FileManager.default.removeItem(atPath: root)
-    }
+    /// Leaves the tree: it is never removed while the test process runs, and
+    /// a later run's sweep (`AdminFixtureTrees`) removes it once it is old.
+    func cleanUp() {}
 
     /// The group standing in for root's.
     var group = getgid()
@@ -1326,7 +1320,24 @@ private final class AdminScratch: @unchecked Sendable {
         precondition(chmod(floorRecord, mode) == 0)
     }
 
+    /// Places a signed fixture bundle at `path`, where nothing is yet: a copy
+    /// of the one bundle of this content the process signed
+    /// (`AdminFixtureStore`).
     func makeBundle(at path: String, tag: String, executable: String = AdminFixtures.app) {
+        AdminFixtureStore.place(key: tag + "|" + executable, name: "k3sm.app", at: path) { path in
+            Self.buildBundle(at: path, tag: tag, executable: executable)
+        }
+    }
+
+    /// Moves the bundle at `path` aside, out of every directory a test reads,
+    /// instead of removing it while the system may still be scanning it.
+    func retire(_ path: String) {
+        let aside = root + "/retired-" + UUID().uuidString.prefix(8)
+        precondition(rename(path, aside) == 0, "could not move \(path) aside: errno \(errno)")
+    }
+
+    /// Writes an unsigned fixture bundle's content at `path`.
+    private static func buildBundle(at path: String, tag: String, executable: String) {
         let fm = FileManager.default
         try? fm.createDirectory(atPath: path + "/Contents/MacOS", withIntermediateDirectories: true)
         try? fm.createDirectory(atPath: path + "/Contents/Resources", withIntermediateDirectories: true)
@@ -1337,8 +1348,6 @@ private final class AdminScratch: @unchecked Sendable {
         ]
         let data = try! PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
         try! data.write(to: URL(fileURLWithPath: path + "/Contents/Info.plist"), options: [])
-        precondition(run("/usr/bin/codesign", ["--force", "--sign", "-", "--timestamp=none", "--identifier", "io.k3sm.test.fixture", path]) == 0,
-                     "codesign could not sign the fixture bundle")
     }
 
     func install(tag: String) { makeBundle(at: target, tag: tag) }
