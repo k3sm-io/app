@@ -150,4 +150,12 @@ struct WindowGrowTests {
         #expect(WindowFrame.contentMinimumWidth(collapsed) == TabStripLayout.columnMinimumWidth(
             strip: TabStripLayout.stripMinimumWidth(strip: strip, panelCollapsed: true, windowButtonsEdge: 78)))
     }
+
+    @Test("a full-screen or zoomed window is not grown, an ordinary one is")
+    func growSkipsAFullScreenOrZoomedWindow() {
+        #expect(WindowFrame.growRuns(fullScreen: false, zoomed: false))
+        #expect(!WindowFrame.growRuns(fullScreen: true, zoomed: false))
+        #expect(!WindowFrame.growRuns(fullScreen: false, zoomed: true))
+        #expect(!WindowFrame.growRuns(fullScreen: true, zoomed: true))
+    }
 }

@@ -168,6 +168,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     /// kept on its screen, so the strip and the table are not clipped.
     private func growToMinimum() {
         guard let window else { return }
+        guard WindowFrame.growRuns(fullScreen: window.styleMask.contains(.fullScreen),
+                                   zoomed: window.isZoomed) else { return }
         let f = window.frame
         let frame = WindowFrame.Rect(x: f.origin.x, y: f.origin.y, width: f.width, height: f.height)
         let visible = window.screen.map { screen -> WindowFrame.Rect in
