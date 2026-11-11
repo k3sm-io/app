@@ -141,9 +141,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     /// Puts the saved frame back, clamped onto a connected screen and never
     /// below the console's minimum, or centres the window when nothing is
-    /// saved.
+    /// saved. The minimum counts a shown inspector even while the strip is
+    /// hidden (`WindowFrame.inspectorCountsAtPlacement`): the pane starts as
+    /// checking, and the tabs showing afterwards must not grow the window.
     private func placeWindow(_ window: NSWindow, saved: WindowFrame.Saved?) {
-        guard let frame = WindowFrame.restore(saved: saved, screens: NSScreen.k3smScreens(), minimum: minimum()) else {
+        let minimum = minimum(inspector: WindowFrame.inspectorCountsAtPlacement(inspectorShown: model.inspectorShown))
+        guard let frame = WindowFrame.restore(saved: saved, screens: NSScreen.k3smScreens(), minimum: minimum) else {
             window.center()
             return
         }
@@ -151,9 +154,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     /// The console's minimum size as `ConsoleView` lays it out
-    /// (`TabStripLayout`), the same while the set-up flow fills its pane.
-    private func minimum() -> WindowFrame.Size {
-        let size = ConsoleView.minSize(inspectorShown: model.inspectorShown, panelCollapsed: model.consolePanelCollapsed,
+    /// (`TabStripLayout`): the inspector counts only while it is drawn
+    /// (`WindowFrame.inspectorDrawn`), so not while the set-up flow fills
+    /// the content pane. `inspector` overrides that, for the placement.
+    private func minimum(inspector: Bool? = nil) -> WindowFrame.Size {
+        let inspector = inspector ?? WindowFrame.inspectorDrawn(inspectorShown: model.inspectorShown,
+                                                                stripShown: model.pane.stripShown)
+        let size = ConsoleView.minSize(inspectorShown: inspector, panelCollapsed: model.consolePanelCollapsed,
                                        windowButtonsEdge: model.windowButtonsEdge,
                                        developerBadge: ConsoleView.developerBadge(model))
         return WindowFrame.Size(width: Double(size.width), height: Double(size.height))
@@ -224,9 +231,15 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.layoutIfNeeded()
         model.windowButtonsEdge = window.standardButtonsEdge()
         window.delegate = self
+        // The window grows when the inspector comes to be drawn: the details
+        // button showing it while the strip is shown, or the strip showing
+        // (the set-up flow giving way to the tabs) while it is already shown.
         // `@Published` sends before the value is stored: the grow runs on the
-        // next turn of the main queue, when `minimum()` reads the shown inspector.
-        inspectorGrow = model.$inspectorShown.removeDuplicates().dropFirst().filter { $0 }
+        // next turn of the main queue, when `minimum()` reads the drawn inspector.
+        inspectorGrow = model.$inspectorShown.combineLatest(model.$pane)
+            .map { WindowFrame.inspectorDrawn(inspectorShown: $0, stripShown: $1.stripShown) }
+            .scan((false, false)) { pair, drawn in (pair.1, drawn) }
+            .dropFirst().filter { WindowFrame.inspectorGrows(from: $0.0, to: $0.1) }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.growToMinimum() }

@@ -58,4 +58,48 @@ struct WindowGrowTests {
         #expect(huge.x == Self.screen.x)
         #expect(huge.width == Self.screen.width + 100)
     }
+
+    @Test("the inspector is drawn, and widens the window's minimum, only while the strip is shown")
+    func inspectorGrowNeedsTheStripShown() {
+        #expect(WindowFrame.inspectorDrawn(inspectorShown: true, stripShown: true))
+        #expect(!WindowFrame.inspectorDrawn(inspectorShown: true, stripShown: false))
+        #expect(!WindowFrame.inspectorDrawn(inspectorShown: false, stripShown: true))
+        #expect(!WindowFrame.inspectorDrawn(inspectorShown: false, stripShown: false))
+
+        let strip = TabStripLayout.minimumWidth(labels: ConsoleSection.allCases.map(\.title), buttonWidth: nil)
+        let closed = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: false, panelCollapsed: false)
+        for (shown, stripShown) in [(true, true), (true, false), (false, true), (false, false)] {
+            let drawn = WindowFrame.inspectorDrawn(inspectorShown: shown, stripShown: stripShown)
+            let minimum = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: drawn, panelCollapsed: false)
+            if shown && stripShown {
+                #expect(minimum >= closed + InspectorWidth.minimum)
+            } else {
+                #expect(minimum == closed)
+            }
+        }
+    }
+    @Test("the window is placed against the minimum the tabs will need, before the strip shows")
+    func placementCountsTheInspectorBeforeTheStripShows() {
+        let strip = TabStripLayout.minimumWidth(labels: ConsoleSection.allCases.map(\.title), buttonWidth: nil)
+        let closed = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: false, panelCollapsed: false)
+        let open = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: true, panelCollapsed: false)
+        for shown in [true, false] {
+            let placement = TabStripLayout.windowMinimumWidth(
+                strip: strip, inspectorShown: WindowFrame.inspectorCountsAtPlacement(inspectorShown: shown),
+                panelCollapsed: false)
+            let live = TabStripLayout.windowMinimumWidth(
+                strip: strip, inspectorShown: WindowFrame.inspectorDrawn(inspectorShown: shown, stripShown: false),
+                panelCollapsed: false)
+            #expect(placement == (shown ? open : closed))
+            #expect(live == closed)
+        }
+    }
+
+    @Test("the window grows only when the inspector turns drawn")
+    func inspectorGrowsOnlyWhenItTurnsDrawn() {
+        #expect(WindowFrame.inspectorGrows(from: false, to: true))
+        #expect(!WindowFrame.inspectorGrows(from: true, to: true))
+        #expect(!WindowFrame.inspectorGrows(from: true, to: false))
+        #expect(!WindowFrame.inspectorGrows(from: false, to: false))
+    }
 }
