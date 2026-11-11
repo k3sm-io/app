@@ -140,6 +140,8 @@ struct WindowGrowTests {
         drawn.stripShown = true
         let changes: [(WindowFrame.ConsoleInputs, WindowFrame.ConsoleInputs)] = [
             (base, badge), (collapsedBefore, collapsed), (base, drawn), (notDrawn, drawn),
+            // Opening the collapsed panel brings its minimum back.
+            (shut, open),
         ]
         for (before, after) in changes {
             let old = WindowFrame.minimum(before)
