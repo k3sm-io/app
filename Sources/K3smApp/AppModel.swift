@@ -311,6 +311,16 @@ final class AppModel: ObservableObject {
     /// (nil until then): the strip clears them while the panel is hidden
     /// (`TabStripLayout.leadingInset`).
     @Published var windowButtonsEdge: Double?
+    /// The strip's tab labels, in order, as the console window's minimum
+    /// counts them.
+    static let consoleTabLabels = ConsoleSection.allCases.map(\.title)
+    /// The console window's minimum's inputs (`WindowFrame.minimum`), read
+    /// here once so `ConsoleView` and `MainWindowController` cannot drift.
+    var consoleMinimumInputs: WindowFrame.ConsoleInputs {
+        WindowFrame.ConsoleInputs(inspectorShown: inspectorShown, stripShown: pane.stripShown,
+                                  panelCollapsed: consolePanelCollapsed, windowButtonsEdge: windowButtonsEdge,
+                                  developerBadge: ConsoleView.developerBadge(self), labels: Self.consoleTabLabels)
+    }
     /// The console's own state; it polls only while the console is on screen.
     let workloads: WorkloadsModel
     /// Every tab's writes: the one confirmation, the run and its report.
