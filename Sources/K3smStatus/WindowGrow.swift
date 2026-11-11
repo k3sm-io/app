@@ -32,10 +32,11 @@ extension WindowFrame {
         inspectorShown
     }
 
-    /// Whether the window grows when `inspectorDrawn` changes from `previous`
-    /// to `current`: only when the inspector turns drawn.
-    public static func inspectorGrows(from previous: Bool, to current: Bool) -> Bool {
-        !previous && current
+    /// Whether the window grows when its minimum changes from `previous` to
+    /// `current`: only when the new minimum is larger on either axis, never
+    /// when it is equal or smaller (a lower minimum does not shrink it).
+    public static func growsOnMinimumChange(from previous: Size, to current: Size) -> Bool {
+        current.width > previous.width || current.height > previous.height
     }
 
     /// Whether the window grows to a raised minimum at all: not while it is
@@ -46,7 +47,7 @@ extension WindowFrame {
     }
 
     /// The frame an already-placed window takes when its minimum rises (the
-    /// inspector opening): a frame narrower or shorter than `minimum` grows
+    /// inspector, the badge or the hidden panel's buttons edge widening it): a frame narrower or shorter than `minimum` grows
     /// to exactly that minimum, one already at or past it is returned
     /// unchanged. Growth keeps the frame's left and top edges, then moves the
     /// frame back onto `visible` (the screen's visible frame, nil when the
