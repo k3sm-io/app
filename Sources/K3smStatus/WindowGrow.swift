@@ -38,6 +38,13 @@ extension WindowFrame {
         !previous && current
     }
 
+    /// Whether the window grows to a raised minimum at all: not while it is
+    /// full screen or zoomed. Such a window's frame belongs to the system,
+    /// and setting a frame on it would break it out of that state.
+    public static func growRuns(fullScreen: Bool, zoomed: Bool) -> Bool {
+        !fullScreen && !zoomed
+    }
+
     /// The frame an already-placed window takes when its minimum rises (the
     /// inspector opening): a frame narrower or shorter than `minimum` grows
     /// to exactly that minimum, one already at or past it is returned
