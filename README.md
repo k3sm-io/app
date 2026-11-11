@@ -769,6 +769,9 @@ come from the full status read each time the menu opens, and This Mac also
 follows the regular probe. While that read runs past 0.3 seconds with the menu
 open, the butterfly in the menu bar beats its wings (still with its badges)
 until the read ends or the menu closes; with Reduce Motion on it stays still.
+Otherwise it beats whenever the wordmark in the window does, as the Dock icon
+does, and a pointer resting on it asks for a beat the same way a pointer on
+the wordmark does.
 The full status and the setting for connections from other devices are in the
 window. Then come the actions:
 
