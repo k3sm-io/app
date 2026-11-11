@@ -128,6 +128,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         saveFrame()
     }
 
+    /// A minimum raised while the window was full screen did not grow it
+    /// (`WindowFrame.growRuns`); grow it now that it has its own frame back.
+    func windowDidExitFullScreen(_ notification: Notification) {
+        guard let window else { return }
+        let size = WindowFrame.Size(width: window.frame.width, height: window.frame.height)
+        if WindowFrame.growsOnLeavingFullScreen(frame: size, minimum: minimum()) {
+            growToMinimum()
+        }
+    }
+
     /// Records the window's frame and its screen in the user defaults. A
     /// window on no screen (fully off every display) records nothing.
     private func saveFrame() {

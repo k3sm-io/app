@@ -95,6 +95,15 @@ struct WindowGrowTests {
         }
     }
 
+    @Test("leaving full screen grows a window left below a minimum that rose meanwhile")
+    func windowGrowsOnLeavingFullScreenWhenMinimumRose() {
+        let minimum = WindowFrame.Size(width: 1000, height: 700)
+        #expect(WindowFrame.growsOnLeavingFullScreen(frame: WindowFrame.Size(width: 900, height: 800), minimum: minimum))
+        #expect(WindowFrame.growsOnLeavingFullScreen(frame: WindowFrame.Size(width: 1200, height: 600), minimum: minimum))
+        #expect(!WindowFrame.growsOnLeavingFullScreen(frame: minimum, minimum: minimum))
+        #expect(!WindowFrame.growsOnLeavingFullScreen(frame: WindowFrame.Size(width: 1200, height: 800), minimum: minimum))
+    }
+
     @Test("the window grows only when its minimum rises on either axis")
     func windowGrowsOnlyWhenItsMinimumRises() {
         let low = WindowFrame.Size(width: 800, height: 700)

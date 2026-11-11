@@ -46,6 +46,15 @@ extension WindowFrame {
         !fullScreen && !zoomed
     }
 
+    /// Whether the window grows as it leaves full screen: when its restored
+    /// `frame` is narrower or shorter than `minimum`, since the minimum may
+    /// have risen while the system owned the frame and the grow was skipped
+    /// (`growRuns`). A zoomed window has no exit notification and is left
+    /// alone.
+    public static func growsOnLeavingFullScreen(frame: Size, minimum: Size) -> Bool {
+        frame.width < minimum.width || frame.height < minimum.height
+    }
+
     /// The frame an already-placed window takes when its minimum rises (the
     /// inspector, the badge or the hidden panel's buttons edge widening it): a frame narrower or shorter than `minimum` grows
     /// to exactly that minimum, one already at or past it is returned
