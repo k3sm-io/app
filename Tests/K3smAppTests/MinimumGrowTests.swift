@@ -108,4 +108,29 @@ struct MinimumGrowTests {
         changes.send()
         #expect(grows == 1)
     }
+
+    /// One `@Published` input, read back through its stored property as the
+    /// window controller reads the model's.
+    private final class Width: ObservableObject {
+        @Published var width: Double = 800
+    }
+
+    @Test("the minimum is read after the changed value is stored, so a rise grows the window")
+    func minimumIsReadAfterTheChangeIsStored() async {
+        // `@Published` sends before it stores: read on the same turn, the
+        // minimum is still the old one and the rise would be missed.
+        let input = Width()
+        let start = WindowFrame.Size(width: input.width, height: 600)
+        var grows = 0
+        let sink = MinimumGrow.grows(on: input.$width.map { _ in () }.eraseToAnyPublisher(),
+                                     minimum: { WindowFrame.Size(width: input.width, height: 600) },
+                                     start: start, scheduler: DispatchQueue.main)
+            .sink { grows += 1 }
+        defer { sink.cancel() }
+
+        input.width = 900
+        // Let the main queue run the hop queued by the change.
+        await withCheckedContinuation { done in DispatchQueue.main.async { done.resume() } }
+        #expect(grows == 1)
+    }
 }
