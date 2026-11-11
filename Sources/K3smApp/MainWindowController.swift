@@ -253,7 +253,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return window
     }
 
-    /// Each input of `AppModel.consoleMinimumInputs` triggers a read of the
+    /// Each change `AppModel.consoleMinimumInputsChanged` publishes triggers a read of the
     /// minimum on the main queue (`MinimumGrow.grows`), paired first with the
     /// minimum the window was placed at, so subscribing does not grow it. The
     /// window is reused, so the subscription lasts the controller's lifetime.
