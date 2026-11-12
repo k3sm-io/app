@@ -20,12 +20,17 @@ import Testing
 @testable import K3smStatus
 
 struct JoinHintTests {
+    /// K3SM_DIR when set to a path; an empty value counts as unset.
+    static func k3smDir(_ environment: [String: String]) -> String? {
+        environment["K3SM_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     /// The k3sm checkout the CLI source is read from: K3SM_DIR when set, else
     /// the sibling next to this repository.
     static func siblingDirectory(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        return environment["K3SM_DIR"].map { URL(fileURLWithPath: $0) } ?? root.deletingLastPathComponent().appending(path: "k3sm")
+        return k3smDir(environment).map { URL(fileURLWithPath: $0) } ?? root.deletingLastPathComponent().appending(path: "k3sm")
     }
 
     /// Whether a check that reads one CLI source file runs, is skipped, or fails.
@@ -57,7 +62,7 @@ struct JoinHintTests {
     static func sourceVerdict(environment: [String: String], sibling: URL, exists: (String) -> Bool, path: String) -> SourceVerdict {
         let file = sibling.appending(path: path)
         if exists(file.path) { return .run(file) }
-        let present = environment["K3SM_DIR"] != nil || exists(sibling.appending(path: "cmd/k3sm").path)
+        let present = k3smDir(environment) != nil || exists(sibling.appending(path: "cmd/k3sm").path)
         return present ? .missing(file.path) : .skipLoneClone
     }
 
@@ -80,6 +85,13 @@ struct JoinHintTests {
         #expect(Self.sourceVerdict(environment: [:], sibling: sibling, exists: { $0 == cmd || $0 == file }, path: path)
             == .run(sibling.appending(path: path)))
         #expect(Self.sourceVerdict(environment: [:], sibling: sibling, exists: { _ in false }, path: path) == .skipLoneClone)
+        // An empty K3SM_DIR is unset: with no sibling checkout the check skips.
+        let empty = ["K3SM_DIR": ""]
+        #expect(Self.sourceVerdict(environment: empty, sibling: sibling, exists: { _ in false }, path: path) == .skipLoneClone)
+        #expect(Self.siblingDirectory(environment: empty) == Self.siblingDirectory(environment: [:]))
+        // K3SM_DIR set and the file there: the check runs on it.
+        #expect(Self.sourceVerdict(environment: set, sibling: sibling, exists: { $0 == file }, path: path)
+            == .run(sibling.appending(path: path)))
     }
 
     /// Whether the cross-check runs: a caller who set K3SM_DIR asked for it, so
