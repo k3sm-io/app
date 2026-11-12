@@ -438,18 +438,14 @@ struct ImageStoreTests {
         #expect(ImageStoreText.pruneRegistry(none) == nil)
     }
 
-    /// The k3sm checkout the prune's output shape is checked against.
-    static func k3smSource(_ path: String) -> URL? {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let dir = ProcessInfo.processInfo.environment["K3SM_DIR"].map { URL(fileURLWithPath: $0) }
-            ?? root.deletingLastPathComponent().appending(path: "k3sm")
-        let file = dir.appending(path: path)
-        return FileManager.default.fileExists(atPath: file.path) ? file : nil
-    }
+    /// The k3sm checkout files the prune's output shape is checked against.
+    static var pruneVerdict: JoinHintTests.SourceVerdict { JoinHintTests.cliSource("cmd/k3sm/imageprune.go") }
+    static var imageVerdict: JoinHintTests.SourceVerdict { JoinHintTests.cliSource("cmd/k3sm/image.go") }
 
-    static var pruneSource: URL? { k3smSource("cmd/k3sm/imageprune.go") }
-    static var imageSource: URL? { k3smSource("cmd/k3sm/image.go") }
+    static var pruneSource: URL? {
+        guard case .run(let url) = pruneVerdict else { return nil }
+        return url
+    }
 
     /// Whether the k3sm checkout prints the registry sweep; one that
     /// predates it has no renderSweep, and its check is skipped.
@@ -483,9 +479,9 @@ struct ImageStoreTests {
         #expect(at.count == order.count && at == at.sorted(), "renderSweep prints its lines in another order")
     }
 
-    @Test("the lines read are the ones cmd/k3sm/imageprune.go prints", .enabled(if: pruneSource != nil && imageSource != nil))
+    @Test("the lines read are the ones cmd/k3sm/imageprune.go prints", .enabled(if: pruneVerdict != .skipLoneClone || imageVerdict != .skipLoneClone))
     func pruneShapeMatchesTheCLI() throws {
-        let prune = try String(contentsOf: try #require(Self.pruneSource), encoding: .utf8)
+        let prune = try String(contentsOf: try Self.pruneVerdict.required(), encoding: .utf8)
         let render = try #require(prune.range(of: "func renderPrune("), "no renderPrune in cmd/k3sm/imageprune.go; the scrape is stale")
         let body = prune[render.upperBound...].prefix(3000)
         for line in [
@@ -502,7 +498,7 @@ struct ImageStoreTests {
             #expect(body.contains(line), "renderPrune no longer prints \(line)")
         }
         #expect(prune.contains("DryRun: !o.force"))
-        let image = try String(contentsOf: try #require(Self.imageSource), encoding: .utf8)
+        let image = try String(contentsOf: try Self.imageVerdict.required(), encoding: .utf8)
         #expect(image.contains(#"return fmt.Sprintf("%d B", n)"#))
         #expect(image.contains(#"return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])"#))
     }

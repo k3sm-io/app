@@ -23,18 +23,12 @@ import Testing
 /// CLI source (K3SM_DIR, or a sibling checkout); skipped without one.
 @Suite("the Builds tab's k3sm CLI contract")
 struct BuildCLIContractTests {
-    static var cliDirectory: URL? {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let dir = ProcessInfo.processInfo.environment["K3SM_DIR"].map { URL(fileURLWithPath: $0) }
-            ?? root.deletingLastPathComponent().appending(path: "k3sm")
-        let cmd = dir.appending(path: "cmd/k3sm")
-        return FileManager.default.fileExists(atPath: cmd.appending(path: "buildmanage.go").path) ? dir : nil
-    }
+    static var manageSource: JoinHintTests.SourceVerdict { JoinHintTests.cliSource("cmd/k3sm/buildmanage.go") }
 
-    @Test("every build and builder verb and flag the app passes is one the CLI declares", .enabled(if: cliDirectory != nil))
+    @Test("every build and builder verb and flag the app passes is one the CLI declares", .enabled(if: manageSource != .skipLoneClone))
     func verbsDeclared() throws {
-        let dir = try #require(Self.cliDirectory)
+        _ = try Self.manageSource.required()
+        let dir = JoinHintTests.siblingDirectory()
         let read = { (name: String) in try String(contentsOf: dir.appending(path: name), encoding: .utf8) }
         let builder = try read("cmd/k3sm/builder.go")
         let build = try read("cmd/k3sm/build.go")

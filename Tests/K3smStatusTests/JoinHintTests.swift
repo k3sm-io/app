@@ -28,6 +28,60 @@ struct JoinHintTests {
         return environment["K3SM_DIR"].map { URL(fileURLWithPath: $0) } ?? root.deletingLastPathComponent().appending(path: "k3sm")
     }
 
+    /// Whether a check that reads one CLI source file runs, is skipped, or fails.
+    enum SourceVerdict: Equatable {
+        /// The file is there; read it.
+        case run(URL)
+        /// No K3SM_DIR and no sibling checkout: a lone clone of this repository.
+        case skipLoneClone
+        /// A checkout is there but the file is not; the path names it.
+        case missing(String)
+
+        /// The file to read; a missing one is recorded by name and thrown.
+        func required() throws -> URL {
+            switch self {
+            case .run(let url):
+                return url
+            case .missing(let path):
+                Issue.record("k3sm checkout has no \(path): set K3SM_DIR to a current checkout")
+                throw SiblingMissing()
+            case .skipLoneClone:
+                Issue.record("no k3sm checkout: set K3SM_DIR")
+                throw SiblingMissing()
+            }
+        }
+    }
+
+    /// The verdict for the CLI source `path` (relative to the checkout `sibling`):
+    /// a checkout is present when K3SM_DIR is set or `sibling` has `cmd/k3sm`.
+    static func sourceVerdict(environment: [String: String], sibling: URL, exists: (String) -> Bool, path: String) -> SourceVerdict {
+        let file = sibling.appending(path: path)
+        if exists(file.path) { return .run(file) }
+        let present = environment["K3SM_DIR"] != nil || exists(sibling.appending(path: "cmd/k3sm").path)
+        return present ? .missing(file.path) : .skipLoneClone
+    }
+
+    /// `sourceVerdict` for this process's environment and file system.
+    static func cliSource(_ path: String) -> SourceVerdict {
+        let environment = ProcessInfo.processInfo.environment
+        return sourceVerdict(environment: environment, sibling: siblingDirectory(environment: environment),
+                             exists: { FileManager.default.fileExists(atPath: $0) }, path: path)
+    }
+
+    @Test("a CLI source check runs, skips only a lone clone, and names a file a present checkout lacks")
+    func sourceVerdicts() {
+        let sibling = URL(fileURLWithPath: "/src/k3sm")
+        let path = "cmd/k3sm/buildmanage.go"
+        let file = sibling.appending(path: path).path
+        let cmd = sibling.appending(path: "cmd/k3sm").path
+        let set = ["K3SM_DIR": sibling.path]
+        #expect(Self.sourceVerdict(environment: set, sibling: sibling, exists: { _ in false }, path: path) == .missing(file))
+        #expect(Self.sourceVerdict(environment: [:], sibling: sibling, exists: { $0 == cmd }, path: path) == .missing(file))
+        #expect(Self.sourceVerdict(environment: [:], sibling: sibling, exists: { $0 == cmd || $0 == file }, path: path)
+            == .run(sibling.appending(path: path)))
+        #expect(Self.sourceVerdict(environment: [:], sibling: sibling, exists: { _ in false }, path: path) == .skipLoneClone)
+    }
+
     /// Whether the cross-check runs: a caller who set K3SM_DIR asked for it, so
     /// it runs and fails by name when the source is missing; with no K3SM_DIR it
     /// runs only when the sibling checkout is there, and is skipped otherwise.
