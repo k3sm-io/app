@@ -55,4 +55,43 @@ import Testing
             }
         }
     }
+
+    @Test func aFailedCopyLeavesNothingBehind() throws {
+        let store = FixtureStore(directory: FixtureTrees.directory(named: "storetest-" + UUID().uuidString.prefix(8)),
+                                 signer: { _ in 0 }, checker: { _ in true })
+        // A regular file where the destination's parent should be: the parent
+        // cannot be made, so the copy fails.
+        let blocker = store.directory + "/blocker"
+        FileManager.default.createFile(atPath: blocker, contents: Data("x".utf8))
+        let destination = blocker + "/out/a"
+        do {
+            try store.place(key: "a", name: "item", at: destination) { path in
+                FileManager.default.createFile(atPath: path, contents: Data("a".utf8))
+            }
+            Issue.record("a copy into a path under a regular file succeeded")
+        } catch {
+            #expect(error.description.contains(destination), "the error names the destination: \(error)")
+        }
+        var st = stat()
+        #expect(lstat(destination, &st) != 0, "nothing is left at the destination")
+    }
+
+    @Test func everyOffVolumeCopyIsCheckedAndAFailureIsCheckedAgain() throws {
+        let checks = Mutex<Int>(0)
+        let passes = Mutex<Bool>(true)
+        let store = FixtureStore(directory: FixtureTrees.directory(named: "storetest-" + UUID().uuidString.prefix(8)),
+                                 signer: { _ in 0 },
+                                 checker: { _ in checks.withLock { $0 += 1 }; return passes.withLock { $0 } },
+                                 otherVolume: { _, _ in true })
+        let out = store.directory + "/out"
+        func build(_ path: String) { FileManager.default.createFile(atPath: path, contents: Data("a".utf8)) }
+        for n in 0..<4 { try store.place(key: "a", name: "item", at: out + "/ok\(n)", build: build) }
+        #expect(checks.withLock { $0 } == 4, "every off-volume copy is checked, not only the first of a key")
+        passes.withLock { $0 = false }
+        let bad = out + "/bad"
+        #expect(throws: FixtureError.self) { try store.place(key: "a", name: "item", at: bad, build: build) }
+        #expect(checks.withLock { $0 } == 5, "the failing copy was checked")
+        #expect(throws: FixtureError.self) { try store.place(key: "a", name: "item", at: out + "/bad2", build: build) }
+        #expect(checks.withLock { $0 } == 6, "the next place is checked again")
+    }
 }

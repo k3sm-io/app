@@ -41,6 +41,15 @@ final class FixtureStore: @unchecked Sendable {
     /// Says whether an untampered copy at a path still satisfies the fixtures'
     /// requirement.
     typealias Checker = @Sendable (String) -> Bool
+    /// Says whether a copy at the second path is on another volume than the
+    /// item at the first.
+    typealias VolumeCheck = @Sendable (String, String) -> Bool
+
+    /// The real answer: the two paths' `st_dev` differ, or either is unreadable.
+    static let differentDevice: VolumeCheck = { source, path in
+        var here = stat(), there = stat()
+        return stat(source, &here) != 0 || stat(path, &there) != 0 || here.st_dev != there.st_dev
+    }
 
     /// The requirement every fixture satisfies: an ad-hoc signature carries
     /// the identifier, so no certificate is needed.
@@ -57,10 +66,13 @@ final class FixtureStore: @unchecked Sendable {
     let directory: String
     private let signer: Signer
     private let checker: Checker
+    private let otherVolume: VolumeCheck
     private let state = Mutex<(items: [String: String], checked: Set<String>)>(([:], []))
 
-    init(directory: String, signer: @escaping Signer, checker: @escaping Checker) {
+    init(directory: String, signer: @escaping Signer, checker: @escaping Checker,
+         otherVolume: @escaping VolumeCheck = FixtureStore.differentDevice) {
         self.directory = directory
+        self.otherVolume = otherVolume
         self.signer = signer
         self.checker = checker
         try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
@@ -105,10 +117,9 @@ final class FixtureStore: @unchecked Sendable {
         }
         // The first copy of each key, and every copy on another volume than
         // the store, is checked in process with the product's own check.
-        var here = stat(), there = stat()
-        let otherVolume = stat(source, &here) != 0 || stat(path, &there) != 0 || here.st_dev != there.st_dev
+        let off = otherVolume(source, path)
         let first = state.withLock { $0.checked.insert(key).inserted }
-        if first || otherVolume, !checker(path) {
+        if first || off, !checker(path) {
             if first { state.withLock { _ = $0.checked.remove(key) } }
             throw FixtureError(description: "the untampered copy at \(path) does not satisfy the fixture requirement")
         }
