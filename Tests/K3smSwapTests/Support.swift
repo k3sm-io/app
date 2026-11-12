@@ -115,28 +115,20 @@ final class Scratch: @unchecked Sendable {
 
     /// Places a signed fixture bundle at `path`, where nothing is yet: a copy
     /// of the one bundle of this content the process signed
-    /// (`FixtureStore`). A fixture that cannot be placed fails the calling
-    /// test, not the process.
+    /// (`FixtureStore`). A fixture that cannot be placed throws, which ends
+    /// the calling test there, never the process.
     func makeBundle(at path: String, tag: String?, behaviour: String, executable: String = FixtureBinaries.app,
-                    shortVersion: String? = nil, sourceLocation: SourceLocation = #_sourceLocation) {
+                    shortVersion: String? = nil) throws {
         let key = ["bundle", tag ?? "-", behaviour, executable, shortVersion ?? "-"].joined(separator: "|")
-        do {
-            try FixtureStore.shared.place(key: key, name: "k3sm.app", at: path) { path in
-                Self.buildBundle(at: path, tag: tag, behaviour: behaviour, executable: executable, shortVersion: shortVersion)
-            }
-        } catch {
-            Issue.record(error, sourceLocation: sourceLocation)
+        try FixtureStore.shared.place(key: key, name: "k3sm.app", at: path) { path in
+            Self.buildBundle(at: path, tag: tag, behaviour: behaviour, executable: executable, shortVersion: shortVersion)
         }
     }
 
     /// Moves the item at `path` aside, out of every directory a test reads,
     /// instead of removing it while the system may still be scanning it.
-    func retire(_ path: String, sourceLocation: SourceLocation = #_sourceLocation) {
-        do {
-            try FixtureStore.retire(path, root: root)
-        } catch {
-            Issue.record(error, sourceLocation: sourceLocation)
-        }
+    func retire(_ path: String) throws {
+        try FixtureStore.retire(path, root: root)
     }
 
     /// Writes an unsigned fixture bundle's content at `path`.
@@ -168,30 +160,24 @@ final class Scratch: @unchecked Sendable {
 
     /// Places a signed copy of the bare executable `source` at `path` (no
     /// bundle around it), signed once per process.
-    func signedExecutable(_ source: String, at path: String, sourceLocation: SourceLocation = #_sourceLocation) {
-        do {
-            try FixtureStore.shared.place(key: "executable|" + source, name: "executable", at: path) { path in
-                try? FileManager.default.copyItem(atPath: source, toPath: path)
-            }
-        } catch {
-            Issue.record(error, sourceLocation: sourceLocation)
+    func signedExecutable(_ source: String, at path: String) throws {
+        try FixtureStore.shared.place(key: "executable|" + source, name: "executable", at: path) { path in
+            try? FileManager.default.copyItem(atPath: source, toPath: path)
         }
     }
 
     /// Installs a fixture bundle at the target.
-    func install(tag: String?, behaviour: String = "handshake", shortVersion: String? = nil,
-                 sourceLocation: SourceLocation = #_sourceLocation) {
-        makeBundle(at: target, tag: tag, behaviour: behaviour, shortVersion: shortVersion, sourceLocation: sourceLocation)
+    func install(tag: String?, behaviour: String = "handshake", shortVersion: String? = nil) throws {
+        try makeBundle(at: target, tag: tag, behaviour: behaviour, shortVersion: shortVersion)
     }
 
     /// Stages a fixture bundle and returns the staging directory's name.
     @discardableResult
     func stage(tag: String?, behaviour: String = "handshake", name: String = SwapPaths.newStagingName(),
-               executable: String = FixtureBinaries.app, sourceLocation: SourceLocation = #_sourceLocation) -> String {
+               executable: String = FixtureBinaries.app) throws -> String {
         let dir = SwapPaths.stagingDirectory(target: target, name: name)
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        makeBundle(at: dir + "/" + SwapPaths.bundleName, tag: tag, behaviour: behaviour, executable: executable,
-                   sourceLocation: sourceLocation)
+        try makeBundle(at: dir + "/" + SwapPaths.bundleName, tag: tag, behaviour: behaviour, executable: executable)
         return name
     }
 
@@ -229,9 +215,9 @@ final class Scratch: @unchecked Sendable {
     }
 
     /// Installs v1.0.0, swaps to v1.1.0 and checks the commit.
-    func updateOnce() {
-        install(tag: "v1.0.0")
-        let name = stage(tag: "v1.1.0")
+    func updateOnce() throws {
+        try install(tag: "v1.0.0")
+        let name = try stage(tag: "v1.1.0")
         request(stagedName: name, expectedTag: "v1.1.0", app: appProcess(exitingAfter: 0.2))
         precondition(engine().swap() == .committed, "the setup update did not commit")
     }

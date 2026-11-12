@@ -49,6 +49,9 @@ import Testing
         // A later run's bounded sweep of a gone process's old trees.
         ("K3smSwapTests/FixtureStore.swift", "run(\"/bin/rm\", [\"-rfx\", path])", 1),
         ("K3smInstallTests/AdminFixtureStore.swift", "run(\"/bin/rm\", [\"-rfx\", path])", 1),
+        // A partial copy a failed place just made, never verified in place.
+        ("K3smSwapTests/FixtureStore.swift", "try? fm.removeItem(atPath: path)", 1),
+        ("K3smInstallTests/AdminFixtureStore.swift", "try? fm.removeItem(atPath: path)", 1),
         // Scratch disk images and their empty mount points, after the detach.
         ("K3smInstallTests/AppSwapRootTests.swift", "(image as NSString).deletingLastPathComponent", 1),
         ("K3smSwapTests/ReviewFixTests.swift", "run(\"/bin/rm\", [\"-rfx\", work])", 1),

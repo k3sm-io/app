@@ -35,7 +35,7 @@ struct ReviewFixTests {
         // The genuine previous copy comes back.
         do {
             let s = Scratch()
-            s.updateOnce()
+            try s.updateOnce()
             let record = try #require(JournalStore(paths: s.paths).readRecord())
             #expect(record.name == "k3sm-v1.0.0.previous")
             #expect(record.installedTag == "v1.1.0")
@@ -49,9 +49,9 @@ struct ReviewFixTests {
         // journal forged to name it.
         do {
             let s = Scratch()
-            s.updateOnce()
+            try s.updateOnce()
             let installed = identity(s.target)
-            s.makeBundle(at: s.paths.previousDirectory + "/k3sm-v0.9.0.previous", tag: "v0.9.0", behaviour: "handshake")
+            try s.makeBundle(at: s.paths.previousDirectory + "/k3sm-v0.9.0.previous", tag: "v0.9.0", behaviour: "handshake")
             var forged = try #require(s.journal)
             forged.outgoingTag = "v0.9.0"
             forged.previousName = "k3sm-v0.9.0.previous"
@@ -67,11 +67,11 @@ struct ReviewFixTests {
         // cdhash) is refused.
         do {
             let s = Scratch()
-            s.updateOnce()
+            try s.updateOnce()
             let installed = identity(s.target)
             let previous = s.paths.previousDirectory + "/k3sm-v1.0.0.previous"
-            s.retire(previous)
-            s.makeBundle(at: previous, tag: "v1.0.0", behaviour: "silent")
+            try s.retire(previous)
+            try s.makeBundle(at: previous, tag: "v1.0.0", behaviour: "silent")
             s.requestGoBack(tag: "v1.0.0", app: s.appProcess(exitingAfter: 0.2))
             let spy = SpyRenamer()
             #expect(s.engine(renamer: spy).goBack() == .verificationFailed)
@@ -81,7 +81,7 @@ struct ReviewFixTests {
         // No record, no go-back.
         do {
             let s = Scratch()
-            s.updateOnce()
+            try s.updateOnce()
             JournalStore(paths: s.paths).writeRecord(nil)
             s.requestGoBack(tag: "v1.0.0", app: s.appProcess(exitingAfter: 0.2))
             #expect(s.engine(renamer: SpyRenamer()).goBack() == .verificationFailed)
@@ -90,9 +90,9 @@ struct ReviewFixTests {
 
     @Test func rollbackRestoresThePriorRecord() throws {
         let s = Scratch()
-        s.updateOnce()
+        try s.updateOnce()
         let prior = try #require(JournalStore(paths: s.paths).readRecord())
-        let name = s.stage(tag: "v1.2.0", behaviour: "silent")
+        let name = try s.stage(tag: "v1.2.0", behaviour: "silent")
         s.request(stagedName: name, expectedTag: "v1.2.0", app: s.appProcess(exitingAfter: 0.2))
         #expect(s.engine(timeouts: .silent).swap() == .rolledBack)
         #expect(JournalStore(paths: s.paths).readRecord() == prior)
@@ -121,8 +121,8 @@ struct ReviewFixTests {
         // The reconciler leaves a journal with a `../` previous name alone:
         // nothing at the path it names is touched.
         let s = Scratch()
-        s.install(tag: "v1.0.0")
-        let name = s.stage(tag: "v1.1.0")
+        try s.install(tag: "v1.0.0")
+        let name = try s.stage(tag: "v1.1.0")
         s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
         let faults = SwapFaults { state, phase in state == .swapped && phase == .acted }
         _ = s.engine(faults: faults).swap()
@@ -148,7 +148,7 @@ struct ReviewFixTests {
     }
 
     @Test func stagedTreeMustBePrivate() throws {
-        let cases: [(String, (Scratch, String) -> Void)] = [
+        let cases: [(String, (Scratch, String) throws -> Void)] = [
             ("a group-writable file in the bundle", { s, name in
                 chmod(SwapPaths.stagingDirectory(target: s.target, name: name) + "/k3sm.app/Contents/Info.plist", 0o664)
             }),
@@ -161,10 +161,10 @@ struct ReviewFixTests {
         ]
         for (label, arrange) in cases {
             let s = Scratch()
-            s.install(tag: "v1.0.0")
+            try s.install(tag: "v1.0.0")
             let original = identity(s.target)
-            let name = s.stage(tag: "v1.1.0")
-            arrange(s, name)
+            let name = try s.stage(tag: "v1.1.0")
+            try arrange(s, name)
             s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
             let spy = SpyRenamer()
             #expect(s.engine(renamer: spy).swap() == .verificationFailed, "\(label)")
@@ -202,7 +202,7 @@ struct ReviewFixTests {
         defer { #expect(detachFixtureVolume(home)) }
         let s = Scratch(home: home)
         try? JournalStore(paths: s.paths).prepare()
-        s.install(tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
         #expect(s.paths.volumeRefusal(target: s.target) == .previousOnOtherVolume)
         // Its own sentence: the volume is capable, so the message must not
         // suggest fixing the volume's file system.
@@ -215,7 +215,7 @@ struct ReviewFixTests {
             try client.beginUpdate(target: s.target, stagedName: SwapPaths.newStagingName(), expectedTag: "v1.1.0")
         }
         let original = identity(s.target)
-        let name = s.stage(tag: "v1.1.0")
+        let name = try s.stage(tag: "v1.1.0")
         let app = s.appProcess(exitingAfter: 0.2)
         s.request(stagedName: name, expectedTag: "v1.1.0", app: app)
         let spy = SpyRenamer()
@@ -230,9 +230,9 @@ struct ReviewFixTests {
         #expect(FileIdentity(volume: "V", ino: 7, dev: 1) == FileIdentity(volume: "V", ino: 7, dev: 2))
         #expect(FileIdentity(volume: "V", ino: 7, dev: 1) != FileIdentity(volume: "W", ino: 7, dev: 1))
         let s = Scratch()
-        s.install(tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
         let originalExe = try #require(identity(s.target + "/Contents/MacOS/k3sm-app"))
-        let name = s.stage(tag: "v1.1.0")
+        let name = try s.stage(tag: "v1.1.0")
         s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
         // Killed after the swap, before the old bundle moved out: the only
         // copy of it is in the staging directory.
@@ -254,11 +254,11 @@ struct ReviewFixTests {
 
     @Test func floorOnlyRises() throws {
         let s = Scratch()
-        s.updateOnce()
+        try s.updateOnce()
         let first = try #require(JournalStore(paths: s.paths).readRecord())
         #expect(first.floorTag == "v1.0.0")
         // A second update keeps the floor at the highest tag kept so far.
-        let name = s.stage(tag: "v1.2.0")
+        let name = try s.stage(tag: "v1.2.0")
         s.request(stagedName: name, expectedTag: "v1.2.0", app: s.appProcess(exitingAfter: 0.2))
         #expect(s.engine().swap() == .committed)
         let second = try #require(JournalStore(paths: s.paths).readRecord())
@@ -273,7 +273,7 @@ struct ReviewFixTests {
 
     @Test func goBackBelowTheFloorIsRefused() throws {
         let s = Scratch()
-        s.updateOnce()
+        try s.updateOnce()
         let installed = identity(s.target)
         let store = JournalStore(paths: s.paths)
         var record = try #require(store.readRecord())
@@ -288,7 +288,7 @@ struct ReviewFixTests {
 
     @Test func aFloorLoweredAfterTheFactIsRefused() throws {
         let s = Scratch()
-        s.updateOnce()
+        try s.updateOnce()
         let installed = identity(s.target)
         let store = JournalStore(paths: s.paths)
         var record = try #require(store.readRecord())
@@ -308,8 +308,8 @@ struct ReviewFixTests {
         // written and before the swap leaves a record naming a copy that
         // was never kept; the reconciler clears it.
         let s = Scratch()
-        s.install(tag: "v1.0.0")
-        let name = s.stage(tag: "v1.1.0")
+        try s.install(tag: "v1.0.0")
+        let name = try s.stage(tag: "v1.1.0")
         s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
         let faults = SwapFaults { state, phase in state == .swapped && phase == .written }
         _ = s.engine(faults: faults).swap()
@@ -322,9 +322,9 @@ struct ReviewFixTests {
 
         // With an earlier record, that one comes back.
         let t = Scratch()
-        t.updateOnce()
+        try t.updateOnce()
         let prior = try #require(JournalStore(paths: t.paths).readRecord())
-        let next = t.stage(tag: "v1.2.0")
+        let next = try t.stage(tag: "v1.2.0")
         t.request(stagedName: next, expectedTag: "v1.2.0", app: t.appProcess(exitingAfter: 0.2))
         _ = t.engine(faults: faults).swap()
         #expect(JournalStore(paths: t.paths).readRecord() != prior)

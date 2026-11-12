@@ -27,9 +27,9 @@ import Testing
 struct SwapEngineTests {
     @Test func swapSuccessKeepsPreviousCopy() throws {
         let s = Scratch()
-        s.install(tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
         let oldCDHash = try #require(StaticCodeVerifier.cdhash(path: s.target, requirement: fixtureRequirement))
-        let name = s.stage(tag: "v1.1.0")
+        let name = try s.stage(tag: "v1.1.0")
         let staged = try #require(StaticCodeVerifier.cdhash(path: SwapPaths.stagingDirectory(target: s.target, name: name) + "/k3sm.app",
                                                           requirement: fixtureRequirement))
         s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
@@ -51,9 +51,9 @@ struct SwapEngineTests {
 
     @Test func missingHandshakeRollsBack() throws {
         let s = Scratch()
-        s.install(tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
         let original = try #require(identity(s.target))
-        let name = s.stage(tag: "v1.1.0", behaviour: "silent")
+        let name = try s.stage(tag: "v1.1.0", behaviour: "silent")
         s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
 
         #expect(s.engine(timeouts: .silent).swap() == .rolledBack)
@@ -72,9 +72,9 @@ struct SwapEngineTests {
 
     @Test func earlyExitRollsBack() throws {
         let s = Scratch()
-        s.install(tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
         let original = try #require(identity(s.target))
-        let name = s.stage(tag: "v1.1.0", behaviour: "exit-early")
+        let name = try s.stage(tag: "v1.1.0", behaviour: "exit-early")
         s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
         // A handshake bound far beyond the run: only NOTE_EXIT can end it early.
         let timeouts = SwapTimeouts(appExit: .seconds(5), handshake: .seconds(60), terminate: .seconds(2), poll: .milliseconds(50))
@@ -90,9 +90,9 @@ struct SwapEngineTests {
 
     @Test func parentNeverExitsAbandonsKeepsStaged() throws {
         let s = Scratch()
-        s.install(tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
         let original = try #require(identity(s.target))
-        let name = s.stage(tag: "v1.1.0")
+        let name = try s.stage(tag: "v1.1.0")
         s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 30))
         let spy = SpyRenamer()
         let timeouts = SwapTimeouts(appExit: .milliseconds(500), handshake: .seconds(5), terminate: .seconds(1), poll: .milliseconds(50))
@@ -131,8 +131,8 @@ struct SwapEngineTests {
     @Test(arguments: killPoints)
     func killAtEveryJournalStepReconciles(_ point: KillPoint) throws {
         let s = Scratch()
-        s.install(tag: "v1.0.0")
-        let name = s.stage(tag: "v1.1.0", behaviour: point.silent ? "silent" : "handshake")
+        try s.install(tag: "v1.0.0")
+        let name = try s.stage(tag: "v1.1.0", behaviour: point.silent ? "silent" : "handshake")
         s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
         let faults = SwapFaults { state, phase in state == point.state && phase == point.phase }
         _ = s.engine(timeouts: point.silent ? .silent : .test, faults: faults).swap()
@@ -166,11 +166,11 @@ struct SwapEngineTests {
     }
 
     @Test func requestNamingAnotherDirectoryRefused() throws {
-        let cases: [(String, (Scratch, String) -> Void)] = [
+        let cases: [(String, (Scratch, String) throws -> Void)] = [
             ("target outside the roots", { s, name in
                 let elsewhere = s.root + "/Elsewhere"
                 try? FileManager.default.createDirectory(atPath: elsewhere, withIntermediateDirectories: true)
-                s.makeBundle(at: elsewhere + "/k3sm.app", tag: "v1.0.0", behaviour: "handshake")
+                try s.makeBundle(at: elsewhere + "/k3sm.app", tag: "v1.0.0", behaviour: "handshake")
                 s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.1), target: elsewhere + "/k3sm.app")
             }),
             ("symlinked target", { s, name in
@@ -209,10 +209,10 @@ struct SwapEngineTests {
         ]
         for (label, arrange) in cases {
             let s = Scratch()
-            s.install(tag: "v1.0.0")
+            try s.install(tag: "v1.0.0")
             let original = identity(s.target)
-            let name = s.stage(tag: "v1.1.0")
-            arrange(s, name)
+            let name = try s.stage(tag: "v1.1.0")
+            try arrange(s, name)
             let spy = SpyRenamer()
             let exit = s.engine(renamer: spy).swap()
             #expect(exit == .refusedRequest, "\(label)")
@@ -224,11 +224,11 @@ struct SwapEngineTests {
 
     @Test func oldExecutableInodeUnchanged() throws {
         let s = Scratch()
-        s.install(tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
         let exe = "/Contents/MacOS/k3sm-app"
         let before = try #require(identity(s.target + exe))
         let bytes = try Data(contentsOf: URL(fileURLWithPath: s.target + exe))
-        let name = s.stage(tag: "v1.1.0")
+        let name = try s.stage(tag: "v1.1.0")
         s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
 
         #expect(s.engine().swap() == .committed)
@@ -251,9 +251,9 @@ struct SwapEngineTests {
         for (code, exit, outcome) in cases {
             #expect(RenameOutcome(errno: code) == outcome)
             let s = Scratch()
-            s.install(tag: "v1.0.0")
+            try s.install(tag: "v1.0.0")
             let original = identity(s.target)
-            let name = s.stage(tag: "v1.1.0")
+            let name = try s.stage(tag: "v1.1.0")
             s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
             #expect(s.engine(renamer: SpyRenamer(swapErrno: code)).swap() == exit, "errno \(code)")
             #expect(identity(s.target) == original, "errno \(code)")
@@ -268,7 +268,7 @@ struct SwapEngineTests {
 
     @Test func exdevCopiesOntoTargetVolume() throws {
         let s = Scratch()
-        s.install(tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
         // The staging directory is the mount point of a separate APFS volume,
         // so the swap fails with EXDEV.
         let image = s.root + "/staging.dmg"
@@ -282,7 +282,7 @@ struct SwapEngineTests {
         statfs(mount, &fs)
         statfs(s.applications, &tfs)
         try #require(fs.f_fsid.val.0 != tfs.f_fsid.val.0 || fs.f_fsid.val.1 != tfs.f_fsid.val.1)
-        s.makeBundle(at: mount + "/k3sm.app", tag: "v1.1.0", behaviour: "handshake")
+        try s.makeBundle(at: mount + "/k3sm.app", tag: "v1.1.0", behaviour: "handshake")
         s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
 
         #expect(s.engine().swap() == .committed)
@@ -325,8 +325,8 @@ struct SwapEngineTests {
         // comes from the installed bundle, so an equal tag is refused.
         do {
             let s = Scratch()
-            s.install(tag: "v1.0.0")
-            let name = s.stage(tag: "v1.0.0")
+            try s.install(tag: "v1.0.0")
+            let name = try s.stage(tag: "v1.0.0")
             s.request(stagedName: name, expectedTag: "v1.0.0", app: s.appProcess(exitingAfter: 0.1)) { journal in
                 journal.outgoingTag = "v0.0.1"
             }
@@ -337,8 +337,8 @@ struct SwapEngineTests {
         // Staged at or below the installed release.
         for staged in ["v1.0.0", "v0.9.0", "v1.0.0-rc.1"] {
             let s = Scratch()
-            s.install(tag: "v1.0.0")
-            let name = s.stage(tag: staged)
+            try s.install(tag: "v1.0.0")
+            let name = try s.stage(tag: staged)
             s.request(stagedName: name, expectedTag: staged, app: s.appProcess(exitingAfter: 0.1))
             let spy = SpyRenamer()
             #expect(s.engine(renamer: spy).swap() == .verificationFailed, "\(staged)")
@@ -349,10 +349,10 @@ struct SwapEngineTests {
         // version.
         do {
             let s = Scratch()
-            s.install(tag: "v1.0.0")
+            try s.install(tag: "v1.0.0")
             let name = SwapPaths.newStagingName()
             let dir = SwapPaths.stagingDirectory(target: s.target, name: name)
-            s.makeBundle(at: dir + "/k3sm.app", tag: nil, behaviour: "handshake", shortVersion: "9.0.0")
+            try s.makeBundle(at: dir + "/k3sm.app", tag: nil, behaviour: "handshake", shortVersion: "9.0.0")
             s.request(stagedName: name, expectedTag: "v9.0.0", app: s.appProcess(exitingAfter: 0.1))
             let spy = SpyRenamer()
             #expect(s.engine(renamer: spy).swap() == .verificationFailed)
@@ -361,8 +361,8 @@ struct SwapEngineTests {
         // The rc of the next release is above the installed final.
         do {
             let s = Scratch()
-            s.install(tag: "v1.0.0")
-            let name = s.stage(tag: "v1.1.0-rc.1")
+            try s.install(tag: "v1.0.0")
+            let name = try s.stage(tag: "v1.1.0-rc.1")
             s.request(stagedName: name, expectedTag: "v1.1.0-rc.1", app: s.appProcess(exitingAfter: 0.1))
             #expect(s.engine().swap() == .committed)
         }
@@ -372,11 +372,11 @@ struct SwapEngineTests {
         // Another process writes the right token with its own pid.
         do {
             let s = Scratch()
-            s.install(tag: "v1.0.0")
+            try s.install(tag: "v1.0.0")
             let original = identity(s.target)
-            let name = s.stage(tag: "v1.1.0", behaviour: "silent")
+            let name = try s.stage(tag: "v1.1.0", behaviour: "silent")
             let impostor = s.root + "/impostor.app"
-            s.makeBundle(at: impostor, tag: "v1.1.0", behaviour: "handshake")
+            try s.makeBundle(at: impostor, tag: "v1.1.0", behaviour: "handshake")
             let launcher = s.launcher
             launcher.afterLaunch.withLock { hook in
                 hook = { _ = launcher.start(executable: impostor + "/Contents/MacOS/k3sm-app", arguments: ["--handshake"]) }
@@ -390,11 +390,11 @@ struct SwapEngineTests {
         // The launched process answers, but runs other code than the target.
         do {
             let s = Scratch()
-            s.install(tag: "v1.0.0")
+            try s.install(tag: "v1.0.0")
             let original = identity(s.target)
-            let name = s.stage(tag: "v1.1.0", behaviour: "silent")
+            let name = try s.stage(tag: "v1.1.0", behaviour: "silent")
             let impostor = s.root + "/impostor.app"
-            s.makeBundle(at: impostor, tag: "v1.1.0", behaviour: "handshake")
+            try s.makeBundle(at: impostor, tag: "v1.1.0", behaviour: "handshake")
             s.launcher.substitute.withLock { $0 = impostor }
             s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
             #expect(s.engine(timeouts: .silent).swap() == .rolledBack)
@@ -405,13 +405,13 @@ struct SwapEngineTests {
     }
 
     @Test func helperCopyMustMatchBundledHelper() throws {
-        func signed(_ s: Scratch, _ source: String, _ name: String) -> String {
+        func signed(_ s: Scratch, _ source: String, _ name: String) throws -> String {
             let path = s.root + "/" + name
-            s.signedExecutable(source, at: path)
+            try s.signedExecutable(source, at: path)
             return path
         }
         let s = Scratch()
-        let bundled = signed(s, FixtureBinaries.app, "k3sm-app-update")
+        let bundled = try signed(s, FixtureBinaries.app, "k3sm-app-update")
         let spawner = HelperSpawner(paths: s.paths, requirement: fixtureRequirement)
         try spawner.installHelperCopy(from: bundled)
         try spawner.verifyInstalledCopy(bundled: bundled)
@@ -420,7 +420,7 @@ struct SwapEngineTests {
         #expect(st.st_mode & 0o7777 == 0o500)
 
         // A different binary in its place.
-        let other = signed(s, FixtureBinaries.otherTeam, "other-helper")
+        let other = try signed(s, FixtureBinaries.otherTeam, "other-helper")
         unlink(s.paths.helperCopyPath)
         try FileManager.default.copyItem(atPath: other, toPath: s.paths.helperCopyPath)
         chmod(s.paths.helperCopyPath, 0o500)
@@ -451,8 +451,8 @@ struct SwapEngineTests {
 
     @Test func previousCopyVerifiesUnderNonBundleName() throws {
         let s = Scratch()
-        s.install(tag: "v1.0.0")
-        let name = s.stage(tag: "v1.1.0")
+        try s.install(tag: "v1.0.0")
+        let name = try s.stage(tag: "v1.1.0")
         s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
         #expect(s.engine().swap() == .committed)
         let previous = s.paths.previousDirectory + "/k3sm-v1.0.0.previous"
@@ -464,9 +464,9 @@ struct SwapEngineTests {
 
     @Test func goBackRestoresPreviousCopy() throws {
         let s = Scratch()
-        s.install(tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
         let original = identity(s.target)
-        let name = s.stage(tag: "v1.1.0")
+        let name = try s.stage(tag: "v1.1.0")
         s.request(stagedName: name, expectedTag: "v1.1.0", app: s.appProcess(exitingAfter: 0.2))
         #expect(s.engine().swap() == .committed)
         let journal = SwapJournal(request: SwapRequest(mode: .goBack, target: s.target, stagedName: "", expectedTag: "v1.0.0",
@@ -483,8 +483,8 @@ struct SwapEngineTests {
 
     @Test func teamStampMustBeAuthorized() throws {
         let s = Scratch()
-        s.install(tag: "v1.0.0")
-        let name = s.stage(tag: "v1.1.0", executable: FixtureBinaries.otherTeam)
+        try s.install(tag: "v1.0.0")
+        let name = try s.stage(tag: "v1.1.0", executable: FixtureBinaries.otherTeam)
         let path = SwapPaths.stagingDirectory(target: s.target, name: name) + "/k3sm.app"
         #expect(throws: BundleVerifyError.teamStamp) { try s.verifier.verify(bundleAt: path, requireTag: true) }
         let developer = StaticCodeVerifier(requirement: fixtureRequirement, runningTeam: nil)

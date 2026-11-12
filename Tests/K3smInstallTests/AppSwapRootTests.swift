@@ -209,9 +209,9 @@ import K3smStatus
         case .symlinkedTarget:
             // The target is a symlink to a real, older bundle elsewhere.
             let elsewhere = s.root + "/Elsewhere/k3sm.app"
-            s.makeBundle(at: elsewhere, tag: "v1.0.0")
+            try s.makeBundle(at: elsewhere, tag: "v1.0.0")
             try FileManager.default.createSymbolicLink(atPath: s.target, withDestinationPath: elsewhere)
-            s.stage(tag: "v1.1.0")
+            try s.stage(tag: "v1.1.0")
             let before = (identity(elsewhere), identity(s.target), identity(s.staged))
             #expect(s.engine().run() == AppSwapRootExit.targetRefused)
             #expect((identity(elsewhere), identity(s.target), identity(s.staged)) == before)
@@ -221,12 +221,12 @@ import K3smStatus
         case .targetSwappedBeforeRename:
             // Between the last check and the rename, the target is moved
             // away and another directory put in its place.
-            s.install(tag: "v1.0.0")
-            s.stage(tag: "v1.1.0")
+            try s.install(tag: "v1.0.0")
+            try s.stage(tag: "v1.1.0")
             let moved = s.root + "/Moved"
             try FileManager.default.createDirectory(atPath: moved, withIntermediateDirectories: true)
             let decoy = s.root + "/Decoy/k3sm.app"
-            s.makeBundle(at: decoy, tag: "v0.5.0")
+            try s.makeBundle(at: decoy, tag: "v0.5.0")
             let original = identity(s.target)
             let decoyID = identity(decoy)
             let renamer = ReplacingRenamer(target: s.target, movedTo: moved + "/k3sm.app", replacement: decoy)
@@ -243,12 +243,12 @@ import K3smStatus
             // The user's request file names another Applications folder and a
             // valid staged bundle in it; root never reads it, and the
             // compiled staging location is empty.
-            s.install(tag: "v1.0.0")
+            try s.install(tag: "v1.0.0")
             let other = s.root + "/OtherApps"
             let paths = SwapPaths(home: s.home, applicationsRoots: [other])
             let name = SwapPaths.newStagingName()
-            s.makeBundle(at: other + "/" + name + "/k3sm.app", tag: "v1.1.0")
-            s.makeBundle(at: other + "/k3sm.app", tag: "v1.0.0")
+            try s.makeBundle(at: other + "/" + name + "/k3sm.app", tag: "v1.1.0")
+            try s.makeBundle(at: other + "/k3sm.app", tag: "v1.0.0")
             let store = JournalStore(paths: paths)
             try store.prepare()
             try store.write(SwapJournal(request: SwapRequest(
@@ -268,8 +268,8 @@ import K3smStatus
             defer { volume.detach() }
             let t = AdminScratch(home: volume.mount + "/home")
             defer { t.cleanUp() }
-            t.install(tag: "v1.0.0")
-            t.stage(tag: "v1.1.0")
+            try t.install(tag: "v1.0.0")
+            try t.stage(tag: "v1.1.0")
             let staged = identity(t.staged)
             #expect(t.engine().run() == 0)
             #expect(identity(t.staged) == staged, "the staged bundle moved")
@@ -286,16 +286,16 @@ import K3smStatus
             defer { volume.detach() }
             let t = AdminScratch(workRoot: volume.mount + "/work")
             defer { t.cleanUp() }
-            t.install(tag: "v1.0.0")
-            t.stage(tag: "v1.1.0")
+            try t.install(tag: "v1.0.0")
+            try t.stage(tag: "v1.1.0")
             let before = (identity(t.target), identity(t.staged))
             #expect(t.engine().run() == AppSwapRootExit.volumeRefused)
             #expect((identity(t.target), identity(t.staged)) == before)
             #expect(t.relaunched.isEmpty)
 
         case .lowerTag, .equalTag:
-            s.install(tag: "v1.0.0")
-            s.stage(tag: hostile == .lowerTag ? "v0.9.0" : "v1.0.0")
+            try s.install(tag: "v1.0.0")
+            try s.stage(tag: hostile == .lowerTag ? "v0.9.0" : "v1.0.0")
             let before = (identity(s.target), identity(s.staged))
             #expect(s.engine().run() == AppSwapRootExit.verificationFailed)
             #expect((identity(s.target), identity(s.staged)) == before)
@@ -323,8 +323,8 @@ import K3smStatus
     func appSwapRefusesNonRootOwnedTarget(_ untrusted: Untrusted) throws {
         let s = AdminScratch()
         defer { s.cleanUp() }
-        s.install(tag: "v1.0.0")
-        s.stage(tag: "v1.1.0")
+        try s.install(tag: "v1.0.0")
+        try s.stage(tag: "v1.1.0")
         let before = (identity(s.target), identity(s.staged))
         switch untrusted {
         case .userOwnedTree:
@@ -383,9 +383,9 @@ import K3smStatus
             _ = chflags(decoy, 0)
             s.cleanUp()
         }
-        s.install(tag: "v1.0.0")
-        s.stage(tag: "v1.1.0")
-        s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
+        try s.stage(tag: "v1.1.0")
+        try s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
         s.writeFloor("v1.0.0\n")
         var before = stat()
         try #require(lstat(s.target, &before) == 0)
@@ -421,9 +421,9 @@ import K3smStatus
     func appSwapFailedHandOverRemovesTheOldBundle() throws {
         let s = AdminScratch()
         defer { s.cleanUp() }
-        s.install(tag: "v1.0.0")
-        s.stage(tag: "v1.1.0")
-        s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
+        try s.stage(tag: "v1.1.0")
+        try s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
         s.writeFloor("v1.0.0\n")
         let target = s.target
         // An entry this account cannot open, after the engine's check: only
@@ -441,9 +441,9 @@ import K3smStatus
     func appSwapLeftTreeIsFinishedByTheNextRun() throws {
         let s = AdminScratch()
         defer { s.cleanUp() }
-        s.install(tag: "v1.0.0")
-        s.stage(tag: "v1.1.0")
-        s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
+        try s.stage(tag: "v1.1.0")
+        try s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
         s.writeFloor("v1.0.0\n")
         let target = s.target
         let renamer = BeforeSwapRenamer {
@@ -457,8 +457,8 @@ import K3smStatus
         let dir = s.workRoot + "/" + (kept.first ?? "none")
         // What root could always do, this account does by hand; then the next run.
         try #require(chmod(dir + "/k3sm.app/Contents", 0o755) == 0)
-        s.retire(s.staged)
-        s.stage(tag: "v1.2.0")
+        try s.retire(s.staged)
+        try s.stage(tag: "v1.2.0")
         #expect(s.engine().run() == 0)
         #expect(s.tag(at: s.target) == "v1.2.0")
         #expect(((try? FileManager.default.contentsOfDirectory(atPath: s.workRoot)) ?? []).isEmpty)
@@ -473,8 +473,8 @@ import K3smStatus
             _ = chflags(decoy, 0)
             s.cleanUp()
         }
-        s.install(tag: "v1.0.0")
-        s.stage(tag: "v1.1.0")
+        try s.install(tag: "v1.0.0")
+        try s.stage(tag: "v1.1.0")
         try FileManager.default.createDirectory(atPath: left, withIntermediateDirectories: true)
         try #require(chmod(s.workRoot, 0o700) == 0)
         try Data("old".utf8).write(to: URL(fileURLWithPath: left + "/flagged"))
@@ -563,9 +563,9 @@ import K3smStatus
     func appSwapForeignTargetCopyIsMode0755() throws {
         let s = AdminScratch()
         defer { s.cleanUp() }
-        s.install(tag: "v1.0.0")
-        s.stage(tag: "v1.1.0")
-        s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
+        try s.stage(tag: "v1.1.0")
+        try s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
         s.writeFloor("v1.0.0\n")
         try #require(chmod(s.target, 0o750) == 0)
         #expect(s.engine(inspector: OwnerOverride(prefix: s.target, owner: getuid() + 1), installedCopy: s.helperCopy).run() == 0)
@@ -574,8 +574,8 @@ import K3smStatus
         #expect(after.st_mode & 0o7777 == 0o755)
         // A tree root's alone keeps what an administrator chose.
         try #require(chmod(s.target, 0o750) == 0)
-        s.retire(s.staged)
-        s.stage(tag: "v1.2.0")
+        try s.retire(s.staged)
+        try s.stage(tag: "v1.2.0")
         #expect(s.engine().run() == 0)
         try #require(lstat(s.target, &after) == 0)
         #expect(after.st_mode & 0o7777 == 0o750)
@@ -585,9 +585,9 @@ import K3smStatus
     func appSwapForeignTargetIsReadFromTheVerifiedCopy() throws {
         let s = AdminScratch()
         defer { s.cleanUp() }
-        s.install(tag: "v1.0.0")
-        s.stage(tag: "v1.1.0")
-        s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
+        try s.stage(tag: "v1.1.0")
+        try s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
         s.writeFloor("v1.0.0\n")
         try Data("not a property list".utf8).write(to: URL(fileURLWithPath: s.target + "/Contents/Info.plist"))
         #expect(s.engine(inspector: OwnerOverride(prefix: s.target, owner: getuid() + 1), installedCopy: s.helperCopy).run() == 0)
@@ -600,8 +600,8 @@ import K3smStatus
     func appSwapForeignTargetNeedsTheVerifiedCopy() throws {
         let s = AdminScratch()
         defer { s.cleanUp() }
-        s.install(tag: "v1.0.0")
-        s.stage(tag: "v1.1.0")
+        try s.install(tag: "v1.0.0")
+        try s.stage(tag: "v1.1.0")
         s.writeFloor("v1.0.0\n")
         #expect(s.engine(inspector: OwnerOverride(prefix: s.target, owner: getuid() + 1)).run() == AppSwapRootExit.targetUntrusted)
         #expect(s.tag(at: s.target) == "v1.0.0" && s.relaunched.isEmpty)
@@ -663,9 +663,9 @@ import K3smStatus
         }
         // The floor record's parent must be root's and writable by nobody else.
         try #require(run("/usr/sbin/chown", ["0:0", s.root]) == 0 && chmod(s.root, 0o755) == 0)
-        s.install(tag: "v1.0.0")
-        s.stage(tag: "v1.1.0")
-        s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
+        try s.stage(tag: "v1.1.0")
+        try s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
         s.writeFloor("v1.0.0\n")
         try #require(run("/usr/sbin/chown", ["-R", "\(user.uid):\(user.gid)", s.target]) == 0)
         try #require(chmod(s.target, 0o750) == 0)
@@ -722,8 +722,8 @@ import K3smStatus
         try Data("decoy".utf8).write(to: URL(fileURLWithPath: decoy))
         try #require(chflags(decoy, UInt32(UF_IMMUTABLE)) == 0)
         try FileManager.default.createSymbolicLink(atPath: previous + "/Contents/planted", withDestinationPath: decoy)
-        s.retire(s.staged)
-        s.stage(tag: "v1.2.0")
+        try s.retire(s.staged)
+        try s.stage(tag: "v1.2.0")
         #expect(s.engine(console: console).run() == 0)
         #expect(s.tag(at: s.target) == "v1.2.0")
         var after = stat()
@@ -743,8 +743,8 @@ import K3smStatus
     func appSwapRefusalReinstallLeavesARootOwnedBundle() throws {
         let s = AdminScratch()
         defer { s.cleanUp() }
-        s.install(tag: "v1.0.0")
-        s.stage(tag: "v1.1.0")
+        try s.install(tag: "v1.0.0")
+        try s.stage(tag: "v1.1.0")
         var before = stat()
         try #require(lstat(s.target, &before) == 0)
         s.group = try Self.anotherGroup(than: before.st_gid)
@@ -758,7 +758,7 @@ import K3smStatus
         let first = try shell(["-c", check])
         #expect(first.status == 0 && first.output == "passed\n", "\(first)")
         s.writeFloor("v1.0.0\n")
-        s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
+        try s.makeBundle(at: s.helperCopy, tag: "v1.0.0")
         #expect(s.engine(inspector: OwnerOverride(prefix: s.target, owner: dragged), installedCopy: s.helperCopy).run() == 0)
         #expect(s.tag(at: s.target) == "v1.1.0")
 
@@ -778,8 +778,8 @@ import K3smStatus
         // The next swap, on the same Mac, reads a tree that is root's alone.
         let next = try shell(["-c", "set -eu\n" + AppSwapRootScriptBuilder.targetCheck(applications: s.applications, target: s.target, floorRecord: s.floorRecord, owner: getuid()) + "echo passed\n"])
         #expect(next.status == 0 && next.output == "passed\n", "\(next)")
-        s.retire(s.staged)
-        s.stage(tag: "v1.2.0")
+        try s.retire(s.staged)
+        try s.stage(tag: "v1.2.0")
         #expect(s.engine().run() == 0)
         #expect(s.tag(at: s.target) == "v1.2.0")
         #expect(s.relaunched.count == 2)
@@ -910,12 +910,12 @@ import K3smStatus
     func appSwapUndoFailureIsReported() throws {
         let s = AdminScratch()
         defer { s.cleanUp() }
-        s.install(tag: "v1.0.0")
-        s.stage(tag: "v1.1.0")
+        try s.install(tag: "v1.0.0")
+        try s.stage(tag: "v1.1.0")
         let moved = s.root + "/Moved"
         try FileManager.default.createDirectory(atPath: moved, withIntermediateDirectories: true)
         let decoy = s.root + "/Decoy/k3sm.app"
-        s.makeBundle(at: decoy, tag: "v0.5.0")
+        try s.makeBundle(at: decoy, tag: "v0.5.0")
         let decoyID = identity(decoy)
         // The first swap races a replacement of the target; the second, the
         // undo, fails.
@@ -936,9 +936,9 @@ import K3smStatus
     func swapsAndRelaunches() throws {
         let s = AdminScratch()
         defer { s.cleanUp() }
-        s.install(tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
         chmod(s.target, 0o755)
-        s.stage(tag: "v1.1.0")
+        try s.stage(tag: "v1.1.0")
         chmod(s.staged, 0o700)
         let original = identity(s.target)
         #expect(s.engine().run() == 0)
@@ -958,16 +958,16 @@ import K3smStatus
     func crossDevice() throws {
         let s = AdminScratch()
         defer { s.cleanUp() }
-        s.install(tag: "v1.0.0")
-        s.stage(tag: "v1.1.0")
+        try s.install(tag: "v1.0.0")
+        try s.stage(tag: "v1.1.0")
         #expect(s.engine(renamer: FailingRenamer(errnos: [EXDEV])).run() == 0)
         #expect(s.tag(at: s.target) == "v1.1.0")
         s.expectNothingLeft()
 
         let t = AdminScratch()
         defer { t.cleanUp() }
-        t.install(tag: "v1.0.0")
-        t.stage(tag: "v1.1.0")
+        try t.install(tag: "v1.0.0")
+        try t.stage(tag: "v1.1.0")
         let original = identity(t.target)
         #expect(t.engine(renamer: FailingRenamer(errnos: [EXDEV, EXDEV])).run() == AppSwapRootExit.volumeRefused)
         #expect(identity(t.target) == original)
@@ -975,8 +975,8 @@ import K3smStatus
 
         let u = AdminScratch()
         defer { u.cleanUp() }
-        u.install(tag: "v1.0.0")
-        u.stage(tag: "v1.1.0")
+        try u.install(tag: "v1.0.0")
+        try u.stage(tag: "v1.1.0")
         #expect(u.engine(renamer: FailingRenamer(errnos: [ENOTSUP])).run() == AppSwapRootExit.volumeRefused)
         #expect(u.engine(renamer: FailingRenamer(errnos: [EPERM])).run() == AppSwapRootExit.swapFailed)
         #expect(u.tag(at: u.target) == "v1.0.0" && u.relaunched.isEmpty)
@@ -986,23 +986,23 @@ import K3smStatus
     func otherRefusals() throws {
         let s = AdminScratch()
         defer { s.cleanUp() }
-        s.install(tag: "v1.0.0")
+        try s.install(tag: "v1.0.0")
         #expect(s.engine(console: FixedConsole(owner: nil)).run() == AppSwapRootExit.noConsoleUser)
         #expect(s.engine().run() == AppSwapRootExit.stagedRefused, "nothing staged")
         // A symlink at the staged location, to a valid newer bundle.
         let real = s.root + "/Real/k3sm.app"
-        s.makeBundle(at: real, tag: "v1.1.0")
+        try s.makeBundle(at: real, tag: "v1.1.0")
         try FileManager.default.createDirectory(atPath: (s.staged as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(atPath: s.staged, withDestinationPath: real)
         #expect(s.engine().run() == AppSwapRootExit.stagedRefused)
-        s.retire(s.staged)
+        try s.retire(s.staged)
         // A symlink inside the staged tree.
-        s.stage(tag: "v1.1.0")
+        try s.stage(tag: "v1.1.0")
         try FileManager.default.createSymbolicLink(atPath: s.staged + "/Contents/Resources/link", withDestinationPath: "/etc/passwd")
         #expect(s.engine().run() == AppSwapRootExit.verificationFailed)
-        s.retire(s.staged)
+        try s.retire(s.staged)
         // Another team's stamp.
-        s.makeBundle(at: s.staged, tag: "v1.1.0", executable: AdminFixtures.otherTeam)
+        try s.makeBundle(at: s.staged, tag: "v1.1.0", executable: AdminFixtures.otherTeam)
         #expect(s.engine().run() == AppSwapRootExit.verificationFailed)
         #expect(s.tag(at: s.target) == "v1.0.0" && s.relaunched.isEmpty)
         s.expectNothingLeft()
@@ -1015,8 +1015,8 @@ import K3smStatus
             run("/usr/bin/chflags", ["-R", "nouchg", s.root])
             s.cleanUp()
         }
-        s.install(tag: "v1.0.0")
-        s.stage(tag: "v1.1.0")
+        try s.install(tag: "v1.0.0")
+        try s.stage(tag: "v1.1.0")
         // A file the signature seals, so the flag is the only fault.
         let locked = s.staged + "/Contents/Info.plist"
         try #require(run("/usr/bin/chflags", ["uchg", locked]) == 0)
@@ -1324,25 +1324,18 @@ private final class AdminScratch: @unchecked Sendable {
     /// Places a signed fixture bundle at `path`, where nothing is yet: a copy
     /// of the one bundle of this content the process signed
     /// (`AdminFixtureStore`).
-    func makeBundle(at path: String, tag: String, executable: String = AdminFixtures.app,
-                    sourceLocation: SourceLocation = #_sourceLocation) {
-        do {
-            try AdminFixtureStore.shared.place(key: tag + "|" + executable, name: "k3sm.app", at: path) { path in
-                Self.buildBundle(at: path, tag: tag, executable: executable)
-            }
-        } catch {
-            Issue.record(error, sourceLocation: sourceLocation)
+    /// A fixture that cannot be placed throws, which ends the calling test
+    /// there, never the process.
+    func makeBundle(at path: String, tag: String, executable: String = AdminFixtures.app) throws {
+        try AdminFixtureStore.shared.place(key: tag + "|" + executable, name: "k3sm.app", at: path) { path in
+            Self.buildBundle(at: path, tag: tag, executable: executable)
         }
     }
 
     /// Moves the item at `path` aside, out of every directory a test reads,
     /// instead of removing it while the system may still be scanning it.
-    func retire(_ path: String, sourceLocation: SourceLocation = #_sourceLocation) {
-        do {
-            try AdminFixtureStore.retire(path, root: root)
-        } catch {
-            Issue.record(error, sourceLocation: sourceLocation)
-        }
+    func retire(_ path: String) throws {
+        try AdminFixtureStore.retire(path, root: root)
     }
 
     /// Writes an unsigned fixture bundle's content at `path`.
@@ -1359,13 +1352,9 @@ private final class AdminScratch: @unchecked Sendable {
         try! data.write(to: URL(fileURLWithPath: path + "/Contents/Info.plist"), options: [])
     }
 
-    func install(tag: String, sourceLocation: SourceLocation = #_sourceLocation) {
-        makeBundle(at: target, tag: tag, sourceLocation: sourceLocation)
-    }
+    func install(tag: String) throws { try makeBundle(at: target, tag: tag) }
 
-    func stage(tag: String, sourceLocation: SourceLocation = #_sourceLocation) {
-        makeBundle(at: staged, tag: tag, sourceLocation: sourceLocation)
-    }
+    func stage(tag: String) throws { try makeBundle(at: staged, tag: tag) }
 
     func tag(at path: String) -> String? { InstalledRelease.read(bundleAt: path)?.tag }
 

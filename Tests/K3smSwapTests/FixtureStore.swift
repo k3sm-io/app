@@ -86,8 +86,9 @@ final class FixtureStore: @unchecked Sendable {
 
     /// Copies the pre-signed item for `key` to `path`, where nothing may be
     /// yet. The copy keeps the signature (a bundle's own directory name is not
-    /// sealed); the first copy of each key is checked, so a refusal test can
-    /// never pass on a signature the copy lost.
+    /// sealed); the first copy of each key and every copy on another volume
+    /// are checked, so a refusal test can never pass on a signature the copy
+    /// lost.
     func place(key: String, name: String, at path: String, build: (String) -> Void) throws(FixtureError) {
         let source = signedItem(key: key, name: name, build: build)
         let fm = FileManager.default
@@ -97,11 +98,18 @@ final class FixtureStore: @unchecked Sendable {
         do {
             try fm.copyItem(atPath: source, toPath: path)
         } catch {
+            // A partial copy this call just made, never verified in place:
+            // nothing half-made stays where a test would look.
+            try? fm.removeItem(atPath: path)
             throw FixtureError(description: "could not copy the signed fixture to \(path): \(error)")
         }
+        // The first copy of each key, and every copy on another volume than
+        // the store, is checked in process with the product's own check.
+        var here = stat(), there = stat()
+        let otherVolume = stat(source, &here) != 0 || stat(path, &there) != 0 || here.st_dev != there.st_dev
         let first = state.withLock { $0.checked.insert(key).inserted }
-        if first, !checker(path) {
-            state.withLock { _ = $0.checked.remove(key) }
+        if first || otherVolume, !checker(path) {
+            if first { state.withLock { _ = $0.checked.remove(key) } }
             throw FixtureError(description: "the untampered copy at \(path) does not satisfy the fixture requirement")
         }
     }
