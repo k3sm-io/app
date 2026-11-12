@@ -89,6 +89,10 @@ struct JoinHintTests {
         let empty = ["K3SM_DIR": ""]
         #expect(Self.sourceVerdict(environment: empty, sibling: sibling, exists: { _ in false }, path: path) == .skipLoneClone)
         #expect(Self.siblingDirectory(environment: empty) == Self.siblingDirectory(environment: [:]))
+        // An empty K3SM_DIR with the sibling's cmd/k3sm present: missing file is named, present file runs.
+        #expect(Self.sourceVerdict(environment: empty, sibling: sibling, exists: { $0 == cmd }, path: path) == .missing(file))
+        #expect(Self.sourceVerdict(environment: empty, sibling: sibling, exists: { $0 == cmd || $0 == file }, path: path)
+            == .run(sibling.appending(path: path)))
         // K3SM_DIR set and the file there: the check runs on it.
         #expect(Self.sourceVerdict(environment: set, sibling: sibling, exists: { $0 == file }, path: path)
             == .run(sibling.appending(path: path)))
@@ -98,8 +102,24 @@ struct JoinHintTests {
     /// it runs and fails by name when the source is missing; with no K3SM_DIR it
     /// runs only when the sibling checkout is there, and is skipped otherwise.
     static var crossCheckEnabled: Bool {
-        ProcessInfo.processInfo.environment["K3SM_DIR"] != nil
-            || FileManager.default.fileExists(atPath: siblingDirectory().appending(path: "cmd/k3sm/install.go").path)
+        let environment = ProcessInfo.processInfo.environment
+        return crossCheckEnabled(environment: environment, sibling: siblingDirectory(environment: environment),
+                                 exists: { FileManager.default.fileExists(atPath: $0) })
+    }
+
+    static func crossCheckEnabled(environment: [String: String], sibling: URL, exists: (String) -> Bool) -> Bool {
+        k3smDir(environment) != nil || exists(sibling.appending(path: "cmd/k3sm/install.go").path)
+    }
+
+    @Test("the cross-check runs for a named K3SM_DIR or a sibling checkout, and an empty K3SM_DIR is unset")
+    func crossCheckEnabledRules() {
+        let sibling = URL(fileURLWithPath: "/src/k3sm")
+        let install = sibling.appending(path: "cmd/k3sm/install.go").path
+        #expect(Self.crossCheckEnabled(environment: ["K3SM_DIR": "/x"], sibling: sibling, exists: { _ in false }))
+        #expect(Self.crossCheckEnabled(environment: [:], sibling: sibling, exists: { $0 == install }))
+        #expect(!Self.crossCheckEnabled(environment: [:], sibling: sibling, exists: { _ in false }))
+        #expect(!Self.crossCheckEnabled(environment: ["K3SM_DIR": ""], sibling: sibling, exists: { _ in false }))
+        #expect(Self.crossCheckEnabled(environment: ["K3SM_DIR": ""], sibling: sibling, exists: { $0 == install }))
     }
 
     struct SiblingMissing: Error {}
