@@ -174,9 +174,12 @@ struct ReviewFixTests {
     }
 
     @Test func volumeRefusedBeforeTheAppQuits() throws {
-        let work = realPath(NSTemporaryDirectory()) + "/k3sm-swap-volumes-" + UUID().uuidString.prefix(8)
+        let work = realPath(NSTemporaryDirectory()) + "/k3sm-swap-volumes-" + UUID().uuidString.prefix(8) + FixtureTrees.ownerSuffix
         try FileManager.default.createDirectory(atPath: work, withIntermediateDirectories: true)
-        // Left for a later run's sweep (`FixtureTrees`), which never crosses a mount.
+        // Runs after both volumes are detached (defers run last first), so it
+        // removes only the disk images and empty mount points; `-x` never
+        // crosses a volume left attached. The sweep exempts this directory.
+        defer { run("/bin/rm", ["-rfx", work]) }
         // A FAT volume cannot exchange two names in one step.
         let fat = work + "/fat"
         try FileManager.default.createDirectory(atPath: fat, withIntermediateDirectories: true)

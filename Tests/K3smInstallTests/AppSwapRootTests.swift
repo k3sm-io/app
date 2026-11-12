@@ -1031,7 +1031,7 @@ import K3smStatus
 // MARK: fixtures
 
 /// The requirement the ad-hoc signed fixtures satisfy.
-private let fixtureRequirement = "identifier \"io.k3sm.test.fixture\""
+private let fixtureRequirement = AdminFixtureStore.requirement
 
 private func run(_ path: String, _ arguments: [String]) -> Int32 {
     let process = Process()
@@ -1059,7 +1059,7 @@ private enum AdminFixtures {
         // One directory per test process; old ones are swept by
         // `AdminFixtureTrees`, never while a run is going.
         AdminFixtureTrees.sweepOnce()
-        let dir = realPath(NSTemporaryDirectory()) + "/" + AdminFixtureTrees.prefix + "fixtures-" + String(getpid())
+        let dir = AdminFixtureTrees.directory(named: "fixtures")
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "K3smSwapTests/Fixtures/fixture-app.c").path
@@ -1208,7 +1208,7 @@ private final class ShellScratch: @unchecked Sendable {
 
     init() {
         AdminFixtureTrees.sweepOnce()
-        root = realPath(NSTemporaryDirectory()) + "/" + AdminFixtureTrees.prefix + "sh-" + UUID().uuidString.prefix(8)
+        root = AdminFixtureTrees.directory(named: "sh-" + UUID().uuidString.prefix(8))
         let fm = FileManager.default
         try? fm.createDirectory(atPath: target + "/Contents/MacOS", withIntermediateDirectories: true)
         try? fm.createDirectory(atPath: target + "/Contents/Resources", withIntermediateDirectories: true)
@@ -1284,6 +1284,7 @@ private final class AdminScratch: @unchecked Sendable {
     init(home: String? = nil, workRoot: String? = nil, base: String? = nil) {
         AdminFixtureTrees.sweepOnce()
         root = (base ?? realPath(NSTemporaryDirectory())) + "/" + AdminFixtureTrees.prefix + UUID().uuidString.prefix(8)
+            + AdminFixtureTrees.ownerSuffix
         self.home = home ?? root + "/home"
         self.workRoot = workRoot ?? root + "/work"
         previousRoot = root + "/previous"
@@ -1323,17 +1324,25 @@ private final class AdminScratch: @unchecked Sendable {
     /// Places a signed fixture bundle at `path`, where nothing is yet: a copy
     /// of the one bundle of this content the process signed
     /// (`AdminFixtureStore`).
-    func makeBundle(at path: String, tag: String, executable: String = AdminFixtures.app) {
-        AdminFixtureStore.place(key: tag + "|" + executable, name: "k3sm.app", at: path) { path in
-            Self.buildBundle(at: path, tag: tag, executable: executable)
+    func makeBundle(at path: String, tag: String, executable: String = AdminFixtures.app,
+                    sourceLocation: SourceLocation = #_sourceLocation) {
+        do {
+            try AdminFixtureStore.shared.place(key: tag + "|" + executable, name: "k3sm.app", at: path) { path in
+                Self.buildBundle(at: path, tag: tag, executable: executable)
+            }
+        } catch {
+            Issue.record(error, sourceLocation: sourceLocation)
         }
     }
 
-    /// Moves the bundle at `path` aside, out of every directory a test reads,
+    /// Moves the item at `path` aside, out of every directory a test reads,
     /// instead of removing it while the system may still be scanning it.
-    func retire(_ path: String) {
-        let aside = root + "/retired-" + UUID().uuidString.prefix(8)
-        precondition(rename(path, aside) == 0, "could not move \(path) aside: errno \(errno)")
+    func retire(_ path: String, sourceLocation: SourceLocation = #_sourceLocation) {
+        do {
+            try AdminFixtureStore.retire(path, root: root)
+        } catch {
+            Issue.record(error, sourceLocation: sourceLocation)
+        }
     }
 
     /// Writes an unsigned fixture bundle's content at `path`.
@@ -1350,9 +1359,13 @@ private final class AdminScratch: @unchecked Sendable {
         try! data.write(to: URL(fileURLWithPath: path + "/Contents/Info.plist"), options: [])
     }
 
-    func install(tag: String) { makeBundle(at: target, tag: tag) }
+    func install(tag: String, sourceLocation: SourceLocation = #_sourceLocation) {
+        makeBundle(at: target, tag: tag, sourceLocation: sourceLocation)
+    }
 
-    func stage(tag: String) { makeBundle(at: staged, tag: tag) }
+    func stage(tag: String, sourceLocation: SourceLocation = #_sourceLocation) {
+        makeBundle(at: staged, tag: tag, sourceLocation: sourceLocation)
+    }
 
     func tag(at path: String) -> String? { InstalledRelease.read(bundleAt: path)?.tag }
 

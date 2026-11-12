@@ -23,7 +23,7 @@ import Testing
 
 /// The requirement every fixture satisfies: an ad-hoc signature carries the
 /// identifier, so no certificate is needed.
-let fixtureRequirement = "identifier \"io.k3sm.test.fixture\""
+let fixtureRequirement = FixtureStore.requirement
 /// The team the fixtures' stamps name, and the one the test verifier runs
 /// as.
 let fixtureTeam = TeamID("ABCDE12345")!
@@ -62,7 +62,7 @@ enum FixtureBinaries {
         // One directory per test process; old ones are swept by
         // `FixtureTrees`, never while a run is going.
         FixtureTrees.sweepOnce()
-        let dir = realPath(NSTemporaryDirectory()) + "/" + FixtureTrees.prefix + "fixtures-" + String(getpid())
+        let dir = FixtureTrees.directory(named: "fixtures")
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/fixture-app.c").path
         for (name, team) in [("fixture-app", "ABCDE12345"), ("fixture-app-other-team", "ZZZZZ99999")] {
@@ -98,7 +98,7 @@ final class Scratch: @unchecked Sendable {
     /// volume, in a test).
     init(home: String? = nil) {
         FixtureTrees.sweepOnce()
-        root = realPath(NSTemporaryDirectory()) + "/" + FixtureTrees.prefix + UUID().uuidString.prefix(8)
+        root = FixtureTrees.directory(named: String(UUID().uuidString.prefix(8)))
         let fm = FileManager.default
         let homePath = home ?? root + "/home"
         try? fm.createDirectory(atPath: homePath + "/Library/Application Support", withIntermediateDirectories: true)
@@ -115,20 +115,28 @@ final class Scratch: @unchecked Sendable {
 
     /// Places a signed fixture bundle at `path`, where nothing is yet: a copy
     /// of the one bundle of this content the process signed
-    /// (`FixtureStore`).
+    /// (`FixtureStore`). A fixture that cannot be placed fails the calling
+    /// test, not the process.
     func makeBundle(at path: String, tag: String?, behaviour: String, executable: String = FixtureBinaries.app,
-                    shortVersion: String? = nil) {
+                    shortVersion: String? = nil, sourceLocation: SourceLocation = #_sourceLocation) {
         let key = ["bundle", tag ?? "-", behaviour, executable, shortVersion ?? "-"].joined(separator: "|")
-        FixtureStore.place(key: key, name: "k3sm.app", at: path) { path in
-            Self.buildBundle(at: path, tag: tag, behaviour: behaviour, executable: executable, shortVersion: shortVersion)
+        do {
+            try FixtureStore.shared.place(key: key, name: "k3sm.app", at: path) { path in
+                Self.buildBundle(at: path, tag: tag, behaviour: behaviour, executable: executable, shortVersion: shortVersion)
+            }
+        } catch {
+            Issue.record(error, sourceLocation: sourceLocation)
         }
     }
 
-    /// Moves the bundle at `path` aside, out of every directory a test reads,
+    /// Moves the item at `path` aside, out of every directory a test reads,
     /// instead of removing it while the system may still be scanning it.
-    func retire(_ path: String) {
-        let aside = root + "/retired-" + UUID().uuidString.prefix(8)
-        precondition(rename(path, aside) == 0, "could not move \(path) aside: errno \(errno)")
+    func retire(_ path: String, sourceLocation: SourceLocation = #_sourceLocation) {
+        do {
+            try FixtureStore.retire(path, root: root)
+        } catch {
+            Issue.record(error, sourceLocation: sourceLocation)
+        }
     }
 
     /// Writes an unsigned fixture bundle's content at `path`.
@@ -160,24 +168,30 @@ final class Scratch: @unchecked Sendable {
 
     /// Places a signed copy of the bare executable `source` at `path` (no
     /// bundle around it), signed once per process.
-    func signedExecutable(_ source: String, at path: String) {
-        FixtureStore.place(key: "executable|" + source, name: "executable", at: path) { path in
-            precondition((try? FileManager.default.copyItem(atPath: source, toPath: path)) != nil, "could not copy \(source)")
+    func signedExecutable(_ source: String, at path: String, sourceLocation: SourceLocation = #_sourceLocation) {
+        do {
+            try FixtureStore.shared.place(key: "executable|" + source, name: "executable", at: path) { path in
+                try? FileManager.default.copyItem(atPath: source, toPath: path)
+            }
+        } catch {
+            Issue.record(error, sourceLocation: sourceLocation)
         }
     }
 
     /// Installs a fixture bundle at the target.
-    func install(tag: String?, behaviour: String = "handshake", shortVersion: String? = nil) {
-        makeBundle(at: target, tag: tag, behaviour: behaviour, shortVersion: shortVersion)
+    func install(tag: String?, behaviour: String = "handshake", shortVersion: String? = nil,
+                 sourceLocation: SourceLocation = #_sourceLocation) {
+        makeBundle(at: target, tag: tag, behaviour: behaviour, shortVersion: shortVersion, sourceLocation: sourceLocation)
     }
 
     /// Stages a fixture bundle and returns the staging directory's name.
     @discardableResult
     func stage(tag: String?, behaviour: String = "handshake", name: String = SwapPaths.newStagingName(),
-               executable: String = FixtureBinaries.app) -> String {
+               executable: String = FixtureBinaries.app, sourceLocation: SourceLocation = #_sourceLocation) -> String {
         let dir = SwapPaths.stagingDirectory(target: target, name: name)
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        makeBundle(at: dir + "/" + SwapPaths.bundleName, tag: tag, behaviour: behaviour, executable: executable)
+        makeBundle(at: dir + "/" + SwapPaths.bundleName, tag: tag, behaviour: behaviour, executable: executable,
+                   sourceLocation: sourceLocation)
         return name
     }
 
