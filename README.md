@@ -1481,11 +1481,13 @@ the swift-testing macro plugin path; `hack/ci.sh` adds it for you.
 `hack/ci.sh` fails when `shellcheck` is not installed. It also reads
 `K3SM_DIR` (default `../k3sm`) for the fixture, developer-mode marker path
 and release index checks. On a lone clone, with no k3sm checkout there, those
-checks and the acceptance stage are skipped by name, while a `K3SM_DIR` that
-is set but lacks what a check reads fails the run. `--acceptance`,
-`--swap-engine` and `--shipped-helper` each run one stage alone. Inside a
-sandbox, `K3SM_SWIFTPM_DISABLE_SANDBOX=1` makes the script pass
-`--disable-sandbox` to SwiftPM.
+checks and the acceptance stage are skipped by name, and `--acceptance` fails
+there. A `K3SM_DIR` that is set but has no `pkg/install/fromstaging.go` fails
+the run when the test stage runs, and one that lacks the release index corpus
+fails the release index check. `--acceptance`, `--swap-engine` and
+`--shipped-helper` each run one stage alone. Inside a sandbox,
+`K3SM_SWIFTPM_DISABLE_SANDBOX=1` makes the script pass `--disable-sandbox` to
+SwiftPM.
 
 `docs/ARCHITECTURE.md` maps the source targets.
 Every control's tooltip follows the help tag standard in its § Help tags.
