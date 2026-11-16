@@ -25,8 +25,8 @@ struct WindowGrowTests {
     @Test("opening the inspector grows a narrower window to exactly its minimum and leaves a wider one alone")
     func inspectorOpeningGrowsANarrowWindowToItsMinimum() {
         let strip = TabStripLayout.minimumWidth(labels: ConsoleSection.allCases.map(\.title), buttonWidth: nil)
-        let closed = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: false, panelCollapsed: false)
-        let open = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: true, panelCollapsed: false)
+        let closed = TabStripLayout.windowNaturalWidth(strip: strip, inspectorShown: false, panelCollapsed: false)
+        let open = TabStripLayout.windowNaturalWidth(strip: strip, inspectorShown: true, panelCollapsed: false)
         #expect(open >= closed + InspectorWidth.minimum)
         let minimum = WindowFrame.Size(width: open, height: 700)
 
@@ -67,10 +67,10 @@ struct WindowGrowTests {
         #expect(!WindowFrame.inspectorDrawn(inspectorShown: false, stripShown: false))
 
         let strip = TabStripLayout.minimumWidth(labels: ConsoleSection.allCases.map(\.title), buttonWidth: nil)
-        let closed = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: false, panelCollapsed: false)
+        let closed = TabStripLayout.windowNaturalWidth(strip: strip, inspectorShown: false, panelCollapsed: false)
         for (shown, stripShown) in [(true, true), (true, false), (false, true), (false, false)] {
             let drawn = WindowFrame.inspectorDrawn(inspectorShown: shown, stripShown: stripShown)
-            let minimum = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: drawn, panelCollapsed: false)
+            let minimum = TabStripLayout.windowNaturalWidth(strip: strip, inspectorShown: drawn, panelCollapsed: false)
             if shown && stripShown {
                 #expect(minimum >= closed + InspectorWidth.minimum)
             } else {
@@ -81,13 +81,13 @@ struct WindowGrowTests {
     @Test("the window is placed against the minimum the tabs will need, before the strip shows")
     func placementCountsTheInspectorBeforeTheStripShows() {
         let strip = TabStripLayout.minimumWidth(labels: ConsoleSection.allCases.map(\.title), buttonWidth: nil)
-        let closed = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: false, panelCollapsed: false)
-        let open = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: true, panelCollapsed: false)
+        let closed = TabStripLayout.windowNaturalWidth(strip: strip, inspectorShown: false, panelCollapsed: false)
+        let open = TabStripLayout.windowNaturalWidth(strip: strip, inspectorShown: true, panelCollapsed: false)
         for shown in [true, false] {
-            let placement = TabStripLayout.windowMinimumWidth(
+            let placement = TabStripLayout.windowNaturalWidth(
                 strip: strip, inspectorShown: WindowFrame.inspectorCountsAtPlacement(inspectorShown: shown),
                 panelCollapsed: false)
-            let live = TabStripLayout.windowMinimumWidth(
+            let live = TabStripLayout.windowNaturalWidth(
                 strip: strip, inspectorShown: WindowFrame.inspectorDrawn(inspectorShown: shown, stripShown: false),
                 panelCollapsed: false)
             #expect(placement == (shown ? open : closed))
@@ -114,16 +114,13 @@ struct WindowGrowTests {
         #expect(!WindowFrame.growsOnMinimumChange(from: low, to: WindowFrame.Size(width: 800, height: 600)))
     }
 
-    @Test("the window grows when any input of its minimum raises it, and not for an equal or lower one")
+    @Test("the window grows when the inspector or the panel raises its minimum, and not for the strip's own inputs")
     func windowGrowsWhenAnyMinimumInputRises() {
         let base = WindowFrame.ConsoleInputs(inspectorShown: false, stripShown: true, panelCollapsed: false,
                                              windowButtonsEdge: nil, developerBadge: false,
                                              labels: ConsoleSection.allCases.map(\.title))
         var badge = base
         badge.developerBadge = true
-        // With the panel collapsed, a buttons edge measured past the fallback
-        // widens the strip. Collapsing the panel itself drops the panel's
-        // minimum, more than any believed edge adds, so it lowers the minimum.
         var collapsedBefore = base
         collapsedBefore.panelCollapsed = true
         var collapsed = collapsedBefore
@@ -132,6 +129,7 @@ struct WindowGrowTests {
         open.windowButtonsEdge = TabStripLayout.windowButtonsCeiling
         var shut = open
         shut.panelCollapsed = true
+        // Collapsing the panel drops its minimum.
         #expect(!WindowFrame.growsOnMinimumChange(from: WindowFrame.minimum(open), to: WindowFrame.minimum(shut)))
         var notDrawn = base
         notDrawn.inspectorShown = true
@@ -139,7 +137,7 @@ struct WindowGrowTests {
         var drawn = notDrawn
         drawn.stripShown = true
         let changes: [(WindowFrame.ConsoleInputs, WindowFrame.ConsoleInputs)] = [
-            (base, badge), (collapsedBefore, collapsed), (base, drawn), (notDrawn, drawn),
+            (base, drawn), (notDrawn, drawn),
             // Opening the collapsed panel brings its minimum back.
             (shut, open),
         ]
@@ -154,10 +152,17 @@ struct WindowGrowTests {
             #expect(grown.height == new.height)
         }
 
-        // An equal minimum and a lower one (the badge going away) do not grow.
+        // The Developer mode badge and the buttons edge widen only the strip,
+        // which scrolls: the window's minimum stays, so nothing grows.
+        for (before, after) in [(base, badge), (collapsedBefore, collapsed)] {
+            #expect(WindowFrame.minimum(after) == WindowFrame.minimum(before))
+            #expect(!WindowFrame.growsOnMinimumChange(from: WindowFrame.minimum(before), to: WindowFrame.minimum(after)))
+            #expect(WindowFrame.natural(after).width > WindowFrame.natural(before).width)
+        }
+
+        // An equal minimum does not grow.
         let same = WindowFrame.minimum(base)
         #expect(!WindowFrame.growsOnMinimumChange(from: same, to: WindowFrame.minimum(base)))
-        #expect(!WindowFrame.growsOnMinimumChange(from: WindowFrame.minimum(badge), to: same))
 
         // A rise in height alone grows the window, downward from its top edge.
         let taller = WindowFrame.Size(width: same.width, height: same.height + 40)
@@ -172,19 +177,20 @@ struct WindowGrowTests {
         let labels = ConsoleSection.allCases.map(\.title)
         let base = WindowFrame.ConsoleInputs(inspectorShown: true, stripShown: true, panelCollapsed: false,
                                              windowButtonsEdge: nil, developerBadge: false, labels: labels)
-        let strip = TabStripLayout.minimumWidth(labels: labels, buttonWidth: nil)
 
-        // The same values give TabStripLayout's width, and the height is the floor.
+        // The panel's minimum, the tab column's minimum and the inspector's
+        // minimum, with their dividers; the height is the floor.
         let drawn = WindowFrame.minimum(base)
         #expect(drawn == WindowFrame.Size(
-            width: TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: true, panelCollapsed: false),
+            width: TabStripLayout.windowMinimumWidth(inspectorShown: true, panelCollapsed: false),
             height: WindowFrame.consoleMinimumHeight))
-        #expect(drawn.height == 700)
+        #expect(drawn.width == PanelLayout.minimum + 1 + TabStripLayout.columnMinimum + 1 + InspectorWidth.minimum)
+        #expect(drawn.height == 420)
 
         // The inspector adds width only while drawn: shown and the strip shown.
         var hidden = base
         hidden.stripShown = false
-        let closed = TabStripLayout.windowMinimumWidth(strip: strip, inspectorShown: false, panelCollapsed: false)
+        let closed = TabStripLayout.windowMinimumWidth(inspectorShown: false, panelCollapsed: false)
         #expect(WindowFrame.minimum(hidden).width == closed)
         #expect(drawn.width > closed)
         var off = base
@@ -195,37 +201,92 @@ struct WindowGrowTests {
         #expect(WindowFrame.minimum(hidden, inspectorOverride: true) == drawn)
         #expect(WindowFrame.minimum(base, inspectorOverride: false).width == closed)
 
+        // With the panel collapsed the window can be as narrow as the tab column's minimum.
+        var bare = off
+        bare.panelCollapsed = true
+        #expect(WindowFrame.minimum(bare).width == TabStripLayout.columnMinimum)
+    }
+
+    @Test("the minimum lets the window go well below the width and height its panes were laid out for")
+    func consoleMinimumIsFarBelowItsNaturalSize() {
+        let labels = ConsoleSection.allCases.map(\.title)
+        for inspector in [true, false] {
+            for collapsed in [true, false] {
+                for badge in [true, false] {
+                    let inputs = WindowFrame.ConsoleInputs(inspectorShown: inspector, stripShown: true,
+                                                           panelCollapsed: collapsed, windowButtonsEdge: 76,
+                                                           developerBadge: badge, labels: labels)
+                    let minimum = WindowFrame.minimum(inputs)
+                    let natural = WindowFrame.natural(inputs)
+                    #expect(minimum.width < natural.width)
+                    #expect(minimum.height < natural.height)
+                    // The tab column's minimum is below both what the tabs and the strip were laid out for.
+                    #expect(TabStripLayout.columnMinimum < WindowFrame.contentNaturalWidth(inputs))
+                    #expect(TabStripLayout.columnMinimum < TabStripLayout.sectionNaturalWidth)
+                }
+            }
+        }
+        // The panel shown and the inspector hidden (the details button's
+        // other state) fits a 640 by 420 window.
+        let plain = WindowFrame.minimum(WindowFrame.ConsoleInputs(
+            inspectorShown: false, stripShown: true, panelCollapsed: false, windowButtonsEdge: nil,
+            developerBadge: false, labels: labels))
+        #expect(plain.width <= 640 && plain.height <= 420)
+        // The log pane's least split still fits under the minimum height.
+        #expect(LogPaneHeight.aboveMinimum + TabStripLayout.dividerWidth + LogPaneHeight.minimum
+            <= WindowFrame.consoleMinimumHeight)
+    }
+
+    @Test("the console's natural size is what nothing scrolls at, the inspector counted as in the minimum")
+    func consoleNaturalSizeIsOneFunctionOfItsInputs() {
+        let labels = ConsoleSection.allCases.map(\.title)
+        let base = WindowFrame.ConsoleInputs(inspectorShown: true, stripShown: true, panelCollapsed: false,
+                                             windowButtonsEdge: nil, developerBadge: false, labels: labels)
+        let strip = TabStripLayout.minimumWidth(labels: labels, buttonWidth: nil)
+        let drawn = WindowFrame.natural(base)
+        #expect(drawn == WindowFrame.Size(
+            width: TabStripLayout.windowNaturalWidth(strip: strip, inspectorShown: true, panelCollapsed: false),
+            height: WindowFrame.consoleNaturalHeight))
+        #expect(drawn.height == 700)
+        var hidden = base
+        hidden.stripShown = false
+        let closed = TabStripLayout.windowNaturalWidth(strip: strip, inspectorShown: false, panelCollapsed: false)
+        #expect(WindowFrame.natural(hidden).width == closed)
+        #expect(WindowFrame.natural(hidden, inspectorOverride: true) == drawn)
+
         // The Developer mode badge adds its width to the strip.
         var badge = base
         badge.developerBadge = true
         let badged = TabStripLayout.minimumWidth(labels: labels, buttonWidth: nil, badgeWidth: TabStripLayout.badgeWidth())
-        #expect(WindowFrame.minimum(badge).width
-            == TabStripLayout.windowMinimumWidth(strip: badged, inspectorShown: true, panelCollapsed: false))
-        #expect(WindowFrame.minimum(badge).width > drawn.width)
+        #expect(WindowFrame.natural(badge).width
+            == TabStripLayout.windowNaturalWidth(strip: badged, inspectorShown: true, panelCollapsed: false))
+        #expect(WindowFrame.natural(badge).width > drawn.width)
 
-        // The collapsed panel with a measured buttons edge gives today's width.
+        // The collapsed panel with a measured buttons edge.
         var collapsed = base
         collapsed.panelCollapsed = true
         collapsed.windowButtonsEdge = 78
-        #expect(WindowFrame.minimum(collapsed).width == TabStripLayout.windowMinimumWidth(
+        #expect(WindowFrame.natural(collapsed).width == TabStripLayout.windowNaturalWidth(
             strip: strip, inspectorShown: true, panelCollapsed: true, windowButtonsEdge: 78))
 
-        // The tab column's minimum follows the same inputs.
-        #expect(WindowFrame.contentMinimumWidth(collapsed) == TabStripLayout.columnMinimumWidth(
+        // The tab column's natural width follows the same inputs, and the
+        // strip's scrolled part is the strip less its leading half padding.
+        #expect(WindowFrame.contentNaturalWidth(collapsed) == TabStripLayout.columnNaturalWidth(
             strip: TabStripLayout.stripMinimumWidth(strip: strip, panelCollapsed: true, windowButtonsEdge: 78)))
+        #expect(WindowFrame.stripScrollWidth(base) == strip - TabStripLayout.padding / 2)
     }
 
-    @Test("with the panel hidden the window's minimum rises with the buttons edge up to the ceiling, then takes the fallback")
+    @Test("with the panel hidden the window's natural width rises with the buttons edge up to the ceiling, then takes the fallback")
     func consoleMinimumGrowsWithALargeButtonsEdge() {
         var inputs = WindowFrame.ConsoleInputs(inspectorShown: true, stripShown: true, panelCollapsed: true,
                                                windowButtonsEdge: nil, developerBadge: false,
                                                labels: ConsoleSection.allCases.map(\.title))
         func width(_ edge: Double?) -> Double {
             inputs.windowButtonsEdge = edge
-            return WindowFrame.minimum(inputs).width
+            return WindowFrame.natural(inputs).width
         }
         // The nine tabs decide the tab column, so each point the buttons
-        // take is a point the window's minimum gains, up to the ceiling.
+        // take is a point the window's natural width gains, up to the ceiling.
         #expect(TabStripLayout.windowButtonsFallback == 78)
         #expect(TabStripLayout.windowButtonsCeiling == 200)
         let fallback = width(TabStripLayout.windowButtonsFallback)

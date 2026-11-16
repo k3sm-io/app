@@ -452,8 +452,10 @@ public enum LogPaneHeight {
     /// The share of the window's height the pane opens at until dragged.
     public static let defaultFraction: Double = 1.0 / 3.0
     /// The least the console above the pane keeps: the strip, a tab's
-    /// header row and a few rows.
-    public static let aboveMinimum: Double = 320
+    /// header row and a few rows, which scroll in it. Under the window's
+    /// minimum height (`WindowFrame.consoleMinimumHeight`) it leaves the
+    /// pane its own minimum and the divider.
+    public static let aboveMinimum: Double = 240
     /// The user-defaults key of the dragged height.
     public static let key = "consoleLogPaneHeight"
 
