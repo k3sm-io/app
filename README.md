@@ -734,14 +734,21 @@ login** in the app's Settings turns it off or on again (see
   Double-click the line to put that column back to its first width. The app
   remembers the widths for each table; View > Reset Column Widths puts every
   table back.
-- The **tab names** above the list stay whole on one line. The window goes
-  no narrower than the row above the list needs for every tab name, the
-  Developer mode badge while developer mode is on, the search field at its
-  narrowest and the buttons beside it; only a tab name longer than 24
-  characters would be shortened, at its end. With the panel and the details
-  shown and no Developer mode badge, that is at most 1440 points, so the
-  window fits the narrowest Mac laptop display.
-- The **window** reopens where you left it, at its size and on its display, after a relaunch too; if that display is gone or the window would sit off the screen, it is moved onto the main display, never smaller than its minimum. A first launch, with no saved window, opens it at exactly its minimum size, centred on the main display. When something raises the minimum while the window is open, for example turning developer mode on, a window narrower or shorter than the new minimum grows to it. A full-screen or zoomed window is left alone, and one that was full screen grows when it leaves full screen.
+- The **tab names** above the list stay whole on one line; only a tab name
+  longer than 24 characters would be shortened, at its end. When the middle
+  column is narrower than the row above the list needs for every tab name,
+  the Developer mode badge while developer mode is on, the search field at
+  its narrowest and the buttons beside it, that row scrolls sideways rather
+  than squeezing a name.
+- The **window** can be made small: about 550 by 420 points with the panel
+  shown and the details hidden, wider by the details' own minimum while they
+  are shown, and narrower again with the panel hidden. Every part of it
+  scrolls when the window is too small for its content: the panel, the row of
+  tabs, the tab itself (sideways below the width its table or cards were laid
+  out for, and down below a few rows) and the details. A first launch, with no
+  saved window, opens it at the size at which nothing scrolls, as far as the
+  main display holds it, centred there.
+- The **window** reopens where you left it, at its size and on its display, after a relaunch too; if that display is gone or the window would sit off the screen, it is moved onto the main display, never smaller than its minimum. When showing the details raises the minimum while the window is open, a window narrower than the new minimum grows to it. A full-screen or zoomed window is left alone, and one that was full screen grows when it leaves full screen.
 
 The app reads the machine interface the k3sm CLI documents: the cluster's state
 from `k3sm status -o json`, the console's lists through `k3sm kubectl` and the

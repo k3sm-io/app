@@ -89,7 +89,9 @@ check() {
 			echo "    FAIL: $rel:${hit%%:*}: a help string literal; put it in $catalog and use Help.<area>.<name>"
 			echo "        ${hit#*:}" | trim | sed 's/^/        /'
 			bad=1
-		done < <(grep -nE '\.help\(.*"|toolTip[[:space:]]*=[[:space:]]*"' "$f" | grep -vE '^[0-9]+:[[:space:]]*//' || true)
+		# A here-string, not a process substitution: macOS's bash 3.2 does
+		# not release a <(...) inside a loop, and aborts past about 250 files.
+		done <<< "$(grep -nE '\.help\(.*"|toolTip[[:space:]]*=[[:space:]]*"' "$f" | grep -vE '^[0-9]+:[[:space:]]*//' || true)"
 	done < <(find "$root/Sources" -name '*.swift' -print0 2>/dev/null)
 	# Rule 2: every control has a help tag in its chain.
 	if [ -d "$root/Sources/K3smApp" ]; then

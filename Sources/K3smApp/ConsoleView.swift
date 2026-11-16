@@ -30,7 +30,10 @@ import SwiftUI
 /// moves the divider; the user drags it between the panel's minimum and that
 /// width, and the drag is kept; only View > Hide Panel collapses the panel,
 /// and while it is hidden the strip starts past the window buttons; both
-/// survive a relaunch on `AppModel`. Every string from the CLI
+/// survive a relaunch on `AppModel`. The window's minimum is far below what
+/// the panes' content was laid out for: the panel, the inspector and the
+/// tab each scroll when the window is too small for them (`OverflowScroll`,
+/// the strip too), so no pane holds the window open. Every string from the CLI
 /// renders verbatim and clipped. The lifecycle controls are the status
 /// panel, a popover from the info button. The console follows the system
 /// appearance; only the navy Mac panel keeps its own colours.
@@ -50,13 +53,10 @@ struct ConsoleView: View {
         app.developerModeOn && app.isDeveloperBuild
     }
 
-    /// The tab column's minimum width (`WindowFrame.contentMinimumWidth`)
-    /// for these values, the strip shown and the tab labels whole.
-    static func contentMinWidth(panelCollapsed: Bool = false, windowButtonsEdge: Double? = nil,
-                                developerBadge: Bool = false) -> CGFloat {
-        CGFloat(WindowFrame.contentMinimumWidth(inputs(inspectorShown: false, panelCollapsed: panelCollapsed,
-                                                       windowButtonsEdge: windowButtonsEdge,
-                                                       developerBadge: developerBadge)))
+    /// The tab column's minimum width (`TabStripLayout.columnMinimum`):
+    /// below its natural width the strip and the tab scroll sideways.
+    static func contentMinWidth() -> CGFloat {
+        CGFloat(TabStripLayout.columnMinimum)
     }
 
     /// The window's minimum size (`WindowFrame.minimum`) for these values,
@@ -93,7 +93,7 @@ struct ConsoleView: View {
             range: app.consolePanelWidth.range(estimate: estimate),
             width: app.consolePanelWidth.shown(estimate: estimate),
             collapsed: app.consolePanelCollapsed,
-            contentMinimum: WindowFrame.contentMinimumWidth(inputs),
+            contentMinimum: TabStripLayout.columnMinimum,
             inspectorWidth: app.inspectorWidth,
             inspectorShown: detailsDrawn,
             // Each pane is hosted on its own; all run under the transparent
@@ -156,7 +156,9 @@ struct ConsoleContent: View {
     var body: some View {
         switch app.pane {
         case .tabs: tabs
-        case .setUp: SetUpPane(model: app).background(Palette.surface)
+        case .setUp:
+            OverflowScroll(minWidth: TabStripLayout.sectionNaturalWidth) { SetUpPane(model: app) }
+                .background(Palette.surface)
         case .checking: Palette.surface
         }
     }
@@ -164,14 +166,21 @@ struct ConsoleContent: View {
     private var tabs: some View {
         VStack(spacing: 0) {
             ConsoleStrip(app: app)
-            if let plan = app.guidedPlan {
-                HealthBanner(app: app, plan: plan)
+            // Below the width every tab was laid out for, or the height that
+            // keeps a few of its rows under the banners, the tab scrolls
+            // rather than holding the window open.
+            OverflowScroll(minWidth: TabStripLayout.sectionNaturalWidth, minHeight: TabStripLayout.sectionMinimumHeight) {
+                VStack(spacing: 0) {
+                    if let plan = app.guidedPlan {
+                        HealthBanner(app: app, plan: plan)
+                    }
+                    if let panel = app.updateProgress.panel {
+                        UpdateProgressPanel(app: app, panel: panel)
+                    }
+                    section
+                        .overlay { ContentWaitingMark(app: app, waiting: app.waiting) }
+                }
             }
-            if let panel = app.updateProgress.panel {
-                UpdateProgressPanel(app: app, panel: panel)
-            }
-            section
-                .overlay { ContentWaitingMark(app: app, waiting: app.waiting) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Palette.surface)
@@ -234,7 +243,8 @@ struct ConsoleContent: View {
 /// tab's search field (on a tab with rows to search), the details button that shows or
 /// collapses the inspector, the tour button, the info button that opens the
 /// status panel, and the gear that opens Settings. A tab's bulk actions are
-/// on the tab's own header row (`TabHeader`), not here.
+/// on the tab's own header row (`TabHeader`), not here. In a column narrower
+/// than its natural width (`WindowFrame.stripScrollWidth`) it scrolls sideways.
 struct ConsoleStrip: View {
     @ObservedObject var app: AppModel
     @ObservedObject var workloads: WorkloadsModel
@@ -245,6 +255,32 @@ struct ConsoleStrip: View {
     }
 
     var body: some View {
+        let natural = WindowFrame.stripScrollWidth(app.consoleMinimumInputs)
+        GeometryReader { geo in
+            // Narrower than its labels need, the strip scrolls sideways;
+            // otherwise it is drawn as it always was, so the window can be
+            // dragged by its background.
+            if Overflow.scrolls(room: Double(geo.size.width), natural: natural) {
+                ScrollView(.horizontal) {
+                    row.frame(width: CGFloat(natural)).frame(maxHeight: .infinity)
+                }
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            } else {
+                row.frame(width: geo.size.width, height: geo.size.height)
+            }
+        }
+        // While the panel is hidden the strip starts at the window's edge,
+        // under the window buttons, and its first tab starts past them. The
+        // inset sits outside the scroll, so the buttons never cover a tab.
+        .padding(.leading, CGFloat(TabStripLayout.leadingInset(panelCollapsed: app.consolePanelCollapsed,
+                                                                windowButtonsEdge: app.windowButtonsEdge)))
+        .frame(height: CGFloat(TabStripLayout.height))
+        .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
+    }
+
+    /// The strip's items: the tabs, the spacer, the badge, the search field
+    /// and the icon buttons, with the strip's trailing half padding.
+    private var row: some View {
         HStack(spacing: CGFloat(TabStripLayout.itemSpacing)) {
             TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
                 .tourTarget(.tabs, app.tour)
@@ -304,12 +340,7 @@ struct ConsoleStrip: View {
             .accessibilityLabel("Settings")
             .help(Help.Strip.settings)
         }
-        // While the panel is hidden the strip starts at the window's edge,
-        // under the window buttons, and its first tab starts past them.
-        .padding(.leading, CGFloat(TabStripLayout.leadingInset(panelCollapsed: app.consolePanelCollapsed,
-                                                                windowButtonsEdge: app.windowButtonsEdge)))
-        .padding(.trailing, CGFloat(TabStripLayout.padding / 2)).frame(height: CGFloat(TabStripLayout.height))
-        .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
+        .padding(.trailing, CGFloat(TabStripLayout.padding / 2))
     }
 
     /// The tab's search field: 180 pt when the strip has room, narrowing to

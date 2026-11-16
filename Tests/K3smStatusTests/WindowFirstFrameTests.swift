@@ -71,4 +71,22 @@ struct WindowFirstFrameTests {
         let first = WindowFrame.firstFrame(minimum: Self.minimum, visible: visible)
         #expect(WindowFrame.grown(first, minimum: Self.minimum, visible: visible) == first)
     }
+
+    @Test("with a natural size the first launch opens at it, centred, where the screen holds it")
+    func firstLaunchOpensAtItsNaturalSize() {
+        let minimum = Size(width: 551, height: 420)
+        let natural = Size(width: 1180, height: 700)
+        #expect(WindowFrame.firstFrame(minimum: minimum, natural: natural, visible: Self.screen)
+            == Rect(x: 274, y: 190, width: 1180, height: 700))
+        // A smaller screen takes as much of the natural size as it holds, centred.
+        let small = Rect(x: 0, y: 0, width: 1024, height: 640)
+        #expect(WindowFrame.firstFrame(minimum: minimum, natural: natural, visible: small)
+            == Rect(x: 0, y: 0, width: 1024, height: 640))
+        // Never below the minimum, pinned to the left and top edges past the screen.
+        let tiny = Rect(x: 0, y: 0, width: 500, height: 400)
+        #expect(WindowFrame.firstFrame(minimum: minimum, natural: natural, visible: tiny)
+            == Rect(x: 0, y: -20, width: 551, height: 420))
+        // With no natural size it is exactly the minimum, as before.
+        #expect(WindowFrame.firstFrame(minimum: minimum, visible: Self.screen).width == 551)
+    }
 }
