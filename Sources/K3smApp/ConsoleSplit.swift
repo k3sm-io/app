@@ -25,7 +25,7 @@ import SwiftUI
 /// `PanelWidth`) and is drawn at `width`; a drag records the width on the
 /// model (`PanelWidth.drag`) and stops at the panel's minimum: neither a
 /// drag nor a double-click collapses the panel (`PanelLayout.splitCanCollapse`),
-/// and only the model's collapsed flag (View > Hide Panel) hides it. The inspector opens at `inspectorWidth` and moves
+/// and only the model's collapsed flag (the strip's panel button or View > Hide Panel) hides it. The inspector opens at `inspectorWidth` and moves
 /// only when the user drags its divider (`InspectorWidth`, `PaneKeeper`),
 /// between its minimum and the widest that leaves the tab column at
 /// `contentMinimum`; the details button collapses and shows it. Under all

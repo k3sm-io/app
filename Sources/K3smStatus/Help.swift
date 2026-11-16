@@ -71,6 +71,12 @@ public enum Help {
     /// The row above the console's tab: the tabs, the
     /// details, tour, info and Settings buttons.
     public enum Strip {
+        /// The panel button while the left panel is collapsed.
+        public static let showPanel = HelpTag("Show the left panel (Command-Option-L)",
+                                              control: "console strip: panel button")
+        /// The panel button while the left panel is shown.
+        public static let hidePanel = HelpTag("Hide the left panel (Command-Option-L)",
+                                              control: "console strip: panel button")
         /// The details button while the inspector is collapsed.
         public static let showDetails = HelpTag("Show the details column (Command-Option-I)",
                                                 control: "console strip: details button")
@@ -95,6 +101,9 @@ public enum Help {
 
         /// The details button's tag.
         public static func details(shown: Bool) -> HelpTag { shown ? hideDetails : showDetails }
+
+        /// The panel button's tag: `shown` is whether the left panel is shown.
+        public static func panel(shown: Bool) -> HelpTag { shown ? hidePanel : showPanel }
 
         /// One tab of the strip.
         public static func tab(_ section: ConsoleSection) -> HelpTag {
@@ -140,7 +149,7 @@ public enum Help {
         }
 
         public static var all: [HelpTag] {
-            [showDetails, hideDetails, tour, status, settings, developerMode, updateAny, updateThisMac] + ConsoleSection.allCases.map(tab)
+            [showPanel, hidePanel, showDetails, hideDetails, tour, status, settings, developerMode, updateAny, updateThisMac] + ConsoleSection.allCases.map(tab)
         }
     }
 

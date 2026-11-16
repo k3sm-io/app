@@ -28,7 +28,8 @@ import SwiftUI
 /// either region needs with nothing compressed (`PanelLayout.naturalWidth`),
 /// fixed when the window lays out (`PanelWidth`), so live content never
 /// moves the divider; the user drags it between the panel's minimum and that
-/// width, and the drag is kept; only View > Hide Panel collapses the panel,
+/// width, and the drag is kept; only the strip's panel button or View > Hide
+/// Panel collapses the panel,
 /// and while it is hidden the strip starts past the window buttons; both
 /// survive a relaunch on `AppModel`. The window's minimum is far below what
 /// the panes' content was laid out for: the panel, the inspector and the
@@ -238,7 +239,8 @@ struct ConsoleContent: View {
     }
 }
 
-/// ConsoleStrip is the row above the tab: the tab strip, the Developer mode
+/// ConsoleStrip is the row above the tab: the panel button that hides or
+/// shows the left panel, the tab strip, the Developer mode
 /// badge while the developer-mode marker counts on a developer build, the
 /// tab's search field (on a tab with rows to search), the details button that shows or
 /// collapses the inspector, the tour button, the info button that opens the
@@ -282,6 +284,15 @@ struct ConsoleStrip: View {
     /// and the icon buttons, with the strip's trailing half padding.
     private var row: some View {
         HStack(spacing: CGFloat(TabStripLayout.itemSpacing)) {
+            // The details button's mirror at the strip's start. Its shortcut
+            // is View > Hide Panel's (Command-Option-L), so it binds none.
+            Button { app.consolePanelCollapsed.toggle() } label: {
+                Image(systemName: TabStripLayout.panelSymbol(shown: !app.consolePanelCollapsed))
+                    .font(.system(size: 16)).foregroundStyle(Palette.navy)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(app.consolePanelCollapsed ? "Show panel" : "Hide panel")
+            .help(Help.Strip.panel(shown: !app.consolePanelCollapsed))
             TabStrip(selected: app.section, waiting: app.waiting) { app.section = $0 }
                 .tourTarget(.tabs, app.tour)
             Spacer()

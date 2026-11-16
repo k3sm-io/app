@@ -27,7 +27,18 @@ struct TabStripLayoutTests {
         TabStripLayout.itemSpacing + TabStripLayout.spacerMinimum + TabStripLayout.itemSpacing
             + (button.map { $0 + TabStripLayout.itemSpacing } ?? 0)
             + TabStripLayout.searchMinimum + TabStripLayout.itemSpacing
-            + TabStripLayout.controlsWidth + TabStripLayout.padding
+            + TabStripLayout.controlsWidth + TabStripLayout.leadingControlsWidth + TabStripLayout.padding
+    }
+
+    @Test("the panel button at the strip's start costs one icon button and one gap")
+    func panelButtonCounted() {
+        #expect(TabStripLayout.leadingControlsWidth == TabStripLayout.iconButtonWidth + TabStripLayout.itemSpacing)
+        // The strip's minimum is the tabs plus every fixed part, the panel button among them.
+        for button in [nil, TabStripLayout.buttonWidth(title: "Update")] {
+            let minimum = TabStripLayout.minimumWidth(labels: Self.titles, buttonWidth: button)
+            let expected = TabStripLayout.tabsWidth(labels: Self.titles) + Self.fixedParts(button: button)
+            #expect(abs(minimum - expected) < 1e-9)
+        }
     }
 
     @Test("the icon buttons are details, tour, info and Settings, with the gaps between them")

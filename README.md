@@ -715,10 +715,14 @@ login** in the app's Settings turns it off or on again (see
   or Reset Window Layout in Settings, lets it fit itself again. Dragging the
   divider stops at the panel's original width and never hides it (a
   double-click on it does nothing). While the panel is hidden, dragging the
-  divider at the window's left edge shows it again. Choose
-  View > Hide Panel (Command-Option-L) to hide the panel, and View > Show
-  Panel (the same shortcut) to bring it back; while it is hidden the tabs
-  start past the window's close, minimize and zoom buttons. The window's
+  divider at the window's left edge shows it again. The **panel button**,
+  at the start of the row above the list, hides the panel and shows it
+  again, the mirror of the details button: one colour either way, its
+  symbol showing whether the panel is open. View > Hide Panel
+  (Command-Option-L) and View > Show Panel (the same shortcut) do the same,
+  and the app remembers the choice across relaunches; while the panel is
+  hidden the panel button and the tabs start past the window's close,
+  minimize and zoom buttons. The window's
   minimum width follows: the panel's minimum plus the list's, or the list's
   alone, with room for those buttons, while the panel is hidden. A width you drag narrower than the content
   lasts the session only; a saved width that is narrower than the content is

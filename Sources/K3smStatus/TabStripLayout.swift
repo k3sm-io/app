@@ -16,7 +16,7 @@ limitations under the License.
 
 /// TabStripLayout sizes the console's strip, the row above the tab: the tab
 /// labels, the search field at its minimum (Update is the Alerts tab's
-/// card, so the console's strip passes no `buttonWidth`), and the four icon buttons, with the strip's gaps
+/// card, so the console's strip passes no `buttonWidth`), the panel button at its start and the four icon buttons at its end, with the strip's gaps
 /// and padding. Widths are estimated the way `PanelLayout` estimates them,
 /// from character counts at the same conservative per-point advance, so the
 /// estimate errs wide and a label never has to wrap or shorten. A label is
@@ -44,6 +44,9 @@ public enum TabStripLayout {
     public static let iconButtonWidth: Double = 20
     /// The icon buttons with the gaps between them.
     public static let controlsWidth: Double = Double(iconButtons) * iconButtonWidth + Double(iconButtons - 1) * itemSpacing
+    /// The panel button at the strip's start, before the tabs, with its gap:
+    /// one icon button, apart from the four at the end.
+    public static let leadingControlsWidth: Double = iconButtonWidth + itemSpacing
     /// The search field's minimum width (100 pt before the Stats tab); it
     /// grows to its ideal 180 pt whenever the window is wider than its least.
     public static let searchMinimum: Double = 72
@@ -81,6 +84,15 @@ public enum TabStripLayout {
     /// the help tag (`Help.Strip.details`) says which way a click goes.
     public static func detailsSymbol(shown: Bool) -> String {
         shown ? "rectangle.trailinghalf.inset.filled" : "sidebar.trailing"
+    }
+
+    /// The panel button's symbol, the details button's mirror: the left
+    /// column drawn with a filled stripe while the panel is shown and an
+    /// outlined one while it is hidden. One colour in both states, so the
+    /// symbol carries the state and the help tag (`Help.Strip.panel`) says
+    /// which way a click goes.
+    public static func panelSymbol(shown: Bool) -> String {
+        shown ? "rectangle.leadinghalf.inset.filled" : "sidebar.leading"
     }
 
     /// waitingMarkFrame is where a tab's waiting butterfly is drawn, in the
@@ -146,7 +158,7 @@ public enum TabStripLayout {
                                     badgeWidth: Double? = nil,
                                     searchWidth: Double = Self.searchMinimum, spacing: Double = Self.tabSpacing,
                                     padding: Double = Self.padding) -> Double {
-        var width = tabsWidth(labels: labels, fontSize: fontSize, spacing: spacing)
+        var width = leadingControlsWidth + tabsWidth(labels: labels, fontSize: fontSize, spacing: spacing)
         width += itemSpacing + spacerMinimum + itemSpacing
         if let badgeWidth { width += badgeWidth + itemSpacing }
         if let buttonWidth { width += buttonWidth + itemSpacing }
