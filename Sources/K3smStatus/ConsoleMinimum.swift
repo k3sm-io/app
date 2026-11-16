@@ -42,38 +42,66 @@ extension WindowFrame {
         }
     }
 
-    /// The console window's minimum height.
-    public static let consoleMinimumHeight: Double = 700
+    /// The console window's minimum height. The panel, the tab and the
+    /// inspector each scroll in a shorter room, so the height floor is only
+    /// what keeps the strip and a few rows of a tab on screen.
+    public static let consoleMinimumHeight: Double = 420
 
-    /// The strip's minimum width (`TabStripLayout.minimumWidth`): every tab
+    /// The console window's natural height: what a first launch opens at,
+    /// the screen allowing (`natural`).
+    public static let consoleNaturalHeight: Double = 700
+
+    /// The strip's natural width (`TabStripLayout.minimumWidth`): every tab
     /// label whole, the Developer mode badge while it is shown and the
     /// search field at its minimum. Update is on the Alerts tab's card, not
-    /// in the strip, so it costs the strip nothing.
+    /// in the strip, so it costs the strip nothing. A narrower strip scrolls.
     public static func consoleStripWidth(_ inputs: ConsoleInputs) -> Double {
         TabStripLayout.minimumWidth(labels: inputs.labels, buttonWidth: nil,
                                     badgeWidth: inputs.developerBadge ? TabStripLayout.badgeWidth() : nil)
     }
 
-    /// The tab column's minimum width (`TabStripLayout.columnMinimumWidth`):
+    /// The strip's natural width after its leading inset
+    /// (`TabStripLayout.leadingInset`, drawn outside the strip's scroll so
+    /// the window buttons never cover a scrolled tab): its content and its
+    /// trailing half padding.
+    public static func stripScrollWidth(_ inputs: ConsoleInputs) -> Double {
+        consoleStripWidth(inputs) - TabStripLayout.padding / 2
+    }
+
+    /// The tab column's natural width (`TabStripLayout.columnNaturalWidth`):
     /// the larger of what the window floor leaves and what the strip needs,
     /// which while the panel is collapsed includes clearing the window buttons.
-    public static func contentMinimumWidth(_ inputs: ConsoleInputs) -> Double {
-        TabStripLayout.columnMinimumWidth(strip: TabStripLayout.stripMinimumWidth(
+    public static func contentNaturalWidth(_ inputs: ConsoleInputs) -> Double {
+        TabStripLayout.columnNaturalWidth(strip: TabStripLayout.stripMinimumWidth(
             strip: consoleStripWidth(inputs), panelCollapsed: inputs.panelCollapsed,
             windowButtonsEdge: inputs.windowButtonsEdge))
     }
 
     /// The console window's minimum size: the width
-    /// `TabStripLayout.windowMinimumWidth` gives, the inspector counted while
-    /// it is drawn (`inspectorDrawn`) unless `inspectorOverride` says
-    /// otherwise (the placement, `inspectorCountsAtPlacement`), and the
-    /// height floor (`consoleMinimumHeight`).
+    /// `TabStripLayout.windowMinimumWidth` gives (the panel's minimum unless
+    /// it is collapsed, the tab column's minimum, and the inspector's
+    /// minimum), the inspector counted while it is drawn (`inspectorDrawn`)
+    /// unless `inspectorOverride` says otherwise (the placement,
+    /// `inspectorCountsAtPlacement`), and the height floor
+    /// (`consoleMinimumHeight`). The strip's labels, the Developer mode
+    /// badge and the window buttons do not raise it: the strip scrolls.
     public static func minimum(_ inputs: ConsoleInputs, inspectorOverride: Bool? = nil) -> Size {
         let inspector = inspectorOverride ?? inspectorDrawn(inspectorShown: inputs.inspectorShown,
                                                             stripShown: inputs.stripShown)
-        let width = TabStripLayout.windowMinimumWidth(strip: consoleStripWidth(inputs), inspectorShown: inspector,
+        let width = TabStripLayout.windowMinimumWidth(inspectorShown: inspector, panelCollapsed: inputs.panelCollapsed)
+        return Size(width: width, height: consoleMinimumHeight)
+    }
+
+    /// The console window's natural size, at which nothing scrolls sideways:
+    /// `TabStripLayout.windowNaturalWidth` of the same inputs, the inspector
+    /// counted as in `minimum`, and `consoleNaturalHeight`. A first launch
+    /// opens at it (`firstFrame`).
+    public static func natural(_ inputs: ConsoleInputs, inspectorOverride: Bool? = nil) -> Size {
+        let inspector = inspectorOverride ?? inspectorDrawn(inspectorShown: inputs.inspectorShown,
+                                                            stripShown: inputs.stripShown)
+        let width = TabStripLayout.windowNaturalWidth(strip: consoleStripWidth(inputs), inspectorShown: inspector,
                                                       panelCollapsed: inputs.panelCollapsed,
                                                       windowButtonsEdge: inputs.windowButtonsEdge)
-        return Size(width: width, height: consoleMinimumHeight)
+        return Size(width: width, height: consoleNaturalHeight)
     }
 }

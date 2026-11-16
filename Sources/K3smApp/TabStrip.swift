@@ -32,8 +32,8 @@ import SwiftUI
 /// the strip's fixed height (`TabStripLayout.height`) leaves above the labels,
 /// so no label moves and the strip never grows. Each label is one line at
 /// its own width, never wrapped; only one past `TabStripLayout.labelCap`
-/// characters is shortened, at its tail. The window's minimum width keeps
-/// room for every label (`TabStripLayout.minimumWidth`).
+/// characters is shortened, at its tail. A column narrower than every label
+/// needs (`TabStripLayout.minimumWidth`) scrolls the strip (`ConsoleStrip`).
 struct TabStrip: View {
     let selected: ConsoleSection
     let waiting: WaitingModel

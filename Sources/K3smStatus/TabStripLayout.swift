@@ -19,9 +19,10 @@ limitations under the License.
 /// card, so the console's strip passes no `buttonWidth`), the panel button at its start and the four icon buttons at its end, with the strip's gaps
 /// and padding. Widths are estimated the way `PanelLayout` estimates them,
 /// from character counts at the same conservative per-point advance, so the
-/// estimate errs wide and a label never has to wrap or shorten at the
-/// window's minimum width. A label is drawn on one line; only a label longer
-/// than `labelCap` characters is shortened, at its tail.
+/// estimate errs wide and a label never has to wrap or shorten. A label is
+/// drawn on one line; only a label longer than `labelCap` characters is
+/// shortened, at its tail. A tab column narrower than the strip's natural
+/// width scrolls the strip sideways rather than squeezing a label.
 public enum TabStripLayout {
     /// The tab labels' font size.
     public static let fontSize: Double = 13
@@ -66,8 +67,9 @@ public enum TabStripLayout {
     /// the lowest y of the path in the app's `Butterfly` shape.
     public static let markFoot: Double = 0.9267
 
-    /// The window's minimum width before the strip decided it, with the
-    /// panel shown and the inspector at its default width.
+    /// The window's natural width before the strip decided it, with the
+    /// panel shown and the inspector at its default width: the width every
+    /// tab was laid out for. The window may be narrower; its tab then scrolls.
     public static let windowFloor: Double = 1180
     /// The inspector's default width (`InspectorWidth.defaultWidth`); the
     /// user's drag of its divider moves it from there.
@@ -164,13 +166,30 @@ public enum TabStripLayout {
         return width + controlsWidth + padding
     }
 
-    /// The tab column's minimum width (the strip and the tab under it): the
-    /// larger of what the floor leaves after the panel, the inspector at its
-    /// default width and both dividers, and the width a `strip` that wide needs.
-    public static func columnMinimumWidth(strip: Double) -> Double {
-        let floor = windowFloor - PanelLayout.minimum - dividerWidth - inspectorWidth - dividerWidth
-        return max(floor, strip)
+    /// The tab column's natural width (the strip and the tab under it), the
+    /// least at which neither scrolls sideways: the larger of what the floor
+    /// leaves after the panel, the inspector at its default width and both
+    /// dividers (`sectionNaturalWidth`), and the width a `strip` that wide needs.
+    public static func columnNaturalWidth(strip: Double) -> Double {
+        max(sectionNaturalWidth, strip)
     }
+
+    /// The width every tab is laid out for: what the floor leaves after the
+    /// panel's minimum, the inspector at its default width and both
+    /// dividers. A tab column narrower than this scrolls the tab sideways
+    /// (`Overflow`) rather than squeezing its table or its cards.
+    public static let sectionNaturalWidth: Double =
+        windowFloor - PanelLayout.minimum - dividerWidth - inspectorWidth - dividerWidth
+
+    /// The least height the tab keeps under the strip, with the health
+    /// banner and the update panel above it: its header row and a few rows.
+    /// A shorter column scrolls them together (`Overflow`).
+    public static let sectionMinimumHeight: Double = 180
+
+    /// The tab column's minimum width, whatever the strip holds: below its
+    /// natural width the strip and the tab each scroll sideways, so the
+    /// window can be narrowed past the tab labels.
+    public static let columnMinimum: Double = 300
 
     /// Where the window's close, minimize and zoom buttons end, measured
     /// from the window's leading edge, when the window cannot say: the
@@ -204,18 +223,32 @@ public enum TabStripLayout {
         strip + leadingInset(panelCollapsed: panelCollapsed, windowButtonsEdge: windowButtonsEdge) - padding / 2
     }
 
-    /// The window's minimum width: the panel's minimum and its divider,
-    /// nothing while the panel is collapsed, the tab column's minimum (for
-    /// a strip that, while the panel is collapsed, also clears the window
+    /// The window's natural width, the least at which the strip and the tab
+    /// need no sideways scroll: the panel's minimum and its divider, nothing
+    /// while the panel is collapsed, the tab column's natural width (for a
+    /// strip that, while the panel is collapsed, also clears the window
     /// buttons, `stripMinimumWidth`), and the inspector at `inspector` (its
-    /// minimum unless named) with its divider while it is shown.
-    public static func windowMinimumWidth(strip: Double, inspectorShown: Bool, panelCollapsed: Bool,
+    /// minimum unless named) with its divider while it is shown. A first
+    /// launch opens at it (`WindowFrame.natural`).
+    public static func windowNaturalWidth(strip: Double, inspectorShown: Bool, panelCollapsed: Bool,
                                           inspector: Double = InspectorWidth.minimum,
                                           windowButtonsEdge: Double? = nil) -> Double {
         let panel = panelCollapsed ? 0 : PanelLayout.minimum + dividerWidth
         let details = inspectorShown ? inspector + dividerWidth : 0
         let inset = stripMinimumWidth(strip: strip, panelCollapsed: panelCollapsed, windowButtonsEdge: windowButtonsEdge)
-        return panel + columnMinimumWidth(strip: inset) + details
+        return panel + columnNaturalWidth(strip: inset) + details
+    }
+
+    /// The window's minimum width: the panel's minimum and its divider,
+    /// nothing while the panel is collapsed, the tab column's minimum
+    /// (`columnMinimum`), and the inspector at `inspector` (its minimum
+    /// unless named) with its divider while it is shown. Neither the strip
+    /// nor the tab raises it: past their natural width they scroll.
+    public static func windowMinimumWidth(inspectorShown: Bool, panelCollapsed: Bool,
+                                          inspector: Double = InspectorWidth.minimum) -> Double {
+        let panel = panelCollapsed ? 0 : PanelLayout.minimum + dividerWidth
+        let details = inspectorShown ? inspector + dividerWidth : 0
+        return panel + columnMinimum + details
     }
 }
 

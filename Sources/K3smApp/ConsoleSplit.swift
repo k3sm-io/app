@@ -172,6 +172,12 @@ final class ConsoleLogSplitController: NSSplitViewController {
         moving = true
         splitView.setPosition(CGFloat(total - height - divider), ofDividerAt: 0)
         moving = false
+        // The window lays out first at its minimum height, where a stored
+        // height may not fit; the pane takes it once the window has grown,
+        // as the inspector does (`ConsoleSplitController.placeLater`).
+        if let stored, Double(logItem.viewController.view.frame.height) < stored - 0.5 {
+            pending = .some(stored)
+        }
     }
 
     override func viewDidLayout() {

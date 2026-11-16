@@ -151,16 +151,21 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     /// Puts the saved frame back, clamped onto a connected screen and never
     /// below the console's minimum. When nothing is saved the window opens at
-    /// exactly its minimum, centred on the main screen
+    /// its natural size (`WindowFrame.natural`, at which nothing scrolls) as
+    /// far as the main screen holds it, centred there
     /// (`WindowFrame.firstFrame`), or is centred by AppKit when there is no
     /// screen. The minimum counts a shown inspector even while the strip is
     /// hidden (`WindowFrame.inspectorCountsAtPlacement`): the pane starts as
     /// checking, and the tabs showing afterwards must not grow the window.
     private func placeWindow(_ window: NSWindow, saved: WindowFrame.Saved?) {
-        let minimum = minimum(inspector: WindowFrame.inspectorCountsAtPlacement(inspectorShown: model.inspectorShown))
+        let inspector = WindowFrame.inspectorCountsAtPlacement(inspectorShown: model.inspectorShown)
+        let minimum = minimum(inspector: inspector)
+        let natural = WindowFrame.natural(model.consoleMinimumInputs, inspectorOverride: inspector)
         let screens = NSScreen.k3smScreens()
         let restored = WindowFrame.restore(saved: saved, screens: screens, minimum: minimum)
-        guard let frame = restored ?? screens.first.map({ WindowFrame.firstFrame(minimum: minimum, visible: $0.visible) }) else {
+        guard let frame = restored ?? screens.first.map({
+            WindowFrame.firstFrame(minimum: minimum, natural: natural, visible: $0.visible)
+        }) else {
             window.center()
             return
         }
@@ -176,10 +181,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         WindowFrame.minimum(model.consoleMinimumInputs, inspectorOverride: inspector)
     }
 
-    /// The inspector, the Developer mode badge or the hidden panel's buttons edge raises the
+    /// The inspector coming to be drawn or the panel shown again raises the
     /// window's minimum, and the content's minimum alone does not widen a
-    /// window already on screen: a window narrower than the new minimum grows to it (`WindowFrame.grown`),
-    /// kept on its screen, so the strip and the table are not clipped.
+    /// window already on screen: a window narrower than the new minimum grows
+    /// to it (`WindowFrame.grown`), kept on its screen, so no pane is squeezed
+    /// below its own minimum.
     private func growToMinimum() {
         guard let window else { return }
         guard WindowFrame.growRuns(fullScreen: window.styleMask.contains(.fullScreen),
@@ -247,8 +253,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         placeWindow(window, saved: saved)
         window.delegate = self
         // The window grows whenever its minimum rises: the inspector coming
-        // to be drawn, the Developer mode badge showing, or the window buttons
-        // edge rising while the panel is collapsed.
+        // to be drawn or the panel shown again. The strip's own inputs (the
+        // Developer mode badge, the window buttons' edge) scroll the strip
+        // instead.
         startMinimumGrow()
         return window
     }
