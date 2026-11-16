@@ -299,8 +299,8 @@ final class AppModel: ObservableObject {
         if let current = statusPopoverMeasured, abs(current - height) < 1 { return }
         statusPopoverMeasured = height
     }
-    /// Whether the console panel is collapsed: View > Hide Panel
-    /// (Command-Option-L) toggles it; a drag or double-click on the divider
+    /// Whether the console panel is collapsed: the strip's panel button or
+    /// View > Hide Panel (Command-Option-L) toggles it; a drag or double-click on the divider
     /// does not hide it. Kept across launches.
     @Published var consolePanelCollapsed: Bool = PanelLayout.restoreCollapsed(
         from: UserDefaults.standard.object(forKey: PanelLayout.collapsedKey)) {

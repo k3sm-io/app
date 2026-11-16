@@ -30,4 +30,16 @@ struct SidePanelButtonGlyphTests {
             #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil)
         }
     }
+
+    @Test("the panel button mirrors the details button: a leading glyph per state that resolves")
+    func panelGlyphPerState() {
+        #expect(TabStripLayout.panelSymbol(shown: true) == "rectangle.leadinghalf.inset.filled")
+        #expect(TabStripLayout.panelSymbol(shown: false) == "sidebar.leading")
+        for shown in [true, false] {
+            let name = TabStripLayout.panelSymbol(shown: shown)
+            #expect(name != "rectangle")
+            #expect(name != TabStripLayout.detailsSymbol(shown: shown))
+            #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil)
+        }
+    }
 }
