@@ -84,23 +84,26 @@ final class MainMenu: NSObject, NSMenuItemValidation {
         panel.keyEquivalentModifierMask = [.command, .option]
         menu.addItem(panel)
         menu.addItem(item("Reset Column Widths", #selector(resetColumns(_:)), "", help: Help.Menus.resetColumns))
-        // The tabs, as Safari moves between its own: Control-Tab and
-        // Control-Shift-Tab step through them, Command-1 to Command-9 pick one.
         menu.addItem(.separator())
+        for tab in tabItems() { menu.addItem(tab) }
+        return menu
+    }
+
+    /// View's tab items, as Safari moves between its own: Show Next Tab
+    /// (Control-Tab) and Show Previous Tab (Control-Shift-Tab), a separator,
+    /// then one item per tab, Command-1 to Command-9 in strip order.
+    func tabItems() -> [NSMenuItem] {
         let next = item("Show Next Tab", #selector(showNextTab(_:)), "\t", help: Help.Menus.nextTab)
         next.keyEquivalentModifierMask = [.control]
-        menu.addItem(next)
         let previous = item("Show Previous Tab", #selector(showPreviousTab(_:)), "\t", help: Help.Menus.previousTab)
         previous.keyEquivalentModifierMask = [.control, .shift]
-        menu.addItem(previous)
-        menu.addItem(.separator())
-        for section in ConsoleSection.allCases {
+        let tabs = ConsoleSection.allCases.map { section -> NSMenuItem in
             let tab = item(section.title, #selector(showTab(_:)), section.shortcutNumber.map(String.init) ?? "",
                            help: Help.Menus.tab(section))
             tab.representedObject = section.rawValue
-            menu.addItem(tab)
+            return tab
         }
-        return menu
+        return [next, previous, .separator()] + tabs
     }
 
     private func windowMenu() -> NSMenu {
@@ -191,7 +194,8 @@ final class MainMenu: NSObject, NSMenuItemValidation {
 
     /// The panel item reads Hide Panel or Show Panel, and is offered only
     /// while the console is on screen; the tab items only while the console
-    /// shows its tabs, the selected tab's item checked.
+    /// shows its tabs and no sheet covers the window, the selected tab's
+    /// item checked.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let tabActions: [Selector] = [#selector(showNextTab(_:)), #selector(showPreviousTab(_:)), #selector(showTab(_:))]
         if let action = menuItem.action, tabActions.contains(action) {
@@ -199,7 +203,7 @@ final class MainMenu: NSObject, NSMenuItemValidation {
                 let raw = menuItem.representedObject as? String
                 menuItem.state = raw == model.section.rawValue ? .on : .off
             }
-            return model.screen == .status && model.pane.stripShown
+            return model.screen == .status && model.pane.stripShown && NSApp.mainWindow?.attachedSheet == nil
         }
         // The tour walks the console, so it is offered only while it is up.
         if menuItem.action == #selector(startTour(_:)) { return model.screen == .status }

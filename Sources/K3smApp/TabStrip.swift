@@ -88,7 +88,8 @@ struct TabStrip: View {
                 }
                     .buttonStyle(ConsoleTabStyle(selected: selected == s, hovered: hover.hovered == .tab(s),
                                                  increasedContrast: contrast == .increased,
-                                                 minWidth: TabStripLayout.tabWidth(s.title)))
+                                                 minWidth: TabStripLayout.tabWidth(s.title),
+                                                 reduceMotion: reduceMotion))
                     .onHover { hover.set(.tab(s), inside: $0) }
                     .accessibilityLabel(s.title)
                     .help(Help.Strip.tab(s))
@@ -97,8 +98,6 @@ struct TabStrip: View {
             }
         }
         .frame(maxHeight: .infinity)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: selected)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: hover.hovered)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tabs")
     }
@@ -127,6 +126,8 @@ struct ConsoleTabStyle: ButtonStyle {
     let hovered: Bool
     var increasedContrast = false
     var minWidth: Double = 0
+    /// Reduce Motion: the capsule changes at once, with no fade.
+    var reduceMotion = false
 
     func makeBody(configuration: Configuration) -> some View {
         let capsule = RoundedRectangle(cornerRadius: CGFloat(TabStripLayout.tabHeight / 2), style: .circular)
@@ -150,8 +151,27 @@ struct ConsoleTabStyle: ButtonStyle {
                     }
                 }
                 .frame(height: CGFloat(TabStripLayout.tabHeight))
+                // Only the capsule fades; the label and its butterfly never animate here.
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: selected)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: hovered)
             }
-            .contentShape(Rectangle())
+            // The whole strip's height takes the click, as Safari's tab bar
+            // does; the keyboard focus ring follows the capsule.
+            .contentShape(.interaction, Rectangle())
+            .contentShape(.focusEffect, CentredCapsule(height: TabStripLayout.tabHeight))
+    }
+}
+
+/// CentredCapsule is a capsule `height` tall across the whole width of its
+/// rect, centred vertically: a tab's capsule within the strip's height, the
+/// shape its keyboard focus ring takes.
+struct CentredCapsule: Shape {
+    let height: Double
+
+    func path(in rect: CGRect) -> Path {
+        let h = min(CGFloat(height), rect.height)
+        let box = CGRect(x: rect.minX, y: rect.midY - h / 2, width: rect.width, height: h)
+        return Path(roundedRect: box, cornerRadius: h / 2, style: .circular)
     }
 }
 
@@ -192,14 +212,16 @@ struct StripGlyphStyle: ButtonStyle {
         return configuration.label
             .frame(width: side, height: side)
             .background(Circle().fill(Color.primary.opacity(configuration.isPressed ? 0.14 : (hovered ? 0.07 : 0))))
-            .contentShape(Circle())
+            .contentShape(.interaction, Circle())
+            .contentShape(.focusEffect, Circle())
     }
 }
 
 /// StripButtonGroup is a row of glyph buttons in one capsule, as Safari
 /// groups its toolbar buttons: on macOS 26 the capsule is Liquid Glass
-/// (`glassEffect`), which the system draws as an opaque fill when Reduce
-/// Transparency is on; with Increase Contrast it also takes a hairline.
+/// (`glassEffect`), which the system frosts more densely when Reduce
+/// Transparency is on; with Increase Contrast it also takes a hairline in
+/// the console's rule colour.
 struct StripButtonGroup<Content: View>: View {
     @ViewBuilder let content: Content
     @Environment(\.colorSchemeContrast) private var contrast

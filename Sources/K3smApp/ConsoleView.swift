@@ -294,6 +294,11 @@ struct ConsoleStrip: View {
                                                                 windowButtonsEdge: app.windowButtonsEdge)))
         .frame(height: CGFloat(TabStripLayout.height))
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
+        // A control can move or be covered without the pointer leaving it (a
+        // shortcut changes the tab, the status popover opens over the info
+        // button), and no hover exit comes then: clear the highlight.
+        .onChange(of: app.section) { app.stripHover.hovered = nil }
+        .onChange(of: app.statusPanelShown) { app.stripHover.hovered = nil }
     }
 
     /// The strip's items: the panel button's group, the tabs with the free
@@ -303,75 +308,75 @@ struct ConsoleStrip: View {
     /// field, take the room past it.
     private func row(search searchWidth: Double) -> some View {
         let hover = app.stripHover
-        return GlassEffectContainer(spacing: CGFloat(TabStripLayout.itemSpacing)) {
-            HStack(spacing: CGFloat(TabStripLayout.itemSpacing)) {
-                // The details button's mirror at the strip's start. Its shortcut
-                // is View > Hide Panel's (Command-Option-L), so it binds none.
-                StripButtonGroup {
-                    StripGlyphButton(control: .panel, symbol: TabStripLayout.panelSymbol(shown: !app.consolePanelCollapsed),
-                                     label: app.consolePanelCollapsed ? "Show panel" : "Hide panel",
-                                     help: Help.Strip.panel(shown: !app.consolePanelCollapsed), hover: hover) {
-                        app.consolePanelCollapsed.toggle()
-                    }
-                }
-                // The tabs take the row's free width up to their widest;
-                // what is left sits after the last tab, before the controls.
-                HStack(spacing: 0) {
-                    TabStrip(selected: app.section, waiting: app.waiting, hover: hover) { app.section = $0 }
-                        .tourTarget(.tabs, app.tour)
-                    Spacer(minLength: 0)
-                }
-                if ConsoleView.developerBadge(app) {
-                    Text(verbatim: TabStripLayout.developerBadgeTitle)
-                        .font(.system(size: CGFloat(TabStripLayout.badgeFontSize), weight: .semibold))
-                        .foregroundStyle(Palette.warn)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .overlay(Capsule().stroke(Palette.warn, lineWidth: 1))
-                        .fixedSize()
-                        .help(Help.Strip.developerMode)
-                }
-                switch app.section {
-                case .workloads:
-                    if app.workloadsView == .pods {
-                        search($workloads.query, width: searchWidth)
-                    }
-                case .nodes: search($app.nodesQuery, width: searchWidth)
-                case .images: search($app.imagesQuery, width: searchWidth)
-                case .services: search($app.servicesQuery, width: searchWidth)
-                case .storage: search($app.storageQuery, width: searchWidth)
-                case .models: search($app.modelsQuery, width: searchWidth)
-                case .cluster, .builds, .stats:
-                    EmptyView()
-                }
-                StripButtonGroup {
-                    // One colour in both states: the symbol carries the state.
-                    StripGlyphButton(control: .details, symbol: TabStripLayout.detailsSymbol(shown: app.inspectorShown),
-                                     label: app.inspectorShown ? "Hide details" : "Show details",
-                                     help: Help.Strip.details(shown: app.inspectorShown), hover: hover) {
-                        app.inspectorShown.toggle()
-                    }
-                    .keyboardShortcut("i", modifiers: [.command, .option])
-                    StripGlyphButton(control: .tour, symbol: "questionmark.circle", label: "Take the tour",
-                                     help: Help.Strip.tour, hover: hover) {
-                        app.tour.start()
-                    }
-                    StripGlyphButton(control: .info, symbol: "info.circle", label: "k3sm status",
-                                     help: Help.Strip.status, hover: hover) {
-                        app.statusPanelShown.toggle()
-                    }
-                    .tourTarget(.info, app.tour)
-                    .popover(isPresented: $app.statusPanelShown, arrowEdge: .bottom) {
-                        StatusPopoverPanel(model: app)
-                    }
-                    StripGlyphButton(control: .settings, symbol: "gearshape", label: "Settings",
-                                     help: Help.Strip.settings, hover: hover) {
-                        SettingsWindowController.shared?.show()
-                    }
+        return HStack(spacing: CGFloat(TabStripLayout.itemSpacing)) {
+            // The details button's mirror at the strip's start. Its shortcut
+            // is View > Hide Panel's (Command-Option-L), so it binds none.
+            StripButtonGroup {
+                StripGlyphButton(control: .panel, symbol: TabStripLayout.panelSymbol(shown: !app.consolePanelCollapsed),
+                                 label: app.consolePanelCollapsed ? "Show panel" : "Hide panel",
+                                 help: Help.Strip.panel(shown: !app.consolePanelCollapsed), hover: hover) {
+                    app.consolePanelCollapsed.toggle()
                 }
             }
-            .padding(.trailing, CGFloat(TabStripLayout.padding / 2))
-        }
+            // The tabs take the row's free width up to their widest;
+            // what is left sits after the last tab, before the controls.
+            HStack(spacing: 0) {
+                TabStrip(selected: app.section, waiting: app.waiting, hover: hover) { app.section = $0 }
+                    .tourTarget(.tabs, app.tour)
+                Spacer(minLength: 0)
+            }
+            if ConsoleView.developerBadge(app) {
+                Text(verbatim: TabStripLayout.developerBadgeTitle)
+                    .font(.system(size: CGFloat(TabStripLayout.badgeFontSize), weight: .semibold))
+                    .foregroundStyle(Palette.warn)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .overlay(Capsule().stroke(Palette.warn, lineWidth: 1))
+                    .fixedSize()
+                    .help(Help.Strip.developerMode)
+            }
+            switch app.section {
+            case .workloads:
+                if app.workloadsView == .pods {
+                    search($workloads.query, width: searchWidth)
+                }
+            case .nodes: search($app.nodesQuery, width: searchWidth)
+            case .images: search($app.imagesQuery, width: searchWidth)
+            case .services: search($app.servicesQuery, width: searchWidth)
+            case .storage: search($app.storageQuery, width: searchWidth)
+            case .models: search($app.modelsQuery, width: searchWidth)
+            case .cluster, .builds, .stats:
+                EmptyView()
+            }
+            StripButtonGroup {
+                // One colour in both states: the symbol carries the state.
+                StripGlyphButton(control: .details, symbol: TabStripLayout.detailsSymbol(shown: app.inspectorShown),
+                                 label: app.inspectorShown ? "Hide details" : "Show details",
+                                 help: Help.Strip.details(shown: app.inspectorShown), hover: hover) {
+                    app.inspectorShown.toggle()
+                }
+                .keyboardShortcut("i", modifiers: [.command, .option])
+                StripGlyphButton(control: .tour, symbol: "questionmark.circle", label: "Take the tour",
+                                 help: Help.Strip.tour, hover: hover) {
+                    app.tour.start()
+                }
+                StripGlyphButton(control: .info, symbol: "info.circle", label: "k3sm status",
+                                 help: Help.Strip.status, hover: hover) {
+                    app.statusPanelShown.toggle()
+                }
+                .tourTarget(.info, app.tour)
+                .popover(isPresented: $app.statusPanelShown, arrowEdge: .bottom) {
+                    StatusPopoverPanel(model: app)
+                }
+                StripGlyphButton(control: .settings, symbol: "gearshape", label: "Settings",
+                                 help: Help.Strip.settings, hover: hover) {
+                    SettingsWindowController.shared?.show()
+                }
+            }
+    }
+        .padding(.trailing, CGFloat(TabStripLayout.padding / 2))
+        // Keyboard focus rings and pressed controls take k3sm's accent, not the system blue.
+        .tint(Palette.controlAccent)
     }
 
     /// The tab's search field at `width`: its ideal 180 pt when the strip

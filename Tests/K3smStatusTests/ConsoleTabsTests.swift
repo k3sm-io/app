@@ -75,6 +75,10 @@ struct ConsoleTabsTests {
         #expect(ConsoleSection(shortcutNumber: 9) == .cluster)
         #expect(ConsoleSection(shortcutNumber: 0) == nil)
         #expect(ConsoleSection(shortcutNumber: 10) == nil)
+        // Each tab's help tag names its shortcut.
+        for section in ConsoleSection.allCases {
+            #expect(Help.Strip.tab(section).text.hasSuffix("(\(section.shortcutName!))"))
+        }
     }
 
     @Test("Control-Tab and Control-Shift-Tab step through every tab and wrap at both ends")

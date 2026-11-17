@@ -26,7 +26,9 @@ import Testing
 /// dark and increased contrast, at its natural width and wider: each render
 /// must come back at the size asked for. With `K3SM_RENDER_DIR` set the
 /// renders are also written there as PNGs, for a person to look at; the
-/// test never opens a window and never touches the running app.
+/// test never opens a window and never touches the running app. Liquid
+/// Glass is drawn by the window server, so the button groups' glass does not
+/// appear in these off-screen renders.
 @MainActor
 @Suite struct StripRenderTests {
     /// The appearances rendered, by the file name each one writes.
@@ -58,12 +60,19 @@ import Testing
                 if let out { try Self.write(image, to: out.appendingPathComponent("strip-\(name)-\(label).png")) }
             }
         }
-        // A flat tab and a glyph button under the pointer show their hover fill.
+        // A flat tab and a glyph button under the pointer show their hover
+        // fill: each render differs from the same strip with no hover, and the
+        // light strip from the dark one, so a blank render cannot pass.
+        let plainLight = try #require(Self.render(app: app, width: natural, appearance: .aqua))
+        let plainDark = try #require(Self.render(app: app, width: natural, appearance: .darkAqua))
+        #expect(Self.pixels(plainLight) != Self.pixels(plainDark))
         app.stripHover.hovered = .tab(.images)
         let hovered = try #require(Self.render(app: app, width: natural, appearance: .aqua))
+        #expect(Self.pixels(hovered) != Self.pixels(plainLight))
         if let out { try Self.write(hovered, to: out.appendingPathComponent("strip-light-hover-tab.png")) }
         app.stripHover.hovered = .info
         let glyph = try #require(Self.render(app: app, width: natural, appearance: .darkAqua))
+        #expect(Self.pixels(glyph) != Self.pixels(plainDark))
         if let out { try Self.write(glyph, to: out.appendingPathComponent("strip-dark-hover-glyph.png")) }
         app.stripHover.hovered = nil
         // Narrower than its natural width the strip scrolls; the render still comes back whole.
@@ -99,6 +108,11 @@ import Testing
             host.cacheDisplay(in: host.bounds, to: rep)
         }
         return rep.cgImage
+    }
+
+    /// The image's pixels, for telling two renders apart.
+    static func pixels(_ image: CGImage) -> Data {
+        (image.dataProvider?.data as Data?) ?? Data()
     }
 
     static func write(_ image: CGImage, to url: URL) throws {
