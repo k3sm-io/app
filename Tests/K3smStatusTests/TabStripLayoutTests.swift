@@ -51,6 +51,17 @@ struct TabStripLayoutTests {
         #expect(TabStripLayout.iconButtonWidth + 2 * TabStripLayout.groupInset <= TabStripLayout.height)
     }
 
+    @Test("the search field takes the room past the natural width first, up to its ideal, before any tab grows")
+    func searchWidthTakesTheRoomFirst() {
+        let natural = 860.0
+        #expect(TabStripLayout.searchWidth(room: natural, natural: natural) == TabStripLayout.searchMinimum)
+        #expect(TabStripLayout.searchWidth(room: natural - 100, natural: natural) == TabStripLayout.searchMinimum)
+        #expect(TabStripLayout.searchWidth(room: natural + 50, natural: natural) == TabStripLayout.searchMinimum + 50)
+        #expect(TabStripLayout.searchWidth(room: natural + 500, natural: natural) == TabStripLayout.searchIdeal)
+        #expect(TabStripLayout.searchWidth(room: .nan, natural: natural) == TabStripLayout.searchMinimum)
+        #expect(TabStripLayout.searchWidth(room: .infinity, natural: natural) == TabStripLayout.searchMinimum)
+    }
+
     @Test("a tab is a capsule round its label: least width the label and its padding, growing to a cap")
     func tabCapsuleGeometry() {
         for title in Self.titles {

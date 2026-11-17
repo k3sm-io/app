@@ -71,6 +71,18 @@ public enum TabStripLayout {
     /// The search field's minimum width (100 pt before the Stats tab); it
     /// grows to its ideal 180 pt whenever the window is wider than its least.
     public static let searchMinimum: Double = 72
+    /// The search field's widest, which it takes before any tab grows.
+    public static let searchIdeal: Double = 180
+
+    /// The search field's width in a strip `room` wide whose natural width
+    /// (the field at its minimum) is `natural`: the minimum plus the room
+    /// past the natural width, up to `searchIdeal`. The tabs share what is
+    /// left past that; a strip narrower than its natural width scrolls with
+    /// the field at its minimum.
+    public static func searchWidth(room: Double, natural: Double) -> Double {
+        guard room.isFinite, natural.isFinite, room > natural else { return searchMinimum }
+        return min(searchIdeal, searchMinimum + (room - natural))
+    }
     /// The strip's horizontal padding, both sides together (half each side).
     public static let padding: Double = 32
     /// The longest label drawn in full; a longer one is shortened at its tail.

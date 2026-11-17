@@ -115,8 +115,7 @@ struct TabStrip: View {
 /// ConsoleTabStyle is one tab of the console's strip, after Safari's compact
 /// tabs: a `TabStripLayout.tabHeight` capsule centred in the strip's height,
 /// at least `minWidth` wide and growing to `TabStripLayout.tabMaximumWidth`,
-/// its label centred. Selected, the capsule is raised (a soft shadow) and
-/// filled with the accent's tint (`Palette.tint`), outlined in the accent and
+/// its label centred. Selected, the capsule is raised: filled with the accent's tint (`Palette.tint`), outlined in the accent and
 /// labelled in `Palette.navy`, so the selection keeps k3sm's hue rather than
 /// the system blue; otherwise it is flat, labelled in `Palette.ink2`, with a
 /// faint fill only under the pointer or while pressed. With Increase
@@ -141,7 +140,6 @@ struct ConsoleTabStyle: ButtonStyle {
                 ZStack {
                     if selected {
                         capsule.fill(Palette.tint)
-                            .shadow(color: .black.opacity(0.14), radius: 1.5, y: 0.5)
                         capsule.strokeBorder(Palette.accent.opacity(increasedContrast ? 1 : 0.35),
                                              lineWidth: increasedContrast ? 1.5 : 1)
                     } else {

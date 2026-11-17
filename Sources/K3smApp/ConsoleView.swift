@@ -271,7 +271,7 @@ struct ConsoleStrip: View {
             if Overflow.scrolls(room: Double(geo.size.width), natural: natural) {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal) {
-                        row.frame(width: CGFloat(natural)).frame(maxHeight: .infinity)
+                        row(search: TabStripLayout.searchMinimum).frame(width: CGFloat(natural)).frame(maxHeight: .infinity)
                     }
                     .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
                     .onChange(of: app.section) { _, section in
@@ -283,7 +283,8 @@ struct ConsoleStrip: View {
                     }
                 }
             } else {
-                row.frame(width: geo.size.width, height: geo.size.height)
+                row(search: TabStripLayout.searchWidth(room: Double(geo.size.width), natural: natural))
+                    .frame(width: geo.size.width, height: geo.size.height)
             }
         }
         // While the panel is hidden the strip starts at the window's edge,
@@ -297,8 +298,10 @@ struct ConsoleStrip: View {
 
     /// The strip's items: the panel button's group, the tabs with the free
     /// width after them, the badge, the search field and the icon buttons'
-    /// group, with the strip's trailing half padding.
-    private var row: some View {
+    /// group, with the strip's trailing half padding. The search field is
+    /// `search` wide (`TabStripLayout.searchWidth`), so the tabs, not the
+    /// field, take the room past it.
+    private func row(search searchWidth: Double) -> some View {
         let hover = app.stripHover
         return GlassEffectContainer(spacing: CGFloat(TabStripLayout.itemSpacing)) {
             HStack(spacing: CGFloat(TabStripLayout.itemSpacing)) {
@@ -331,13 +334,13 @@ struct ConsoleStrip: View {
                 switch app.section {
                 case .workloads:
                     if app.workloadsView == .pods {
-                        search($workloads.query)
+                        search($workloads.query, width: searchWidth)
                     }
-                case .nodes: search($app.nodesQuery)
-                case .images: search($app.imagesQuery)
-                case .services: search($app.servicesQuery)
-                case .storage: search($app.storageQuery)
-                case .models: search($app.modelsQuery)
+                case .nodes: search($app.nodesQuery, width: searchWidth)
+                case .images: search($app.imagesQuery, width: searchWidth)
+                case .services: search($app.servicesQuery, width: searchWidth)
+                case .storage: search($app.storageQuery, width: searchWidth)
+                case .models: search($app.modelsQuery, width: searchWidth)
                 case .cluster, .builds, .stats:
                     EmptyView()
                 }
@@ -371,9 +374,10 @@ struct ConsoleStrip: View {
         }
     }
 
-    /// The tab's search field: 180 pt when the strip has room, narrowing to
-    /// `TabStripLayout.searchMinimum` before the tab labels are squeezed.
-    private func search(_ text: Binding<String>) -> some View {
-        TextField("Search", text: text).textFieldStyle(.roundedBorder).frame(minWidth: CGFloat(TabStripLayout.searchMinimum), idealWidth: 180, maxWidth: 180)
+    /// The tab's search field at `width`: its ideal 180 pt when the strip
+    /// has room, narrowing to `TabStripLayout.searchMinimum` before any tab
+    /// is squeezed.
+    private func search(_ text: Binding<String>, width: Double) -> some View {
+        TextField("Search", text: text).textFieldStyle(.roundedBorder).frame(width: CGFloat(width))
     }
 }
