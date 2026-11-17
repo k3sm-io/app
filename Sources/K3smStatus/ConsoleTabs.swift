@@ -48,6 +48,39 @@ public enum ConsoleSection: String, CaseIterable, Identifiable, Sendable {
         case .stats: return "Stats"
         }
     }
+
+    /// The tab's number in the strip, 1 for the first: Command and this
+    /// number shows it, as Command-1 to Command-9 pick Safari's tabs. Only
+    /// the first nine have one.
+    public var shortcutNumber: Int? {
+        let index = Self.allCases.firstIndex(of: self)! + 1
+        return index <= 9 ? index : nil
+    }
+
+    /// The tab Command and `number` shows, nil for a number no tab has.
+    public init?(shortcutNumber number: Int) {
+        guard let match = Self.allCases.first(where: { $0.shortcutNumber == number }) else { return nil }
+        self = match
+    }
+
+    /// The tab to the right (Control-Tab), the first after the last.
+    public var next: ConsoleSection {
+        let all = Self.allCases
+        let i = all.firstIndex(of: self)!
+        return all[(i + 1) % all.count]
+    }
+
+    /// The tab to the left (Control-Shift-Tab), the last before the first.
+    public var previous: ConsoleSection {
+        let all = Self.allCases
+        let i = all.firstIndex(of: self)!
+        return all[(i + all.count - 1) % all.count]
+    }
+
+    /// The tab's shortcut as a help tag spells it, "Command-1"; nil past nine.
+    public var shortcutName: String? {
+        shortcutNumber.map { "Command-\($0)" }
+    }
 }
 
 /// ConsoleTabs is how the console's tab choice, and each tab's search and

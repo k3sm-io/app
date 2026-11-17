@@ -53,6 +53,11 @@ value. The site's roles, for reference:
 | line / line strong | `#e4e6ea` / `#b9bec6` | `#23262c` / `#454a53` |
 | good / warn | `#216e45` / `#875810` | `#4cc287` / `#e0a33e` |
 
+The app's accent, not the system blue, marks what is selected or active in
+the console: the selected tab's capsule in the strip (`Palette.tint` fill,
+`Palette.accent` outline, `Palette.navy` label), the strip's glyphs, and the
+focus ring, which takes the catalog's AccentColor (`Palette.controlAccent`).
+
 Text colours meet WCAG AA (4.5:1) against the surface they sit on, in both
 appearances. The site's dark palette does throughout (lowest 6.32:1); in
 light one pairing falls short: `.swap__tag` sets `--muted` text on

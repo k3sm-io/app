@@ -20,7 +20,8 @@ import K3smStatus
 /// MainMenu is the menu bar while a window is open: the app menu with
 /// Settings (the Settings window), Edit for the search field, View for
 /// refresh, the status panel (Show Status), hiding or showing the
-/// console's left panel and Reset Column Widths, Window, and Help with the tour. The status item keeps its own menu. The delegate owns one and
+/// console's left panel, Reset Column Widths and the tabs (Show Next Tab,
+/// Show Previous Tab and one item per tab with its Command-number), Window, and Help with the tour. The status item keeps its own menu. The delegate owns one and
 /// the items target it.
 @MainActor
 final class MainMenu: NSObject, NSMenuItemValidation {
@@ -83,7 +84,26 @@ final class MainMenu: NSObject, NSMenuItemValidation {
         panel.keyEquivalentModifierMask = [.command, .option]
         menu.addItem(panel)
         menu.addItem(item("Reset Column Widths", #selector(resetColumns(_:)), "", help: Help.Menus.resetColumns))
+        menu.addItem(.separator())
+        for tab in tabItems() { menu.addItem(tab) }
         return menu
+    }
+
+    /// View's tab items, as Safari moves between its own: Show Next Tab
+    /// (Control-Tab) and Show Previous Tab (Control-Shift-Tab), a separator,
+    /// then one item per tab, Command-1 to Command-9 in strip order.
+    func tabItems() -> [NSMenuItem] {
+        let next = item("Show Next Tab", #selector(showNextTab(_:)), "\t", help: Help.Menus.nextTab)
+        next.keyEquivalentModifierMask = [.control]
+        let previous = item("Show Previous Tab", #selector(showPreviousTab(_:)), "\t", help: Help.Menus.previousTab)
+        previous.keyEquivalentModifierMask = [.control, .shift]
+        let tabs = ConsoleSection.allCases.map { section -> NSMenuItem in
+            let tab = item(section.title, #selector(showTab(_:)), section.shortcutNumber.map(String.init) ?? "",
+                           help: Help.Menus.tab(section))
+            tab.representedObject = section.rawValue
+            return tab
+        }
+        return [next, previous, .separator()] + tabs
     }
 
     private func windowMenu() -> NSMenu {
@@ -155,9 +175,36 @@ final class MainMenu: NSObject, NSMenuItemValidation {
         model.columns.resetAll()
     }
 
+    /// Shows the tab to the right of the selected one, the first after the last.
+    @objc private func showNextTab(_ sender: Any?) {
+        model.section = model.section.next
+    }
+
+    /// Shows the tab to the left of the selected one, the last before the first.
+    @objc private func showPreviousTab(_ sender: Any?) {
+        model.section = model.section.previous
+    }
+
+    /// Shows the tab the item names (its `representedObject`, the tab's raw value).
+    @objc private func showTab(_ sender: Any?) {
+        guard let raw = (sender as? NSMenuItem)?.representedObject as? String,
+              let section = ConsoleSection(rawValue: raw) else { return }
+        model.section = section
+    }
+
     /// The panel item reads Hide Panel or Show Panel, and is offered only
-    /// while the console is on screen.
+    /// while the console is on screen; the tab items only while the console
+    /// shows its tabs and no sheet covers the window, the selected tab's
+    /// item checked.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let tabActions: [Selector] = [#selector(showNextTab(_:)), #selector(showPreviousTab(_:)), #selector(showTab(_:))]
+        if let action = menuItem.action, tabActions.contains(action) {
+            if action == #selector(showTab(_:)) {
+                let raw = menuItem.representedObject as? String
+                menuItem.state = raw == model.section.rawValue ? .on : .off
+            }
+            return model.screen == .status && model.pane.stripShown && NSApp.mainWindow?.attachedSheet == nil
+        }
         // The tour walks the console, so it is offered only while it is up.
         if menuItem.action == #selector(startTour(_:)) { return model.screen == .status }
         if menuItem.action == #selector(checkForUpdates(_:)) { return model.appUpdate.own.isRelease }

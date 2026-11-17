@@ -14,10 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-/// TabStripLayout sizes the console's strip, the row above the tab: the tab
-/// labels, the search field at its minimum (Update is the Alerts tab's
-/// card, so the console's strip passes no `buttonWidth`), the panel button at its start and the four icon buttons at its end, with the strip's gaps
-/// and padding. Widths are estimated the way `PanelLayout` estimates them,
+/// TabStripLayout sizes the console's strip, the row above the tab, drawn in
+/// the look of Safari's compact tabs: each tab a capsule in the row (the
+/// selected one raised and filled with the k3sm accent, the others flat),
+/// the tabs sharing the row's free width evenly up to `tabMaximumWidth`, and
+/// the strip's glyph buttons in grouped capsules (the panel button at its
+/// start, the four icon buttons at its end). It sums the tab labels and their
+/// capsules, the search field at its minimum (Update is the Alerts tab's
+/// card, so the console's strip passes no `buttonWidth`) and the two button
+/// groups, with the strip's gaps and padding. Widths are estimated the way `PanelLayout` estimates them,
 /// from character counts at the same conservative per-point advance, so the
 /// estimate errs wide and a label never has to wrap or shorten. A label is
 /// drawn on one line; only a label longer than `labelCap` characters is
@@ -26,30 +31,58 @@ limitations under the License.
 public enum TabStripLayout {
     /// The tab labels' font size.
     public static let fontSize: Double = 13
-    /// The gap between two tabs: 14 pt, the least that still holds the
-    /// waiting butterfly's landing (`Perch.landingStart` is 12 pt before the
-    /// label). It was 16 before the Stats tab; with `itemSpacing` and
+    /// The room inside a tab's capsule on each side of its label, at the
+    /// tab's least width. The estimate errs wide, so the label drawn has more.
+    public static let tabPadding: Double = 6
+    /// The gap between two tabs' capsules.
+    public static let tabGap: Double = 2
+    /// From one label's end to the next label's start: the two capsules'
+    /// padding and the gap between them, 14 pt, the least that still holds
+    /// the waiting butterfly's landing (`Perch.landingStart` is 12 pt before
+    /// the label). It was 16 before the Stats tab; with `itemSpacing` and
     /// `searchMinimum` it keeps the nine labels, at the estimate's wide
     /// advance, inside a 1440 pt window with the panel and inspector shown.
-    public static let tabSpacing: Double = 14
-    /// The gap between the strip's items: the tabs, the spacer, the search
-    /// field and the icon buttons (12 pt before the Stats tab; the strip's
-    /// `HStack` uses this value).
-    public static let itemSpacing: Double = 10
-    /// The spacer between the tabs and the controls, at its least.
-    public static let spacerMinimum: Double = 8
+    public static let tabSpacing: Double = 2 * tabPadding + tabGap
+    /// A tab capsule's height, centred in the strip's `height`.
+    public static let tabHeight: Double = 28
+    /// The widest a tab grows to when the row has room to spare; past it
+    /// the room is left empty after the last tab, as Safari does.
+    public static let tabMaximumWidth: Double = 200
+    /// The gap between the strip's items: the panel button's group, the
+    /// tabs, the badge, the search field and the icon buttons' group (12 pt
+    /// before the Stats tab, 10 pt before the capsules; the strip's `HStack`
+    /// uses this value).
+    public static let itemSpacing: Double = 8
     /// The icon buttons at the strip's end: details, tour, info and Settings.
     public static let iconButtons = 4
-    /// One icon button's width (a 16 pt symbol, estimated wide).
-    public static let iconButtonWidth: Double = 20
-    /// The icon buttons with the gaps between them.
-    public static let controlsWidth: Double = Double(iconButtons) * iconButtonWidth + Double(iconButtons - 1) * itemSpacing
-    /// The panel button at the strip's start, before the tabs, with its gap:
-    /// one icon button, apart from the four at the end.
-    public static let leadingControlsWidth: Double = iconButtonWidth + itemSpacing
+    /// One glyph button's width and height: a 15 pt symbol in a 26 pt hover
+    /// circle, the size of Safari's toolbar glyphs.
+    public static let iconButtonWidth: Double = 26
+    /// The glyph symbols' point size.
+    public static let iconSymbolSize: Double = 15
+    /// The room between a button group's capsule and the buttons inside it,
+    /// on each side.
+    public static let groupInset: Double = 2
+    /// The icon buttons' group: the buttons side by side and the capsule's inset.
+    public static let controlsWidth: Double = Double(iconButtons) * iconButtonWidth + 2 * groupInset
+    /// The panel button's group at the strip's start, before the tabs, with
+    /// its gap: one glyph button in a capsule of its own.
+    public static let leadingControlsWidth: Double = iconButtonWidth + 2 * groupInset + itemSpacing
     /// The search field's minimum width (100 pt before the Stats tab); it
     /// grows to its ideal 180 pt whenever the window is wider than its least.
     public static let searchMinimum: Double = 72
+    /// The search field's widest, which it takes before any tab grows.
+    public static let searchIdeal: Double = 180
+
+    /// The search field's width in a strip `room` wide whose natural width
+    /// (the field at its minimum) is `natural`: the minimum plus the room
+    /// past the natural width, up to `searchIdeal`. The tabs share what is
+    /// left past that; a strip narrower than its natural width scrolls with
+    /// the field at its minimum.
+    public static func searchWidth(room: Double, natural: Double) -> Double {
+        guard room.isFinite, natural.isFinite, room > natural else { return searchMinimum }
+        return min(searchIdeal, searchMinimum + (room - natural))
+    }
     /// The strip's horizontal padding, both sides together (half each side).
     public static let padding: Double = 32
     /// The longest label drawn in full; a longer one is shortened at its tail.
@@ -124,10 +157,19 @@ public enum TabStripLayout {
         Double(display(label).count) * fontSize * PanelLayout.advance
     }
 
-    /// The tabs alone: every label at its estimated width, `spacing` apart.
+    /// One tab's least width: its label at the estimated width and the
+    /// capsule's padding on both sides. A tab grows from it to `tabMaximumWidth`.
+    public static func tabWidth(_ label: String, fontSize: Double = Self.fontSize) -> Double {
+        labelWidth(label, fontSize: fontSize) + 2 * tabPadding
+    }
+
+    /// The tabs alone at their least: every label at its estimated width,
+    /// `spacing` from one label to the next, and the first and last
+    /// capsules' outer padding.
     public static func tabsWidth(labels: [String], fontSize: Double = Self.fontSize, spacing: Double = Self.tabSpacing) -> Double {
         guard !labels.isEmpty else { return 0 }
         return labels.map { labelWidth($0, fontSize: fontSize) }.reduce(0, +) + Double(labels.count - 1) * spacing
+            + 2 * tabPadding
     }
 
     /// The update button's estimated width for `title`.
@@ -149,8 +191,9 @@ public enum TabStripLayout {
         Double(title.count) * badgeFontSize * PanelLayout.advance + badgePadding
     }
 
-    /// The strip's minimum width: the tabs (`tabsWidth`), the spacer at its
-    /// least, the Developer mode badge while it is shown (`badgeWidth`
+    /// The strip's minimum width: the tabs (`tabsWidth`; the free width
+    /// they do not take sits after the last one and costs nothing at the
+    /// least), the Developer mode badge while it is shown (`badgeWidth`
     /// non-nil; it never shrinks), the update button when one is offered
     /// (`buttonWidth` non-nil), the search field's minimum, the icon buttons,
     /// the gaps between the items and the strip's `padding`.
@@ -159,7 +202,7 @@ public enum TabStripLayout {
                                     searchWidth: Double = Self.searchMinimum, spacing: Double = Self.tabSpacing,
                                     padding: Double = Self.padding) -> Double {
         var width = leadingControlsWidth + tabsWidth(labels: labels, fontSize: fontSize, spacing: spacing)
-        width += itemSpacing + spacerMinimum + itemSpacing
+        width += itemSpacing
         if let badgeWidth { width += badgeWidth + itemSpacing }
         if let buttonWidth { width += buttonWidth + itemSpacing }
         width += searchWidth + itemSpacing

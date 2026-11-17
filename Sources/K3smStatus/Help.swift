@@ -119,7 +119,8 @@ public enum Help {
             case .models: text = "Show the MLX models the cluster serves"
             case .stats: text = "Chart the load, pods, restarts, images, storage and updates"
             }
-            return HelpTag(text, control: "console strip: \(section.title.lowercased()) tab", label: section.title)
+            let shortcut = section.shortcutName.map { " (\($0))" } ?? ""
+            return HelpTag(text + shortcut, control: "console strip: \(section.title.lowercased()) tab", label: section.title)
         }
 
         /// The app-carried update's wording without a version, kept in the catalog
@@ -1107,12 +1108,22 @@ public enum Help {
         /// View > Reset Column Widths.
         public static let resetColumns = HelpTag("Put every table's columns back to their first widths",
                                                  control: "view menu: Reset Column Widths", label: "Reset Column Widths")
+        /// View > Show Next Tab.
+        public static let nextTab = HelpTag("Move one tab to the right, from the last to the first (Control-Tab)",
+                                            control: "view menu: Show Next Tab", label: "Show Next Tab")
+        /// View > Show Previous Tab.
+        public static let previousTab = HelpTag("Move one tab to the left, from the first to the last (Control-Shift-Tab)",
+                                                control: "view menu: Show Previous Tab", label: "Show Previous Tab")
+        /// View > one item per tab, named for it, with its Command-number.
+        public static func tab(_ section: ConsoleSection) -> HelpTag {
+            HelpTag(Strip.tab(section).text, control: "view menu: \(section.title) tab", label: section.title)
+        }
         /// Help > Take the Tour.
         public static let tour = HelpTag(Strip.tour.text, control: "help menu: Take the Tour", label: "Take the Tour")
 
         public static var all: [HelpTag] {
             [stop, restart, liveStatus, liveTop, openLogs, bugReport, settings, checkForUpdates, dashboard, refresh, showStatus,
-             panel, resetColumns, tour]
+             panel, resetColumns, tour, nextTab, previousTab] + ConsoleSection.allCases.map(tab)
         }
     }
 }
