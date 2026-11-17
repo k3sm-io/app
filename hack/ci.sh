@@ -689,7 +689,7 @@ wf_present() { # <dir>: print each entry under it; exit 0 iff there is one
 	find "$1" -mindepth 1 \( -type f -o -type l \) | grep . 
 }
 if found="$(wf_present .github/workflows)"; then
-	printf '    PRESENT: %s\n' $found
+	printf '%s\n' "$found" | sed 's/^/    PRESENT: /'
 	echo "FAIL: no workflow file may exist (no CI on GitHub)"; exit 1
 fi
 # Red-path check, so the scan above cannot pass vacuously.
