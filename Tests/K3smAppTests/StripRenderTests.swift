@@ -1,0 +1,93 @@
+/*
+Copyright The k3sm Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+import AppKit
+import Foundation
+import K3smStatus
+import SwiftUI
+import Testing
+
+@testable import K3smApp
+
+/// The console's strip rendered off screen into a bitmap, in light,
+/// dark and increased contrast, at its natural width and wider: each render
+/// must come back at the size asked for. With `K3SM_RENDER_DIR` set the
+/// renders are also written there as PNGs, for a person to look at; the
+/// test never opens a window and never touches the running app.
+@MainActor
+@Suite struct StripRenderTests {
+    /// The appearances rendered, by the file name each one writes.
+    static let appearances: [(String, NSAppearance.Name)] = [
+        ("light", .aqua), ("dark", .darkAqua),
+        ("light-contrast", .accessibilityHighContrastAqua), ("dark-contrast", .accessibilityHighContrastDarkAqua),
+    ]
+
+    @Test func stripRendersAtEveryAppearanceAndWidth() throws {
+        let defaults = UserDefaults.standard
+        let keys = [ConsoleTabs.sectionKey, AppModel.inspectorShownKey, PanelLayout.collapsedKey]
+        let kept = keys.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (key, value) in kept {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        _ = NSApplication.shared
+        let app = AppModel(runner: AppleScriptPrivilegedRunner(), environment: [:])
+        app.section = .nodes
+        let natural = WindowFrame.stripScrollWidth(app.consoleMinimumInputs)
+        let out = ProcessInfo.processInfo.environment["K3SM_RENDER_DIR"].map { URL(fileURLWithPath: $0) }
+        if let out { try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true) }
+        for (name, appearance) in Self.appearances {
+            for (label, width) in [("natural", natural), ("wide", natural + 360)] {
+                let image = try #require(Self.render(app: app, width: width, appearance: appearance))
+                #expect(image.width == Int((width * 2).rounded()))
+                #expect(image.height == Int((TabStripLayout.height * 2).rounded()))
+                if let out { try Self.write(image, to: out.appendingPathComponent("strip-\(name)-\(label).png")) }
+            }
+        }
+    }
+
+    /// The strip at `width`, in `appearance`, on the console's surface: an
+    /// off-screen hosting view (never put in a window, never shown) drawn
+    /// into a 2x bitmap, so the strip's AppKit-backed parts (the search
+    /// field, the horizontal scroll) draw as they do on screen, which
+    /// `ImageRenderer` leaves as placeholders.
+    static func render(app: AppModel, width: Double, appearance: NSAppearance.Name) -> CGImage? {
+        let view = ConsoleStrip(app: app)
+            .frame(width: CGFloat(width), height: CGFloat(TabStripLayout.height))
+            .background(Palette.surface)
+        let host = NSHostingView(rootView: view)
+        host.appearance = NSAppearance(named: appearance)
+        host.frame = NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(TabStripLayout.height))
+        host.layoutSubtreeIfNeeded()
+        let size = NSSize(width: CGFloat(width) * 2, height: CGFloat(TabStripLayout.height) * 2)
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width.rounded()),
+                                         pixelsHigh: Int(size.height.rounded()), bitsPerSample: 8,
+                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        rep.size = host.bounds.size
+        host.appearance?.performAsCurrentDrawingAppearance {
+            host.cacheDisplay(in: host.bounds, to: rep)
+        }
+        return rep.cgImage
+    }
+
+    static func write(_ image: CGImage, to url: URL) throws {
+        let rep = NSBitmapImageRep(cgImage: image)
+        guard let data = rep.representation(using: .png, properties: [:]) else { return }
+        try data.write(to: url)
+    }
+}
