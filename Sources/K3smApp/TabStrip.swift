@@ -129,7 +129,7 @@ struct ConsoleTabStyle: ButtonStyle {
     var minWidth: Double = 0
 
     func makeBody(configuration: Configuration) -> some View {
-        let capsule = Capsule(style: .continuous)
+        let capsule = Capsule()
         let flatFill = Color.primary.opacity(configuration.isPressed ? 0.12 : (hovered ? (increasedContrast ? 0.14 : 0.07) : 0))
         return configuration.label
             .font(.system(size: CGFloat(TabStripLayout.fontSize), weight: .medium))

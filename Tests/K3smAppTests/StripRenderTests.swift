@@ -78,9 +78,13 @@ import Testing
     /// field, the horizontal scroll) draw as they do on screen, which
     /// `ImageRenderer` leaves as placeholders.
     static func render(app: AppModel, width: Double, appearance: NSAppearance.Name) -> CGImage? {
+        // An off-screen view does not read Increase Contrast from its
+        // appearance, so the contrast renders set it as the system would.
+        let contrast = appearance == .accessibilityHighContrastAqua || appearance == .accessibilityHighContrastDarkAqua
         let view = ConsoleStrip(app: app)
             .frame(width: CGFloat(width), height: CGFloat(TabStripLayout.height))
             .background(Palette.surface)
+            .environment(\._colorSchemeContrast, contrast ? .increased : .standard)
         let host = NSHostingView(rootView: view)
         host.appearance = NSAppearance(named: appearance)
         host.frame = NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(TabStripLayout.height))
