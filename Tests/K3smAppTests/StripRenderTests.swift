@@ -58,6 +58,18 @@ import Testing
                 if let out { try Self.write(image, to: out.appendingPathComponent("strip-\(name)-\(label).png")) }
             }
         }
+        // A flat tab and a glyph button under the pointer show their hover fill.
+        app.stripHover.hovered = .tab(.images)
+        let hovered = try #require(Self.render(app: app, width: natural, appearance: .aqua))
+        if let out { try Self.write(hovered, to: out.appendingPathComponent("strip-light-hover-tab.png")) }
+        app.stripHover.hovered = .info
+        let glyph = try #require(Self.render(app: app, width: natural, appearance: .darkAqua))
+        if let out { try Self.write(glyph, to: out.appendingPathComponent("strip-dark-hover-glyph.png")) }
+        app.stripHover.hovered = nil
+        // Narrower than its natural width the strip scrolls; the render still comes back whole.
+        let narrow = try #require(Self.render(app: app, width: 520, appearance: .aqua))
+        #expect(narrow.width == 1040)
+        if let out { try Self.write(narrow, to: out.appendingPathComponent("strip-light-overflow.png")) }
     }
 
     /// The strip at `width`, in `appearance`, on the console's surface: an

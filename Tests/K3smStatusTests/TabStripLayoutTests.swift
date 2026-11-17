@@ -24,15 +24,16 @@ struct TabStripLayoutTests {
 
     /// What the strip holds besides the tabs, at its minimum, with an update offered.
     private static func fixedParts(button: Double?) -> Double {
-        TabStripLayout.itemSpacing + TabStripLayout.spacerMinimum + TabStripLayout.itemSpacing
+        TabStripLayout.itemSpacing
             + (button.map { $0 + TabStripLayout.itemSpacing } ?? 0)
             + TabStripLayout.searchMinimum + TabStripLayout.itemSpacing
             + TabStripLayout.controlsWidth + TabStripLayout.leadingControlsWidth + TabStripLayout.padding
     }
 
-    @Test("the panel button at the strip's start costs one icon button and one gap")
+    @Test("the panel button at the strip's start costs one glyph button in its capsule and one gap")
     func panelButtonCounted() {
-        #expect(TabStripLayout.leadingControlsWidth == TabStripLayout.iconButtonWidth + TabStripLayout.itemSpacing)
+        #expect(TabStripLayout.leadingControlsWidth
+            == TabStripLayout.iconButtonWidth + 2 * TabStripLayout.groupInset + TabStripLayout.itemSpacing)
         // The strip's minimum is the tabs plus every fixed part, the panel button among them.
         for button in [nil, TabStripLayout.buttonWidth(title: "Update")] {
             let minimum = TabStripLayout.minimumWidth(labels: Self.titles, buttonWidth: button)
@@ -41,10 +42,31 @@ struct TabStripLayoutTests {
         }
     }
 
-    @Test("the icon buttons are details, tour, info and Settings, with the gaps between them")
+    @Test("the icon buttons are details, tour, info and Settings, side by side in one capsule")
     func iconButtonsCounted() {
         #expect(TabStripLayout.iconButtons == 4)
-        #expect(TabStripLayout.controlsWidth == 4 * TabStripLayout.iconButtonWidth + 3 * TabStripLayout.itemSpacing)
+        #expect(TabStripLayout.controlsWidth == 4 * TabStripLayout.iconButtonWidth + 2 * TabStripLayout.groupInset)
+        // A glyph's hover circle holds its symbol, and it fits the tabs' capsule height.
+        #expect(TabStripLayout.iconButtonWidth > TabStripLayout.iconSymbolSize)
+        #expect(TabStripLayout.iconButtonWidth + 2 * TabStripLayout.groupInset <= TabStripLayout.height)
+    }
+
+    @Test("a tab is a capsule round its label: least width the label and its padding, growing to a cap")
+    func tabCapsuleGeometry() {
+        for title in Self.titles {
+            #expect(TabStripLayout.tabWidth(title) == TabStripLayout.labelWidth(title) + 2 * TabStripLayout.tabPadding)
+            #expect(TabStripLayout.tabWidth(title) < TabStripLayout.tabMaximumWidth)
+        }
+        // Label to label is the two capsules' padding and their gap, the spacing the butterfly needs.
+        #expect(TabStripLayout.tabSpacing == 2 * TabStripLayout.tabPadding + TabStripLayout.tabGap)
+        #expect(TabStripLayout.tabSpacing >= 14)
+        // The capsule fits in the strip with the waiting butterfly's room above its label.
+        #expect(TabStripLayout.tabHeight < TabStripLayout.height)
+        #expect(TabStripLayout.tabHeight >= TabStripLayout.fontSize * 2)
+        // The tabs at their least are every capsule side by side.
+        let capsules = Self.titles.map { TabStripLayout.tabWidth($0) }.reduce(0, +)
+            + Double(Self.titles.count - 1) * TabStripLayout.tabGap
+        #expect(abs(TabStripLayout.tabsWidth(labels: Self.titles) - capsules) < 1e-9)
     }
 
     @Test("the nine tabs fit whole at the strip's natural width; a longer tenth raises it; the window's natural width follows")
@@ -262,6 +284,7 @@ struct TabStripLayoutTests {
         // The mark takes no width: the strip's minimum is the tabs and their spacing, as before.
         let tabs = TabStripLayout.tabsWidth(labels: Self.titles)
         let labels = Self.titles.map { TabStripLayout.labelWidth($0) }.reduce(0, +)
-        #expect(abs(tabs - (labels + Double(Self.titles.count - 1) * TabStripLayout.tabSpacing)) < 1e-9)
+        #expect(abs(tabs - (labels + Double(Self.titles.count - 1) * TabStripLayout.tabSpacing
+            + 2 * TabStripLayout.tabPadding)) < 1e-9)
     }
 }

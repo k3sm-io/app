@@ -346,6 +346,8 @@ final class AppModel: ObservableObject {
     let columns = ColumnsModel()
     /// Each tab's waiting butterfly, from the tabs' reads.
     let waiting = WaitingModel()
+    /// Which strip control the pointer is over, for its hover highlight.
+    let stripHover = StripHover()
     /// Forwards the loaders' changes to `waiting`.
     private var waitingObservations: [AnyCancellable] = []
     /// The guided tour. It reads and sets the console layout it shows its

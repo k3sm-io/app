@@ -60,4 +60,36 @@ struct ConsoleTabsTests {
         #expect(ConsoleTabs.restoreSelected(from: "") == nil)
         #expect(ConsoleTabs.restoreSelected(from: "default/web\u{200B}") == "default/web")
     }
+
+    @Test("Command-1 to Command-9 pick the tabs in strip order, Workloads first and Alerts ninth")
+    func commandNumbersFollowTheStrip() {
+        for (i, section) in ConsoleSection.allCases.enumerated() {
+            let number = i + 1
+            #expect(section.shortcutNumber == (number <= 9 ? number : nil))
+            if number <= 9 {
+                #expect(ConsoleSection(shortcutNumber: number) == section)
+                #expect(section.shortcutName == "Command-\(number)")
+            }
+        }
+        #expect(ConsoleSection(shortcutNumber: 1) == .workloads)
+        #expect(ConsoleSection(shortcutNumber: 9) == .cluster)
+        #expect(ConsoleSection(shortcutNumber: 0) == nil)
+        #expect(ConsoleSection(shortcutNumber: 10) == nil)
+    }
+
+    @Test("Control-Tab and Control-Shift-Tab step through every tab and wrap at both ends")
+    func nextAndPreviousWrap() {
+        let all = ConsoleSection.allCases
+        #expect(all.last!.next == all.first!)
+        #expect(all.first!.previous == all.last!)
+        var seen: [ConsoleSection] = []
+        var s = all.first!
+        for _ in all {
+            seen.append(s)
+            #expect(s.next.previous == s)
+            s = s.next
+        }
+        #expect(seen == Array(all))
+        #expect(s == all.first!)
+    }
 }
