@@ -1,5 +1,12 @@
 # k3sm app
 
+@.claude/rules/native-builds.md
+
+Use the `yurei build` queue via the runtime's executable absolute `YUREI_BIN`; verify native pod placement.
+Preserve BypassGuard and every real human gate; this policy never widens credential, money, release or irreversible authority.
+
+All build and test examples below run through the approved native Darwin pod route; older host exceptions are superseded.
+
 The k3sm macOS app (SwiftPM package `K3smApp`): the menu bar status item, the window, and the
 installer that puts k3sm on a Mac. It is a leaf. Its state comes only from `k3sm status -o json`
 (and the `k3sm status daemons -o json` probe), the machine interface the k3sm CLI documents. Its
