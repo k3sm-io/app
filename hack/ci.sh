@@ -36,7 +36,7 @@
 #      disk images, mounted read-only: a good one passes, each broken one fails);
 #      measure-polls.sh --self-test (the poll-cost summary and its refusals)
 #   7. every .swift file carries the Apache-2.0 header
-#   8. every file under .github/workflows/ is dormant (fully commented out)
+#   8. no file exists under .github/workflows/ (no CI on GitHub, see CLAUDE.md)
 #   9. the vendored status, alerts and datavol fixtures match a sibling k3sm
 #      checkout, when one exists; each vendored release index corpus (stable
 #      and candidate) matches k3sm's in both directions (the same file set, each file byte for
@@ -543,7 +543,7 @@ mkdir -p "$tmp/tarball"
 expect_version "outside git" "$tmp/tarball" "v0.0.0-unknown"
 
 echo "==> shellcheck (hack/**/*.sh)"
-command -v shellcheck >/dev/null || { echo "FAIL: shellcheck is not installed (brew install shellcheck)"; exit 1; }
+command -v shellcheck >/dev/null || { echo "FAIL: shellcheck is not on this host; it runs in a k3sm pod, never installed on the host (containers only, CONTRIBUTING.md)"; exit 1; }
 find hack -name '*.sh' -print0 | xargs -0 shellcheck
 echo "    ok"
 
@@ -680,24 +680,23 @@ done < <(find . -name '*.swift' -not -path './.build/*' -not -path './.git/*' -p
 [ "$missing" = 0 ] || { echo "FAIL: add the header in $header to the files above"; exit 1; }
 echo "    ok"
 
-echo "==> workflows dormant (.github/workflows)"
-# A workflow file is dormant iff it has no line that is neither blank nor a
-# comment. Every file counts, whatever its name or extension. Deliberately
-# strict: a stray '---' or a byte-order mark makes a file active.
-active=0
-if [ -d .github/workflows ]; then
-	while IFS= read -r -d '' f; do
-		if grep -qEv '^[[:space:]]*(#|$)' "$f"; then
-			echo "    ACTIVE: $f"; active=1
-		fi
-	done < <(find .github/workflows -type f -print0)
+echo "==> no workflow files (.github/workflows)"
+# There is no CI on GitHub: no file may exist under .github/workflows/, of any name,
+# commented out or not. Dotfiles, nested files and symlinks count.
+wf_present() { # <dir>: print each entry under it; exit 0 iff there is one
+	[ -e "$1" ] || [ -L "$1" ] || return 1
+	[ -d "$1" ] || { echo "$1"; return 0; }
+	find "$1" -mindepth 1 \( -type f -o -type l \) | grep . 
+}
+if found="$(wf_present .github/workflows)"; then
+	printf '%s\n' "$found" | sed 's/^/    PRESENT: /'
+	echo "FAIL: no workflow file may exist (no CI on GitHub)"; exit 1
 fi
-[ "$active" = 0 ] || { echo "FAIL: workflows must stay fully commented out"; exit 1; }
-# Red-path check, so the predicate above cannot pass vacuously.
-printf '# off\non: push\n' > "$tmp/active.yml"
-printf '# off\n\n  # still off\n' > "$tmp/dormant.yml"
-grep -qEv '^[[:space:]]*(#|$)' "$tmp/active.yml" || { echo "FAIL: predicate missed an active file"; exit 1; }
-! grep -qEv '^[[:space:]]*(#|$)' "$tmp/dormant.yml" || { echo "FAIL: predicate flagged a dormant file"; exit 1; }
+# Red-path check, so the scan above cannot pass vacuously.
+mkdir -p "$tmp/wf/.github/workflows" && printf '# off\n' > "$tmp/wf/.github/workflows/.c.yml"
+wf_present "$tmp/wf/.github/workflows" >/dev/null || { echo "FAIL: the scan missed a commented-out dotfile workflow"; exit 1; }
+mkdir -p "$tmp/wf2/.github" && : > "$tmp/wf2/.github/dependabot.yml"
+! wf_present "$tmp/wf2/.github/workflows" >/dev/null || { echo "FAIL: the scan flagged a repo with no workflows dir"; exit 1; }
 echo "    ok"
 
 echo "==> status fixtures (vendored from k3sm)"
@@ -813,6 +812,32 @@ fi
 swap_engine_stage
 
 shipped_helper_stage
+
+# DCO sign-off (there is no CI on GitHub: this stage is the check). Every commit this
+# branch adds over origin/main must carry a Signed-off-by line whose email is the
+# author's, matched as a FIXED string (an ERE breaks on id+user@users.noreply addresses).
+# A lone clone without origin/main skips, saying so; a synced main checks nothing.
+echo "==> [app] DCO sign-off (commits not on origin/main)"
+dco_signed() { # <author-email> <message>: exit 0 iff a Signed-off-by line names the email
+	printf '%s\n' "$2" | grep -iE '^Signed-off-by: ' | grep -qiF "<$1>"
+}
+dco_signed 'a+b@users.noreply.github.com' 'x
+
+Signed-off-by: A <a+b@users.noreply.github.com>' || { echo "FAIL: [app] DCO self-test: a signed commit was rejected"; exit 1; }
+! dco_signed 'a@example.com' 'x
+
+Co-authored-by: A <a@example.com>' || { echo "FAIL: [app] DCO self-test: an unsigned commit passed"; exit 1; }
+if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
+	dco_bad=0
+	for sha in $(git rev-list --no-merges origin/main..HEAD); do
+		dco_signed "$(git show -s --format='%ae' "$sha")" "$(git show -s --format='%B' "$sha")" \
+			|| { echo "    UNSIGNED: $(git show -s --format='%h %s' "$sha")"; dco_bad=1; }
+	done
+	[ "$dco_bad" = 0 ] || { echo "FAIL: [app] sign off the commits above: git commit -s (see CONTRIBUTING.md)"; exit 1; }
+	echo "    sign-off OK ($(git rev-list --no-merges --count origin/main..HEAD) new commit(s))"
+else
+	echo "    SKIP: no origin/main ref in this clone, nothing to compare against"
+fi
 
 echo "app ci: green"
 ci_done=1
