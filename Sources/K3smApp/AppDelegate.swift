@@ -38,12 +38,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var noticePending = false
     private var activity: NSObjectProtocol?
     private var sessionObservers: [NSObjectProtocol] = []
+    private var peerObserver: NSKeyValueObservation?
+    private var handingOffConsole = false
     /// Applies the appearance preference to the app, now and on every change.
     private var appearanceObserver: AnyCancellable?
     /// The scripted demo tour, when `--demo-tour` named one.
     private var demo: DemoTourRunner?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard takeOverConsole() else { return }
         // A self-update a killed helper, a logout or a reboot interrupted is
         // finished or undone first, before any UI; a swap back quits now.
         if Self.reconcileSwap() == .quitForSwapBack {
@@ -217,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// stop first; then the app waits (`terminateLater`) for the Stop action
     /// and quits only when it succeeded. The decisions are `QuitPolicy`'s.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let model, PreferencesStore.shared.stopOnQuit else { return .terminateNow }
+        guard !handingOffConsole, let model, PreferencesStore.shared.stopOnQuit else { return .terminateNow }
         if quitPending { return .terminateCancel }
         let sessionEnding = Self.sessionEnding()
         if sessionEnding { return .terminateNow }
@@ -256,6 +259,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         else { return false }
         return [kAELogOut, kAEReallyLogOut, kAERestart, kAEShowRestartDialog, kAEShutDown, kAEShowShutdownDialog]
             .map { OSType($0) }.contains(reason)
+    }
+
+    // Launch Services can start two copies from different bundle locations.
+    // Scope the handoff to this GUI in this login session.
+    private func isConsolePeer(_ peer: NSRunningApplication, of current: NSRunningApplication) -> Bool {
+        guard let identifier = current.bundleIdentifier, let executable = current.executableURL?.lastPathComponent else { return false }
+        return peer.bundleIdentifier == identifier && peer.executableURL?.lastPathComponent == executable &&
+            peer.processIdentifier != current.processIdentifier && !peer.isTerminated
+    }
+
+    private func takeOverConsole() -> Bool {
+        let current = NSRunningApplication.current
+        guard let started = current.launchDate else { return true }
+        let workspace = NSWorkspace.shared
+        peerObserver = workspace.observe(\.runningApplications, options: [.new]) { _, _ in
+            Task { @MainActor [weak self] in self?.yieldToNewerConsole() }
+        }
+        for peer in workspace.runningApplications where isConsolePeer(peer, of: current) {
+            guard let date = peer.launchDate else { continue }
+            if date > started || (date == started && peer.processIdentifier > current.processIdentifier) {
+                NSApp.terminate(nil)
+                return false
+            }
+            // Older builds may stop the node on a normal Quit Apple event.
+            // SIGTERM addresses only this peer GUI and skips that preference.
+            _ = Darwin.kill(peer.processIdentifier, SIGTERM)
+        }
+        return true
+    }
+
+    private func yieldToNewerConsole() {
+        let current = NSRunningApplication.current
+        guard let started = current.launchDate else { return }
+        let newer = NSWorkspace.shared.runningApplications.contains { peer in
+            guard isConsolePeer(peer, of: current), let date = peer.launchDate else { return false }
+            return date > started || (date == started && peer.processIdentifier > current.processIdentifier)
+        }
+        if newer {
+            handingOffConsole = true
+            NSApp.terminate(nil)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

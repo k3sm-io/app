@@ -50,7 +50,7 @@ struct WorkloadsTab: View {
             }
             .tabHeaderRow()
             switch app.workloadsView {
-            case .pods: WorkloadsSection(model: app.workloads, runner: app.actions, columns: app.columns) { app.activate($0) }
+            case .pods: WorkloadsSection(app: app, model: app.workloads, runner: app.actions, columns: app.columns) { app.activate($0) }
             case .events:
                 if let events = app.events {
                     EventsSection(app: app, loader: events, columns: app.columns)
@@ -104,8 +104,8 @@ struct EventsSection: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     switch loader.load {
-                    case .failed(let text): ListNote(text: text)
-                    case .unavailable(let reason): ListNote(text: reason)
+                    case .failed(let reason), .unavailable(let reason):
+                        ClusterReadFailure(app: app, reason: reason)
                     default:
                         if let events = loader.value {
                             let shown = EventsList.visible(events, namespace: app.eventsNamespace)
