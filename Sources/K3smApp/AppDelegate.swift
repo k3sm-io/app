@@ -38,6 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var noticePending = false
     private var activity: NSObjectProtocol?
     private var sessionObservers: [NSObjectProtocol] = []
+    private var peerObserver: NSKeyValueObservation?
+    private var handingOffConsole = false
     /// Applies the appearance preference to the app, now and on every change.
     private var appearanceObserver: AnyCancellable?
     /// The scripted demo tour, when `--demo-tour` named one.
@@ -218,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// stop first; then the app waits (`terminateLater`) for the Stop action
     /// and quits only when it succeeded. The decisions are `QuitPolicy`'s.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let model, PreferencesStore.shared.stopOnQuit else { return .terminateNow }
+        guard !handingOffConsole, let model, PreferencesStore.shared.stopOnQuit else { return .terminateNow }
         if quitPending { return .terminateCancel }
         let sessionEnding = Self.sessionEnding()
         if sessionEnding { return .terminateNow }
@@ -265,8 +267,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let current = NSRunningApplication.current
         guard let identifier = current.bundleIdentifier, let started = current.launchDate else { return true }
         let workspace = NSWorkspace.shared
-        workspace.notificationCenter.addObserver(self, selector: #selector(consoleLaunched(_:)),
-                                                name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        peerObserver = workspace.observe(\.runningApplications, options: [.new]) { _, _ in
+            Task { @MainActor [weak self] in self?.yieldToNewerConsole() }
+        }
         for peer in workspace.runningApplications where peer.bundleIdentifier == identifier &&
             peer.processIdentifier != current.processIdentifier && !peer.isTerminated {
             guard let date = peer.launchDate else { continue }
@@ -274,19 +277,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSApp.terminate(nil)
                 return false
             }
-            peer.terminate()
+            // Older builds may stop the node on a normal Quit Apple event.
+            // SIGTERM addresses only this peer GUI and skips that preference.
+            if peer.executableURL?.lastPathComponent == current.executableURL?.lastPathComponent {
+                _ = Darwin.kill(peer.processIdentifier, SIGTERM)
+            }
         }
         return true
     }
 
-    @objc private func consoleLaunched(_ notification: Notification) {
+    private func yieldToNewerConsole() {
         let current = NSRunningApplication.current
-        guard let peer = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-              let identifier = current.bundleIdentifier, peer.bundleIdentifier == identifier,
-              peer.processIdentifier != current.processIdentifier,
-              let started = current.launchDate, let date = peer.launchDate,
-              date > started || (date == started && peer.processIdentifier > current.processIdentifier) else { return }
-        NSApp.terminate(nil)
+        guard let identifier = current.bundleIdentifier, let started = current.launchDate else { return }
+        let newer = NSWorkspace.shared.runningApplications.contains { peer in
+            guard peer.bundleIdentifier == identifier, !peer.isTerminated,
+                  let date = peer.launchDate else { return false }
+            return date > started || (date == started && peer.processIdentifier > current.processIdentifier)
+        }
+        if newer {
+            handingOffConsole = true
+            NSApp.terminate(nil)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
