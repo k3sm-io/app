@@ -34,10 +34,12 @@ struct ClusterReadFailure: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Text(verbatim: reason)
             if case .refused(let remedy) = WatchCredential.of(app.lanReport) {
-                Text(verbatim: WatchAuth.refusedLine(WatchAuth.remedyText(remedy)))
-            } else {
-                Text(verbatim: reason)
+                let hint = WatchAuth.remedyText(remedy)
+                if !hint.isEmpty, !reason.contains(hint) {
+                    Text(verbatim: hint)
+                }
             }
             HStack {
                 Button("Retry") {
