@@ -263,15 +263,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Launch Services can start two copies from different bundle locations.
     // Scope the handoff to this GUI in this login session.
+    private func isConsolePeer(_ peer: NSRunningApplication, of current: NSRunningApplication) -> Bool {
+        guard let identifier = current.bundleIdentifier, let executable = current.executableURL?.lastPathComponent else { return false }
+        return peer.bundleIdentifier == identifier && peer.executableURL?.lastPathComponent == executable &&
+            peer.processIdentifier != current.processIdentifier && !peer.isTerminated
+    }
+
     private func takeOverConsole() -> Bool {
         let current = NSRunningApplication.current
-        guard let identifier = current.bundleIdentifier, let started = current.launchDate else { return true }
+        guard let started = current.launchDate else { return true }
         let workspace = NSWorkspace.shared
         peerObserver = workspace.observe(\.runningApplications, options: [.new]) { _, _ in
             Task { @MainActor [weak self] in self?.yieldToNewerConsole() }
         }
-        for peer in workspace.runningApplications where peer.bundleIdentifier == identifier &&
-            peer.processIdentifier != current.processIdentifier && !peer.isTerminated {
+        for peer in workspace.runningApplications where isConsolePeer(peer, of: current) {
             guard let date = peer.launchDate else { continue }
             if date > started || (date == started && peer.processIdentifier > current.processIdentifier) {
                 NSApp.terminate(nil)
@@ -279,19 +284,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             // Older builds may stop the node on a normal Quit Apple event.
             // SIGTERM addresses only this peer GUI and skips that preference.
-            if peer.executableURL?.lastPathComponent == current.executableURL?.lastPathComponent {
-                _ = Darwin.kill(peer.processIdentifier, SIGTERM)
-            }
+            _ = Darwin.kill(peer.processIdentifier, SIGTERM)
         }
         return true
     }
 
     private func yieldToNewerConsole() {
         let current = NSRunningApplication.current
-        guard let identifier = current.bundleIdentifier, let started = current.launchDate else { return }
+        guard let started = current.launchDate else { return }
         let newer = NSWorkspace.shared.runningApplications.contains { peer in
-            guard peer.bundleIdentifier == identifier, !peer.isTerminated,
-                  let date = peer.launchDate else { return false }
+            guard isConsolePeer(peer, of: current), let date = peer.launchDate else { return false }
             return date > started || (date == started && peer.processIdentifier > current.processIdentifier)
         }
         if newer {
