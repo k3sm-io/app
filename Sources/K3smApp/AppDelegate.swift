@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var demo: DemoTourRunner?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard takeOverConsole() else { return }
         // A self-update a killed helper, a logout or a reboot interrupted is
         // finished or undone first, before any UI; a swap back quits now.
         if Self.reconcileSwap() == .quitForSwapBack {
@@ -256,6 +257,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         else { return false }
         return [kAELogOut, kAEReallyLogOut, kAERestart, kAEShowRestartDialog, kAEShutDown, kAEShowShutdownDialog]
             .map { OSType($0) }.contains(reason)
+    }
+
+    // Launch Services can start two copies from different bundle locations.
+    // Scope the handoff to this GUI in this login session.
+    private func takeOverConsole() -> Bool {
+        let current = NSRunningApplication.current
+        guard let identifier = current.bundleIdentifier, let started = current.launchDate else { return true }
+        let workspace = NSWorkspace.shared
+        workspace.notificationCenter.addObserver(self, selector: #selector(consoleLaunched(_:)),
+                                                name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        for peer in workspace.runningApplications where peer.bundleIdentifier == identifier &&
+            peer.processIdentifier != current.processIdentifier && !peer.isTerminated {
+            guard let date = peer.launchDate else { continue }
+            if date > started || (date == started && peer.processIdentifier > current.processIdentifier) {
+                NSApp.terminate(nil)
+                return false
+            }
+            peer.terminate()
+        }
+        return true
+    }
+
+    @objc private func consoleLaunched(_ notification: Notification) {
+        let current = NSRunningApplication.current
+        guard let peer = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              let identifier = current.bundleIdentifier, peer.bundleIdentifier == identifier,
+              peer.processIdentifier != current.processIdentifier,
+              let started = current.launchDate, let date = peer.launchDate,
+              date > started || (date == started && peer.processIdentifier > current.processIdentifier) else { return }
+        NSApp.terminate(nil)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
