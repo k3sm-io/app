@@ -107,10 +107,10 @@ import Testing
             FileManager.default.createFile(atPath: root + "/outside", contents: Data("outside".utf8))
         }
 
-        func safe() -> Bool {
+        func safe(inspector: any TreeInspector = SystemTreeInspector()) -> Bool {
             guard let fd = FileOps.openDirectory(root) else { return false }
             defer { close(fd) }
-            return AdminSwapEngine.isSafeTree(at: fd, "tree")
+            return AdminSwapEngine.isSafeTree(at: fd, "tree", inspector: inspector)
         }
 
         func cleanUp() {
@@ -147,12 +147,35 @@ import Testing
         #expect(!t.safe())
     }
 
+    /// Seatbelt strips S_ISUID from chmod, even when chmod succeeds. Supply
+    /// that one stat bit through the tree walk's inspector on those hosts.
+    private struct SetuidExecutable: TreeInspector {
+        func status(at dirFD: Int32, _ name: String) -> stat? {
+            guard var info = SystemTreeInspector().status(at: dirFD, name) else { return nil }
+            if name == "k3sm-app" { info.st_mode |= S_ISUID }
+            return info
+        }
+
+        func hasExtendedACL(at dirFD: Int32, _ name: String) -> Bool? {
+            SystemTreeInspector().hasExtendedACL(at: dirFD, name)
+        }
+    }
+
     @Test("a setuid file is refused")
-    func setuid() {
+    func setuid() throws {
         let t = Tree()
         defer { t.cleanUp() }
-        #expect(chmod(t.tree + "/Contents/MacOS/k3sm-app", 0o4755) == 0)
-        #expect(!t.safe())
+        try #require(t.safe())
+        let path = t.tree + "/Contents/MacOS/k3sm-app"
+        try #require(chmod(path, 0o4755) == 0)
+        var info = stat()
+        try #require(lstat(path, &info) == 0)
+        if info.st_mode & S_ISUID != 0 {
+            #expect(!t.safe())
+        } else {
+            try #require(t.safe())
+            #expect(!t.safe(inspector: SetuidExecutable()))
+        }
     }
 
     @Test("a file or a directory flagged uchg or uappnd is refused, and clearing the user flags lets it be removed",
