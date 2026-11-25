@@ -21,6 +21,7 @@ import SwiftUI
 /// one row per pod, the selected one highlighted, each with its actions as
 /// a context menu.
 struct WorkloadsSection: View {
+    @ObservedObject var app: AppModel
     @ObservedObject var model: WorkloadsModel
     let runner: ActionRunner
     @ObservedObject var columns: ColumnsModel
@@ -29,15 +30,20 @@ struct WorkloadsSection: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if case .listed(let workloads) = model.reading, workloads.currentNamespaceOnly {
+                Text("Showing only the current kubeconfig namespace. Cluster-wide pod listing was denied.")
+                    .font(.caption)
+            }
             PodColumns.header(columns)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     switch model.reading {
                     case nil: note("Reading the pod list…")
                     case .binaryMissing: note("k3sm is not installed on this Mac.")
-                    case .cliError(let message): note(StatusDisplay.errorText(message))
+                    case .cliError(let message):
+                        ClusterReadFailure(app: app, reason: StatusDisplay.errorText(message))
                     case .listed(let w) where w.pods.isEmpty && WorkloadPause.namespaces(in: w).isEmpty:
-                        note("No pods on this Mac. Apply a manifest with kubectl and it appears here.")
+                        note(w.currentNamespaceOnly ? "No pods in the current namespace." : "No pods on this Mac. Apply a manifest with kubectl and it appears here.")
                     case .listed(let w):
                         ForEach(WorkloadPause.namespaces(in: w), id: \.self) { ns in
                             NamespaceGroup(namespace: ns, pods: model.visible(w.pods(in: ns)),

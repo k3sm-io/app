@@ -200,6 +200,7 @@ public struct Pod: Equatable, Sendable {
 /// namespace and its own `List` of `Pod` items across all of them; both decode.
 public struct Workloads: Equatable, Sendable {
     public let pods: [Pod]
+    public var currentNamespaceOnly = false
     /// The Deployments, StatefulSets and ReplicaSets read beside the pods,
     /// which Pause resolves a pod's controller in; nil when that read failed
     /// or was not made, so no Pause or Resume is offered.

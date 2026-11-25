@@ -63,8 +63,8 @@ struct NodesSection: View {
 
     @ViewBuilder private var content: some View {
         switch nodeList.load {
-        case .failed(let text): ListNote(text: text)
-        case .unavailable(let reason): ListNote(text: reason)
+        case .failed(let reason), .unavailable(let reason):
+            ClusterReadFailure(app: app, reason: reason)
         default:
             if let nodes = workloads.nodes {
                 if nodes.isEmpty { ListNote(text: NodesList.emptyText) }

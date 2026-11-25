@@ -447,6 +447,17 @@ enum WorkloadsRead {
         }
         let list = await TabLoader<Workloads>.run(arguments: K3smCLI.workloadsArguments, environment: environment)
         guard case .exited(let status, let stdout) = list, status == 0, !Task.isCancelled else {
+            if !Task.isCancelled, case .exited(let code, _) = list, code != 0,
+               case .exited(1, let answer) = await TabLoader<Workloads>.run(
+                   arguments: ["kubectl", "auth", "can-i", "list", "pods", "--all-namespaces"], environment: environment),
+               String(decoding: answer, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "no" {
+                let scoped = await TabLoader<Workloads>.run(
+                    arguments: ["kubectl", "get", "pods", "-o", "json"], environment: environment)
+                if case .exited(0, let data) = scoped, var pods = try? Workloads.decode(data) {
+                    pods.currentNamespaceOnly = true
+                    return .value(pods)
+                }
+            }
             let result = TabLoader<Workloads>.result(of: list, what: "pod list", decode: Workloads.tabResult(exitCode:stdout:))
             return WatchRead.fallback(result, state: await stream.state)
         }

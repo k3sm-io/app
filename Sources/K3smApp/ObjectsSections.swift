@@ -27,6 +27,37 @@ struct ListNote: View {
     }
 }
 
+/// Recovery controls for cluster reads share the lifecycle repair and its confirmation.
+struct ClusterReadFailure: View {
+    @ObservedObject var app: AppModel
+    let reason: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(verbatim: reason)
+            HStack {
+                Button("Retry") {
+                    Task {
+                        await app.refresh()
+                        await app.refreshTabs()
+                    }
+                }
+                .help(Help.Guided.retryRead)
+                Button("View diagnostics") { app.section = .cluster }
+                    .help(Help.Guided.diagnostics)
+                Button("Repair local installation…") { app.runGuided(.repair) }
+                    .disabled(app.guidedDisabledReason(.repair) != nil || app.guidedRun.isRunning)
+                    .help(Help.Guided.primary(.repair, disabledReason: app.guidedDisabledReason(.repair), plan: app.updatePlan))
+            }
+            if case .finished(.repair, _, let message) = app.guidedRun {
+                Text(verbatim: message)
+            }
+        }
+        .controlSize(.small)
+        .padding(20)
+    }
+}
+
 /// ListRow is the look every console row shares: 44 pt, the tint and the
 /// blue bar when selected, as the pod and image rows have them.
 struct ListRow<Content: View>: View {
@@ -110,8 +141,8 @@ struct ServicesSection: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     switch loader.load {
-                    case .failed(let text): ListNote(text: text)
-                    case .unavailable(let reason): ListNote(text: reason)
+                    case .failed(let reason), .unavailable(let reason):
+                        ClusterReadFailure(app: app, reason: reason)
                     default:
                         if let rows = loader.value {
                             if rows.isEmpty {
@@ -171,8 +202,8 @@ struct StorageSection: View {
 
     @ViewBuilder private var rows: some View {
         switch claims.load {
-        case .failed(let text): ListNote(text: text)
-        case .unavailable(let reason): ListNote(text: reason)
+        case .failed(let reason), .unavailable(let reason):
+            ClusterReadFailure(app: app, reason: reason)
         default:
             if let rows = claims.value {
                 let widths = columns.widths(.storage)
@@ -257,8 +288,8 @@ struct ModelsSection: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     switch loader.load {
-                    case .failed(let text): ListNote(text: text)
-                    case .unavailable(let reason): ListNote(text: reason)
+                    case .failed(let reason), .unavailable(let reason):
+                        ClusterReadFailure(app: app, reason: reason)
                     default:
                         if let rows = loader.value {
                             if rows.isEmpty {

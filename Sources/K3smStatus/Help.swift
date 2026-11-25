@@ -723,6 +723,8 @@ public enum Help {
     /// The health banner across the top of the console and the guided panel
     /// (a sheet) it opens.
     public enum Guided {
+        public static let retryRead = HelpTag("Read the cluster status and resources again", control: "cluster read error", label: "Retry")
+        public static let diagnostics = HelpTag("Open the cluster status screen", control: "cluster read error", label: "View diagnostics")
         /// The banner's button, whose label names the next step.
         public static let banner = HelpTag("Show the steps that bring k3sm back to health",
                                            control: "health banner: next step")
@@ -771,7 +773,7 @@ public enum Help {
         }
 
         public static var all: [HelpTag] {
-            [banner, start, restart, update, repair, refresh, openLogs, copyCommand, openTerminal, runInTerminal, close]
+            [retryRead, diagnostics, banner, start, restart, update, repair, refresh, openLogs, copyCommand, openTerminal, runInTerminal, close]
         }
     }
 
