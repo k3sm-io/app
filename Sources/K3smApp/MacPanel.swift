@@ -41,7 +41,11 @@ struct MacPanel: View {
         VStack(alignment: .leading, spacing: 14) {
             // The wordmark stays put above the column: scrolling, by hand or
             // by the tour reaching a stop, never carries it out of view.
-            Wordmark(flap: app.flap, tour: tour)
+            HStack {
+                Wordmark(flap: app.flap, tour: tour)
+                Spacer(minLength: 4)
+                stateRow
+            }
                 .padding(.top, 44)
                 .padding(.horizontal, PanelLayout.edge)
             ScrollViewReader { proxy in
@@ -59,17 +63,6 @@ struct MacPanel: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(alignment: .topLeading) {
-            // Both regions' blocks at their ideal widths, unseen: the widest
-            // is the content the panel's natural width holds between its edges.
-            PanelMeasure(regions: layoutRegions)
-                .fixedSize()
-                .hidden()
-                .accessibilityHidden(true)
-                .onGeometryChange(for: Double.self, of: { Double($0.size.width) }) { width in
-                    app.panelMeasured(width)
-                }
-        }
         .background(Palette.deep)
     }
 
@@ -79,7 +72,6 @@ struct MacPanel: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 14) {
             if !app.pane.stripShown {
-                stateRow
                 Footnote(ConsolePane.setUpPanelNote)
             } else {
                 figures
@@ -107,8 +99,10 @@ struct MacPanel: View {
             thisMacView
         }
         interconnectBlock
-        daemonRows
-        Footnote("Start, stop and uninstall are behind the info button.")
+        if let report, report.rows.contains(where: { Self.daemons.contains($0.name) }) {
+            DisclosureGroup("Services") { daemonRows }
+                .foregroundStyle(.white)
+        }
     }
 
     /// The figures as the 2 by 2 tile grid.
@@ -124,11 +118,7 @@ struct MacPanel: View {
     /// per node with what its pods request.
     @ViewBuilder private var clusterView: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if PanelMode.showsHeading(nodeCount: cluster.nodeCount) {
-                Text(verbatim: cluster.title).font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
-            }
-            stateRow
-            tileGrid(ClusterDisplay.tiles(for: cluster))
+            tileGrid(ClusterDisplay.tiles(for: cluster).filter { $0.label != "cores requested" && $0.label != "memory requested" })
             if let note = cluster.note {
                 Footnote(note)
             }
@@ -137,18 +127,31 @@ struct MacPanel: View {
             nodesBlock
         } else {
             let bars = clusterBars
-            PanelBlock("Nodes", value: cluster.versions ?? "") {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(cluster.nodes.enumerated()), id: \.offset) { i, node in
-                        clusterNodeRow(node, bars: bars[i])
-                        if let note = bars[i].note {
-                            Text(verbatim: note).font(.system(size: 10)).foregroundStyle(.white.opacity(0.55))
-                        }
+            VStack(alignment: .leading, spacing: 7) {
+                ForEach(cluster.nodes, id: \.name) { node in
+                    HStack {
+                        Image(systemName: node.isReady ? "checkmark.circle.fill" : "exclamationmark.circle")
+                            .foregroundStyle(node.isReady ? Palette.okOnDark : Palette.warnOnDark)
+                            .accessibilityLabel(Text(verbatim: node.ready))
+                        Text(verbatim: node.name).lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: 2)
+                        if node.thisMac { Image(systemName: "desktopcomputer").accessibilityLabel("This Mac") }
                     }
+                    .font(.callout).foregroundStyle(.white)
+                    .help([node.name, node.role, node.ready].joined(separator: " · "))
                 }
-                LoadKey(parts: LoadStack.key(bars.flatMap(\.stacks)))
-                MetricsNote(state: workloads.metrics)
             }
+            DisclosureGroup("Resource usage") {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(cluster.nodes.enumerated()), id: \.offset) { index, node in
+                        clusterNodeRow(node, bars: bars[index])
+                        if let note = bars[index].note { Footnote(note) }
+                    }
+                    LoadKey(parts: LoadStack.key(bars.flatMap(\.stacks)))
+                    MetricsNote(state: workloads.metrics)
+                }
+            }
+            .foregroundStyle(.white)
         }
     }
 
@@ -189,16 +192,22 @@ struct MacPanel: View {
     /// the live load, then the charts with their notes.
     @ViewBuilder private var thisMacSections: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if PanelMode.showsHeading(nodeCount: cluster.nodeCount) {
-                Text(verbatim: cluster.title).font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
-            }
-            Text(verbatim: Self.machine.line).font(.system(size: 12)).foregroundStyle(.white.opacity(0.62))
-            stateRow
             tileGrid(macTiles)
         }
         .id(TourTarget.summary)
         .tourTarget(.summary, tour)
-        nodesBlock
+        if tour.step != nil {
+            hardwareDetails
+        } else {
+            DisclosureGroup("Hardware & load") { hardwareDetails }
+                .foregroundStyle(.white)
+            DisclosureGroup("Node details") { nodesBlock }
+                .foregroundStyle(.white)
+        }
+    }
+
+    @ViewBuilder private var hardwareDetails: some View {
+        Text(verbatim: Self.machine.line).font(.caption).foregroundStyle(.white.opacity(0.7))
         LiveLoadBlock(node: macNode, row: macRow, nodes: workloads.nodes, state: workloads.metrics)
         let cores = coreChart
         let memory = memoryChart

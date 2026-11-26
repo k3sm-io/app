@@ -88,11 +88,11 @@ struct ConsoleView: View {
         let inputs = app.consoleMinimumInputs
         let size = WindowFrame.minimum(inputs)
         // Only before the first layout does the content's width reach the split.
-        let estimate = PanelLayout.naturalWidth(regions: panel.layoutRegions, measured: app.consolePanelMeasured)
+        let range = PanelLayout.compactRange
         ConsoleSplit(
             app: app,
-            range: app.consolePanelWidth.range(estimate: estimate),
-            width: app.consolePanelWidth.shown(estimate: estimate),
+            range: range,
+            width: PanelLayout.clamp(app.consolePanelWidth.shown(estimate: range.upperBound), to: range),
             collapsed: app.consolePanelCollapsed,
             contentMinimum: TabStripLayout.columnMinimum,
             inspectorWidth: app.inspectorWidth,
@@ -114,16 +114,14 @@ struct ConsoleView: View {
         .overlay { TourOverlay(tour: app.tour) }
         .ignoresSafeArea()
         .onAppear {
-            app.panelOpened(natural: naturalWidth(panel), measured: app.consolePanelMeasured != nil)
+            app.panelOpened(natural: range.upperBound, measured: true)
             if app.pane.readsCluster { startReads() }
         }
         .onDisappear { stopReads() }
         // The install check succeeding flips the pane to the tabs in place:
         // the reads start here, not from a new window.
         .onChange(of: app.pane.readsCluster) { _, reads in reads ? startReads() : stopReads() }
-        // The first measurement after the window opened lays the panel out;
-        // later ones (live content) are ignored by `PanelWidth.measured`.
-        .onChange(of: app.consolePanelMeasured) { app.panelLaidOut(natural: naturalWidth(panel)) }
+
     }
 
     /// Starts the console's reads: the tabs, the report loop and the flap.
@@ -139,10 +137,7 @@ struct ConsoleView: View {
         app.stopReportPolling()
     }
 
-    /// The panel's natural width for its content now.
-    private func naturalWidth(_ panel: MacPanel) -> Double {
-        PanelLayout.naturalWidth(regions: panel.layoutRegions, measured: app.consolePanelMeasured)
-    }
+
 }
 
 /// ConsoleContent is the split view's middle pane. While nothing is

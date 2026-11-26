@@ -89,6 +89,8 @@ public enum PanelLayout {
     /// The widest the panel goes, whatever its content: a clipped node name
     /// can be 160 characters.
     public static let ceiling: Double = 720
+    /// Expanded console sidebar bounds, including widths restored from an earlier build.
+    public static let compactRange = minimum...280.0
     /// The user-defaults keys.
     public static let widthKey = "consolePanelWidth"
     public static let collapsedKey = "consolePanelCollapsed"
