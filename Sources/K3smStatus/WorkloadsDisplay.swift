@@ -16,6 +16,22 @@ limitations under the License.
 
 import Foundation
 
+public enum PodPhaseFilter: String, CaseIterable, Sendable {
+    case active = "Active", all = "All", running = "Running", pending = "Pending"
+    case completed = "Completed", failed = "Failed", unknown = "Unknown"
+
+    public func matches(_ phase: String) -> Bool {
+        switch self {
+        case .all: return true
+        case .active: return phase != "Succeeded" && phase != "Failed"
+        case .completed: return phase == "Succeeded"
+        case .unknown: return !["Running", "Pending", "Succeeded", "Failed"].contains(phase)
+        case .running, .pending, .failed: return phase == rawValue
+        }
+    }
+}
+
+
 /// WorkloadsReading classifies one run of the workloads list the way `Reading`
 /// classifies a status probe: what the window may conclude from the exit and
 /// the bytes, so a CLI failure is never shown as an empty cluster.
@@ -110,7 +126,7 @@ public enum WorkloadsDisplay {
     }
 
     /// The pods the search leaves visible: all of them for an empty query,
-    /// otherwise those whose name, image or node, each as the list shows it
+    /// otherwise those whose name, image, namespace, status or node, each as the list shows it
     /// (`StatusDisplay.clip`, and the node also by its `nodeLabel`), contains
     /// it, case-insensitively. Matching the shown text means a pod never
     /// matches on a part of its name the list hides, and a query never spans
@@ -118,7 +134,7 @@ public enum WorkloadsDisplay {
     public static func visible(_ pods: [Pod], query: String, ownNode: String? = nil) -> [Pod] {
         guard !query.isEmpty else { return pods }
         return pods.filter { pod in
-            var fields = [pod.name, pod.image]
+            var fields = [pod.name, pod.image, pod.namespace, pod.phase, pod.health.text]
             if let node = pod.nodeName {
                 fields.append(node)
                 fields.append(nodeLabel(pod, ownNode: ownNode).text)

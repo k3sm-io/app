@@ -116,7 +116,7 @@ struct WorkloadsSelectionTests {
         SearchCase(name: "by image", query: "postgres", want: ["db-0"]),
         SearchCase(name: "image case ignored", query: "acme/web", want: ["web-7c9d"]),
         SearchCase(name: "name and image both match", query: "hello", want: ["hello-native"]),
-        SearchCase(name: "namespace is not searched", query: "shop", want: []),
+        SearchCase(name: "by namespace", query: "shop", want: ["web-7c9d", "db-0"]),
         SearchCase(name: "no match", query: "redis", want: []),
         SearchCase(name: "a query never spans the name and the image", query: "7c9d ghcr", want: []),
         SearchCase(name: "the part of an image the list cuts off does not match", query: "hidden-tail", want: []),
@@ -125,6 +125,16 @@ struct WorkloadsSelectionTests {
     ])
     func searchPredicate(_ c: SearchCase) {
         #expect(WorkloadsDisplay.visible(Self.pods, query: c.query).map(\.name) == c.want)
+    }
+
+    @Test("active pods include unresolved phases and omit both terminal phases")
+    func phases() {
+        let phases = ["Running", "Pending", "Unknown", "", "Succeeded", "Failed"]
+        #expect(phases.filter(PodPhaseFilter.active.matches) == Array(phases.prefix(4)))
+        #expect(phases.filter(PodPhaseFilter.completed.matches) == ["Succeeded"])
+        #expect(phases.filter(PodPhaseFilter.failed.matches) == ["Failed"])
+        #expect(phases.filter(PodPhaseFilter.unknown.matches) == ["Unknown", ""])
+        #expect(phases.filter(PodPhaseFilter.all.matches) == phases)
     }
 
     @Test("a row names the node its pod runs on, this Mac's by the tag")

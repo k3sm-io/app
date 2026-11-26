@@ -112,7 +112,7 @@ struct EventsSection: View {
                             if shown.isEmpty {
                                 ListNote(text: EventsList.emptyText(namespace: app.eventsNamespace))
                             }
-                            ForEach(shown, id: \.key) { event in
+                            ForEach(columns.sorted(shown, in: .events), id: \.key) { event in
                                 EventRow(event: event, widths: columns.widths(.events))
                             }
                         } else {

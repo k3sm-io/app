@@ -154,7 +154,7 @@ struct ServicesSection: View {
                             if rows.isEmpty {
                                 ListNote(text: ServicesList.emptyText)
                             }
-                            ForEach(ServicesList.visible(rows, query: app.servicesQuery), id: \.key) { row in
+                            ForEach(columns.sorted(ServicesList.visible(rows, query: app.servicesQuery), in: .services), id: \.key) { row in
                                 ListRow(selected: app.isSelected(.service(row.key))) {
                                     ObjectColumns.title(row.name, under: row.namespace)
                                     ObjectColumns.cell(row.type, width: widths.cg(.type))
@@ -216,7 +216,7 @@ struct StorageSection: View {
                 if rows.isEmpty {
                     ListNote(text: StorageList.emptyText)
                 }
-                ForEach(StorageList.visible(rows, query: app.storageQuery), id: \.key) { row in
+                ForEach(columns.sorted(StorageList.visible(rows, query: app.storageQuery), in: .storage), id: \.key) { row in
                     ListRow(selected: app.isSelected(.claim(row.key))) {
                         ObjectColumns.title(row.claim ?? "no claim", under: row.namespace ?? (row.storageClass ?? ""))
                         ObjectColumns.cell(row.volume ?? "", width: widths.cg(.volume), mono: true)
@@ -301,7 +301,7 @@ struct ModelsSection: View {
                             if rows.isEmpty {
                                 ListNote(text: ModelsList.emptyText)
                             }
-                            ForEach(ModelsList.visible(rows, query: app.modelsQuery), id: \.key) { row in
+                            ForEach(columns.sorted(ModelsList.visible(rows, query: app.modelsQuery), in: .models), id: \.key) { row in
                                 ListRow(selected: app.isSelected(.model(row.key))) {
                                     Circle().fill(Palette.health(row.severity)).frame(width: 9, height: 9).frame(width: ObjectColumns.dot)
                                         .help(Help.Inspector.healthDot)
