@@ -5,8 +5,9 @@ ObjC.import('AppKit')
 function run(args) {
     const [action, bundleID, path, pid] = args
     const apps = $.NSRunningApplication.runningApplicationsWithBundleIdentifier(bundleID)
-    if (apps.count === 0) return 'none'
-    if (apps.count !== 1) return 'ambiguous'
+    const count = Number(apps.count)
+    if (count === 0) return 'none'
+    if (count !== 1) return 'ambiguous'
     const app = apps.objectAtIndex(0)
     if (ObjC.unwrap(app.bundleURL.URLByResolvingSymlinksInPath.path) !== path) return 'foreign'
     if (action === 'terminate') {
