@@ -52,7 +52,8 @@ receipts=$(value .receiptsRoot)
 [[ $(value .uid) == "$uid" ]]
 [[ $name =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ && $node =~ ^[a-z0-9][a-z0-9.-]{0,251}$ ]]
 [[ $bundle =~ ^[A-Za-z0-9.-]+$ && $app =~ ^[A-Za-z0-9][A-Za-z0-9._\ -]*\.app$ ]]
-[[ $bundle != io.k3sm.app && $repo =~ ^apps/[a-z0-9]+([._/-][a-z0-9]+)*$ ]]
+# Both apps own backend lifecycle on ordinary Quit; each has a dedicated GUI handoff.
+[[ $bundle != io.k3sm.app && $bundle != io.yureisha.app && $repo =~ ^apps/[a-z0-9]+([._/-][a-z0-9]+)*$ ]]
 safe_dir "$receipts"
 safe_chain "$receipts"
 [[ $receipts != "$private" && $receipts != "$private/"* && $private != "$receipts/"* ]]
@@ -142,6 +143,7 @@ safe_extracted_bundle() {
 }
 write_receipt() {
     local target
+    if ! still_desired; then rm -f -- "$receipt"; return 1; fi
     target=$(mktemp "$receipts/.receipt.XXXXXXXX")
     /usr/bin/jq -n --arg u "$pod" --arg d "$digest" --arg b "$bundle" --argjson p "$1" \
         '{podUID:$u,digest:$d,bundleID:$b,pid:$p,ready:true}' > "$target"
