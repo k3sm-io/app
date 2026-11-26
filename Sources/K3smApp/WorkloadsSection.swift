@@ -56,7 +56,7 @@ struct WorkloadsSection: View {
                         }
                         if namespaces.isEmpty { note("No workloads match these filters.") }
                         ForEach(namespaces, id: \.self) { ns in
-                            NamespaceGroup(namespace: ns, pods: groups[ns] ?? [],
+                            NamespaceGroup(namespace: ns, pods: columns.sorted(groups[ns] ?? [], in: .pods),
                                            paused: showPaused ? paused(w, ns) : [],
                                            model: model, runner: runner, widths: columns.widths(.pods),
                                            activate: activate)
