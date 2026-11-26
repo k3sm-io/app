@@ -542,6 +542,9 @@ expect_version "inside another repository" "$vrepo/sub" "v0.0.0-unknown"
 mkdir -p "$tmp/tarball"
 expect_version "outside git" "$tmp/tarball" "v0.0.0-unknown"
 
+echo "==> desktop rollout target selection"
+bash hack/test-desktop-rollout.sh
+
 echo "==> shellcheck (hack/**/*.sh)"
 command -v shellcheck >/dev/null || { echo "FAIL: shellcheck is not on this host; it runs in a k3sm pod, never installed on the host (containers only, CONTRIBUTING.md)"; exit 1; }
 find hack -name '*.sh' -print0 | xargs -0 shellcheck

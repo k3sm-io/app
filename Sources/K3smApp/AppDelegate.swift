@@ -27,6 +27,7 @@ import K3smSwap
 /// the poll timer.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let desktopRollout = DesktopRollout()
     private var model: AppModel?
     private var windowController: MainWindowController?
     private var mainMenu: MainMenu?
@@ -139,6 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             model.appUpdate.start()
         }
+        if demoTour == nil { desktopRollout.start() }
         log.notice("k3sm app started")
         // A login-item launch, or one with --background, shows only the status
         // item, unless Settings asks for the window at login too; any launch
@@ -305,6 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // A tour still running puts the user's layout back before it is saved.
         model?.tour.end()
+        desktopRollout.stop()
         poller?.stop()
         model?.statusStream.stop()
         // No held kubectl watch outlives the app.
