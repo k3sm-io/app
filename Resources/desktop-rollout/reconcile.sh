@@ -174,6 +174,12 @@ fi
 verify "$candidate"
 still_desired
 rollback=$previous
+# During initial adoption the source may still be alive after an interrupted quit.
+# Match its running code to the saved private copy before resuming that handoff.
+if [[ $previous == "$work/adopt-"* ]] && [[ $(peer inspect "$previous") == foreign ]]; then
+    adopted=$(value '.adoptPath // ""')
+    if [[ -n $adopted ]] && healthy "$adopted" inspect "$previous" >/dev/null; then previous=$adopted; fi
+fi
 if ! healthy "$candidate" >/dev/null && [[ -n $previous && $previous != "$candidate" ]]; then
     case "$(peer inspect "$previous")" in
         none) ;;
