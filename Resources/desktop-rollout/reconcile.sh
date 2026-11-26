@@ -121,6 +121,20 @@ verify() {
         [[ $hash =~ ^[0-9a-f]{40}$ ]] && /usr/bin/jq -e --arg h "$hash" '(.allowedCDHashes // []) | index($h) != null' "$config" >/dev/null
     fi
 }
+safe_extracted_bundle() {
+    local root=$1 link resolved
+    [[ -d $root && ! -L $root ]] || return 1
+    # Reject device nodes, pipes, hardlinked files and links leaving the sealed bundle.
+    /usr/bin/find "$root" ! -type f ! -type d ! -type l -print0 > "$tmp/special" || return 1
+    [[ ! -s "$tmp/special" ]] || return 1
+    /usr/bin/find "$root" -type f -links +1 -print0 > "$tmp/hardlinks" || return 1
+    [[ ! -s "$tmp/hardlinks" ]] || return 1
+    /usr/bin/find "$root" -type l -print0 > "$tmp/links" || return 1
+    while IFS= read -r -d '' link; do
+        resolved=$(/usr/bin/realpath "$link") || return 1
+        [[ $resolved == "$root/"* ]] || return 1
+    done < "$tmp/links"
+}
 write_receipt() {
     local target
     target=$(mktemp "$receipts/.receipt.XXXXXXXX")
@@ -146,6 +160,7 @@ if [[ ! -d $revision ]]; then
     (( BASH_REMATCH[1] <= 100000 && BASH_REMATCH[2] <= 4294967296 ))
     mkdir "$tmp/expanded"
     (ulimit -f 4194304; /usr/bin/tar --no-same-owner --no-same-permissions -xf "$tmp/archive.zip" -C "$tmp/expanded")
+    safe_extracted_bundle "$tmp/expanded/$app"
     verify "$tmp/expanded/$app"
     mkdir "$tmp/version"
     mv "$tmp/expanded/$app" "$tmp/version/"
