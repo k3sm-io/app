@@ -36,6 +36,8 @@ public struct NodeRow: Equatable, Sendable {
     public let versionState: NodeVersionState
     /// "8% CPU · 20% memory", "no metrics yet", or "" while metrics are hidden.
     public let load: String
+    public var cpuLoadFraction: Double?
+    public var cpuLoadCores: Double?
 }
 
 /// NodesList decides the Nodes tab: one row per node of the shared node
@@ -58,11 +60,15 @@ public enum NodesList {
         let ordered = nodes.filter { $0.name == ownNode } + nodes.filter { $0.name != ownNode }
         let versions = NodeVersions.decide(nodes, report: report)
         return ordered.map { node in
-            NodeRow(key: node.name, name: NodeNameMask.shown(node.name),
+            let load = MetricsDisplay.nodeLoad(named: node.name, nodes: nodes, state: metrics)
+            let fraction: Double?
+            if case .sampled(let cpu, _)? = load { fraction = cpu.fraction } else { fraction = nil }
+            return NodeRow(key: node.name, name: NodeNameMask.shown(node.name),
                     role: NodesDisplay.roleWord(node.role(ownNode: ownNode, ownRole: ownRole)),
                     status: statusText(node), ready: node.ready == true, version: versions.columnText(node),
                     versionState: versions.state(of: node.name),
-                    load: loadText(MetricsDisplay.nodeLoad(named: node.name, nodes: nodes, state: metrics)))
+                    load: loadText(load), cpuLoadFraction: fraction,
+                    cpuLoadCores: load == nil ? nil : metrics.sample?.nodes[node.name]?.cores)
         }
     }
 

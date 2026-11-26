@@ -84,7 +84,7 @@ struct BuildsSection: View {
                         ColumnHeader(layout: .builds, columns: columns, help: [.duration: Help.Builds.duration])
                             .padding(.horizontal, -10)
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(records, id: \.key) { record in
+                            ForEach(columns.sorted(records, in: .builds), id: \.key) { record in
                                 BuildRow(record: record, selected: app.isSelected(.build(record.key)), widths: columns.widths(.builds))
                                     .selects(.build(record.key), in: app)
                             }

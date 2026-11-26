@@ -25,6 +25,17 @@ import SwiftUI
 @MainActor
 final class ColumnsModel: ObservableObject {
     @Published private(set) var widths: [ConsoleTable: ColumnWidths]
+    @Published private(set) var sort: [ConsoleTable: ConsoleSort] = [:]
+
+    func toggle(_ table: ConsoleTable, column: ColumnID?) {
+        let current = sort[table]
+        sort[table] = ConsoleSort(column: column, ascending: current.map { $0.column == column ? !$0.ascending : true } ?? true)
+    }
+
+    func sorted<Row: ConsoleSortable>(_ rows: [Row], in table: ConsoleTable) -> [Row] {
+        sort[table]?.rows(rows) ?? rows
+    }
+
     private var available: [ConsoleTable: Double] = [:]
     private var dragStart: (ConsoleTable, ColumnID, Double)?
     private let preferences: AppPreferences
@@ -98,7 +109,7 @@ struct ColumnHeader: View {
         HStack(spacing: CGFloat(layout.spacing)) {
             if layout.lead > 0 { Color.clear.frame(width: CGFloat(layout.lead), height: 1) }
             ForEach(layout.leading, id: \.id) { cell($0, widths) }
-            Text(verbatim: layout.flexibleTitle).frame(maxWidth: .infinity, alignment: .leading).help(optional: flexibleHelp)
+            title(layout.flexibleTitle, column: nil).frame(maxWidth: .infinity, alignment: .leading).help(optional: flexibleHelp)
             ForEach(layout.trailing, id: \.id) { cell($0, widths) }
         }
         .font(.system(size: 11.5)).foregroundStyle(Palette.dimText)
@@ -108,11 +119,24 @@ struct ColumnHeader: View {
         .padding(.horizontal, 20).padding(.top, 10)
     }
 
+    private func title(_ label: String, column: ColumnID?) -> some View {
+        let active = columns.sort[layout.table].flatMap { $0.column == column ? $0.ascending : nil }
+        return Button { columns.toggle(layout.table, column: column) } label: {
+            HStack(spacing: 2) {
+                Text(verbatim: label)
+                Image(systemName: active.map { $0 ? "chevron.up" : "chevron.down" } ?? "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(Text(verbatim: active.map { $0 ? "Ascending" : "Descending" } ?? "Unsorted"))
+    }
+
     private func cell(_ column: ColumnSpec, _ widths: ColumnWidths) -> some View {
         let leading = column.edge == .leading
         // The handle's centre sits in the middle of the gap beside the column.
         let shift = (CGFloat(layout.spacing) + ColumnHandle.width) / 2
-        return Text(verbatim: column.title)
+        return title(column.title, column: column.id)
             .lineLimit(1)
             .frame(width: widths.cg(column.id), alignment: column.alignsTrailing ? .trailing : .leading)
             .help(optional: help[column.id])

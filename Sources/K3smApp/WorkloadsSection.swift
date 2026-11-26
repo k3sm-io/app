@@ -34,6 +34,9 @@ struct WorkloadsSection: View {
                 Text("Showing only the current kubeconfig namespace. Cluster-wide pod listing was denied.")
                     .font(.caption)
             }
+            if case .listed(let w) = model.reading {
+                WorkloadFilterBar(model: model, workloads: w)
+            }
             PodColumns.header(columns)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -45,9 +48,16 @@ struct WorkloadsSection: View {
                     case .listed(let w) where w.pods.isEmpty && WorkloadPause.namespaces(in: w).isEmpty:
                         note(w.currentNamespaceOnly ? "No pods in the current namespace." : "No pods on this Mac. Apply a manifest with kubectl and it appears here.")
                     case .listed(let w):
-                        ForEach(WorkloadPause.namespaces(in: w), id: \.self) { ns in
-                            NamespaceGroup(namespace: ns, pods: model.visible(w.pods(in: ns)),
-                                           paused: WorkloadPause.pausedControllers(in: w, namespace: ns, query: model.query),
+                        let groups = Dictionary(grouping: model.visible(w.pods), by: \.namespace)
+                        let showPaused = [.all, .active].contains(model.podPhase) && model.podNode == nil
+                        let namespaces = WorkloadPause.namespaces(in: w).filter { ns in
+                            (model.podNamespace == nil || model.podNamespace == ns)
+                                && (groups[ns] != nil || (showPaused && !paused(w, ns).isEmpty))
+                        }
+                        if namespaces.isEmpty { note("No workloads match these filters.") }
+                        ForEach(namespaces, id: \.self) { ns in
+                            NamespaceGroup(namespace: ns, pods: groups[ns] ?? [],
+                                           paused: showPaused ? paused(w, ns) : [],
                                            model: model, runner: runner, widths: columns.widths(.pods),
                                            activate: activate)
                         }
@@ -63,8 +73,41 @@ struct WorkloadsSection: View {
         }
     }
 
+    private func paused(_ workloads: Workloads, _ namespace: String) -> [WorkloadController] {
+        let query = namespace.localizedCaseInsensitiveContains(model.query) ? "" : model.query
+        return WorkloadPause.pausedControllers(in: workloads, namespace: namespace, query: query)
+    }
+
     private func note(_ text: String) -> some View {
         Text(verbatim: text).foregroundStyle(Palette.ink2).padding(20)
+    }
+}
+
+private struct WorkloadFilterBar: View {
+    @ObservedObject var model: WorkloadsModel
+    let workloads: Workloads
+
+    var body: some View {
+        HStack {
+            Picker("Pods", selection: $model.podPhase) {
+                ForEach(PodPhaseFilter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            choices("Namespace", all: "All namespaces", selected: $model.podNamespace,
+                    names: WorkloadPause.namespaces(in: workloads))
+            choices("Node", all: "All nodes", selected: $model.podNode,
+                    names: Array(Set(workloads.pods.compactMap(\.nodeName))).sorted())
+            Spacer()
+        }
+        .controlSize(.small).padding(.horizontal, 18).padding(.vertical, 5)
+    }
+
+    private func choices(_ label: String, all: String, selected: Binding<String?>, names: [String]) -> some View {
+        Picker(label, selection: selected) {
+            Text(all).tag(nil as String?)
+            ForEach(Array(Set(names + [selected.wrappedValue].compactMap { $0 })).sorted(), id: \.self) { name in
+                Text(verbatim: StatusDisplay.clip(name)).tag(Optional(name))
+            }
+        }
     }
 }
 

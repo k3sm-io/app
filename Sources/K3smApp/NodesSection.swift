@@ -72,7 +72,7 @@ struct NodesSection: View {
                 let widths = columns.widths(.nodes)
                 let versions = NodeVersions.decide(nodes, report: app.report)
                 let plan = app.updatePlan
-                ForEach(NodesList.visible(rows, query: app.nodesQuery), id: \.key) { row in
+                ForEach(columns.sorted(NodesList.visible(rows, query: app.nodesQuery), in: .nodes), id: \.key) { row in
                     ListRow(selected: app.isSelected(.node(row.key))) {
                         ObjectColumns.title(row.name, under: row.role)
                         Text(verbatim: row.status).font(.system(size: 12))

@@ -94,7 +94,7 @@ struct ImagesSection: View {
         } else if list.images.isEmpty {
             note(RegistryImages.emptyText)
         } else {
-            ForEach(RegistryImages.visible(list.images, query: app.imagesQuery), id: \.key) { image in
+            ForEach(columns.sorted(RegistryImages.visible(list.images, query: app.imagesQuery), in: .images), id: \.key) { image in
                 RegistryImageRow(image: image, selected: app.isSelected(.image(image.key)), widths: columns.widths(.images))
                     .selects(.image(image.key), in: app, extra: untagItems(image))
             }
