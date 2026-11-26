@@ -195,6 +195,9 @@ if ! healthy "$candidate" >/dev/null && [[ -n $previous && $previous != "$candid
                 verify "$rollback"
             fi
             oldpid=$(healthy "$previous" inspect "$rollback")
+            # Persist the verified recovery location before the old process exits.
+            printf '%s\n' "$rollback" > "$tmp/good"
+            mv -f "$tmp/good" "$last"
             peer terminate "$previous" "$oldpid" >/dev/null
             for ((i=0; i<60; i++)); do [[ $(peer inspect "$previous") == none ]] && break; sleep 0.25; done
             ;;
@@ -216,6 +219,9 @@ else
     for ((i=0; i<40; i++)); do [[ $(peer inspect "$candidate") == none ]] && break; sleep 0.25; done
     if [[ -n $rollback && $rollback != "$candidate" && $rollback == "$work/"* && $(peer inspect "$rollback") == none ]] && verify "$rollback"; then
         /usr/bin/open -gj -a "$rollback"
+        restored=""
+        for ((i=0; i<30; i++)); do restored=$(healthy "$rollback") && break; sleep 0.5; done
+        [[ -n $restored ]] && sleep 2 && [[ $(healthy "$rollback") == "$restored" ]] || exit 1
         printf '%s\n' "$rollback" > "$tmp/good"
         mv -f "$tmp/good" "$last"
     fi
