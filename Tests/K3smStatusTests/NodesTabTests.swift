@@ -150,6 +150,9 @@ struct NodesTabTests {
         #expect(NodesList.visible(rows, query: "B").map(\.key) == ["mac-b"])
         #expect(NodesList.visible(rows, query: "server").map(\.key) == ["mac-a"])
         #expect(NodesList.visible(rows, query: " ").count == 2)
+        #expect(rows.filter(NodeReadinessFilter.ready.matches).map(\.key) == ["mac-a"])
+        #expect(rows.filter(NodeReadinessFilter.unready.matches).map(\.key) == ["mac-b"])
+        #expect(rows.filter(NodeReadinessFilter.cordoned.matches).map(\.key) == ["mac-b"])
         #expect(NodesList.keys(nodes) == ["mac-a", "mac-b"])
         #expect(NodesList.keys(nil) == nil)
     }

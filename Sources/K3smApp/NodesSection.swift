@@ -31,6 +31,8 @@ struct NodesSection: View {
     @ObservedObject var workloads: WorkloadsModel
     @ObservedObject var columns: ColumnsModel
 
+    @State private var readiness: NodeReadinessFilter = .all
+
     private var nodeList: TabLoader<NodeListRead> { workloads.nodeList }
 
     var body: some View {
@@ -51,6 +53,11 @@ struct NodesSection: View {
                 }
                 .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 2)
             }
+            Picker("Status", selection: $readiness) {
+                ForEach(NodeReadinessFilter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .controlSize(.small).fixedSize().frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18).padding(.vertical, 5)
             ColumnHeader(layout: .nodes, columns: columns,
                          help: [.status: Help.Nodes.status, .version: Help.Nodes.version, .load: Help.Nodes.load])
             ScrollView {
@@ -72,7 +79,9 @@ struct NodesSection: View {
                 let widths = columns.widths(.nodes)
                 let versions = NodeVersions.decide(nodes, report: app.report)
                 let plan = app.updatePlan
-                ForEach(columns.sorted(NodesList.visible(rows, query: app.nodesQuery), in: .nodes), id: \.key) { row in
+                let visible = NodesList.visible(rows, query: app.nodesQuery).filter(readiness.matches)
+                if !rows.isEmpty && visible.isEmpty { ListNote(text: "No nodes match these filters.") }
+                ForEach(columns.sorted(visible, in: .nodes), id: \.key) { row in
                     ListRow(selected: app.isSelected(.node(row.key))) {
                         ObjectColumns.title(row.name, under: row.role)
                         Text(verbatim: row.status).font(.system(size: 12))

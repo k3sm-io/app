@@ -53,6 +53,10 @@ final class WorkloadsModel: ObservableObject {
         from: UserDefaults.standard.object(forKey: ConsoleTabs.queryKey(.workloads))) {
         didSet { UserDefaults.standard.set(query, forKey: ConsoleTabs.queryKey(.workloads)) }
     }
+    @Published var podPhase: PodPhaseFilter = .active
+    @Published var podNamespace: String?
+    @Published var podNode: String?
+
     /// This Mac's node name, from the last status report; the rows tag it.
     @Published var ownNode: String?
     /// The inspector's detail tab: Events or Manifest (the log is the log pane's).
@@ -250,7 +254,10 @@ final class WorkloadsModel: ObservableObject {
 
     /// The pods the search leaves visible, by `WorkloadsDisplay.visible`.
     func visible(_ pods: [Pod]) -> [Pod] {
-        WorkloadsDisplay.visible(pods, query: query, ownNode: ownNode)
+        WorkloadsDisplay.visible(pods, query: query, ownNode: ownNode).filter { pod in
+            podPhase.matches(pod.phase) && (podNamespace == nil || pod.namespace == podNamespace)
+                && (podNode == nil || pod.nodeName == podNode)
+        }
     }
 
     /// The row's node column, by `WorkloadsDisplay.nodeLabel`.
