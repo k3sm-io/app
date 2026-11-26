@@ -106,6 +106,11 @@ healthy() {
     local pid
     pid=$(peer "${2:-inspect}" "$1") || return 1
     [[ $pid =~ ^[1-9][0-9]*$ && $(/bin/ps -p "$pid" -o uid= | tr -d ' ') == "$uid" ]] || return 1
+    /usr/bin/codesign --verify "+$pid" || return 1
+    local running_hash signed_hash
+    running_hash=$(/usr/bin/codesign -dvvv "+$pid" 2>&1 | /usr/bin/sed -n 's/^CDHash=//p')
+    signed_hash=$(/usr/bin/codesign -dvvv "${3:-$1}" 2>&1 | /usr/bin/sed -n 's/^CDHash=//p')
+    [[ $running_hash =~ ^[0-9a-f]{40}$ && $running_hash == "$signed_hash" ]] || return 1
     printf '%s\n' "$pid"
 }
 verify() {
@@ -117,7 +122,7 @@ verify() {
     if [[ $team =~ ^[A-Z0-9]{10}$ ]]; then
         /usr/bin/codesign --verify --strict -R="anchor apple generic and certificate leaf[subject.OU] = \"$team\" and identifier \"$bundle\"" "$path"
     else
-        hash=$(/usr/bin/codesign -dvv "$path" 2>&1 | /usr/bin/sed -n 's/^CDHash=//p')
+        hash=$(/usr/bin/codesign -dvvv "$path" 2>&1 | /usr/bin/sed -n 's/^CDHash=//p')
         [[ $hash =~ ^[0-9a-f]{40}$ ]] && /usr/bin/jq -e --arg h "$hash" '(.allowedCDHashes // []) | index($h) != null' "$config" >/dev/null
     fi
 }
@@ -168,12 +173,28 @@ if [[ ! -d $revision ]]; then
 fi
 verify "$candidate"
 still_desired
+rollback=$previous
 if ! healthy "$candidate" >/dev/null && [[ -n $previous && $previous != "$candidate" ]]; then
     case "$(peer inspect "$previous")" in
         none) ;;
         [1-9]*)
             verify "$previous"
-            oldpid=$(healthy "$previous")
+            if [[ $previous != "$work/"* ]]; then
+                # The original launch location can be a shared artifact directory. Keep a
+                # separately verified, private copy for rollback before requesting quit.
+                hash=$(/usr/bin/codesign -dvvv "$previous" 2>&1 | /usr/bin/sed -n 's/^CDHash=//p')
+                [[ $hash =~ ^[0-9a-f]{40}$ ]]
+                rollback="$work/adopt-$hash/$app"
+                if [[ ! -d $rollback ]]; then
+                    mkdir "$tmp/adopt"
+                    /usr/bin/ditto "$previous" "$tmp/adopt/$app"
+                    safe_extracted_bundle "$tmp/adopt/$app"
+                    verify "$tmp/adopt/$app"
+                    mv "$tmp/adopt" "$work/adopt-$hash"
+                fi
+                verify "$rollback"
+            fi
+            oldpid=$(healthy "$previous" inspect "$rollback")
             peer terminate "$previous" "$oldpid" >/dev/null
             for ((i=0; i<60; i++)); do [[ $(peer inspect "$previous") == none ]] && break; sleep 0.25; done
             ;;
@@ -193,8 +214,10 @@ else
     touch "$work/failed-$pod"
     if current=$(healthy "$candidate" identity); then peer terminate "$candidate" "$current" >/dev/null; fi
     for ((i=0; i<40; i++)); do [[ $(peer inspect "$candidate") == none ]] && break; sleep 0.25; done
-    if [[ -n $previous && $previous != "$candidate" && $(peer inspect "$previous") == none ]] && verify "$previous"; then
-        /usr/bin/open -gj -a "$previous"
+    if [[ -n $rollback && $rollback != "$candidate" && $rollback == "$work/"* && $(peer inspect "$rollback") == none ]] && verify "$rollback"; then
+        /usr/bin/open -gj -a "$rollback"
+        printf '%s\n' "$rollback" > "$tmp/good"
+        mv -f "$tmp/good" "$last"
     fi
     exit 1
 fi
